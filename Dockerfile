@@ -1,8 +1,7 @@
 FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
-ARG VITE_API_URL=/api
-ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_API_URL=/api
 COPY package*.json ./
 RUN npm ci
 COPY . .
