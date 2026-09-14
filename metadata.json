@@ -1,0 +1,6 @@
+{
+  "name": "Radar 3.0",
+  "description": "Premium ERP/CRM para gestión automotriz, taller, inventario y mesa central de órdenes",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
