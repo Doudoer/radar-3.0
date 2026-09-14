@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Order, Claim, RefundRequest } from '../types';
 import { INITIAL_CLAIMS, INITIAL_REFUND_REQUESTS } from '../data/claimsData';
-import { API_URL } from '../services/apiBase';
+import { apiFetch } from '../services/apiFetch';
 
 interface OperationsViewProps {
   orders: Order[];
@@ -28,7 +28,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
   const [selectedOperatorName, setSelectedOperatorName] = useState<string>('');
 
   useEffect(() => {
-    fetch(`${API_URL}/users`)
+    apiFetch('/users')
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then((users) => {
         const activeOperators = users

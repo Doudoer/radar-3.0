@@ -1,5 +1,7 @@
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import { createPool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 const port = Number(process.env.API_PORT || 3001);
 const allowedOrigins = new Set([
@@ -21,6 +23,40 @@ const pool = createPool({
   waitForConnections: true,
   connectionLimit: 8,
 });
+const jwtSecret = process.env.JWT_SECRET || '';
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+
+const getBearerToken = (request: IncomingMessage) => {
+  const authorization = request.headers.authorization || '';
+  return authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+};
+
+const verifyToken = (request: IncomingMessage) => {
+  if (!jwtSecret) return null;
+  const token = getBearerToken(request);
+  if (!token) return null;
+  try {
+    return jwt.verify(token, jwtSecret) as jwt.JwtPayload;
+  } catch {
+    return null;
+  }
+};
+
+const isLoginRateLimited = (key: string) => {
+  const now = Date.now();
+  const attempt = loginAttempts.get(key);
+  if (!attempt || attempt.resetAt <= now) {
+    loginAttempts.set(key, { count: 0, resetAt: now + 15 * 60 * 1000 });
+    return false;
+  }
+  return attempt.count >= 10;
+};
+
+const recordLoginFailure = (key: string) => {
+  const attempt = loginAttempts.get(key) || { count: 0, resetAt: Date.now() + 15 * 60 * 1000 };
+  attempt.count += 1;
+  loginAttempts.set(key, attempt);
+};
 
 const statusToDatabase: Record<string, string> = {
   cotizacion: 'Cotización',
@@ -210,11 +246,14 @@ createServer(async (request, response) => {
   const origin = request.headers.origin;
   const allowedOrigin = (typeof origin === 'string' && allowedOrigins.has(origin)) || isAllowedLocalOrigin(origin)
     ? origin
-    : 'http://localhost:4173';
+    : undefined;
 
-  response.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+  if (allowedOrigin) response.setHeader('Access-Control-Allow-Origin', allowedOrigin);
   response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,OPTIONS');
-  response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  response.setHeader('X-Content-Type-Options', 'nosniff');
+  response.setHeader('X-Frame-Options', 'DENY');
+  response.setHeader('Referrer-Policy', 'no-referrer');
   if (request.method === 'OPTIONS') return response.end();
 
   try {
@@ -223,11 +262,54 @@ createServer(async (request, response) => {
       return sendJson(response, 200, { ok: true, service: 'radar-3.0-api', database: 'connected' });
     }
 
+    if (request.method === 'POST' && request.url === '/api/auth/login') {
+      if (!jwtSecret) return sendJson(response, 503, { message: 'JWT_SECRET no está configurado' });
+      const ip = request.socket.remoteAddress || 'unknown';
+      if (isLoginRateLimited(ip)) return sendJson(response, 429, { message: 'Demasiados intentos. Intenta más tarde.' });
+      const credentials = await readBody(request);
+      const email = String(credentials.email || '').trim().toLowerCase();
+      const password = String(credentials.password || '');
+      const [rows] = await pool.query<RowDataPacket[]>(
+        'SELECT id, name, email, role, permissions, theme, active, password FROM users WHERE email = ? AND deleted_at IS NULL LIMIT 1',
+        [email]
+      );
+      const user = rows[0];
+      const validPassword = user ? await bcrypt.compare(password, String(user.password || '')) : false;
+      if (!user || !validPassword || !user.active) {
+        recordLoginFailure(ip);
+        return sendJson(response, 401, { message: 'Correo o contraseña incorrectos' });
+      }
+      loginAttempts.delete(ip);
+      const token = jwt.sign({ sub: user.id, role: user.role, email: user.email }, jwtSecret, { expiresIn: '8h' });
+      return sendJson(response, 200, {
+        token,
+        user: { id: user.id, name: user.name, email: user.email, role: user.role, permissions: user.permissions, theme: user.theme },
+      });
+    }
+
+    if (request.method === 'GET' && request.url === '/api/auth/me') {
+      const claims = verifyToken(request);
+      if (!claims?.sub) return sendJson(response, 401, { message: 'Sesión no válida' });
+      const [rows] = await pool.query<RowDataPacket[]>(
+        'SELECT id, name, email, role, permissions, theme, active FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        [claims.sub]
+      );
+      return rows[0]?.active
+        ? sendJson(response, 200, { user: rows[0] })
+        : sendJson(response, 401, { message: 'Usuario inactivo' });
+    }
+
+    const authenticatedClaims = request.url?.startsWith('/api/') ? verifyToken(request) : null;
+    if (request.url?.startsWith('/api/') && !authenticatedClaims) {
+      return sendJson(response, 401, { message: 'Autenticación requerida' });
+    }
+
     if (request.method === 'GET' && request.url === '/api/orders') {
       return sendJson(response, 200, await getOrders());
     }
 
     if (request.method === 'GET' && request.url === '/api/users') {
+      if (authenticatedClaims?.role !== 'admin') return sendJson(response, 403, { message: 'Se requiere rol admin' });
       const [rows] = await pool.query<RowDataPacket[]>(
         'SELECT id, name, email, role, permissions, theme, active, created_at, updated_at FROM users WHERE deleted_at IS NULL ORDER BY name'
       );

@@ -28,4 +28,4 @@ The API uses `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, and `API
 - `Dockerfile.api`: API bundle served by Node on port `3001`.
 - `VITE_API_URL` must point to the public API URL during the frontend build.
 
-This project currently does not implement user authentication; its role selector is an application-level UI setting. Authentication must be added before exposing it as a public multi-user system.
+Authentication is provided by the API with bcrypt password verification and short-lived JWT sessions. Set a strong `JWT_SECRET` in the API environment before deployment. User roles come from the `users.role` column; the UI no longer allows changing roles locally.

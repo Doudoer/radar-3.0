@@ -1,11 +1,8 @@
 import { Order } from '../types';
-import { API_URL } from './apiBase';
+import { apiFetch } from './apiFetch';
 
 const request = async <T>(path: string, options?: RequestInit): Promise<T> => {
-  const response = await fetch(`${API_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    ...options,
-  });
+  const response = await apiFetch(path, options);
   if (!response.ok) throw new Error('No fue posible guardar los cambios en radar_db.');
   return response.json() as Promise<T>;
 };

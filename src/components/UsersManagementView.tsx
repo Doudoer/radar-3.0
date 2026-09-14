@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { API_URL } from '../services/apiBase';
+import { apiFetch } from '../services/apiFetch';
 
 export const UsersManagementView: React.FC = () => {
   const [usersList, setUsersList] = useState<Array<{ id: number; name: string; email: string; role: string; active: number; updated_at: string }>>([]);
 
   useEffect(() => {
-    fetch(`${API_URL}/users`)
+    apiFetch('/users')
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then(setUsersList)
       .catch(() => setUsersList([]));

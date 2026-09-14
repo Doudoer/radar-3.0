@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { API_URL } from '../services/apiBase';
+import { apiFetch } from '../services/apiFetch';
 
 interface FleetVehicle {
   id: string;
@@ -80,7 +80,7 @@ export const GomotiveFleetView: React.FC = () => {
   const [fleet, setFleet] = useState<FleetVehicle[]>(fallbackFleet);
 
   useEffect(() => {
-    fetch(`${API_URL}/gomotive/vehicles`)
+    apiFetch('/gomotive/vehicles')
       .then(async (response) => {
         if (!response.ok) throw new Error('API not available');
         const data = await response.json();

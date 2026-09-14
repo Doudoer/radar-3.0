@@ -33,7 +33,8 @@ import { NotificationsDrawer } from './components/NotificationsDrawer';
 import { ExportModal } from './components/ExportModal';
 import { ordersApi } from './services/ordersApi';
 import { canTransitionOrderStatus } from './utils/orderStatusRules';
-import { API_URL } from './services/apiBase';
+import { apiFetch } from './services/apiFetch';
+import { LoginView } from './components/LoginView';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<NavScreen>('dashboard');
@@ -43,8 +44,27 @@ export default function App() {
   const [databaseMessage, setDatabaseMessage] = useState<string | null>(null);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem('radar_token'));
+  const [authUser, setAuthUser] = useState<{ role: string } | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
 
   useEffect(() => {
+    if (!authToken) {
+      setAuthChecking(false);
+      return;
+    }
+    apiFetch('/auth/me')
+      .then((response) => response.ok ? response.json() : Promise.reject())
+      .then((payload) => setAuthUser(payload.user))
+      .catch(() => {
+        localStorage.removeItem('radar_token');
+        setAuthToken(null);
+      })
+      .finally(() => setAuthChecking(false));
+  }, [authToken]);
+
+  useEffect(() => {
+    if (!authToken) return;
     ordersApi.list()
       .then((databaseOrders) => {
         if (databaseOrders.length > 0) {
@@ -53,19 +73,19 @@ export default function App() {
         }
       })
       .catch(() => setDatabaseMessage('No se pudo cargar radar_db. Mostrando datos locales.'));
-    fetch(`${API_URL}/activities`)
+    apiFetch('/activities')
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then(setActivities)
       .catch(() => setActivities([]));
-    fetch(`${API_URL}/customers`)
+    apiFetch('/customers')
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then(setCustomers)
       .catch(() => setCustomers([]));
-  }, []);
+  }, [authToken]);
 
   // Global settings & Access Control
   const [carpartEnabled, setCarpartEnabled] = useState(true);
-  const [userRole, setUserRole] = useState<'admin' | 'operador'>('admin');
+  const userRole: 'admin' | 'operador' = authUser?.role?.toLowerCase() === 'admin' ? 'admin' : 'operador';
 
   // Prefill Data for Order Creation from Car-Part
   const [prefillOrderData, setPrefillOrderData] = useState<PrefillOrderData | null>(null);
@@ -152,7 +172,7 @@ export default function App() {
   };
 
   const handleCreateOrderClaim = async (orderId: string, reason: string) => {
-    const response = await fetch(`${API_URL}/claims`, {
+    const response = await apiFetch('/claims', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ orderId, description: reason }),
@@ -167,6 +187,11 @@ export default function App() {
     );
     setDatabaseMessage(null);
   };
+
+  if (authChecking) return <div className="flex min-h-screen items-center justify-center bg-[#080d19] text-slate-300">Cargando sesión...</div>;
+  if (!authToken || !authUser) {
+    return <LoginView onAuthenticated={(token, user) => { setAuthToken(token); setAuthUser(user); }} />;
+  }
 
   const handleUpdateWorkflowStep = (orderId: string, newStep: number) => {
     const order = orders.find((currentOrder) => currentOrder.id === orderId);
@@ -186,6 +211,13 @@ export default function App() {
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
       />
+      <button
+        type="button"
+        className="fixed right-4 top-4 z-40 rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-2 text-xs text-slate-300 shadow-lg hover:text-white"
+        onClick={() => { localStorage.removeItem('radar_token'); setAuthToken(null); setAuthUser(null); }}
+      >
+        Cerrar sesión
+      </button>
 
       {/* Main Content Column */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0a0f1d]">
@@ -299,7 +331,6 @@ export default function App() {
               carpartEnabled={carpartEnabled}
               onToggleCarpartEnabled={setCarpartEnabled}
               userRole={userRole}
-              onToggleUserRole={setUserRole}
             />
           )}
 

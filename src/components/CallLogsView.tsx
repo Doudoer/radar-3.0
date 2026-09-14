@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { PrefillOrderData } from '../types';
-import { API_URL } from '../services/apiBase';
+import { apiFetch } from '../services/apiFetch';
 
 interface CallLogsViewProps {
   onCreateOrderFromCall?: (prefillData: PrefillOrderData) => void;
@@ -37,7 +37,7 @@ export const CallLogsView: React.FC<CallLogsViewProps> = ({ onCreateOrderFromCal
   }>>([]);
 
   useEffect(() => {
-    fetch(`${API_URL}/calls`)
+    apiFetch('/calls')
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then((calls) => setCallLogs(calls.map((call: any) => ({
         id: call.id,
@@ -103,7 +103,7 @@ export const CallLogsView: React.FC<CallLogsViewProps> = ({ onCreateOrderFromCal
       recordingUrl: '#',
     };
 
-    fetch(`${API_URL}/calls`, {
+    apiFetch('/calls', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone: newCallerPhone, contactName: newCallerName, description: newLog.summary, isClaim: false }),

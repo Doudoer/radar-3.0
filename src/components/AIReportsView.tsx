@@ -1,16 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { API_URL } from '../services/apiBase';
+import { apiFetch } from '../services/apiFetch';
 
 export const AIReportsView: React.FC = () => {
   const [analytics, setAnalytics] = useState<{ totalOrders: number; sales: string; activeOrders: string; incidents: string; averageTicket: string } | null>(null);
   const [reports, setReports] = useState<Array<{ id: number; week_code: string; title: string; summary: string; created_at: string }>>([]);
 
   useEffect(() => {
-    fetch(`${API_URL}/analytics`)
+    apiFetch('/analytics')
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then(setAnalytics)
       .catch(() => setAnalytics(null));
-    fetch(`${API_URL}/reports`)
+    apiFetch('/reports')
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then(setReports)
       .catch(() => setReports([]));

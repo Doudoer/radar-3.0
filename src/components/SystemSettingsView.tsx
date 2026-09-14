@@ -4,14 +4,12 @@ interface SystemSettingsViewProps {
   carpartEnabled?: boolean;
   onToggleCarpartEnabled?: (enabled: boolean) => void;
   userRole?: 'admin' | 'operador';
-  onToggleUserRole?: (role: 'admin' | 'operador') => void;
 }
 
 export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   carpartEnabled = true,
   onToggleCarpartEnabled,
   userRole = 'admin',
-  onToggleUserRole,
 }) => {
   return (
     <div className="flex flex-col gap-6 animate-fade-in max-w-7xl mx-auto">
@@ -26,30 +24,6 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
           </p>
         </div>
 
-        {/* Role Toggle Switch for Testing */}
-        <div className="flex items-center gap-2 bg-[#090d16] p-1.5 rounded-xl border border-[#1e293b]">
-          <span className="text-xs text-[#94a3b8] px-2 font-bold">Rol Actual:</span>
-          <button
-            onClick={() => onToggleUserRole && onToggleUserRole('admin')}
-            className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              userRole === 'admin'
-                ? 'bg-[#388bfd] text-white shadow-sm'
-                : 'text-[#94a3b8] hover:text-white'
-            }`}
-          >
-            🛡️ Super Admin
-          </button>
-          <button
-            onClick={() => onToggleUserRole && onToggleUserRole('operador')}
-            className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              userRole === 'operador'
-                ? 'bg-[#388bfd] text-white shadow-sm'
-                : 'text-[#94a3b8] hover:text-white'
-            }`}
-          >
-            👤 Operador
-          </button>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">

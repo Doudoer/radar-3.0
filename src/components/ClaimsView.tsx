@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Order, Claim, ClaimCall, RefundRequest, ClaimStatus } from '../types';
-import { API_URL } from '../services/apiBase';
+import { apiFetch } from '../services/apiFetch';
 
 interface ClaimsViewProps {
   orders?: Order[];
@@ -20,7 +20,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
   const [refundRequests, setRefundRequests] = useState<RefundRequest[]>([]);
 
   useEffect(() => {
-    fetch(`${API_URL}/claims`)
+    apiFetch('/claims')
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then(setClaims)
       .catch(() => setClaims([]));
@@ -170,7 +170,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
 
   // 2. ATOMIC WORKFLOW: Mark Claim as Resolved (Restore Order Status)
   const handleResolveClaim = async (claim: Claim) => {
-    const response = await fetch(`${API_URL}/claims/${claim.id}`, {
+    const response = await apiFetch(`/claims/${claim.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
