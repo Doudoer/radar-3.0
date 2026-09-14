@@ -24,8 +24,7 @@ The API uses `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, and `API
 
 ## Production containers
 
-- `Dockerfile`: frontend build served by Nginx.
-- `Dockerfile.api`: API bundle served by Node on port `3001`.
-- `VITE_API_URL` must point to the public API URL during the frontend build.
+- `Dockerfile`: build y runtime único para frontend + API en el puerto `3000`.
+- `VITE_API_URL` usa `/api` por defecto porque frontend y API comparten origen.
 
 Authentication is provided by the API with bcrypt password verification and short-lived JWT sessions. Set a strong `JWT_SECRET` in the API environment before deployment. User roles come from the `users.role` column; the UI no longer allows changing roles locally.

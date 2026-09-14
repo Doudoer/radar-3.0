@@ -1,9 +1,13 @@
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createPool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
-const port = Number(process.env.API_PORT || 3001);
+const port = Number(process.env.PORT || process.env.API_PORT || 3000);
+const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const allowedOrigins = new Set([
   'http://localhost:3000',
   'http://localhost:4173',
@@ -154,6 +158,51 @@ const readBody = async (request: IncomingMessage) => {
 const sendJson = (response: ServerResponse, status: number, data: unknown) => {
   response.writeHead(status, { 'Content-Type': 'application/json' });
   response.end(JSON.stringify(data));
+};
+
+const contentTypes: Record<string, string> = {
+  '.css': 'text/css; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+};
+
+const serveFrontend = async (request: IncomingMessage, response: ServerResponse) => {
+  if (request.method !== 'GET' && request.method !== 'HEAD') return false;
+
+  const requestPath = new URL(request.url || '/', 'http://localhost').pathname;
+  const requestedFile = requestPath === '/' ? 'index.html' : requestPath.slice(1);
+  const candidate = path.resolve(frontendRoot, requestedFile);
+  const isInsideFrontend = candidate === frontendRoot || candidate.startsWith(`${frontendRoot}${path.sep}`);
+  const filePath = isInsideFrontend ? candidate : path.join(frontendRoot, 'index.html');
+
+  let resolvedPath = filePath;
+  try {
+    const fileStats = await fs.stat(resolvedPath);
+    if (!fileStats.isFile()) throw new Error('Not a file');
+  } catch {
+    resolvedPath = path.join(frontendRoot, 'index.html');
+  }
+
+  try {
+    const body = await fs.readFile(resolvedPath);
+    const extension = path.extname(resolvedPath).toLowerCase();
+    response.writeHead(200, {
+      'Cache-Control': extension === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable',
+      'Content-Type': contentTypes[extension] || 'application/octet-stream',
+    });
+    if (request.method === 'HEAD') return response.end(), true;
+    response.end(body);
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const toMysqlDateTime = (value?: string | null) => {
@@ -516,6 +565,11 @@ createServer(async (request, response) => {
       const orders = await getOrders();
       const updatedOrder = orders.find((order) => order.id === orderId);
       return updatedOrder ? sendJson(response, 200, updatedOrder) : sendJson(response, 404, { message: 'Orden no encontrada' });
+    }
+
+    if (!request.url?.startsWith('/api/')) {
+      const served = await serveFrontend(request, response);
+      if (served) return;
     }
 
     return sendJson(response, 404, { message: 'Ruta no encontrada' });
