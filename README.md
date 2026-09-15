@@ -28,3 +28,5 @@ The API uses `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, and `API
 - `VITE_API_URL` usa `/api` por defecto porque frontend y API comparten origen.
 
 Authentication is provided by the API with bcrypt password verification and short-lived JWT sessions. Set a strong `JWT_SECRET` in the API environment before deployment. User roles come from the `users.role` column; the UI no longer allows changing roles locally.
+
+The production container runs as a non-root user, enforces JSON request limits, validates content types, sends security headers, and exposes `/health` for Dokploy health checks. Production traffic must use HTTPS through Traefik.

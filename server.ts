@@ -8,6 +8,7 @@ import jwt from 'jsonwebtoken';
 
 const port = Number(process.env.PORT || process.env.API_PORT || 3000);
 const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
+const maxBodyBytes = 1024 * 1024;
 const allowedOrigins = new Set([
   'http://localhost:3000',
   'http://localhost:4173',
@@ -27,6 +28,11 @@ const pool = createPool({
   waitForConnections: true,
   connectionLimit: 8,
 });
+if (process.env.NODE_ENV === 'production') {
+  for (const variable of ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'JWT_SECRET']) {
+    if (!process.env[variable]) throw new Error(`${variable} es obligatorio en produccion`);
+  }
+}
 const jwtSecret = process.env.JWT_SECRET || '';
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 
@@ -61,6 +67,15 @@ const recordLoginFailure = (key: string) => {
   attempt.count += 1;
   loginAttempts.set(key, attempt);
 };
+
+const pruneLoginAttempts = () => {
+  const now = Date.now();
+  for (const [key, attempt] of loginAttempts) {
+    if (attempt.resetAt <= now) loginAttempts.delete(key);
+  }
+};
+
+setInterval(pruneLoginAttempts, 60_000).unref();
 
 const statusToDatabase: Record<string, string> = {
   cotizacion: 'Cotización',
@@ -150,9 +165,30 @@ const mapOrder = (row: RowDataPacket) => {
 };
 
 const readBody = async (request: IncomingMessage) => {
+  const contentType = String(request.headers['content-type'] || '').toLowerCase();
+  if (!contentType.startsWith('application/json')) {
+    throw Object.assign(new Error('Content-Type debe ser application/json'), { statusCode: 415 });
+  }
+  const contentLength = Number(request.headers['content-length'] || 0);
+  if (contentLength > maxBodyBytes) {
+    throw Object.assign(new Error('Payload demasiado grande'), { statusCode: 413 });
+  }
+
   const chunks: Buffer[] = [];
-  for await (const chunk of request) chunks.push(chunk);
-  return JSON.parse(Buffer.concat(chunks).toString() || '{}');
+  let totalBytes = 0;
+  for await (const chunk of request) {
+    totalBytes += Buffer.byteLength(chunk);
+    if (totalBytes > maxBodyBytes) {
+      throw Object.assign(new Error('Payload demasiado grande'), { statusCode: 413 });
+    }
+    chunks.push(chunk);
+  }
+
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString() || '{}');
+  } catch {
+    throw Object.assign(new Error('JSON invalido'), { statusCode: 400 });
+  }
 };
 
 const sendJson = (response: ServerResponse, status: number, data: unknown) => {
@@ -292,26 +328,37 @@ const getAnalytics = async () => {
 };
 
 createServer(async (request, response) => {
+  request.setTimeout(30_000, () => {
+    if (!response.headersSent) response.writeHead(408).end();
+    request.destroy();
+  });
+  const pathname = new URL(request.url || '/', 'http://localhost').pathname;
   const origin = request.headers.origin;
   const allowedOrigin = (typeof origin === 'string' && allowedOrigins.has(origin)) || isAllowedLocalOrigin(origin)
     ? origin
     : undefined;
 
   if (allowedOrigin) response.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+  response.setHeader('Vary', 'Origin');
   response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,OPTIONS');
   response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   response.setHeader('X-Content-Type-Options', 'nosniff');
   response.setHeader('X-Frame-Options', 'DENY');
   response.setHeader('Referrer-Policy', 'no-referrer');
+  response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  response.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self' https://vpic.nhtsa.dot.gov; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+  if (process.env.NODE_ENV === 'production') {
+    response.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
   if (request.method === 'OPTIONS') return response.end();
 
   try {
-    if (request.method === 'GET' && request.url === '/health') {
+    if (request.method === 'GET' && pathname === '/health') {
       await pool.query('SELECT 1');
       return sendJson(response, 200, { ok: true, service: 'radar-3.0-api', database: 'connected' });
     }
 
-    if (request.method === 'POST' && request.url === '/api/auth/login') {
+    if (request.method === 'POST' && pathname === '/api/auth/login') {
       if (!jwtSecret) return sendJson(response, 503, { message: 'JWT_SECRET no está configurado' });
       const ip = request.socket.remoteAddress || 'unknown';
       if (isLoginRateLimited(ip)) return sendJson(response, 429, { message: 'Demasiados intentos. Intenta más tarde.' });
@@ -336,7 +383,7 @@ createServer(async (request, response) => {
       });
     }
 
-    if (request.method === 'GET' && request.url === '/api/auth/me') {
+    if (request.method === 'GET' && pathname === '/api/auth/me') {
       const claims = verifyToken(request);
       if (!claims?.sub) return sendJson(response, 401, { message: 'Sesión no válida' });
       const [rows] = await pool.query<RowDataPacket[]>(
@@ -348,16 +395,24 @@ createServer(async (request, response) => {
         : sendJson(response, 401, { message: 'Usuario inactivo' });
     }
 
-    const authenticatedClaims = request.url?.startsWith('/api/') ? verifyToken(request) : null;
-    if (request.url?.startsWith('/api/') && !authenticatedClaims) {
+    const authenticatedClaims = pathname.startsWith('/api/') ? verifyToken(request) : null;
+    if (pathname.startsWith('/api/') && !authenticatedClaims) {
       return sendJson(response, 401, { message: 'Autenticación requerida' });
     }
 
-    if (request.method === 'GET' && request.url === '/api/orders') {
+    if (authenticatedClaims?.sub) {
+      const [activeRows] = await pool.query<RowDataPacket[]>(
+        'SELECT active FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        [authenticatedClaims.sub]
+      );
+      if (!activeRows[0]?.active) return sendJson(response, 401, { message: 'Sesión no válida' });
+    }
+
+    if (request.method === 'GET' && pathname === '/api/orders') {
       return sendJson(response, 200, await getOrders());
     }
 
-    if (request.method === 'GET' && request.url === '/api/users') {
+    if (request.method === 'GET' && pathname === '/api/users') {
       if (authenticatedClaims?.role !== 'admin') return sendJson(response, 403, { message: 'Se requiere rol admin' });
       const [rows] = await pool.query<RowDataPacket[]>(
         'SELECT id, name, email, role, permissions, theme, active, created_at, updated_at FROM users WHERE deleted_at IS NULL ORDER BY name'
@@ -365,7 +420,7 @@ createServer(async (request, response) => {
       return sendJson(response, 200, rows);
     }
 
-    if (request.method === 'GET' && request.url === '/api/customers') {
+    if (request.method === 'GET' && pathname === '/api/customers') {
       const [rows] = await pool.query<RowDataPacket[]>(`
         SELECT c.*, COUNT(o.id) AS order_count
         FROM customers c
@@ -386,11 +441,11 @@ createServer(async (request, response) => {
       }));
     }
 
-    if (request.method === 'GET' && request.url === '/api/claims') {
+    if (request.method === 'GET' && pathname === '/api/claims') {
       return sendJson(response, 200, await getClaims());
     }
 
-    if (request.method === 'POST' && request.url === '/api/claims') {
+    if (request.method === 'POST' && pathname === '/api/claims') {
       const claim = await readBody(request);
       const orderId = Number(claim.orderId);
       const description = String(claim.description || claim.claimReason || '').trim();
@@ -424,7 +479,7 @@ createServer(async (request, response) => {
       }
     }
 
-    const claimId = request.url?.match(/^\/api\/claims\/REC-(\d+)$/)?.[1] || request.url?.match(/^\/api\/claims\/(\d+)$/)?.[1];
+    const claimId = pathname.match(/^\/api\/claims\/REC-(\d+)$/)?.[1] || pathname.match(/^\/api\/claims\/(\d+)$/)?.[1];
     if (request.method === 'PUT' && claimId) {
       const claim = await readBody(request);
       const status = String(claim.status || '').trim();
@@ -456,7 +511,7 @@ createServer(async (request, response) => {
       }
     }
 
-    if (request.method === 'GET' && request.url === '/api/calls') {
+    if (request.method === 'GET' && pathname === '/api/calls') {
       const [rows] = await pool.query<RowDataPacket[]>(`
         SELECT cr.*, c.first_name, c.last_name, o.order_code, u.name AS agent
         FROM call_register cr
@@ -468,7 +523,7 @@ createServer(async (request, response) => {
       return sendJson(response, 200, rows);
     }
 
-    if (request.method === 'POST' && request.url === '/api/calls') {
+    if (request.method === 'POST' && pathname === '/api/calls') {
       const call = await readBody(request);
       const [result] = await pool.execute<ResultSetHeader>(
         'INSERT INTO call_register (phone, contact_name, description, is_claim, created_at) VALUES (?, ?, ?, ?, NOW())',
@@ -477,17 +532,17 @@ createServer(async (request, response) => {
       return sendJson(response, 201, { id: result.insertId, ...call, created_at: new Date().toISOString() });
     }
 
-    if (request.method === 'GET' && request.url === '/api/notifications') {
+    if (request.method === 'GET' && pathname === '/api/notifications') {
       const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM notifications ORDER BY created_at DESC');
       return sendJson(response, 200, rows);
     }
 
-    if (request.method === 'GET' && request.url === '/api/reports') {
+    if (request.method === 'GET' && pathname === '/api/reports') {
       const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM ai_reports ORDER BY created_at DESC');
       return sendJson(response, 200, rows);
     }
 
-    if (request.method === 'GET' && request.url === '/api/inventory') {
+    if (request.method === 'GET' && pathname === '/api/inventory') {
       const [rows] = await pool.query<RowDataPacket[]>(`
         SELECT li.*, ll.name AS list_name, o.order_code, o.product_type, o.stock_nr
         FROM logistics_items li
@@ -498,11 +553,11 @@ createServer(async (request, response) => {
       return sendJson(response, 200, rows);
     }
 
-    if (request.method === 'GET' && request.url === '/api/analytics') {
+    if (request.method === 'GET' && pathname === '/api/analytics') {
       return sendJson(response, 200, await getAnalytics());
     }
 
-    if (request.method === 'GET' && request.url === '/api/activities') {
+    if (request.method === 'GET' && pathname === '/api/activities') {
       const [rows] = await pool.query<RowDataPacket[]>(`
         SELECT so.id, so.status, so.description, so.created_at, o.order_code
         FROM status_orders so
@@ -520,7 +575,7 @@ createServer(async (request, response) => {
       })));
     }
 
-    if (request.method === 'POST' && request.url === '/api/orders') {
+    if (request.method === 'POST' && pathname === '/api/orders') {
       const order = await readBody(request);
       const connection = await pool.getConnection();
       try {
@@ -547,27 +602,37 @@ createServer(async (request, response) => {
       }
     }
 
-    const orderId = request.url?.match(/^\/api\/orders\/(\d+)$/)?.[1];
+    const orderId = pathname.match(/^\/api\/orders\/(\d+)$/)?.[1];
     if (request.method === 'PUT' && orderId) {
       const order = await readBody(request);
       const customerName = String(order.customer?.name || '').trim().split(/\s+/);
-      if (order.customer?.id) {
-        await pool.execute(
-          `UPDATE customers SET first_name = ?, last_name = ?, phone = ?, whatsapp = ?, email = ?, address_shipping = ?, zip_code = ? WHERE id = ?`,
-          [customerName[0] || 'Cliente', customerName.slice(1).join(' '), order.customer.phone || null, order.customer.phone || null, order.customer.email || null, order.customer.shippingAddress || null, order.customer.zip_code || null, order.customer.id]
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        if (order.customer?.id) {
+          await connection.execute(
+            `UPDATE customers SET first_name = ?, last_name = ?, phone = ?, whatsapp = ?, email = ?, address_shipping = ?, zip_code = ? WHERE id = ?`,
+            [customerName[0] || 'Cliente', customerName.slice(1).join(' '), order.customer.phone || null, order.customer.phone || null, order.customer.email || null, order.customer.shippingAddress || null, order.customer.zip_code || null, order.customer.id]
+          );
+        }
+        await connection.execute(
+          `UPDATE orders SET vin_nr = ?, brand = ?, model = ?, sub_model = ?, year = ?, color = ?, product_type = ?, transmission_type = ?, product_specs = ?, stock_nr = ?, price = ?, core_fee = ?, down_payment = ?, shipping_toggle = ?, shipping_address = ?, shipping_cost = ?, warranty_days = ?, status = ?, workflow_step = ?, scheduled_pickup_at = ?, delivered_at = ?, warranty_started = ?, description = ?, claim_reason = ? WHERE id = ?`,
+          [order.vehicle?.vin || null, order.vehicle?.make || null, order.vehicle?.model || null, order.vehicle?.trim || null, order.vehicle?.year || null, order.vehicle?.color || null, order.mainPart || null, order.vehicle?.transmission || null, order.productSpecs || null, order.stockNumber || null, order.financials?.partPrice || 0, order.financials?.coreFee || 0, order.financials?.downPayment || 0, order.deliveryType === 'envio_domicilio', order.customer?.shippingAddress || null, order.financials?.deliveryFee || 0, order.warrantyDays || 60, statusToDatabase[order.status] || order.status, order.workflowStep || 1, toMysqlDateTime(order.scheduledPickupAt), toMysqlDateTime(order.deliveredAt), Boolean(order.warrantyStarted), order.notes || null, order.claimReason || null, orderId]
         );
+        await connection.execute('INSERT INTO status_orders (order_id, status, description) VALUES (?, ?, ?)', [orderId, statusToDatabase[order.status] || order.status, 'Orden actualizada desde RADAR 3.0']);
+        await connection.commit();
+        const orders = await getOrders();
+        const updatedOrder = orders.find((currentOrder) => currentOrder.id === orderId);
+        return updatedOrder ? sendJson(response, 200, updatedOrder) : sendJson(response, 404, { message: 'Orden no encontrada' });
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally {
+        connection.release();
       }
-      await pool.execute(
-        `UPDATE orders SET vin_nr = ?, brand = ?, model = ?, sub_model = ?, year = ?, color = ?, product_type = ?, transmission_type = ?, product_specs = ?, stock_nr = ?, price = ?, core_fee = ?, down_payment = ?, shipping_toggle = ?, shipping_address = ?, shipping_cost = ?, warranty_days = ?, status = ?, workflow_step = ?, scheduled_pickup_at = ?, delivered_at = ?, warranty_started = ?, description = ?, claim_reason = ? WHERE id = ?`,
-        [order.vehicle?.vin || null, order.vehicle?.make || null, order.vehicle?.model || null, order.vehicle?.trim || null, order.vehicle?.year || null, order.vehicle?.color || null, order.mainPart || null, order.vehicle?.transmission || null, order.productSpecs || null, order.stockNumber || null, order.financials?.partPrice || 0, order.financials?.coreFee || 0, order.financials?.downPayment || 0, order.deliveryType === 'envio_domicilio', order.customer?.shippingAddress || null, order.financials?.deliveryFee || 0, order.warrantyDays || 60, statusToDatabase[order.status] || order.status, order.workflowStep || 1, toMysqlDateTime(order.scheduledPickupAt), toMysqlDateTime(order.deliveredAt), Boolean(order.warrantyStarted), order.notes || null, order.claimReason || null, orderId]
-      );
-      await pool.execute('INSERT INTO status_orders (order_id, status, description) VALUES (?, ?, ?)', [orderId, statusToDatabase[order.status] || order.status, 'Orden actualizada desde RADAR 3.0']);
-      const orders = await getOrders();
-      const updatedOrder = orders.find((order) => order.id === orderId);
-      return updatedOrder ? sendJson(response, 200, updatedOrder) : sendJson(response, 404, { message: 'Orden no encontrada' });
     }
 
-    if (!request.url?.startsWith('/api/')) {
+    if (!pathname.startsWith('/api/')) {
       const served = await serveFrontend(request, response);
       if (served) return;
     }
@@ -575,6 +640,13 @@ createServer(async (request, response) => {
     return sendJson(response, 404, { message: 'Ruta no encontrada' });
   } catch (error) {
     console.error(error);
-    return sendJson(response, 500, { message: 'No fue posible comunicarse con radar_db' });
+    const statusCode = typeof error === 'object' && error && 'statusCode' in error
+      ? Number((error as { statusCode?: number }).statusCode)
+      : 500;
+    return sendJson(response, statusCode >= 400 && statusCode < 500 ? statusCode : 500, {
+      message: statusCode >= 400 && statusCode < 500 && error instanceof Error
+        ? error.message
+        : 'No fue posible completar la solicitud',
+    });
   }
 }).listen(port, '0.0.0.0', () => console.log(`RADAR API disponible en http://0.0.0.0:${port}`));
