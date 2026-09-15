@@ -639,10 +639,10 @@ createServer(async (request, response) => {
 
     return sendJson(response, 404, { message: 'Ruta no encontrada' });
   } catch (error) {
-    console.error(error);
     const statusCode = typeof error === 'object' && error && 'statusCode' in error
       ? Number((error as { statusCode?: number }).statusCode)
       : 500;
+    if (statusCode >= 500) console.error(error);
     return sendJson(response, statusCode >= 400 && statusCode < 500 ? statusCode : 500, {
       message: statusCode >= 400 && statusCode < 500 && error instanceof Error
         ? error.message
