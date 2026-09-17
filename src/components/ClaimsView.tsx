@@ -1195,8 +1195,8 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
       {/* MODAL 2: Crear Nuevo Reclamo */}
       {isNewClaimModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-          <div className="bg-[#111827] border border-[#2b3a58] rounded-2xl w-full max-w-xl shadow-2xl flex flex-col overflow-hidden">
-            <div className="p-5 bg-[#182338] border-b border-[#2b3a58] flex justify-between items-center">
+          <div className="bg-[#111827] border border-[#2b3a58] rounded-2xl w-full max-w-xl shadow-2xl flex flex-col overflow-hidden max-h-[92vh]">
+            <div className="p-5 bg-[#182338] border-b border-[#2b3a58] flex justify-between items-start gap-4 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-[#ef4444]/20 text-[#ef4444] flex items-center justify-center border border-[#ef4444]/40">
                   <span className="material-symbols-outlined text-[20px]">add_alert</span>
@@ -1214,7 +1214,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleCreateClaim} className="p-6 flex flex-col gap-4 text-xs text-[#dfe2ef]">
+            <form onSubmit={handleCreateClaim} className="p-6 flex min-h-0 flex-col gap-4 overflow-y-auto custom-scrollbar text-xs text-[#dfe2ef]">
               {/* Select Order */}
               <div>
                 <label className="text-[#cbd5e1] block mb-1 font-semibold">Seleccionar Orden Vinculada *</label>
