@@ -118,7 +118,7 @@ El middleware valida que exista un JWT, pero solo `/api/users` exige rol `admin`
 ### A-06 - Payloads de orden sin validacion de negocio
 
 **Severidad:** Alta
-**Estado:** En progreso: se añadieron esquemas para login, reclamos y llamadas; falta completar órdenes y reglas de negocio.
+**Estado:** Parcialmente corregido en `b77f5cc`: login, reclamos, llamadas y órdenes tienen esquemas; quedan reglas financieras y de transición más estrictas.
 
 La API acepta directamente datos de orden enviados por el cliente.
 
@@ -187,7 +187,7 @@ Si llega una query string, por ejemplo `/api/orders?page=1`, la ruta no coincide
 ### B-03 - Errores silenciosos en frontend
 
 **Severidad:** Media
-**Estado:** Confirmado
+**Estado:** Corregido parcialmente en `b77f5cc`: JWT en cookie HttpOnly, logout server-side y revocación basada en `users.updated_at`.
 
 Varias vistas transforman fallos de API en arrays vacios o datos mock:
 
