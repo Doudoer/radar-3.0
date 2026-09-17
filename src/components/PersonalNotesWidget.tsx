@@ -54,9 +54,10 @@ export const PersonalNotesWidget: React.FC = () => {
         onClick={() => { setStatus('idle'); setOpen(true); }}
         title="Abrir bloc de notas personal"
         aria-label="Abrir bloc de notas personal"
-        className="fixed bottom-5 right-5 z-40 flex h-12 w-12 items-center justify-center rounded-full border border-[#3b82f6]/50 bg-[#13233c] text-[#8dbbff] shadow-[0_8px_28px_rgba(0,0,0,0.35)] transition hover:border-[#58a6ff] hover:bg-[#1d3559] hover:text-white"
+        className="fixed bottom-5 right-5 z-[80] flex h-12 items-center gap-2 rounded-full border border-[#3b82f6]/50 bg-[#13233c] px-4 text-[#8dbbff] shadow-[0_8px_28px_rgba(0,0,0,0.35)] transition hover:border-[#58a6ff] hover:bg-[#1d3559] hover:text-white"
       >
         <span className="material-symbols-outlined">edit_note</span>
+        <span className="text-xs font-semibold">Bloc de notas</span>
       </button>
 
       {open && (
