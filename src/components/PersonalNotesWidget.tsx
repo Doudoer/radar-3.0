@@ -8,15 +8,19 @@ export const PersonalNotesWidget: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [loaded, setLoaded] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!open || loaded || loading) return;
-    setLoaded(true);
     setLoading(true);
     apiFetch('/me/notes')
       .then((response) => response.ok ? response.json() : Promise.reject())
-      .then((payload) => setContent(payload.content || ''))
+      .then((payload) => {
+        setContent(payload.content || '');
+        setLoaded(true);
+        setDirty(false);
+      })
       .catch(() => setStatus('error'))
       .finally(() => setLoading(false));
   }, [open, loaded, loading]);
@@ -24,6 +28,14 @@ export const PersonalNotesWidget: React.FC = () => {
   useEffect(() => {
     if (open) window.setTimeout(() => textareaRef.current?.focus(), 0);
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !loaded || !dirty) return;
+    const timer = window.setTimeout(() => {
+      void save();
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [content, dirty, loaded, open]);
 
   const save = async () => {
     setSaving(true);
@@ -34,6 +46,7 @@ export const PersonalNotesWidget: React.FC = () => {
         body: JSON.stringify({ content }),
       });
       if (!response.ok) throw new Error('No se pudo guardar el bloc de notas.');
+      setDirty(false);
       setStatus('saved');
     } catch {
       setStatus('error');
@@ -43,7 +56,7 @@ export const PersonalNotesWidget: React.FC = () => {
   };
 
   const close = async () => {
-    if (content.trim()) await save();
+    if (dirty) await save();
     setOpen(false);
   };
 
@@ -51,7 +64,7 @@ export const PersonalNotesWidget: React.FC = () => {
     <>
       <button
         type="button"
-        onClick={() => { setStatus('idle'); setOpen(true); }}
+        onClick={() => { setStatus('idle'); setLoaded(false); setOpen(true); }}
         title="Abrir bloc de notas personal"
         aria-label="Abrir bloc de notas personal"
         className="fixed bottom-5 right-5 z-[80] flex h-12 items-center gap-2 rounded-full border border-[#3b82f6]/50 bg-[#13233c] px-4 text-[#8dbbff] shadow-[0_8px_28px_rgba(0,0,0,0.35)] transition hover:border-[#58a6ff] hover:bg-[#1d3559] hover:text-white"
@@ -74,7 +87,7 @@ export const PersonalNotesWidget: React.FC = () => {
               <textarea
                 ref={textareaRef}
                 value={content}
-                onChange={(event) => { setContent(event.target.value); setStatus('idle'); }}
+                onChange={(event) => { setContent(event.target.value); setDirty(true); setStatus('idle'); }}
                 placeholder={loading ? 'Cargando tus apuntes...' : 'Escribe aquí una nota rápida...'}
                 disabled={loading}
                 className="min-h-0 flex-1 resize-none rounded-xl border border-[#263653] bg-[#080d19] p-3 text-sm leading-6 text-[#e2e8f0] outline-none placeholder:text-[#64748b] focus:border-[#58a6ff]"
@@ -82,9 +95,8 @@ export const PersonalNotesWidget: React.FC = () => {
             </div>
             <div className="flex items-center justify-between border-t border-[#1e293b] px-4 py-3">
               <span className={`text-[11px] ${status === 'error' ? 'text-[#fca5a5]' : status === 'saved' ? 'text-[#6ee7b7]' : 'text-[#64748b]'}`}>
-                {status === 'error' ? 'No se pudo guardar' : status === 'saved' ? 'Guardado' : `${content.length.toLocaleString()} / 100,000 caracteres`}
+                {status === 'error' ? 'No se pudo guardar' : saving ? 'Guardando...' : status === 'saved' ? 'Guardado automáticamente' : `${content.length.toLocaleString()} / 100,000 caracteres`}
               </span>
-              <button type="button" onClick={() => void save()} disabled={saving || loading} className="rounded-lg bg-[#388bfd] px-3 py-2 text-xs font-bold text-[#07111f] transition hover:bg-[#58a6ff] disabled:cursor-not-allowed disabled:opacity-50">{saving ? 'Guardando...' : 'Guardar'}</button>
             </div>
           </div>
         </div>
