@@ -26,7 +26,6 @@ https://radar-rsy.store/
 - Directorio de clientes con relación de órdenes.
 - Búsqueda de piezas y consulta VIN.
 - Gestión de reclamos y garantías con restauración de estado de la orden.
-- Registro de llamadas.
 - Operaciones y traspaso de órdenes.
 - Relación semanal y módulo financiero protegido por 2FA.
 - Dashboard operativo y actividad reciente.
@@ -127,8 +126,6 @@ Todas las rutas `/api/*`, excepto login, requieren sesión válida. Las operacio
 | `GET` | `/api/claims` | Lista reclamos. |
 | `POST` | `/api/claims` | Crea un reclamo. |
 | `PUT` | `/api/claims/:id` | Actualiza un reclamo. |
-| `GET` | `/api/calls` | Lista llamadas. |
-| `POST` | `/api/calls` | Registra una llamada. |
 | `GET` | `/api/notifications` | Consulta notificaciones almacenadas. |
 | `GET` | `/api/activities` | Consulta actividad reciente. |
 | `GET` | `/api/inventory` | Consulta inventario/logística. |
@@ -242,4 +239,4 @@ El despliegue se gestiona en Dokploy conectado al branch `main`. Después de pub
 
 ## Estado actual
 
-El proyecto está operativo en local y preparado para producción. Los módulos de uploads, Wasender y notificaciones están desacoplados y configurables, pero permanecen sin envíos externos automáticos hasta que se definan credenciales, destinatarios y reglas de negocio.
+El proyecto está operativo en local y preparado para producción. Los módulos de uploads, Wasender y notificaciones están desacoplados y configurables, pero permanecen sin envíos externos automáticos hasta que se definan credenciales, destinatarios y reglas de negocio. Las llamadas no tienen un módulo independiente ni endpoints de registro directo; los datos históricos que puedan estar asociados a reclamos se conservan como referencia.

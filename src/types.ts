@@ -4,7 +4,6 @@ export type NavScreen =
   | 'clientes'
   | 'buscar_piezas'
   | 'reclamos'
-  | 'registro_llamadas'
   | 'mis_operaciones'
   | 'relacion_semanal'
   | 'sistema'

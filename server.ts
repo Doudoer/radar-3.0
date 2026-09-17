@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { pool, port, allowedOrigins, isAllowedLocalOrigin, jwtSecret } from './src/server/config';
 import { clearSessionCookie, isLoginRateLimited, recordLoginFailure, resetLoginAttempts, requireRole, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
-import { callSchema, claimSchema, claimUpdateSchema, loginSchema, orderPayloadSchema, userUpdateSchema } from './src/server/schemas';
+import { claimSchema, claimUpdateSchema, loginSchema, orderPayloadSchema, userUpdateSchema } from './src/server/schemas';
 import { readBody, sendJson, serveFrontend } from './src/server/http';
 import { getOrders, mapOrder, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
 import { getClaims } from './src/server/claims';
@@ -236,28 +236,6 @@ createServer(async (request, response) => {
       } finally {
         connection.release();
       }
-    }
-
-    if (request.method === 'GET' && pathname === '/api/calls') {
-      const [rows] = await pool.query<RowDataPacket[]>(`
-        SELECT cr.*, c.first_name, c.last_name, o.order_code, u.name AS agent
-        FROM call_register cr
-        LEFT JOIN customers c ON c.id = cr.customer_id
-        LEFT JOIN orders o ON o.id = cr.order_id
-        LEFT JOIN users u ON u.id = cr.user_id
-        ORDER BY cr.created_at DESC
-      `);
-      return sendJson(response, 200, rows);
-    }
-
-    if (request.method === 'POST' && pathname === '/api/calls') {
-      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
-      const call = callSchema.parse(await readBody(request));
-      const [result] = await pool.execute<ResultSetHeader>(
-        'INSERT INTO call_register (phone, contact_name, description, is_claim, created_at) VALUES (?, ?, ?, ?, NOW())',
-        [call.phone, call.contactName, call.description, Boolean(call.isClaim)]
-      );
-      return sendJson(response, 201, { id: result.insertId, ...call, created_at: new Date().toISOString() });
     }
 
     if (request.method === 'GET' && pathname === '/api/notifications') {

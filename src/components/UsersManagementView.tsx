@@ -18,7 +18,6 @@ const permissionOptions = [
   ['customers:edit', 'Editar clientes'],
   ['claims:view', 'Consultar reclamos'],
   ['claims:manage', 'Gestionar reclamos'],
-  ['calls:manage', 'Gestionar llamadas'],
   ['reports:view', 'Consultar reportes'],
   ['users:manage', 'Gestionar usuarios'],
   ['settings:manage', 'Gestionar configuración'],

@@ -11,13 +11,6 @@ export const claimSchema = z.object({
   assignedUserId: z.coerce.number().int().positive().optional().nullable(),
 });
 
-export const callSchema = z.object({
-  phone: z.string().trim().min(3).max(40),
-  contactName: z.string().trim().min(1).max(200),
-  description: z.string().trim().max(5000).default(''),
-  isClaim: z.boolean().default(false),
-});
-
 export const orderStatusSchema = z.enum([
   'cotizacion', 'espera_confirmacion', 'pagado', 'en_preparacion', 'listo_despacho',
   'listo_retiro', 'en_camino', 'entregado', 'reclamo', 'cancelado',

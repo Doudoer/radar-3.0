@@ -18,7 +18,6 @@ import { DirectoryView } from './components/DirectoryView';
 import { CalendarView } from './components/CalendarView';
 import { ClientsView } from './components/ClientsView';
 import { ClaimsView } from './components/ClaimsView';
-import { CallLogsView } from './components/CallLogsView';
 import { OperationsView } from './components/OperationsView';
 import { WeeklyRelationView } from './components/WeeklyRelationView';
 import { SystemSettingsView } from './components/SystemSettingsView';
@@ -239,10 +238,6 @@ export default function App() {
               userRole={userRole}
               onSelectOrder={handleSelectOrder}
             />
-          )}
-
-          {currentScreen === 'registro_llamadas' && (
-            <CallLogsView onCreateOrderFromCall={handleCreateOrderFromPart} />
           )}
 
           {currentScreen === 'mis_operaciones' && (
