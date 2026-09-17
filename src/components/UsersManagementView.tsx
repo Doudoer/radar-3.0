@@ -1,8 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import { apiFetch } from '../services/apiFetch';
 
+type ManagedUser = {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  permissions: string[];
+  active: number;
+  updated_at: string;
+};
+
+const permissionOptions = [
+  ['orders:view', 'Consultar órdenes'],
+  ['orders:edit', 'Editar órdenes'],
+  ['customers:view', 'Consultar clientes'],
+  ['customers:edit', 'Editar clientes'],
+  ['claims:view', 'Consultar reclamos'],
+  ['claims:manage', 'Gestionar reclamos'],
+  ['calls:manage', 'Gestionar llamadas'],
+  ['reports:view', 'Consultar reportes'],
+  ['users:manage', 'Gestionar usuarios'],
+  ['settings:manage', 'Gestionar configuración'],
+] as const;
+
 export const UsersManagementView: React.FC = () => {
-  const [usersList, setUsersList] = useState<Array<{ id: number; name: string; email: string; role: string; active: number; updated_at: string }>>([]);
+  const [usersList, setUsersList] = useState<ManagedUser[]>([]);
+  const [selectedUser, setSelectedUser] = useState<ManagedUser | null>(null);
+  const [modalMode, setModalMode] = useState<'edit' | 'permissions' | null>(null);
+  const [draft, setDraft] = useState({ name: '', email: '', role: 'operator', active: true, permissions: [] as string[] });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     apiFetch('/users')
@@ -10,6 +38,56 @@ export const UsersManagementView: React.FC = () => {
       .then(setUsersList)
       .catch(() => setUsersList([]));
   }, []);
+
+  const openEditor = (user: ManagedUser, mode: 'edit' | 'permissions') => {
+    setSelectedUser(user);
+    setModalMode(mode);
+    setError(null);
+    setDraft({
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      active: Boolean(user.active),
+      permissions: user.permissions || [],
+    });
+  };
+
+  const closeEditor = () => {
+    if (saving) return;
+    setSelectedUser(null);
+    setModalMode(null);
+    setError(null);
+  };
+
+  const saveUser = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedUser) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await apiFetch(`/users/${selectedUser.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(draft),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'No se pudo actualizar el usuario.');
+      setUsersList((currentUsers) => currentUsers.map((user) => user.id === selectedUser.id ? payload : user));
+      closeEditor();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'No se pudo actualizar el usuario.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const togglePermission = (permission: string) => {
+    setDraft((currentDraft) => ({
+      ...currentDraft,
+      permissions: currentDraft.permissions.includes(permission)
+        ? currentDraft.permissions.filter((item) => item !== permission)
+        : [...currentDraft.permissions, permission],
+    }));
+  };
 
   return (
     <div className="flex flex-col gap-6 animate-fade-in max-w-7xl mx-auto">
@@ -75,10 +153,18 @@ export const UsersManagementView: React.FC = () => {
                     </span>
                   </td>
                   <td className="py-3.5 px-4 text-right">
-                    <button className="text-[#94a3b8] hover:text-[#f1f5f9] font-medium cursor-pointer mr-3">
+                    <button
+                      type="button"
+                      onClick={() => openEditor(user, 'edit')}
+                      className="text-[#94a3b8] hover:text-[#f1f5f9] font-medium cursor-pointer mr-3"
+                    >
                       Editar
                     </button>
-                    <button className="text-[#ef4444] hover:text-[#f87171] font-medium cursor-pointer">
+                    <button
+                      type="button"
+                      onClick={() => openEditor(user, 'permissions')}
+                      className="text-[#ef4444] hover:text-[#f87171] font-medium cursor-pointer"
+                    >
                       Permisos
                     </button>
                   </td>
@@ -93,6 +179,49 @@ export const UsersManagementView: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {selectedUser && modalMode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <form onSubmit={saveUser} className="w-full max-w-lg rounded-2xl border border-[#263653] bg-[#0f172a] p-6 shadow-2xl">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#58a6ff]">{modalMode === 'edit' ? 'Editar cuenta' : 'Editar permisos'}</p>
+                <h2 className="mt-1 text-lg font-bold text-[#f1f5f9]">{selectedUser.name}</h2>
+                <p className="mt-1 text-xs text-[#94a3b8]">Los cambios se guardan en la base de datos.</p>
+              </div>
+              <button type="button" onClick={closeEditor} className="text-[#94a3b8] hover:text-white" aria-label="Cerrar">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            {modalMode === 'edit' && (
+              <div className="grid gap-3">
+                <label className="text-xs text-[#cbd5e1]">Nombre<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} className="mt-1 w-full rounded-lg border border-[#263653] bg-[#080d19] px-3 py-2 text-sm text-white outline-none focus:border-[#388bfd]" required /></label>
+                <label className="text-xs text-[#cbd5e1]">Correo<input type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} className="mt-1 w-full rounded-lg border border-[#263653] bg-[#080d19] px-3 py-2 text-sm text-white outline-none focus:border-[#388bfd]" required /></label>
+                <label className="text-xs text-[#cbd5e1]">Rol<select value={draft.role} onChange={(event) => setDraft({ ...draft, role: event.target.value })} className="mt-1 w-full rounded-lg border border-[#263653] bg-[#080d19] px-3 py-2 text-sm text-white outline-none focus:border-[#388bfd]"><option value="operator">Operador</option><option value="admin">Administrador</option></select></label>
+                <label className="flex items-center gap-2 text-xs text-[#cbd5e1]"><input type="checkbox" checked={draft.active} onChange={(event) => setDraft({ ...draft, active: event.target.checked })} className="h-4 w-4 accent-[#388bfd]" /> Cuenta activa</label>
+              </div>
+            )}
+
+            {modalMode === 'permissions' && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {permissionOptions.map(([permission, label]) => (
+                  <label key={permission} className="flex cursor-pointer items-center gap-2 rounded-lg border border-[#1e293b] bg-[#080d19] px-3 py-2 text-xs text-[#cbd5e1] hover:border-[#388bfd]/60">
+                    <input type="checkbox" checked={draft.permissions.includes(permission)} onChange={() => togglePermission(permission)} className="h-4 w-4 accent-[#388bfd]" />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {error && <p className="mt-4 rounded-lg border border-[#ef4444]/30 bg-[#ef4444]/10 px-3 py-2 text-xs text-[#fca5a5]">{error}</p>}
+            <div className="mt-6 flex justify-end gap-2">
+              <button type="button" onClick={closeEditor} className="rounded-lg border border-[#263653] px-4 py-2 text-xs font-semibold text-[#cbd5e1] hover:bg-[#1e293b]">Cancelar</button>
+              <button type="submit" disabled={saving} className="rounded-lg bg-[#388bfd] px-4 py-2 text-xs font-bold text-[#07111f] disabled:cursor-not-allowed disabled:opacity-50">{saving ? 'Guardando...' : 'Guardar cambios'}</button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 };

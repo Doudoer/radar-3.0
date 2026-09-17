@@ -5,11 +5,22 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { pool, port, allowedOrigins, isAllowedLocalOrigin, jwtSecret } from './src/server/config';
 import { clearSessionCookie, isLoginRateLimited, recordLoginFailure, resetLoginAttempts, requireRole, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
-import { callSchema, claimSchema, claimUpdateSchema, loginSchema, orderPayloadSchema } from './src/server/schemas';
+import { callSchema, claimSchema, claimUpdateSchema, loginSchema, orderPayloadSchema, userUpdateSchema } from './src/server/schemas';
 import { readBody, sendJson, serveFrontend } from './src/server/http';
 import { getOrders, mapOrder, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
 import { getClaims } from './src/server/claims';
 import { getAnalytics } from './src/server/analytics';
+
+const parsePermissions = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.filter((permission): permission is string => typeof permission === 'string');
+  if (typeof value !== 'string' || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((permission): permission is string => typeof permission === 'string') : [];
+  } catch {
+    return [];
+  }
+};
 
 createServer(async (request, response) => {
   request.setTimeout(30_000, () => {
@@ -103,7 +114,36 @@ createServer(async (request, response) => {
       const [rows] = await pool.query<RowDataPacket[]>(
         'SELECT id, name, email, role, permissions, theme, active, created_at, updated_at FROM users WHERE deleted_at IS NULL ORDER BY name'
       );
-      return sendJson(response, 200, rows);
+      return sendJson(response, 200, rows.map((row) => ({ ...row, permissions: parsePermissions(row.permissions) })));
+    }
+
+    const userId = pathname.match(/^\/api\/users\/(\d+)$/)?.[1];
+    if (request.method === 'PUT' && userId) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const user = userUpdateSchema.parse(await readBody(request));
+      const currentUserId = String(authenticatedClaims?.sub || '');
+      if (currentUserId === userId && (user.role.toLowerCase() !== 'admin' || !user.active)) {
+        return sendJson(response, 400, { message: 'No puedes degradar o desactivar tu propia cuenta de administrador' });
+      }
+
+      try {
+        await pool.execute(
+          'UPDATE users SET name = ?, email = ?, role = ?, permissions = ?, active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL',
+          [user.name, user.email.toLowerCase(), user.role, JSON.stringify(user.permissions), user.active ? 1 : 0, userId]
+        );
+      } catch (error) {
+        if (typeof error === 'object' && error && 'code' in error && error.code === 'ER_DUP_ENTRY') {
+          return sendJson(response, 409, { message: 'El correo ya está asociado a otro usuario' });
+        }
+        throw error;
+      }
+
+      const [rows] = await pool.query<RowDataPacket[]>(
+        'SELECT id, name, email, role, permissions, theme, active, created_at, updated_at FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        [userId]
+      );
+      if (!rows[0]) return sendJson(response, 404, { message: 'Usuario no encontrado' });
+      return sendJson(response, 200, { ...rows[0], permissions: parsePermissions(rows[0].permissions) });
     }
 
     if (request.method === 'GET' && pathname === '/api/customers') {

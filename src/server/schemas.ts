@@ -70,3 +70,11 @@ export const claimUpdateSchema = z.object({
   orderId: z.coerce.number().int().positive(),
   previousOrderStatus: z.string().min(1).max(80),
 });
+
+export const userUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  email: z.string().trim().email().max(254),
+  role: z.string().trim().min(1).max(40),
+  permissions: z.array(z.string().trim().min(1).max(80)).max(100),
+  active: z.boolean(),
+});
