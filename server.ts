@@ -145,6 +145,21 @@ createServer(async (request, response) => {
       return sendJson(response, 200, { ...rows[0], permissions: parsePermissions(rows[0].permissions) });
     }
 
+    if (request.method === 'DELETE' && userId) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const currentUserId = String(authenticatedClaims?.sub || '');
+      if (currentUserId === userId) {
+        return sendJson(response, 400, { message: 'No puedes eliminar tu propio usuario' });
+      }
+
+      const [result] = await pool.execute<ResultSetHeader>(
+        'UPDATE users SET deleted_at = CURRENT_TIMESTAMP, active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL',
+        [userId]
+      );
+      if (result.affectedRows === 0) return sendJson(response, 404, { message: 'Usuario no encontrado' });
+      return sendJson(response, 200, { ok: true, id: Number(userId) });
+    }
+
     if (request.method === 'GET' && pathname === '/api/customers') {
       const [rows] = await pool.query<RowDataPacket[]>(`
         SELECT c.*, COUNT(o.id) AS order_count

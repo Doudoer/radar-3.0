@@ -232,7 +232,7 @@ export default function App() {
           )}
 
           {(currentScreen === 'usuarios' || currentScreen === 'directorio') && (
-            <UsersManagementView />
+            <UsersManagementView currentUserId={authUser.id} />
           )}
 
           {currentScreen === 'order-detail' && selectedOrder && (

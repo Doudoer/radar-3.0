@@ -23,7 +23,11 @@ const permissionOptions = [
   ['settings:manage', 'Gestionar configuración'],
 ] as const;
 
-export const UsersManagementView: React.FC = () => {
+interface UsersManagementViewProps {
+  currentUserId?: number;
+}
+
+export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ currentUserId }) => {
   const [usersList, setUsersList] = useState<ManagedUser[]>([]);
   const [selectedUser, setSelectedUser] = useState<ManagedUser | null>(null);
   const [modalMode, setModalMode] = useState<'edit' | 'permissions' | null>(null);
@@ -86,6 +90,20 @@ export const UsersManagementView: React.FC = () => {
         ? currentDraft.permissions.filter((item) => item !== permission)
         : [...currentDraft.permissions, permission],
     }));
+  };
+
+  const deleteUser = async (user: ManagedUser) => {
+    if (user.id === currentUserId) return;
+    if (!window.confirm(`¿Eliminar al usuario ${user.name}? Esta acción desactivará su cuenta y lo retirará del listado.`)) return;
+    setError(null);
+    try {
+      const response = await apiFetch(`/users/${user.id}`, { method: 'DELETE' });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'No se pudo eliminar el usuario.');
+      setUsersList((currentUsers) => currentUsers.filter((currentUser) => currentUser.id !== user.id));
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'No se pudo eliminar el usuario.');
+    }
   };
 
   return (
@@ -166,6 +184,15 @@ export const UsersManagementView: React.FC = () => {
                     >
                       Permisos
                     </button>
+                    {user.id !== currentUserId && (
+                      <button
+                        type="button"
+                        onClick={() => void deleteUser(user)}
+                        className="ml-3 text-[#ef4444] hover:text-[#fca5a5] font-medium cursor-pointer"
+                      >
+                        Eliminar
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
