@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
-import { NavScreen, Order, OrderStatus, AuctionBid, PrefillOrderData, ActivityItem, Customer } from './types';
-import { INITIAL_ORDERS, KPI_CARDS, RECENT_ACTIVITIES, MONTHLY_SALES_DATA, SLA_METRICS } from './data/mockData';
+import React, { useState } from 'react';
+import { NavScreen, Order, OrderStatus, AuctionBid, PrefillOrderData } from './types';
+import { KPI_CARDS, RECENT_ACTIVITIES, MONTHLY_SALES_DATA, SLA_METRICS } from './data/mockData';
 import { Sidebar } from './components/Sidebar';
 import { TopHeader } from './components/TopHeader';
 import { DashboardView } from './components/DashboardView';
@@ -31,61 +31,41 @@ import { QuickSMSModal } from './components/QuickSMSModal';
 import { SearchModal } from './components/SearchModal';
 import { NotificationsDrawer } from './components/NotificationsDrawer';
 import { ExportModal } from './components/ExportModal';
-import { ordersApi } from './services/ordersApi';
-import { canTransitionOrderStatus } from './utils/orderStatusRules';
-import { apiFetch } from './services/apiFetch';
+import { LoadingOverlay } from './components/LoadingOverlay';
 import { LoginView } from './components/LoginView';
+import { useAuthSession } from './hooks/useAuthSession';
+import { useRadarData } from './hooks/useRadarData';
+import { useOrderActions } from './hooks/useOrderActions';
+import { useViewLoading } from './hooks/useViewLoading';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<NavScreen>('dashboard');
-  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(INITIAL_ORDERS[0]?.id || 'ORD-516560');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [databaseMessage, setDatabaseMessage] = useState<string | null>(null);
-  const [activities, setActivities] = useState<ActivityItem[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [authToken, setAuthToken] = useState(() => sessionStorage.getItem('radar_authenticated'));
-  const [authUser, setAuthUser] = useState<{ role: string } | null>(null);
-  const [authChecking, setAuthChecking] = useState(true);
-
-  useEffect(() => {
-    if (!authToken) {
-      setAuthChecking(false);
-      return;
-    }
-    apiFetch('/auth/me')
-      .then((response) => response.ok ? response.json() : Promise.reject())
-      .then((payload) => setAuthUser(payload.user))
-      .catch(() => {
-        sessionStorage.removeItem('radar_authenticated');
-        setAuthToken(null);
-      })
-      .finally(() => setAuthChecking(false));
-  }, [authToken]);
-
-  useEffect(() => {
-    if (!authToken) return;
-    ordersApi.list()
-      .then((databaseOrders) => {
-        if (databaseOrders.length > 0) {
-          setOrders(databaseOrders);
-          setSelectedOrderId(databaseOrders[0].id);
-        }
-      })
-      .catch(() => setDatabaseMessage('No se pudo cargar radar_db. Mostrando datos locales.'));
-    apiFetch('/activities')
-      .then((response) => response.ok ? response.json() : Promise.reject())
-      .then(setActivities)
-      .catch(() => setActivities([]));
-    apiFetch('/customers')
-      .then((response) => response.ok ? response.json() : Promise.reject())
-      .then(setCustomers)
-      .catch(() => setCustomers([]));
-  }, [authToken]);
+  const { authenticated, checking: authChecking, user: authUser, role: userRole, login, logout } = useAuthSession();
+  const {
+    orders,
+    setOrders,
+    selectedOrderId,
+    setSelectedOrderId,
+    activities,
+    customers,
+    loading: dataLoading,
+    databaseMessage,
+    setDatabaseMessage,
+    replaceOrder,
+    prependOrder,
+  } = useRadarData(authenticated);
+  const { createOrder, updateOrder, updateOrderStatus, createOrderClaim } = useOrderActions({
+    orders,
+    setOrders,
+    setDatabaseMessage,
+    replaceOrder,
+    prependOrder,
+  });
+  const viewLoading = useViewLoading(currentScreen);
 
   // Global settings & Access Control
   const [carpartEnabled, setCarpartEnabled] = useState(true);
-  const userRole: 'admin' | 'operador' = authUser?.role?.toLowerCase() === 'admin' ? 'admin' : 'operador';
 
   // Prefill Data for Order Creation from Car-Part
   const [prefillOrderData, setPrefillOrderData] = useState<PrefillOrderData | null>(null);
@@ -118,16 +98,11 @@ export default function App() {
   };
 
   const handleCreateOrder = async (newOrder: Order) => {
-    try {
-      const savedOrder = await ordersApi.create(newOrder);
-      setOrders((previousOrders) => [savedOrder, ...previousOrders]);
-      setSelectedOrderId(savedOrder.id);
+    const savedOrder = await createOrder(newOrder);
+    if (savedOrder) {
       setPrefillOrderData(null);
       setIsNewOrderModalOpen(false);
       setCurrentScreen('order-detail');
-      setDatabaseMessage(null);
-    } catch {
-      setDatabaseMessage('No se pudo guardar la orden en radar_db.');
     }
   };
 
@@ -155,51 +130,17 @@ export default function App() {
   };
 
   const handleUpdateOrder = async (updatedOrder: Order) => {
-    try {
-      const savedOrder = await ordersApi.update(updatedOrder);
-      setOrders((previousOrders) =>
-        previousOrders.map((order) => (order.id === savedOrder.id ? savedOrder : order))
-      );
-      setDatabaseMessage(null);
-    } catch {
-      setDatabaseMessage('No se pudieron guardar los cambios en radar_db.');
-    }
+    await updateOrder(updatedOrder);
   };
 
-  const handleUpdateOrderStatus = (orderId: string, newStatus: OrderStatus) => {
-    const order = orders.find((currentOrder) => currentOrder.id === orderId);
-    if (order && canTransitionOrderStatus(order.status, newStatus)) void handleUpdateOrder({ ...order, status: newStatus });
-  };
-
-  const handleCreateOrderClaim = async (orderId: string, reason: string) => {
-    const response = await apiFetch('/claims', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderId, description: reason }),
-    });
-
-    if (!response.ok) throw new Error('No se pudo crear el reclamo en radar_db.');
-
-    setOrders((previousOrders) =>
-      previousOrders.map((order) =>
-        order.id === orderId ? { ...order, status: 'reclamo', claimReason: reason } : order
-      )
-    );
-    setDatabaseMessage(null);
-  };
-
-  if (authChecking) return <div className="flex min-h-screen items-center justify-center bg-[#080d19] text-slate-300">Cargando sesión...</div>;
-  if (!authToken || !authUser) {
-    return <LoginView onAuthenticated={(user) => { setAuthToken('active'); setAuthUser(user); }} />;
+  if (authChecking) return <LoadingOverlay visible label="Validando sesión" />;
+  if (!authenticated || !authUser) {
+    return <LoginView onAuthenticated={login} />;
   }
-
-  const handleUpdateWorkflowStep = (orderId: string, newStep: number) => {
-    const order = orders.find((currentOrder) => currentOrder.id === orderId);
-    if (order) void handleUpdateOrder({ ...order, workflowStep: newStep });
-  };
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#080d19] text-[#dfe2ef] antialiased select-none font-sans">
+      <LoadingOverlay visible={dataLoading || viewLoading} />
       {/* Left Sidebar */}
       <Sidebar
         currentScreen={currentScreen}
@@ -214,7 +155,7 @@ export default function App() {
       <button
         type="button"
         className="fixed right-4 top-4 z-40 rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-2 text-xs text-slate-300 shadow-lg hover:text-white"
-        onClick={async () => { await apiFetch('/auth/logout', { method: 'POST' }); sessionStorage.removeItem('radar_authenticated'); setAuthToken(null); setAuthUser(null); }}
+        onClick={() => { void logout(); }}
       >
         Cerrar sesión
       </button>
@@ -268,7 +209,7 @@ export default function App() {
                 setIsNewOrderModalOpen(true);
               }}
               onExport={() => setIsExportModalOpen(true)}
-              onUpdateStatus={handleUpdateOrderStatus}
+              onUpdateStatus={updateOrderStatus}
             />
           )}
 
@@ -346,7 +287,7 @@ export default function App() {
                 setSmsModalData({ isOpen: true, customerName, phone, order })
               }
               onUpdateOrder={handleUpdateOrder}
-              onCreateClaim={handleCreateOrderClaim}
+              onCreateClaim={createOrderClaim}
             />
           )}
 
