@@ -71,3 +71,7 @@ export const userUpdateSchema = z.object({
   permissions: z.array(z.string().trim().min(1).max(80)).max(100),
   active: z.boolean(),
 });
+
+export const personalNoteSchema = z.object({
+  content: z.string().max(100_000),
+});

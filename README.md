@@ -32,6 +32,7 @@ https://radar-rsy.store/
 - Backup total SQL de la base de datos para administradores.
 - Gestión de usuarios, roles, estado de cuenta y permisos.
 - Loading global durante sesión, carga de datos y transición de vistas.
+- Bloc de notas personal flotante, persistente por usuario y accesible sobre cualquier vista o modal.
 - Layout visual compartido para las vistas principales.
 
 ## Requisitos
@@ -132,6 +133,8 @@ Todas las rutas `/api/*`, excepto login, requieren sesión válida. Las operacio
 | `PUT` | `/api/users/:id` | Edita cuenta, rol, estado y permisos. |
 | `DELETE` | `/api/users/:id` | Baja lógica de otro usuario, solo administradores. |
 | `GET` | `/api/system/backup` | Descarga backup SQL total, solo administradores. |
+| `GET` | `/api/me/notes` | Lee el bloc personal del usuario autenticado. |
+| `PUT` | `/api/me/notes` | Guarda el bloc personal del usuario autenticado. |
 
 ## Arquitectura
 
@@ -156,6 +159,7 @@ Todas las rutas `/api/*`, excepto login, requieren sesión válida. Las operacio
 - `src/hooks/useOrderActions.ts`: creación, edición, transiciones y reclamos.
 - `src/hooks/useViewLoading.ts`: loading de cambio de vista.
 - `src/components/LoadingOverlay.tsx`: loading global.
+- `src/components/PersonalNotesWidget.tsx`: bloc flotante personal sobre cualquier vista.
 - `src/services/`: llamadas HTTP al backend.
 - `src/utils/`: reglas de estados y utilidades.
 - `src/index.css`: tokens y contenedores visuales compartidos.
@@ -206,6 +210,10 @@ Desde `Sistema`, un usuario administrador puede descargar **Descargar respaldo S
 - Desactivación temporal de `FOREIGN_KEY_CHECKS` para facilitar la restauración.
 
 El archivo se descarga con un nombre fechado como `radar-v3-backup-2026-09-17T...sql`. El proceso usa la conexión MySQL/MariaDB de la aplicación y no depende de que `mysqldump` esté instalado en el contenedor. El backup debe almacenarse fuera del servidor y probarse periódicamente en una base de restauración antes de considerarse recuperable.
+
+## Bloc de notas personal
+
+El botón flotante de edición abre un bloc persistente sin abandonar la vista actual ni cerrar modales abiertos. Cada usuario tiene una nota independiente almacenada en `personal_notes`; el backend identifica al usuario mediante la sesión y nunca recibe un `user_id` desde el navegador. El contenido admite hasta 100.000 caracteres y se guarda de forma explícita o al cerrar el bloc.
 
 ## Docker y producción
 

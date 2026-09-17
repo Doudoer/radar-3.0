@@ -5,11 +5,12 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { pool, port, allowedOrigins, isAllowedLocalOrigin, jwtSecret } from './src/server/config';
 import { clearSessionCookie, isLoginRateLimited, recordLoginFailure, resetLoginAttempts, requireRole, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
-import { claimSchema, claimUpdateSchema, loginSchema, orderPayloadSchema, userUpdateSchema } from './src/server/schemas';
+import { claimSchema, claimUpdateSchema, loginSchema, orderPayloadSchema, personalNoteSchema, userUpdateSchema } from './src/server/schemas';
 import { readBody, sendJson, serveFrontend } from './src/server/http';
 import { getOrders, mapOrder, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
 import { getClaims } from './src/server/claims';
 import { createDatabaseBackup } from './src/server/backup';
+import { getPersonalNote, savePersonalNote } from './src/server/notes';
 
 const parsePermissions = (value: unknown): string[] => {
   if (Array.isArray(value)) return value.filter((permission): permission is string => typeof permission === 'string');
@@ -103,6 +104,16 @@ createServer(async (request, response) => {
 
     if (authenticatedClaims?.sub) {
       if (!await userIsActive(authenticatedClaims)) return sendJson(response, 401, { message: 'Sesión no válida o revocada' });
+    }
+
+    if (authenticatedClaims?.sub && request.method === 'GET' && pathname === '/api/me/notes') {
+      return sendJson(response, 200, { content: await getPersonalNote(authenticatedClaims.sub) });
+    }
+
+    if (authenticatedClaims?.sub && request.method === 'PUT' && pathname === '/api/me/notes') {
+      const note = personalNoteSchema.parse(await readBody(request));
+      await savePersonalNote(authenticatedClaims.sub, note.content);
+      return sendJson(response, 200, { ok: true, content: note.content });
     }
 
     if (request.method === 'GET' && pathname === '/api/system/backup') {

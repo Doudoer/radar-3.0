@@ -25,6 +25,7 @@ import { NewOrderModal } from './components/NewOrderModal';
 import { QuickSMSModal } from './components/QuickSMSModal';
 import { SearchModal } from './components/SearchModal';
 import { ExportModal } from './components/ExportModal';
+import { PersonalNotesWidget } from './components/PersonalNotesWidget';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { LoginView } from './components/LoginView';
 import { useAuthSession } from './hooks/useAuthSession';
@@ -291,6 +292,7 @@ export default function App() {
         onClose={() => setIsExportModalOpen(false)}
         orders={orders}
       />
+      <PersonalNotesWidget />
     </div>
   );
 }
