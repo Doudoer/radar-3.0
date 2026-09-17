@@ -52,7 +52,6 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     { id: 'crm', label: 'CRM Ventas & Clientes VIP', icon: 'person_search' },
     { id: 'inventario', label: 'Inventario de Vehículos y Stock', icon: 'directions_car' },
     { id: 'finanzas', label: 'Finanzas & Facturación', icon: 'payments' },
-    { id: 'reportes', label: 'Reportes y Analíticas de SLAs', icon: 'analytics' },
   ];
 
   return (

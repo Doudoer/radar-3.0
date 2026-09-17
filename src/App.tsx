@@ -4,8 +4,8 @@
  */
 
 import React, { useState } from 'react';
-import { NavScreen, Order, OrderStatus, AuctionBid, PrefillOrderData } from './types';
-import { KPI_CARDS, RECENT_ACTIVITIES, MONTHLY_SALES_DATA, SLA_METRICS } from './data/mockData';
+import { NavScreen, Order, OrderStatus, PrefillOrderData } from './types';
+import { SLA_METRICS } from './data/mockData';
 import { Sidebar } from './components/Sidebar';
 import { TopHeader } from './components/TopHeader';
 import { DashboardView } from './components/DashboardView';
@@ -14,7 +14,6 @@ import { OrderDetailView } from './components/OrderDetailView';
 import { InventoryView } from './components/InventoryView';
 import { CarPartSearchModule } from './components/CarPartSearchModule';
 import { FinanceView } from './components/FinanceView';
-import { ReportsView } from './components/ReportsView';
 import { DirectoryView } from './components/DirectoryView';
 import { CalendarView } from './components/CalendarView';
 import { ClientsView } from './components/ClientsView';
@@ -22,8 +21,6 @@ import { ClaimsView } from './components/ClaimsView';
 import { CallLogsView } from './components/CallLogsView';
 import { OperationsView } from './components/OperationsView';
 import { WeeklyRelationView } from './components/WeeklyRelationView';
-import { AIAlertsView } from './components/AIAlertsView';
-import { AIReportsView } from './components/AIReportsView';
 import { SystemSettingsView } from './components/SystemSettingsView';
 import { UsersManagementView } from './components/UsersManagementView';
 import { NewOrderModal } from './components/NewOrderModal';
@@ -259,12 +256,6 @@ export default function App() {
 
           {(currentScreen === 'relacion_semanal' || currentScreen === 'finanzas') && (
             <WeeklyRelationView orders={orders} userRole={userRole} />
-          )}
-
-          {currentScreen === 'alertas_ia' && <AIAlertsView />}
-
-          {(currentScreen === 'reportes_ia' || currentScreen === 'reportes') && (
-            <AIReportsView />
           )}
 
           {(currentScreen === 'sistema' || currentScreen === 'configuracion' || currentScreen === 'ayuda') && (

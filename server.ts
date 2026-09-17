@@ -9,7 +9,6 @@ import { callSchema, claimSchema, claimUpdateSchema, loginSchema, orderPayloadSc
 import { readBody, sendJson, serveFrontend } from './src/server/http';
 import { getOrders, mapOrder, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
 import { getClaims } from './src/server/claims';
-import { getAnalytics } from './src/server/analytics';
 
 const parsePermissions = (value: unknown): string[] => {
   if (Array.isArray(value)) return value.filter((permission): permission is string => typeof permission === 'string');
@@ -266,12 +265,6 @@ createServer(async (request, response) => {
       return sendJson(response, 200, rows);
     }
 
-    if (request.method === 'GET' && pathname === '/api/reports') {
-      if (!requireRole(response, authenticatedClaims, 'admin')) return;
-      const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM ai_reports ORDER BY created_at DESC');
-      return sendJson(response, 200, rows);
-    }
-
     if (request.method === 'GET' && pathname === '/api/inventory') {
       const [rows] = await pool.query<RowDataPacket[]>(`
         SELECT li.*, ll.name AS list_name, o.order_code, o.product_type, o.stock_nr
@@ -283,10 +276,6 @@ createServer(async (request, response) => {
       return sendJson(response, 200, rows);
     }
 
-    if (request.method === 'GET' && pathname === '/api/analytics') {
-      if (!requireRole(response, authenticatedClaims, 'admin')) return;
-      return sendJson(response, 200, await getAnalytics());
-    }
 
     if (request.method === 'GET' && pathname === '/api/activities') {
       const [rows] = await pool.query<RowDataPacket[]>(`

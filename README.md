@@ -1,6 +1,6 @@
 # Radar 3.0
 
-Radar 3.0 es un ERP/CRM operativo para gestionar órdenes de refacciones automotrices, clientes, vehículos, inventario, entregas, reclamos, llamadas, reportes y usuarios internos.
+Radar 3.0 es un ERP/CRM operativo para gestionar órdenes de refacciones automotrices, clientes, vehículos, inventario, entregas, reclamos, llamadas y usuarios internos.
 
 - Frontend: React 19 + Vite + TypeScript.
 - API: Node.js + TypeScript + `mysql2/promise`.
@@ -29,7 +29,7 @@ https://radar-rsy.store/
 - Registro de llamadas.
 - Operaciones y traspaso de órdenes.
 - Relación semanal y módulo financiero protegido por 2FA.
-- Alertas y reportes ejecutivos.
+- Dashboard operativo y actividad reciente.
 - Configuración del sistema e integración futura de mensajería.
 - Gestión de usuarios, roles, estado de cuenta y permisos.
 - Loading global durante sesión, carga de datos y transición de vistas.
@@ -131,8 +131,6 @@ Todas las rutas `/api/*`, excepto login, requieren sesión válida. Las operacio
 | `POST` | `/api/calls` | Registra una llamada. |
 | `GET` | `/api/notifications` | Consulta notificaciones almacenadas. |
 | `GET` | `/api/activities` | Consulta actividad reciente. |
-| `GET` | `/api/analytics` | Consulta indicadores y ventas diarias. |
-| `GET` | `/api/reports` | Consulta reportes IA almacenados. |
 | `GET` | `/api/inventory` | Consulta inventario/logística. |
 | `GET` | `/api/users` | Lista usuarios, solo administradores. |
 | `PUT` | `/api/users/:id` | Edita cuenta, rol, estado y permisos. |
@@ -148,7 +146,6 @@ Todas las rutas `/api/*`, excepto login, requieren sesión válida. Las operacio
 - `src/server/http.ts`: body JSON, respuestas y serving de la SPA.
 - `src/server/orders.ts`: consulta y normalización de órdenes.
 - `src/server/claims.ts`: consulta y normalización de reclamos.
-- `src/server/analytics.ts`: indicadores y ventas diarias.
 - `src/server/notifications/`: eventos, canales y configuración de notificaciones.
 - `src/server/files/`: almacenamiento seguro futuro de archivos e imágenes.
 
@@ -217,7 +214,7 @@ La configuración individual puede hacerse con `NOTIFICATIONS_EVENT_CONFIG` o va
 - Límite de tamaño para cuerpos JSON.
 - Validación obligatoria de `Content-Type`.
 - Rate limit de login en memoria.
-- Roles administrativos para usuarios, analytics y reportes.
+- Roles administrativos para usuarios y operaciones protegidas.
 - Protección contra desactivación o degradación de la propia cuenta administradora.
 - Headers de seguridad, CSP y HSTS bajo HTTPS.
 - Contenedor de producción ejecutado como usuario no root.

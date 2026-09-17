@@ -32,8 +32,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'registro_llamadas', label: 'Registro de Llamadas', icon: 'call' },
     { id: 'mis_operaciones', label: 'Mis Operaciones', icon: 'assignment_ind' },
     { id: 'relacion_semanal', label: 'Relación Semanal', icon: 'domain', aliases: ['finanzas'] },
-    { id: 'alertas_ia', label: 'Alertas IA', icon: 'notifications_none' },
-    { id: 'reportes_ia', label: 'Reportes IA', icon: 'smart_toy', aliases: ['reportes'] },
     { id: 'sistema', label: 'Sistema', icon: 'settings', aliases: ['configuracion', 'ayuda'] },
     { id: 'usuarios', label: 'Usuarios', icon: 'manage_accounts', aliases: ['directorio'] },
   ];
