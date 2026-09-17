@@ -33,6 +33,7 @@ https://radar-rsy.store/
 - Gestión de usuarios, roles, estado de cuenta y permisos.
 - Loading global durante sesión, carga de datos y transición de vistas.
 - Bloc de notas personal flotante, persistente por usuario y accesible sobre cualquier vista o modal.
+- Mensajería interna rápida entre usuarios desde el mismo bloc personal.
 - Layout visual compartido para las vistas principales.
 
 ## Requisitos
@@ -135,6 +136,9 @@ Todas las rutas `/api/*`, excepto login, requieren sesión válida. Las operacio
 | `GET` | `/api/system/backup` | Descarga backup SQL total, solo administradores. |
 | `GET` | `/api/me/notes` | Lee el bloc personal del usuario autenticado. |
 | `PUT` | `/api/me/notes` | Guarda el bloc personal del usuario autenticado. |
+| `GET` | `/api/me/message-users` | Lista destinatarios activos para mensajería interna. |
+| `GET` | `/api/me/messages` | Lista mensajes enviados y recibidos del usuario. |
+| `POST` | `/api/me/messages` | Envía un mensaje interno a otro usuario activo. |
 
 ## Arquitectura
 
@@ -213,7 +217,9 @@ El archivo se descarga con un nombre fechado como `radar-v3-backup-2026-09-17T..
 
 ## Bloc de notas personal
 
-El botón flotante de edición abre un bloc persistente sin abandonar la vista actual ni cerrar modales abiertos. Cada usuario tiene una nota independiente almacenada en `personal_notes`; el backend identifica al usuario mediante la sesión y nunca recibe un `user_id` desde el navegador. El contenido admite hasta 100.000 caracteres y se guarda de forma explícita o al cerrar el bloc.
+El botón flotante de edición abre un bloc persistente sin abandonar la vista actual ni cerrar modales abiertos. Cada usuario tiene una nota independiente almacenada en `personal_notes`; el backend identifica al usuario mediante la sesión y nunca recibe un `user_id` desde el navegador. El contenido admite hasta 100.000 caracteres y se guarda automáticamente o al cerrar el bloc.
+
+La pestaña `Mensajes` del bloc permite seleccionar otro usuario activo, escribir un asunto opcional y enviar información rápida. Los mensajes se almacenan en `personal_messages`, se consultan únicamente por remitente o destinatario y no dependen de Wasender.
 
 ## Docker y producción
 

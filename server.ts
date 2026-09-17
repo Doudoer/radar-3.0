@@ -5,12 +5,12 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { pool, port, allowedOrigins, isAllowedLocalOrigin, jwtSecret } from './src/server/config';
 import { clearSessionCookie, isLoginRateLimited, recordLoginFailure, resetLoginAttempts, requireRole, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
-import { claimSchema, claimUpdateSchema, loginSchema, orderPayloadSchema, personalNoteSchema, userUpdateSchema } from './src/server/schemas';
+import { claimSchema, claimUpdateSchema, loginSchema, orderPayloadSchema, personalMessageSchema, personalNoteSchema, userUpdateSchema } from './src/server/schemas';
 import { readBody, sendJson, serveFrontend } from './src/server/http';
 import { getOrders, mapOrder, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
 import { getClaims } from './src/server/claims';
 import { createDatabaseBackup } from './src/server/backup';
-import { getPersonalNote, savePersonalNote } from './src/server/notes';
+import { getMessageUsers, getPersonalMessages, getPersonalNote, markPersonalMessageRead, savePersonalNote, sendPersonalMessage } from './src/server/notes';
 
 const parsePermissions = (value: unknown): string[] => {
   if (Array.isArray(value)) return value.filter((permission): permission is string => typeof permission === 'string');
@@ -114,6 +114,26 @@ createServer(async (request, response) => {
       const note = personalNoteSchema.parse(await readBody(request));
       await savePersonalNote(authenticatedClaims.sub, note.content);
       return sendJson(response, 200, { ok: true, content: note.content });
+    }
+
+    if (authenticatedClaims?.sub && request.method === 'GET' && pathname === '/api/me/message-users') {
+      return sendJson(response, 200, await getMessageUsers(authenticatedClaims.sub));
+    }
+
+    if (authenticatedClaims?.sub && request.method === 'GET' && pathname === '/api/me/messages') {
+      return sendJson(response, 200, await getPersonalMessages(authenticatedClaims.sub));
+    }
+
+    if (authenticatedClaims?.sub && request.method === 'POST' && pathname === '/api/me/messages') {
+      const message = personalMessageSchema.parse(await readBody(request));
+      const id = await sendPersonalMessage(authenticatedClaims.sub, message.recipientId, message.subject, message.content);
+      return sendJson(response, 201, { ok: true, id });
+    }
+
+    const messageId = pathname.match(/^\/api\/me\/messages\/(\d+)\/read$/)?.[1];
+    if (authenticatedClaims?.sub && request.method === 'PUT' && messageId) {
+      await markPersonalMessageRead(authenticatedClaims.sub, Number(messageId));
+      return sendJson(response, 200, { ok: true });
     }
 
     if (request.method === 'GET' && pathname === '/api/system/backup') {

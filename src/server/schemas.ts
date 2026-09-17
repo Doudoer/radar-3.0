@@ -75,3 +75,9 @@ export const userUpdateSchema = z.object({
 export const personalNoteSchema = z.object({
   content: z.string().max(100_000),
 });
+
+export const personalMessageSchema = z.object({
+  recipientId: z.coerce.number().int().positive(),
+  subject: z.string().trim().max(160).default(''),
+  content: z.string().trim().min(1).max(10_000),
+});
