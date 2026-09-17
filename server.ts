@@ -90,6 +90,53 @@ const callSchema = z.object({
   isClaim: z.boolean().default(false),
 });
 
+const orderStatusSchema = z.enum([
+  'cotizacion', 'espera_confirmacion', 'pagado', 'en_preparacion', 'listo_despacho',
+  'listo_retiro', 'en_camino', 'entregado', 'reclamo', 'cancelado',
+  'solicitud_reembolso', 'reembolsado', 'archivado', 'en_diagnostico',
+  'en_reparacion', 'listo_pago', 'detenido_pieza', 'en_proceso',
+  'facturado', 'pendiente_aprobacion',
+]);
+
+const orderPayloadSchema = z.object({
+  code: z.string().trim().min(1).max(80).optional(),
+  status: orderStatusSchema.optional(),
+  mainPart: z.string().trim().min(1).max(200).optional(),
+  productSpecs: z.string().max(5000).optional().nullable(),
+  stockNumber: z.string().max(120).optional().nullable(),
+  workflowStep: z.coerce.number().int().min(1).max(10).optional(),
+  warrantyDays: z.coerce.number().int().min(0).max(3650).optional(),
+  customer: z.object({
+    id: z.string().max(40).optional(),
+    name: z.string().trim().min(1).max(200),
+    phone: z.string().max(40).optional().nullable(),
+    email: z.string().email().max(254).optional().nullable().or(z.literal('')),
+    shippingAddress: z.string().max(500).optional().nullable(),
+    zip_code: z.string().max(20).optional().nullable(),
+  }).optional(),
+  vehicle: z.object({
+    vin: z.string().max(40).optional().nullable(),
+    make: z.string().max(100).optional().nullable(),
+    model: z.string().max(100).optional().nullable(),
+    trim: z.string().max(100).optional().nullable(),
+    year: z.coerce.number().int().min(1886).max(2200).optional().nullable(),
+    color: z.string().max(80).optional().nullable(),
+    transmission: z.string().max(100).optional().nullable(),
+  }).optional(),
+  financials: z.object({
+    partPrice: z.coerce.number().finite().min(0).max(10_000_000).optional(),
+    coreFee: z.coerce.number().finite().min(0).max(10_000_000).optional(),
+    downPayment: z.coerce.number().finite().min(0).max(10_000_000).optional(),
+    deliveryFee: z.coerce.number().finite().min(0).max(10_000_000).optional(),
+  }).optional(),
+  deliveryType: z.enum(['retiro_tienda', 'envio_domicilio']).optional(),
+  scheduledPickupAt: z.string().max(80).optional().nullable(),
+  deliveredAt: z.string().max(80).optional().nullable(),
+  warrantyStarted: z.boolean().optional(),
+  notes: z.string().max(5000).optional().nullable(),
+  claimReason: z.string().max(5000).optional().nullable(),
+}).passthrough();
+
 const isLoginRateLimited = (key: string) => {
   const now = Date.now();
   const attempt = loginAttempts.get(key);
@@ -455,10 +502,15 @@ createServer(async (request, response) => {
 
     if (authenticatedClaims?.sub) {
       const [activeRows] = await pool.query<RowDataPacket[]>(
-        'SELECT active FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        'SELECT active, updated_at FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
         [authenticatedClaims.sub]
       );
       if (!activeRows[0]?.active) return sendJson(response, 401, { message: 'Sesión no válida' });
+      const issuedAt = Number(authenticatedClaims.iat || 0) * 1000;
+      const userUpdatedAt = new Date(activeRows[0].updated_at).getTime();
+      if (issuedAt && userUpdatedAt && userUpdatedAt > issuedAt + 1000) {
+        return sendJson(response, 401, { message: 'Sesión revocada' });
+      }
     }
 
     if (request.method === 'GET' && pathname === '/api/orders') {
@@ -639,7 +691,10 @@ createServer(async (request, response) => {
 
     if (request.method === 'POST' && pathname === '/api/orders') {
       if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
-      const order = await readBody(request);
+      const order = orderPayloadSchema.parse(await readBody(request));
+      if (!order.customer || !order.vehicle || !order.financials || !order.mainPart) {
+        return sendJson(response, 400, { message: 'Cliente, vehículo, pieza y datos financieros son obligatorios' });
+      }
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
@@ -668,7 +723,7 @@ createServer(async (request, response) => {
     const orderId = pathname.match(/^\/api\/orders\/(\d+)$/)?.[1];
     if (request.method === 'PUT' && orderId) {
       if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
-      const order = await readBody(request);
+      const order = orderPayloadSchema.parse(await readBody(request));
       const customerName = String(order.customer?.name || '').trim().split(/\s+/);
       const connection = await pool.getConnection();
       try {
