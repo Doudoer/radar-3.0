@@ -25,6 +25,7 @@ import { NewOrderModal } from './components/NewOrderModal';
 import { QuickSMSModal } from './components/QuickSMSModal';
 import { SearchModal } from './components/SearchModal';
 import { ExportModal } from './components/ExportModal';
+import { StatusRequestModal } from './components/StatusRequestModal';
 import { PersonalNotesWidget } from './components/PersonalNotesWidget';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { LoginView } from './components/LoginView';
@@ -69,6 +70,7 @@ export default function App() {
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isStatusRequestOpen, setIsStatusRequestOpen] = useState(false);
   const [smsModalData, setSmsModalData] = useState<{ isOpen: boolean; customerName: string; phone: string; order?: Order | null }>({
     isOpen: false,
     customerName: '',
@@ -187,6 +189,7 @@ export default function App() {
                 setIsNewOrderModalOpen(true);
               }}
               onExport={() => setIsExportModalOpen(true)}
+              onStatusRequest={() => setIsStatusRequestOpen(true)}
               onUpdateStatus={updateOrderStatus}
             />
           )}
@@ -292,6 +295,7 @@ export default function App() {
         onClose={() => setIsExportModalOpen(false)}
         orders={orders}
       />
+      <StatusRequestModal isOpen={isStatusRequestOpen} orders={orders} onClose={() => setIsStatusRequestOpen(false)} />
       <PersonalNotesWidget />
     </div>
   );

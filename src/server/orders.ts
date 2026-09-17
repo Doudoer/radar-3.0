@@ -39,6 +39,7 @@ export const mapOrder = (row: RowDataPacket) => {
     id: String(row.id),
     code: row.order_code,
     createdAt: new Date(row.created_at).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' }),
+    createdAtIso: new Date(row.created_at).toISOString(),
     advisor: row.advisor || 'Sin asignar',
     status: statusFromDatabase(row.status),
     mainPart: row.product_type || 'Refacción',

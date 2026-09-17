@@ -99,6 +99,7 @@ export interface Order {
   id: string; // e.g. "ORD-2026-0142" o "ORD-516560"
   code: string;
   createdAt: string;
+  createdAtIso?: string;
   advisor: string;
   status: OrderStatus;
   mainPart: string;

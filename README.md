@@ -23,6 +23,7 @@ https://radar-rsy.store/
 
 - Dashboard operativo con KPIs, actividad y métricas SLA.
 - Gestión de órdenes: creación, edición, estados, entregas, garantías y detalle operativo.
+- Solicitud de estatus para yarda con rango de fechas, selección por estatus y PDF descargable.
 - Directorio de clientes con relación de órdenes.
 - Gestión de reclamos y garantías con restauración de estado de la orden.
 - Operaciones y traspaso de órdenes.
@@ -164,6 +165,7 @@ Todas las rutas `/api/*`, excepto login, requieren sesión válida. Las operacio
 - `src/hooks/useViewLoading.ts`: loading de cambio de vista.
 - `src/components/LoadingOverlay.tsx`: loading global.
 - `src/components/PersonalNotesWidget.tsx`: bloc flotante personal sobre cualquier vista.
+- `src/components/StatusRequestModal.tsx`: selección de órdenes y generación del PDF para solicitar estatus a la yarda.
 - `src/services/`: llamadas HTTP al backend.
 - `src/utils/`: reglas de estados y utilidades.
 - `src/index.css`: tokens y contenedores visuales compartidos.
@@ -220,6 +222,16 @@ El archivo se descarga con un nombre fechado como `radar-v3-backup-2026-09-17T..
 El botón flotante de edición abre un bloc persistente sin abandonar la vista actual ni cerrar modales abiertos. Cada usuario tiene una nota independiente almacenada en `personal_notes`; el backend identifica al usuario mediante la sesión y nunca recibe un `user_id` desde el navegador. El contenido admite hasta 100.000 caracteres y se guarda automáticamente o al cerrar el bloc.
 
 La pestaña `Mensajes` del bloc permite seleccionar otro usuario activo, escribir un asunto opcional y enviar información rápida. Los mensajes se almacenan en `personal_messages`, se consultan únicamente por remitente o destinatario y no dependen de Wasender.
+
+## Solicitud de estatus para yarda
+
+Desde `Órdenes` se puede abrir `Solicitud de estatus`. El flujo solicita:
+
+1. Rango de fechas de creación.
+2. Estatus incluidos: `Cotización`, `Pagado`, `En preparación` y `En espera de confirmación`.
+3. Selección de todas las órdenes encontradas o de órdenes individuales.
+
+Al emitir el reporte se descarga un PDF con nombre fechado. Cada orden incluye nombre del cliente, año, marca, modelo, tipo `ENG` o `TRA`, descripción, VIN cuando existe, código y estatus. El tipo se infiere de la pieza: transmisiones/cajas se marcan como `TRA` y el resto como `ENG`.
 
 ## Docker y producción
 

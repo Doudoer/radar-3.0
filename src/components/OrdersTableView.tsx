@@ -7,6 +7,7 @@ interface OrdersTableViewProps {
   onOpenNewOrder: () => void;
   onEditOrder?: (order: Order) => void;
   onExport: () => void;
+  onStatusRequest: () => void;
   onUpdateStatus?: (orderId: string, newStatus: OrderStatus) => void;
 }
 
@@ -16,6 +17,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
   onOpenNewOrder,
   onEditOrder,
   onExport,
+  onStatusRequest,
   onUpdateStatus,
 }) => {
   const [segmentView, setSegmentView] = useState<OrderSegmentView>('active');
@@ -245,6 +247,11 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
           >
             <span className="material-symbols-outlined text-[16px]">download</span>
             <span>Exportar CSV</span>
+          </button>
+
+          <button type="button" onClick={onStatusRequest} className="bg-[#1e293b] hover:bg-[#2b3a58] text-[#cbd5e1] font-body-sm text-[13px] py-2 px-3.5 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm">
+            <span className="material-symbols-outlined text-[16px]">assignment</span>
+            <span>Solicitud de estatus</span>
           </button>
 
           <button
