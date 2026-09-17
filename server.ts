@@ -9,6 +9,7 @@ import { claimSchema, claimUpdateSchema, loginSchema, orderPayloadSchema, userUp
 import { readBody, sendJson, serveFrontend } from './src/server/http';
 import { getOrders, mapOrder, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
 import { getClaims } from './src/server/claims';
+import { createDatabaseBackup } from './src/server/backup';
 
 const parsePermissions = (value: unknown): string[] => {
   if (Array.isArray(value)) return value.filter((permission): permission is string => typeof permission === 'string');
@@ -35,7 +36,7 @@ createServer(async (request, response) => {
   if (allowedOrigin) response.setHeader('Access-Control-Allow-Origin', allowedOrigin);
   response.setHeader('Vary', 'Origin');
   if (allowedOrigin) response.setHeader('Access-Control-Allow-Credentials', 'true');
-  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,OPTIONS');
+  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
   response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   response.setHeader('X-Content-Type-Options', 'nosniff');
   response.setHeader('X-Frame-Options', 'DENY');
@@ -102,6 +103,19 @@ createServer(async (request, response) => {
 
     if (authenticatedClaims?.sub) {
       if (!await userIsActive(authenticatedClaims)) return sendJson(response, 401, { message: 'Sesión no válida o revocada' });
+    }
+
+    if (request.method === 'GET' && pathname === '/api/system/backup') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const backup = await createDatabaseBackup();
+      const date = new Date().toISOString().replace(/[:.]/g, '-');
+      response.writeHead(200, {
+        'Cache-Control': 'no-store',
+        'Content-Type': 'application/sql; charset=utf-8',
+        'Content-Disposition': `attachment; filename="radar-v3-backup-${date}.sql"`,
+      });
+      response.end(backup);
+      return;
     }
 
     if (request.method === 'GET' && pathname === '/api/orders') {

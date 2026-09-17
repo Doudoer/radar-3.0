@@ -29,6 +29,7 @@ https://radar-rsy.store/
 - Relación semanal y módulo financiero protegido por 2FA.
 - Dashboard operativo y actividad reciente.
 - Configuración del sistema e integración futura de mensajería.
+- Backup total SQL de la base de datos para administradores.
 - Gestión de usuarios, roles, estado de cuenta y permisos.
 - Loading global durante sesión, carga de datos y transición de vistas.
 - Layout visual compartido para las vistas principales.
@@ -129,6 +130,8 @@ Todas las rutas `/api/*`, excepto login, requieren sesión válida. Las operacio
 | `GET` | `/api/inventory` | Consulta inventario/logística. |
 | `GET` | `/api/users` | Lista usuarios, solo administradores. |
 | `PUT` | `/api/users/:id` | Edita cuenta, rol, estado y permisos. |
+| `DELETE` | `/api/users/:id` | Baja lógica de otro usuario, solo administradores. |
+| `GET` | `/api/system/backup` | Descarga backup SQL total, solo administradores. |
 
 ## Arquitectura
 
@@ -141,6 +144,7 @@ Todas las rutas `/api/*`, excepto login, requieren sesión válida. Las operacio
 - `src/server/http.ts`: body JSON, respuestas y serving de la SPA.
 - `src/server/orders.ts`: consulta y normalización de órdenes.
 - `src/server/claims.ts`: consulta y normalización de reclamos.
+- `src/server/backup.ts`: exportación SQL completa de estructura y datos.
 - `src/server/files/`: almacenamiento seguro futuro de archivos e imágenes.
 
 ### Frontend
@@ -191,6 +195,17 @@ No se realizan llamadas externas mientras falten `WASENDER_BASE_URL` y `WASENDER
 - Contenedor de producción ejecutado como usuario no root.
 - Healthcheck para Dokploy.
 - Sin credenciales reales en el repositorio.
+
+## Backup y recuperación
+
+Desde `Sistema`, un usuario administrador puede descargar **Descargar respaldo SQL**. El endpoint protegido `GET /api/system/backup` genera un archivo `.sql` con:
+
+- Todas las tablas base de la base configurada.
+- La sentencia `CREATE TABLE` de cada tabla.
+- Todos los registros actuales mediante `INSERT`.
+- Desactivación temporal de `FOREIGN_KEY_CHECKS` para facilitar la restauración.
+
+El archivo se descarga con un nombre fechado como `radar-v3-backup-2026-09-17T...sql`. El proceso usa la conexión MySQL/MariaDB de la aplicación y no depende de que `mysqldump` esté instalado en el contenedor. El backup debe almacenarse fuera del servidor y probarse periódicamente en una base de restauración antes de considerarse recuperable.
 
 ## Docker y producción
 
