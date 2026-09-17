@@ -44,7 +44,7 @@ export default function App() {
   const [databaseMessage, setDatabaseMessage] = useState<string | null>(null);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [authToken, setAuthToken] = useState(() => localStorage.getItem('radar_token'));
+  const [authToken, setAuthToken] = useState(() => sessionStorage.getItem('radar_authenticated'));
   const [authUser, setAuthUser] = useState<{ role: string } | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
 
@@ -57,7 +57,7 @@ export default function App() {
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then((payload) => setAuthUser(payload.user))
       .catch(() => {
-        localStorage.removeItem('radar_token');
+        sessionStorage.removeItem('radar_authenticated');
         setAuthToken(null);
       })
       .finally(() => setAuthChecking(false));
@@ -190,7 +190,7 @@ export default function App() {
 
   if (authChecking) return <div className="flex min-h-screen items-center justify-center bg-[#080d19] text-slate-300">Cargando sesión...</div>;
   if (!authToken || !authUser) {
-    return <LoginView onAuthenticated={(token, user) => { setAuthToken(token); setAuthUser(user); }} />;
+    return <LoginView onAuthenticated={(user) => { setAuthToken('active'); setAuthUser(user); }} />;
   }
 
   const handleUpdateWorkflowStep = (orderId: string, newStep: number) => {
@@ -214,7 +214,7 @@ export default function App() {
       <button
         type="button"
         className="fixed right-4 top-4 z-40 rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-2 text-xs text-slate-300 shadow-lg hover:text-white"
-        onClick={() => { localStorage.removeItem('radar_token'); setAuthToken(null); setAuthUser(null); }}
+        onClick={async () => { await apiFetch('/auth/logout', { method: 'POST' }); sessionStorage.removeItem('radar_authenticated'); setAuthToken(null); setAuthUser(null); }}
       >
         Cerrar sesión
       </button>

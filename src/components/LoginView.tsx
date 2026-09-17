@@ -2,7 +2,7 @@ import React, { FormEvent, useState } from 'react';
 import { apiFetch } from '../services/apiFetch';
 
 interface LoginViewProps {
-  onAuthenticated: (token: string, user: { role: string }) => void;
+  onAuthenticated: (user: { role: string }) => void;
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
@@ -22,8 +22,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message || 'No se pudo iniciar sesión.');
-      localStorage.setItem('radar_token', payload.token);
-      onAuthenticated(payload.token, payload.user);
+      sessionStorage.setItem('radar_authenticated', 'true');
+      onAuthenticated(payload.user);
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : 'No se pudo iniciar sesión.');
     } finally {

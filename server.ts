@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createPool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { z } from 'zod';
 
 const port = Number(process.env.PORT || process.env.API_PORT || 3000);
 const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
@@ -41,9 +42,15 @@ const getBearerToken = (request: IncomingMessage) => {
   return authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
 };
 
+const getCookieToken = (request: IncomingMessage) => {
+  const cookies = request.headers.cookie || '';
+  const sessionCookie = cookies.split(';').map((part) => part.trim()).find((part) => part.startsWith('radar_session='));
+  return sessionCookie ? decodeURIComponent(sessionCookie.slice('radar_session='.length)) : '';
+};
+
 const verifyToken = (request: IncomingMessage) => {
   if (!jwtSecret) return null;
-  const token = getBearerToken(request);
+  const token = getBearerToken(request) || getCookieToken(request);
   if (!token) return null;
   try {
     return jwt.verify(token, jwtSecret) as jwt.JwtPayload;
@@ -51,6 +58,37 @@ const verifyToken = (request: IncomingMessage) => {
     return null;
   }
 };
+
+type Claims = jwt.JwtPayload & { role?: string; sub?: string | number };
+
+const roleIs = (claims: Claims | null, ...roles: string[]) =>
+  Boolean(claims?.role && roles.includes(String(claims.role).toLowerCase()));
+
+const requireRole = (response: ServerResponse, claims: Claims | null, ...roles: string[]) => {
+  if (!roleIs(claims, ...roles)) {
+    sendJson(response, 403, { message: 'No tienes permisos para esta operación' });
+    return false;
+  }
+  return true;
+};
+
+const loginSchema = z.object({
+  email: z.string().trim().email().max(254),
+  password: z.string().min(1).max(200),
+});
+
+const claimSchema = z.object({
+  orderId: z.coerce.number().int().positive(),
+  description: z.string().trim().min(3).max(5000),
+  assignedUserId: z.coerce.number().int().positive().optional().nullable(),
+});
+
+const callSchema = z.object({
+  phone: z.string().trim().min(3).max(40),
+  contactName: z.string().trim().min(1).max(200),
+  description: z.string().trim().max(5000).default(''),
+  isClaim: z.boolean().default(false),
+});
 
 const isLoginRateLimited = (key: string) => {
   const now = Date.now();
@@ -194,6 +232,15 @@ const readBody = async (request: IncomingMessage) => {
 const sendJson = (response: ServerResponse, status: number, data: unknown) => {
   response.writeHead(status, { 'Content-Type': 'application/json' });
   response.end(JSON.stringify(data));
+};
+
+const setSessionCookie = (response: ServerResponse, token: string) => {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  response.setHeader('Set-Cookie', `radar_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800${secure}`);
+};
+
+const clearSessionCookie = (response: ServerResponse) => {
+  response.setHeader('Set-Cookie', 'radar_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
 };
 
 const contentTypes: Record<string, string> = {
@@ -340,6 +387,7 @@ createServer(async (request, response) => {
 
   if (allowedOrigin) response.setHeader('Access-Control-Allow-Origin', allowedOrigin);
   response.setHeader('Vary', 'Origin');
+  if (allowedOrigin) response.setHeader('Access-Control-Allow-Credentials', 'true');
   response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,OPTIONS');
   response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -362,9 +410,9 @@ createServer(async (request, response) => {
       if (!jwtSecret) return sendJson(response, 503, { message: 'JWT_SECRET no está configurado' });
       const ip = request.socket.remoteAddress || 'unknown';
       if (isLoginRateLimited(ip)) return sendJson(response, 429, { message: 'Demasiados intentos. Intenta más tarde.' });
-      const credentials = await readBody(request);
-      const email = String(credentials.email || '').trim().toLowerCase();
-      const password = String(credentials.password || '');
+      const credentials = loginSchema.parse(await readBody(request));
+      const email = credentials.email.toLowerCase();
+      const password = credentials.password;
       const [rows] = await pool.query<RowDataPacket[]>(
         'SELECT id, name, email, role, permissions, theme, active, password FROM users WHERE email = ? AND deleted_at IS NULL LIMIT 1',
         [email]
@@ -377,10 +425,15 @@ createServer(async (request, response) => {
       }
       loginAttempts.delete(ip);
       const token = jwt.sign({ sub: user.id, role: user.role, email: user.email }, jwtSecret, { expiresIn: '8h' });
+      setSessionCookie(response, token);
       return sendJson(response, 200, {
-        token,
         user: { id: user.id, name: user.name, email: user.email, role: user.role, permissions: user.permissions, theme: user.theme },
       });
+    }
+
+    if (request.method === 'POST' && pathname === '/api/auth/logout') {
+      clearSessionCookie(response);
+      return sendJson(response, 200, { ok: true });
     }
 
     if (request.method === 'GET' && pathname === '/api/auth/me') {
@@ -395,7 +448,7 @@ createServer(async (request, response) => {
         : sendJson(response, 401, { message: 'Usuario inactivo' });
     }
 
-    const authenticatedClaims = pathname.startsWith('/api/') ? verifyToken(request) : null;
+    const authenticatedClaims = pathname.startsWith('/api/') ? verifyToken(request) as Claims | null : null;
     if (pathname.startsWith('/api/') && !authenticatedClaims) {
       return sendJson(response, 401, { message: 'Autenticación requerida' });
     }
@@ -413,7 +466,7 @@ createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && pathname === '/api/users') {
-      if (authenticatedClaims?.role !== 'admin') return sendJson(response, 403, { message: 'Se requiere rol admin' });
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
       const [rows] = await pool.query<RowDataPacket[]>(
         'SELECT id, name, email, role, permissions, theme, active, created_at, updated_at FROM users WHERE deleted_at IS NULL ORDER BY name'
       );
@@ -446,20 +499,17 @@ createServer(async (request, response) => {
     }
 
     if (request.method === 'POST' && pathname === '/api/claims') {
-      const claim = await readBody(request);
-      const orderId = Number(claim.orderId);
-      const description = String(claim.description || claim.claimReason || '').trim();
-
-      if (!orderId || !description) {
-        return sendJson(response, 400, { message: 'Orden y descripción del reclamo son obligatorias' });
-      }
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      const claim = claimSchema.parse(await readBody(request));
+      const orderId = claim.orderId;
+      const description = claim.description;
 
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
         const [result] = await connection.execute<ResultSetHeader>(
           'INSERT INTO claims (order_id, description, status, assigned_user_id) VALUES (?, ?, ?, ?)',
-          [orderId, description, 'Pending', claim.assignedUserId || null]
+            [orderId, description, 'Pending', claim.assignedUserId || null]
         );
         await connection.execute(
           'UPDATE orders SET status = ?, claim_reason = ? WHERE id = ?',
@@ -481,7 +531,12 @@ createServer(async (request, response) => {
 
     const claimId = pathname.match(/^\/api\/claims\/REC-(\d+)$/)?.[1] || pathname.match(/^\/api\/claims\/(\d+)$/)?.[1];
     if (request.method === 'PUT' && claimId) {
-      const claim = await readBody(request);
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const claim = z.object({
+        status: z.enum(['Pending', 'In Process', 'Resolved', 'Denied']),
+        orderId: z.coerce.number().int().positive(),
+        previousOrderStatus: z.string().min(1).max(80),
+      }).parse(await readBody(request));
       const status = String(claim.status || '').trim();
       const previousStatus = statusToDatabase[claim.previousOrderStatus] || statusToDatabase.entregado;
 
@@ -524,7 +579,8 @@ createServer(async (request, response) => {
     }
 
     if (request.method === 'POST' && pathname === '/api/calls') {
-      const call = await readBody(request);
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      const call = callSchema.parse(await readBody(request));
       const [result] = await pool.execute<ResultSetHeader>(
         'INSERT INTO call_register (phone, contact_name, description, is_claim, created_at) VALUES (?, ?, ?, ?, NOW())',
         [call.phone, call.contactName, call.description, Boolean(call.isClaim)]
@@ -538,6 +594,7 @@ createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && pathname === '/api/reports') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
       const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM ai_reports ORDER BY created_at DESC');
       return sendJson(response, 200, rows);
     }
@@ -554,6 +611,7 @@ createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && pathname === '/api/analytics') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
       return sendJson(response, 200, await getAnalytics());
     }
 
@@ -576,6 +634,7 @@ createServer(async (request, response) => {
     }
 
     if (request.method === 'POST' && pathname === '/api/orders') {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
       const order = await readBody(request);
       const connection = await pool.getConnection();
       try {
@@ -604,6 +663,7 @@ createServer(async (request, response) => {
 
     const orderId = pathname.match(/^\/api\/orders\/(\d+)$/)?.[1];
     if (request.method === 'PUT' && orderId) {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
       const order = await readBody(request);
       const customerName = String(order.customer?.name || '').trim().split(/\s+/);
       const connection = await pool.getConnection();
@@ -639,13 +699,17 @@ createServer(async (request, response) => {
 
     return sendJson(response, 404, { message: 'Ruta no encontrada' });
   } catch (error) {
-    const statusCode = typeof error === 'object' && error && 'statusCode' in error
+    const statusCode = error instanceof z.ZodError
+      ? 400
+      : typeof error === 'object' && error && 'statusCode' in error
       ? Number((error as { statusCode?: number }).statusCode)
       : 500;
     if (statusCode >= 500) console.error(error);
     return sendJson(response, statusCode >= 400 && statusCode < 500 ? statusCode : 500, {
-      message: statusCode >= 400 && statusCode < 500 && error instanceof Error
-        ? error.message
+      message: error instanceof z.ZodError
+        ? 'Payload inválido'
+        : statusCode >= 400 && statusCode < 500 && error instanceof Error
+          ? error.message
         : 'No fue posible completar la solicitud',
     });
   }
