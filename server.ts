@@ -238,11 +238,6 @@ createServer(async (request, response) => {
       }
     }
 
-    if (request.method === 'GET' && pathname === '/api/notifications') {
-      const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM notifications ORDER BY created_at DESC');
-      return sendJson(response, 200, rows);
-    }
-
     if (request.method === 'GET' && pathname === '/api/inventory') {
       const [rows] = await pool.query<RowDataPacket[]>(`
         SELECT li.*, ll.name AS list_name, o.order_code, o.product_type, o.stock_nr

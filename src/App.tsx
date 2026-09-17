@@ -25,7 +25,6 @@ import { UsersManagementView } from './components/UsersManagementView';
 import { NewOrderModal } from './components/NewOrderModal';
 import { QuickSMSModal } from './components/QuickSMSModal';
 import { SearchModal } from './components/SearchModal';
-import { NotificationsDrawer } from './components/NotificationsDrawer';
 import { ExportModal } from './components/ExportModal';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { LoginView } from './components/LoginView';
@@ -70,7 +69,6 @@ export default function App() {
   const [isNewOrderModalOpen, setIsNewOrderModalOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
-  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [smsModalData, setSmsModalData] = useState<{ isOpen: boolean; customerName: string; phone: string; order?: Order | null }>({
     isOpen: false,
@@ -148,14 +146,6 @@ export default function App() {
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
       />
-      <button
-        type="button"
-        className="fixed right-4 top-4 z-40 rounded-lg border border-slate-700 bg-slate-900/90 px-3 py-2 text-xs text-slate-300 shadow-lg hover:text-white"
-        onClick={() => { void logout(); }}
-      >
-        Cerrar sesión
-      </button>
-
       {/* Main Content Column */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0a0f1d]">
         {/* Sticky Top Header */}
@@ -164,8 +154,7 @@ export default function App() {
           selectedOrderCode={selectedOrder ? selectedOrder.code : undefined}
           onNavigate={handleNavigate}
           onOpenSearch={() => setIsSearchModalOpen(true)}
-          onOpenNotifications={() => setIsNotificationsOpen(true)}
-          onOpenHistory={() => setIsNotificationsOpen(true)}
+          onLogout={() => { void logout(); }}
           onOpenNewOrder={() => {
             setPrefillOrderData(null);
             setIsNewOrderModalOpen(true);
@@ -188,7 +177,6 @@ export default function App() {
               activities={activities}
               onSelectOrder={handleSelectOrder}
               onNavigateTaller={() => handleNavigate('ordenes')}
-              onOpenActivitiesModal={() => setIsNotificationsOpen(true)}
             />
           )}
 
@@ -314,13 +302,6 @@ export default function App() {
         orders={orders}
         onSelectOrder={handleSelectOrder}
         onNavigate={handleNavigate}
-      />
-
-      <NotificationsDrawer
-        isOpen={isNotificationsOpen}
-        onClose={() => setIsNotificationsOpen(false)}
-        activities={activities}
-        onSelectOrder={handleSelectOrder}
       />
 
       <ExportModal

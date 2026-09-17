@@ -7,7 +7,6 @@ interface DashboardViewProps {
   activities: ActivityItem[];
   onSelectOrder: (orderId: string) => void;
   onNavigateTaller: () => void;
-  onOpenActivitiesModal: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -16,7 +15,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   activities = [],
   onSelectOrder,
   onNavigateTaller,
-  onOpenActivitiesModal,
 }) => {
   const [timeRange, setTimeRange] = useState<'30D' | '7D' | '90D'>('30D');
   const [activeDateFilter, setActiveDateFilter] = useState('Hoy');
@@ -403,13 +401,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="glass-card rounded-xl flex flex-col max-h-[420px]">
           <div className="p-4 border-b border-[rgba(255,255,255,0.08)] flex justify-between items-center">
             <h3 className="font-headline-sm text-[18px] font-bold text-[#dfe2ef]">Actividad Reciente</h3>
-            <button
-              onClick={onOpenActivitiesModal}
-              className="font-body-sm text-[13px] text-[#adc6ff] hover:underline cursor-pointer flex items-center gap-1"
-            >
-              <span>Ver todo</span>
-              <span className="material-symbols-outlined text-[14px]">chevron_right</span>
-            </button>
           </div>
 
           <div className="p-4 overflow-y-auto flex-1 flex flex-col gap-2.5">

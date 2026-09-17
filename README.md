@@ -126,7 +126,6 @@ Todas las rutas `/api/*`, excepto login, requieren sesión válida. Las operacio
 | `GET` | `/api/claims` | Lista reclamos. |
 | `POST` | `/api/claims` | Crea un reclamo. |
 | `PUT` | `/api/claims/:id` | Actualiza un reclamo. |
-| `GET` | `/api/notifications` | Consulta notificaciones almacenadas. |
 | `GET` | `/api/activities` | Consulta actividad reciente. |
 | `GET` | `/api/inventory` | Consulta inventario/logística. |
 | `GET` | `/api/users` | Lista usuarios, solo administradores. |
@@ -143,7 +142,6 @@ Todas las rutas `/api/*`, excepto login, requieren sesión válida. Las operacio
 - `src/server/http.ts`: body JSON, respuestas y serving de la SPA.
 - `src/server/orders.ts`: consulta y normalización de órdenes.
 - `src/server/claims.ts`: consulta y normalización de reclamos.
-- `src/server/notifications/`: eventos, canales y configuración de notificaciones.
 - `src/server/files/`: almacenamiento seguro futuro de archivos e imágenes.
 
 ### Frontend
@@ -177,30 +175,6 @@ El módulo [src/integrations/wasender](src/integrations/wasender) expone:
 - `wasender.sendFile()`.
 
 No se realizan llamadas externas mientras falten `WASENDER_BASE_URL` y `WASENDER_API_KEY`.
-
-## Notificaciones configurables
-
-`notificationService` permite preparar eventos de:
-
-- alertas;
-- notificaciones generales;
-- cambios de estado;
-- órdenes;
-- reclamos;
-- entregas;
-- facturas;
-- seguridad;
-- sistema.
-
-Los canales disponibles son `in_app` y `wasender`. Wasender está desactivado por defecto. Para habilitarlo se requieren:
-
-```env
-NOTIFICATIONS_ENABLED="true"
-NOTIFICATIONS_WASENDER_ENABLED="true"
-NOTIFICATIONS_DEFAULT_RECIPIENTS="521555555555,521555555556"
-```
-
-La configuración individual puede hacerse con `NOTIFICATIONS_EVENT_CONFIG` o variables como `NOTIFICATIONS_ORDER_ENABLED` y `NOTIFICATIONS_CLAIM_RECIPIENTS`. El servicio no se conecta a Wasender sin configuración explícita.
 
 ## Seguridad
 
@@ -239,4 +213,4 @@ El despliegue se gestiona en Dokploy conectado al branch `main`. Después de pub
 
 ## Estado actual
 
-El proyecto está operativo en local y preparado para producción. Los módulos de uploads, Wasender y notificaciones están desacoplados y configurables, pero permanecen sin envíos externos automáticos hasta que se definan credenciales, destinatarios y reglas de negocio. Las llamadas no tienen un módulo independiente ni endpoints de registro directo; los datos históricos que puedan estar asociados a reclamos se conservan como referencia.
+El proyecto está operativo en local y preparado para producción. Los módulos de uploads y Wasender están desacoplados y configurables, pero permanecen sin envíos externos automáticos hasta que se definan credenciales, destinatarios y reglas de negocio. Las llamadas no tienen un módulo independiente ni endpoints de registro directo; los datos históricos que puedan estar asociados a reclamos se conservan como referencia.

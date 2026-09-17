@@ -5,8 +5,7 @@ interface TopHeaderProps {
   currentScreen: NavScreen;
   onNavigate: (screen: NavScreen) => void;
   onOpenSearch: () => void;
-  onOpenNotifications: () => void;
-  onOpenHistory: () => void;
+  onLogout: () => void;
   onToggleMobileMenu: () => void;
   unreadCount?: number;
 }
@@ -15,10 +14,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   currentScreen,
   onNavigate,
   onOpenSearch,
-  onOpenNotifications,
-  onOpenHistory,
+  onLogout,
   onToggleMobileMenu,
-  unreadCount = 3,
 }) => {
   return (
     <header className="sticky top-0 z-30 shrink-0 w-full h-16 bg-[#0a1120]/95 border-b border-[#16233b] backdrop-blur-md flex justify-between items-center px-4 md:px-6 transition-all duration-300">
@@ -73,41 +70,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           <span className="material-symbols-outlined text-[20px]">search</span>
         </button>
 
-        {/* Notificaciones Pill Button */}
-        <button
-          onClick={onOpenNotifications}
-          className="hidden sm:flex items-center gap-1.5 bg-[#adc6ff]/10 text-[#adc6ff] border border-[#adc6ff]/25 hover:bg-[#adc6ff]/20 font-body-sm text-[13px] rounded-full py-1 px-3.5 transition-all cursor-pointer shadow-[0_0_10px_rgba(77,142,255,0.15)]"
-        >
-          <span className="w-2 h-2 rounded-full bg-[#4d8eff] animate-pulse" />
-          <span>Notificaciones</span>
-          {unreadCount > 0 && (
-            <span className="ml-0.5 text-[11px] font-data-mono font-semibold bg-[#4d8eff] text-[#00285d] px-1.5 rounded-full">
-              {unreadCount}
-            </span>
-          )}
-        </button>
-
         {/* Icon Action Buttons */}
         <div className="flex items-center gap-1 md:border-l border-[rgba(255,255,255,0.08)] md:pl-3 ml-1">
-          <button
-            onClick={onOpenNotifications}
-            className="p-2 text-[#c2c6d6] hover:text-[#adc6ff] hover:bg-[#31353f]/50 rounded-full transition-all duration-200 relative cursor-pointer"
-            title="Alertas & Notificaciones"
-          >
-            <span className="material-symbols-outlined text-[20px]">notifications</span>
-            {unreadCount > 0 && (
-              <span className="absolute top-2 right-2 w-2 h-2 bg-[#ef4444] rounded-full ring-2 ring-[#0f131c]" />
-            )}
-          </button>
-
-          <button
-            onClick={onOpenHistory}
-            className="p-2 text-[#c2c6d6] hover:text-[#adc6ff] hover:bg-[#31353f]/50 rounded-full transition-all duration-200 cursor-pointer"
-            title="Historial de Auditoría"
-          >
-            <span className="material-symbols-outlined text-[20px]">history</span>
-          </button>
-
           {/* User Profile Pill */}
           <div className="flex items-center gap-2 pl-2 pr-3 py-1 bg-[#1c1f29]/80 border border-[rgba(255,255,255,0.08)] rounded-full hover:border-[#adc6ff]/40 transition-colors ml-1 cursor-pointer">
             <div className="w-6 h-6 rounded-full overflow-hidden border border-[rgba(255,255,255,0.15)] shrink-0">
@@ -124,6 +88,13 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               Usuario Administrador
             </span>
           </div>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="ml-1 whitespace-nowrap rounded-lg border border-[#334155] bg-[#0f172a] px-3 py-2 text-xs font-semibold text-[#cbd5e1] transition hover:border-[#58a6ff] hover:text-white"
+          >
+            Cerrar sesión
+          </button>
         </div>
       </div>
     </header>
