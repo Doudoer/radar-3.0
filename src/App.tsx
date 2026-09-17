@@ -222,7 +222,7 @@ export default function App() {
           )}
 
           {(currentScreen === 'relacion_semanal' || currentScreen === 'finanzas') && (
-            <WeeklyRelationView orders={orders} userRole={userRole} />
+            <WeeklyRelationView orders={orders} />
           )}
 
           {(currentScreen === 'sistema' || currentScreen === 'configuracion' || currentScreen === 'ayuda') && (

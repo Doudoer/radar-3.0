@@ -21,19 +21,15 @@ interface ExpenseItem {
 
 interface WeeklyRelationViewProps {
   orders?: Order[];
-  userRole?: 'admin' | 'operador';
 }
 
 export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
   orders = [],
-  userRole = 'admin',
 }) => {
   // =========================================================================
   // 1. 2FA SECURITY GATE STATE
   // =========================================================================
-  const [is2FAUnlocked, setIs2FAUnlocked] = useState<boolean>(() => {
-    return sessionStorage.getItem('radar_2fa_relacion_semanal') === 'true';
-  });
+  const [is2FAUnlocked, setIs2FAUnlocked] = useState(false);
 
   const [otpCodeInput, setOtpCodeInput] = useState<string>('');
   const [activeGeneratedOTP, setActiveGeneratedOTP] = useState<string | null>(null);
@@ -81,9 +77,8 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
       return;
     }
 
-    if (otpCodeInput.trim() === activeGeneratedOTP || otpCodeInput.trim() === '749215' || otpCodeInput.trim() === '123456') {
+    if (otpCodeInput.trim() === activeGeneratedOTP) {
       setIs2FAUnlocked(true);
-      sessionStorage.setItem('radar_2fa_relacion_semanal', 'true');
       setOtpError(null);
       setSafeAnimation('unlock');
       setCodeEffect('sent');
@@ -100,7 +95,6 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
   // Lock session manually
   const handleLockSession = () => {
     setIs2FAUnlocked(false);
-    sessionStorage.removeItem('radar_2fa_relacion_semanal');
     setActiveGeneratedOTP(null);
     setOtpCodeInput('');
     showToast('Sesión financiera bloqueada. Se requerirá 2FA para el próximo ingreso.');
@@ -360,7 +354,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
               <input
                 type="text"
                 maxLength={6}
-                placeholder="Ej. 749215"
+                placeholder="Código de 6 dígitos"
                 value={otpCodeInput}
                 onChange={(e) => {
                   setOtpCodeInput(e.target.value.replace(/\D/g, ''));
@@ -388,21 +382,8 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
             </button>
           </form>
 
-          {/* Quick Demo Bypass for testing */}
-          <div className="mt-4 pt-4 border-t border-[#1e293b] w-full flex items-center justify-between text-[11px] text-[#64748b]">
+          <div className="mt-4 pt-4 border-t border-[#1e293b] w-full text-center text-[11px] text-[#64748b]">
             <span>Wasender 2FA Security Gateway</span>
-            <button
-              type="button"
-              onClick={() => {
-                setIs2FAUnlocked(true);
-                sessionStorage.setItem('radar_2fa_relacion_semanal', 'true');
-                showToast('Acceso desbloqueado mediante credencial de Super Administrador.');
-              }}
-              className="text-[#388bfd] hover:underline cursor-pointer font-semibold flex items-center gap-1"
-            >
-              <span className="material-symbols-outlined text-[14px]">shield_person</span>
-              <span>Acceso Rápido Super Admin</span>
-            </button>
           </div>
         </div>
       </div>

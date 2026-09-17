@@ -185,6 +185,7 @@ No se realizan llamadas externas mientras falten `WASENDER_BASE_URL` y `WASENDER
 - Validación obligatoria de `Content-Type`.
 - Rate limit de login en memoria.
 - Roles administrativos para usuarios y operaciones protegidas.
+- Relación Semanal exige un código OTP generado para cada acceso; no existe bypass de Super Admin ni código maestro.
 - Protección contra desactivación o degradación de la propia cuenta administradora.
 - Headers de seguridad, CSP y HSTS bajo HTTPS.
 - Contenedor de producción ejecutado como usuario no root.
