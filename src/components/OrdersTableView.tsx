@@ -249,9 +249,9 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
             <span>Exportar CSV</span>
           </button>
 
-          <button type="button" onClick={onStatusRequest} className="bg-[#1e293b] hover:bg-[#2b3a58] text-[#cbd5e1] font-body-sm text-[13px] py-2 px-3.5 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm">
+          <button type="button" onClick={onStatusRequest} className="bg-[#2563eb] hover:bg-[#388bfd] text-white font-body-sm text-[13px] font-bold py-2 px-3.5 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer shadow-[0_0_12px_rgba(56,139,253,0.28)]">
             <span className="material-symbols-outlined text-[16px]">assignment</span>
-            <span>Solicitud de estatus</span>
+            <span>Solicitar status</span>
           </button>
 
           <button
