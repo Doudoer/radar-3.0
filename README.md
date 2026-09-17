@@ -1,6 +1,6 @@
 # Radar 3.0
 
-Radar 3.0 es un ERP/CRM operativo para gestionar órdenes de refacciones automotrices, clientes, vehículos, inventario, entregas, reclamos, llamadas y usuarios internos.
+Radar 3.0 es un ERP/CRM operativo para gestionar órdenes de refacciones automotrices, clientes, vehículos, inventario, entregas, reclamos y usuarios internos.
 
 - Frontend: React 19 + Vite + TypeScript.
 - API: Node.js + TypeScript + `mysql2/promise`.
@@ -24,7 +24,6 @@ https://radar-rsy.store/
 - Dashboard operativo con KPIs, actividad y métricas SLA.
 - Gestión de órdenes: creación, edición, estados, entregas, garantías y detalle operativo.
 - Directorio de clientes con relación de órdenes.
-- Búsqueda de piezas y consulta VIN.
 - Gestión de reclamos y garantías con restauración de estado de la orden.
 - Operaciones y traspaso de órdenes.
 - Relación semanal y módulo financiero protegido por 2FA.

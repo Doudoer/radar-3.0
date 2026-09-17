@@ -69,23 +69,6 @@ export const INITIAL_ORDERS: Order[] = [
     },
     termsAttachment: 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=600&auto=format&fit=crop&q=80',
     saleNotified: true,
-    bids: [
-      {
-        id: 'BID-516-1',
-        bidder: 'Mayorista Centro',
-        bidderInitial: 'M',
-        amount: 850.0,
-        timeAgo: 'Hace 2m',
-        isLeading: true,
-      },
-      {
-        id: 'BID-516-2',
-        bidder: 'Auto Lotes S.A.',
-        bidderInitial: 'A',
-        amount: 820.0,
-        timeAgo: 'Hace 15m',
-      },
-    ],
     notes: '2.4 • 2.4L (VIN B, 8th digit), engine ID ED6 (Federal). Inspeccionado y listo en almacén.',
   },
   {
@@ -654,7 +637,7 @@ export const RECENT_ACTIVITY: ActivityItem[] = [
   },
   {
     id: 'act-5',
-    title: 'Subasta activa ORD-8924A recibió nueva puja de $850,000 MXN',
+    title: 'Orden ORD-8924A recibió una actualización operativa',
     highlightText: 'Mayorista Centro',
     description: 'Supera el precio de reserva establecido',
     timeAgo: 'Hace 3 horas',

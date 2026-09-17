@@ -1,0 +1,17 @@
+export const MAKE_MODEL_MAP: Record<string, string[]> = {
+  Acura: ['ILX', 'Integra', 'MDX', 'NSX', 'RDX', 'TLX'],
+  Audi: ['A3', 'A4', 'A6', 'Q3', 'Q5', 'Q7'],
+  BMW: ['3 Series', '5 Series', 'X3', 'X5'],
+  Chevrolet: ['Camaro', 'Colorado', 'Equinox', 'Silverado', 'Tahoe'],
+  Ford: ['Bronco', 'Escape', 'Explorer', 'F-150', 'Mustang', 'Ranger'],
+  Honda: ['Accord', 'Civic', 'CR-V', 'Fit', 'Pilot'],
+  Hyundai: ['Elantra', 'Kona', 'Santa Fe', 'Sonata', 'Tucson'],
+  Jeep: ['Cherokee', 'Compass', 'Grand Cherokee', 'Renegade', 'Wrangler'],
+  Kia: ['Forte', 'K5', 'Sportage', 'Sorento', 'Telluride'],
+  Mazda: ['CX-5', 'CX-9', 'Mazda3', 'Mazda6'],
+  Mercedes: ['C-Class', 'E-Class', 'GLC', 'GLE'],
+  Nissan: ['Altima', 'Frontier', 'Maxima', 'Rogue', 'Sentra'],
+  Subaru: ['Crosstrek', 'Forester', 'Impreza', 'Outback'],
+  Toyota: ['4Runner', 'Camry', 'Corolla', 'Highlander', 'RAV4', 'Tacoma', 'Tundra'],
+  Volkswagen: ['Atlas', 'Golf', 'Jetta', 'Tiguan'],
+};

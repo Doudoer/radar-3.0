@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Order, OrderStatus, PrefillOrderData, Customer } from '../types';
 import { INITIAL_CUSTOMERS } from '../data/customersData';
-import { MAKE_MODEL_MAP } from '../data/carPartData';
+import { MAKE_MODEL_MAP } from '../data/vehicleData';
 
 interface NewOrderModalProps {
   isOpen: boolean;

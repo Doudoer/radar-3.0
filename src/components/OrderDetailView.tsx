@@ -9,7 +9,6 @@ interface OrderDetailViewProps {
   order: Order;
   onBack: () => void;
   onOpenSMS: (customerName: string, phone: string, order?: Order) => void;
-  onOpenAuctionModal?: (order: Order) => void;
   onUpdateOrder?: (updatedOrder: Order) => void;
   onCreateClaim?: (orderId: string, reason: string) => Promise<void>;
 }

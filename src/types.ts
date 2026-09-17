@@ -2,7 +2,6 @@ export type NavScreen =
   | 'dashboard'
   | 'ordenes'
   | 'clientes'
-  | 'buscar_piezas'
   | 'reclamos'
   | 'mis_operaciones'
   | 'relacion_semanal'
@@ -10,13 +9,11 @@ export type NavScreen =
   | 'usuarios'
   | 'taller'
   | 'crm'
-  | 'inventario'
   | 'finanzas'
   | 'configuracion'
   | 'ayuda'
   | 'directorio'
   | 'calendario'
-  | 'stock';
 
 // Catálogo Exhaustivo de Estatus en RADAR (13 Estatus)
 export type OrderStatus = 
@@ -92,15 +89,6 @@ export interface OrderItem {
   unitPrice: number;
 }
 
-export interface AuctionBid {
-  id: string;
-  bidder: string;
-  bidderInitial: string;
-  amount: number;
-  timeAgo: string;
-  isLeading?: boolean;
-}
-
 export type CoreStatus = 
   | 'entregado_tienda'
   | 'deposito_pendiente'
@@ -159,7 +147,6 @@ export interface Order {
   // Notificaciones y Seguridad
   saleNotified?: boolean; // Regla de disparo único por Wasender
   claimReason?: string;
-  bids?: AuctionBid[];
   notes?: string;
 }
 
@@ -191,37 +178,6 @@ export interface InventoryItem {
   location: string;
   price: number;
   status: 'Disponible' | 'Bajo Stock' | 'Agotado';
-}
-
-// Módulo Buscar Piezas (Car-Part & VIN Decoder)
-export interface CarPartItem {
-  id: string;
-  year: number;
-  make: string;
-  model: string;
-  part: string;
-  title: string;
-  description: string;
-  partGrade: 'A' | 'B' | 'C';
-  miles: number;
-  price: number;
-  dealerName: string;
-  dealerLocation: string;
-  dealerPhone: string;
-  distanceMiles: number;
-  stockNumber: string;
-  donorVin?: string;
-  isOwnYard?: boolean;
-  warrantySuggested: number; // 30, 60, 90
-  conditionNotes?: string;
-}
-
-export interface IntermediateOption {
-  id: string;
-  code: string;
-  title: string;
-  description: string;
-  specs: string;
 }
 
 export interface PrefillOrderData {

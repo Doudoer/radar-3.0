@@ -27,7 +27,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'dashboard', label: 'Dashboard', icon: 'grid_view' },
     { id: 'ordenes', label: 'Órdenes', icon: 'inventory_2', aliases: ['taller'] },
     { id: 'clientes', label: 'Clientes', icon: 'group', aliases: ['crm'] },
-    { id: 'buscar_piezas', label: 'Buscar Piezas', icon: 'search', aliases: ['inventario', 'stock'] },
     { id: 'reclamos', label: 'Reclamos', icon: 'error_outline' },
     { id: 'mis_operaciones', label: 'Mis Operaciones', icon: 'assignment_ind' },
     { id: 'relacion_semanal', label: 'Relación Semanal', icon: 'domain', aliases: ['finanzas'] },

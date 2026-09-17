@@ -12,7 +12,6 @@ import { DashboardView } from './components/DashboardView';
 import { OrdersTableView } from './components/OrdersTableView';
 import { OrderDetailView } from './components/OrderDetailView';
 import { InventoryView } from './components/InventoryView';
-import { CarPartSearchModule } from './components/CarPartSearchModule';
 import { FinanceView } from './components/FinanceView';
 import { DirectoryView } from './components/DirectoryView';
 import { CalendarView } from './components/CalendarView';
@@ -60,9 +59,8 @@ export default function App() {
   const viewLoading = useViewLoading(currentScreen);
 
   // Global settings & Access Control
-  const [carpartEnabled, setCarpartEnabled] = useState(true);
 
-  // Prefill Data for Order Creation from Car-Part
+  // Prefill data for order creation from customer records
   const [prefillOrderData, setPrefillOrderData] = useState<PrefillOrderData | null>(null);
 
   // Modals state
@@ -115,11 +113,6 @@ export default function App() {
       partPrice: 1000,
       warrantyDays: 60,
     });
-    setIsNewOrderModalOpen(true);
-  };
-
-  const handleCreateOrderFromPart = (prefillData: PrefillOrderData) => {
-    setPrefillOrderData(prefillData);
     setIsNewOrderModalOpen(true);
   };
 
@@ -210,15 +203,6 @@ export default function App() {
             />
           )}
 
-          {(currentScreen === 'buscar_piezas' || currentScreen === 'inventario' || currentScreen === 'stock') && (
-            <CarPartSearchModule
-              carpartEnabled={carpartEnabled}
-              userRole={userRole}
-              onCreateOrderFromPart={handleCreateOrderFromPart}
-              onNavigateToSettings={() => handleNavigate('sistema')}
-            />
-          )}
-
           {currentScreen === 'reclamos' && (
             <ClaimsView
               orders={orders}
@@ -243,8 +227,6 @@ export default function App() {
 
           {(currentScreen === 'sistema' || currentScreen === 'configuracion' || currentScreen === 'ayuda') && (
             <SystemSettingsView
-              carpartEnabled={carpartEnabled}
-              onToggleCarpartEnabled={setCarpartEnabled}
               userRole={userRole}
             />
           )}

@@ -50,7 +50,6 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     { id: 'dashboard', label: 'Panorama General (Dashboard)', icon: 'dashboard' },
     { id: 'taller', label: 'Mesa Central de Gestión de Órdenes', icon: 'build' },
     { id: 'crm', label: 'CRM Ventas & Clientes VIP', icon: 'person_search' },
-    { id: 'inventario', label: 'Inventario de Vehículos y Stock', icon: 'directions_car' },
     { id: 'finanzas', label: 'Finanzas & Facturación', icon: 'payments' },
   ];
 
@@ -65,7 +64,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar órdenes, clientes, piezas, placas, VIN o módulos..."
+            placeholder="Buscar órdenes, clientes, placas o módulos..."
             className="w-full bg-transparent text-[#dfe2ef] text-sm focus:outline-none placeholder:text-[#c2c6d6]/60"
           />
           <kbd className="font-data-mono text-[10px] border border-[rgba(255,255,255,0.15)] rounded px-1.5 py-0.5 bg-[#31353f] text-[#c2c6d6]">
