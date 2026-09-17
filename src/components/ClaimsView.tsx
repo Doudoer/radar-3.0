@@ -879,8 +879,8 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-            <div className="bg-[#111827] border border-[#2b3a58] rounded-2xl w-full max-w-5xl shadow-2xl flex flex-col overflow-hidden max-h-[92vh]">
-              <div className="p-5 bg-[#182338] border-b border-[#2b3a58] flex justify-between items-start gap-4">
+            <div className="bg-[#111827] border border-[#2b3a58] rounded-2xl w-full max-w-5xl shadow-2xl flex min-h-0 flex-col overflow-hidden max-h-[calc(100dvh-2rem)]">
+              <div className="p-5 bg-[#182338] border-b border-[#2b3a58] flex shrink-0 justify-between items-start gap-4">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-bold text-lg text-[#f1f5f9]">Detalle de Reclamo</h3>
@@ -904,7 +904,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
                 </button>
               </div>
 
-              <div className="p-6 overflow-y-auto custom-scrollbar grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-5">
+              <div className="min-h-0 flex-1 p-6 overflow-y-auto custom-scrollbar grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-5">
                 <div className="flex flex-col gap-4">
                   <section className="rounded-2xl border border-[#2b3a58] bg-[#0b1329] p-4">
                     <h4 className="font-bold text-[#f1f5f9] flex items-center gap-2 text-sm">
@@ -998,9 +998,9 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
       {/* MODAL 1: Bitácora y Registro de Llamadas del Cliente */}
       {selectedClaimForCalls && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-          <div className="bg-[#111827] border border-[#2b3a58] rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden max-h-[90vh]">
+          <div className="bg-[#111827] border border-[#2b3a58] rounded-2xl w-full max-w-2xl shadow-2xl flex min-h-0 flex-col overflow-hidden max-h-[calc(100dvh-2rem)]">
             {/* Modal Header */}
-            <div className="p-5 bg-[#182338] border-b border-[#2b3a58] flex justify-between items-center">
+            <div className="p-5 bg-[#182338] border-b border-[#2b3a58] flex shrink-0 justify-between items-center">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-[#388bfd]/20 text-[#58a6ff] flex items-center justify-center border border-[#388bfd]/40">
                   <span className="material-symbols-outlined text-[20px]">phone_in_talk</span>
@@ -1026,7 +1026,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
             </div>
 
             {/* Modal Body: Scrollable Call History + Add Call Form */}
-            <div className="p-6 flex flex-col gap-5 overflow-y-auto custom-scrollbar">
+            <div className="min-h-0 flex-1 p-6 flex flex-col gap-5 overflow-y-auto custom-scrollbar">
               {/* Criticality Banner if >= 3 Calls */}
               {(selectedClaimForCalls.callCount || 0) >= 3 && (
                 <div className="bg-[#ef4444]/20 border border-[#ef4444] rounded-xl p-3.5 flex items-start gap-3 text-xs text-[#fca5a5]">
@@ -1195,7 +1195,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
       {/* MODAL 2: Crear Nuevo Reclamo */}
       {isNewClaimModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-          <div className="bg-[#111827] border border-[#2b3a58] rounded-2xl w-full max-w-xl shadow-2xl flex flex-col overflow-hidden max-h-[92vh]">
+          <div className="bg-[#111827] border border-[#2b3a58] rounded-2xl w-full max-w-xl shadow-2xl flex min-h-0 flex-col overflow-hidden max-h-[calc(100dvh-2rem)]">
             <div className="p-5 bg-[#182338] border-b border-[#2b3a58] flex justify-between items-start gap-4 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-[#ef4444]/20 text-[#ef4444] flex items-center justify-center border border-[#ef4444]/40">
