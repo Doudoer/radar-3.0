@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Order, Claim, ClaimCall, RefundRequest, ClaimStatus } from '../types';
 import { apiFetch } from '../services/apiFetch';
+import { ClaimDetailView } from './ClaimDetailView';
 
 interface ClaimsViewProps {
   orders?: Order[];
@@ -356,6 +357,23 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
     setNewRefundDetails('');
     showToast(`💼 Solicitud de reembolso ${newRef.id} registrada por $${amountNum.toFixed(2)} USD.`);
   };
+
+  if (selectedClaimDetail) {
+    const detailOrder = orders.find((order) => order.id === selectedClaimDetail.orderId || order.code === selectedClaimDetail.orderCode);
+    return (
+      <ClaimDetailView
+        claim={selectedClaimDetail}
+        order={detailOrder}
+        onBack={() => setSelectedClaimDetail(null)}
+        onOpenCalls={() => {
+          setSelectedClaimForCalls(selectedClaimDetail);
+          setCallerName(selectedClaimDetail.customerName);
+          setCallerPhone(selectedClaimDetail.customerPhone);
+        }}
+        onResolve={() => void handleResolveClaim(selectedClaimDetail)}
+      />
+    );
+  }
 
   return (
     <div className="radar-view relative pb-16">
