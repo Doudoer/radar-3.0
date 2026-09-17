@@ -14,6 +14,7 @@ export const useRadarData = (authenticated: boolean) => {
 
   useEffect(() => {
     if (!authenticated) return;
+    setDatabaseMessage(null);
     setLoading(true);
 
     const ordersRequest = ordersApi.list()
@@ -23,7 +24,11 @@ export const useRadarData = (authenticated: boolean) => {
           setSelectedOrderId(databaseOrders[0].id);
         }
       })
-      .catch(() => setDatabaseMessage('No se pudo cargar la base de datos. Mostrando datos locales.'));
+      .catch((error) => {
+        setDatabaseMessage(error instanceof Error && error.message === 'Sesión expirada'
+          ? 'La sesión expiró. Inicia sesión nuevamente.'
+          : 'No se pudo cargar la base de datos. Mostrando datos locales.');
+      });
 
     const activitiesRequest = apiFetch('/activities')
       .then((response) => response.ok ? response.json() : Promise.reject())

@@ -54,7 +54,7 @@ export default function App() {
     setDatabaseMessage,
     replaceOrder,
     prependOrder,
-  } = useRadarData(authenticated);
+  } = useRadarData(authenticated && !authChecking);
   const { createOrder, updateOrder, updateOrderStatus, createOrderClaim } = useOrderActions({
     orders,
     setOrders,
