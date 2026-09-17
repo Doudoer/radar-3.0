@@ -3,7 +3,10 @@ import { fileURLToPath } from 'node:url';
 import { createPool } from 'mysql2/promise';
 
 export const port = Number(process.env.PORT || process.env.API_PORT || 3000);
-export const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../dist');
+const runtimeDirectory = path.dirname(fileURLToPath(import.meta.url));
+export const frontendRoot = path.basename(runtimeDirectory) === 'dist'
+  ? runtimeDirectory
+  : path.resolve(runtimeDirectory, '../../dist');
 export const maxBodyBytes = 1024 * 1024;
 
 export const allowedOrigins = new Set([
