@@ -18,9 +18,9 @@ Aplicación Radar 3.0 con frontend Vite y API Node/MySQL.
 3. Start the frontend in another terminal:
    `npm run dev`
 
-Open `http://localhost:3000`. The orders dashboard reads from `radar_db`, and new orders, status changes, and workflow updates are persisted through the local API at `http://localhost:3001`.
+Open `http://localhost:3000`. The dashboard reads from `radar_v3`; frontend and API share the same local origin.
 
-The API uses `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, and `API_PORT`. The frontend uses `VITE_API_URL` and defaults to `/api` when served behind the same origin.
+The API uses `PORT`, `API_PORT`, `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `JWT_SECRET`, and `CORS_ORIGIN`. The frontend uses `/api` when served behind the same origin.
 
 ## Production containers
 

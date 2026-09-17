@@ -38,7 +38,7 @@ Vite muestra una advertencia de bundle principal superior a `500 kB`. No bloquea
 ### A-01 - Produccion sin HTTPS
 
 **Severidad:** Critica
-**Estado:** Confirmado
+**Estado:** Corregido en `1e0854d`: HTTPS, HSTS y certificado Let’s Encrypt activos.
 
 La aplicacion se esta probando por una IP y HTTP. Credenciales, JWT y datos de negocio viajan sin cifrado de transporte.
 
@@ -57,7 +57,7 @@ La aplicacion se esta probando por una IP y HTTP. Credenciales, JWT y datos de n
 ### A-02 - Autorizacion insuficiente por rol
 
 **Severidad:** Alta
-**Estado:** Confirmado
+**Estado:** Parcialmente corregido en `c8b7cb8`; se añadieron restricciones para admin y resolución de reclamos, pero falta completar la matriz de permisos.
 
 El middleware valida que exista un JWT, pero solo `/api/users` exige rol `admin`. Ordenes, clientes, reclamos, llamadas, reportes, inventario y notificaciones quedan disponibles para cualquier usuario autenticado.
 
@@ -76,7 +76,7 @@ El middleware valida que exista un JWT, pero solo `/api/users` exige rol `admin`
 ### A-03 - Tokens no revocables al desactivar usuarios
 
 **Severidad:** Alta
-**Estado:** Confirmado
+**Estado:** Mitigado: el usuario activo se comprueba en cada request; queda pendiente revocación explícita por versión de token.
 
 `/api/auth/me` comprueba si el usuario esta activo, pero el resto de endpoints solo verifica la firma del JWT. Un token emitido antes de desactivar un usuario puede seguir funcionando durante su periodo de validez.
 
@@ -89,7 +89,7 @@ El middleware valida que exista un JWT, pero solo `/api/users` exige rol `admin`
 ### A-04 - Body HTTP sin limite
 
 **Severidad:** Alta
-**Estado:** Confirmado
+**Estado:** Corregido en `1e0854d`: límite de `1 MB`, Content-Length y Content-Type.
 
 `readBody()` acumula todos los chunks recibidos sin limite.
 
@@ -107,7 +107,7 @@ El middleware valida que exista un JWT, pero solo `/api/users` exige rol `admin`
 ### A-05 - JSON invalido termina en 500
 
 **Severidad:** Alta
-**Estado:** Confirmado
+**Estado:** Corregido en `1e0854d`: JSON inválido responde `400`.
 
 `JSON.parse()` se ejecuta sin una respuesta especifica para errores de sintaxis.
 
@@ -118,7 +118,7 @@ El middleware valida que exista un JWT, pero solo `/api/users` exige rol `admin`
 ### A-06 - Payloads de orden sin validacion de negocio
 
 **Severidad:** Alta
-**Estado:** Confirmado
+**Estado:** En progreso: se añadieron esquemas para login, reclamos y llamadas; falta completar órdenes y reglas de negocio.
 
 La API acepta directamente datos de orden enviados por el cliente.
 
@@ -138,7 +138,7 @@ Riesgos identificados:
 ### A-07 - Falta una transaccion completa al actualizar ordenes
 
 **Severidad:** Alta
-**Estado:** Confirmado
+**Estado:** Corregido en `1e0854d`: la actualización de orden usa transacción única.
 
 La actualizacion de cliente, orden e insercion en `status_orders` no se ejecuta dentro de una unica transaccion.
 
@@ -151,7 +151,7 @@ La actualizacion de cliente, orden e insercion en `status_orders` no se ejecuta 
 ### B-01 - Ruta `/api/gomotive/vehicles` inexistente
 
 **Severidad:** Media-alta
-**Estado:** Confirmado
+**Estado:** Mitigado: ahora responde `501` explícito hasta configurar la integración; falta decidir si se implementa o elimina la vista.
 
 El frontend llama a:
 
@@ -172,7 +172,7 @@ desde `src/components/GomotiveFleetView.tsx`, pero no existe un handler correspo
 ### B-02 - Rutas comparadas contra `request.url` completo
 
 **Severidad:** Media
-**Estado:** Confirmado
+**Estado:** Corregido en `1e0854d`: el router usa `pathname` sin query string.
 
 Muchas rutas usan comparaciones exactas como:
 
@@ -208,7 +208,7 @@ Varias vistas transforman fallos de API en arrays vacios o datos mock:
 ### C-01 - JWT almacenado en `localStorage`
 
 **Severidad:** Media
-**Estado:** Confirmado
+**Estado:** Corregido en `c8b7cb8`: JWT en cookie HttpOnly, Secure en producción y SameSite=Lax.
 
 El frontend guarda `radar_token` en `localStorage`.
 
@@ -219,7 +219,7 @@ El frontend guarda `radar_token` en `localStorage`.
 ### C-02 - Rate limit en memoria
 
 **Severidad:** Media
-**Estado:** Confirmado
+**Estado:** Parcialmente mitigado: limpieza periódica añadida; queda pendiente almacenamiento compartido para múltiples réplicas.
 
 El rate limit de login utiliza un `Map` local.
 
@@ -245,7 +245,7 @@ La aplicacion falla el login si no existe `JWT_SECRET`, lo cual evita emitir tok
 ### C-04 - Falta invalidacion de sesiones
 
 **Severidad:** Media
-**Estado:** Confirmado
+**Estado:** Parcialmente mitigado: logout server-side y verificación de usuario activo añadidos; queda pendiente revocación por versión de token.
 
 No hay logout server-side, lista de sesiones, revocacion por usuario ni rotacion de secretos.
 
@@ -254,7 +254,7 @@ No hay logout server-side, lista de sesiones, revocacion por usuario ni rotacion
 ### D-01 - Falta Content Security Policy
 
 **Severidad:** Media
-**Estado:** Confirmado
+**Estado:** Corregido en `1e0854d`: CSP activa con excepción limitada para NHTSA.
 
 Hay algunas cabeceras defensivas, pero no una `Content-Security-Policy`.
 
@@ -263,7 +263,7 @@ Hay algunas cabeceras defensivas, pero no una `Content-Security-Policy`.
 ### D-02 - Falta `Vary: Origin`
 
 **Severidad:** Baja-media
-**Estado:** Riesgo potencial
+**Estado:** Corregido en `1e0854d`.
 
 La respuesta CORS cambia segun `Origin`, pero no declara `Vary: Origin`. Un proxy cache podria reutilizar una respuesta con un origen incorrecto.
 
@@ -279,7 +279,7 @@ La respuesta CORS cambia segun `Origin`, pero no declara `Vary: Origin`. Un prox
 ### D-04 - Contenedor ejecutado como root
 
 **Severidad:** Media
-**Estado:** Confirmado
+**Estado:** Corregido en `1e0854d`: runtime no root.
 
 El runtime de `Dockerfile` no declara un usuario no privilegiado.
 
@@ -288,7 +288,7 @@ El runtime de `Dockerfile` no declara un usuario no privilegiado.
 ### D-05 - Falta `HEALTHCHECK` en Dockerfile
 
 **Severidad:** Media
-**Estado:** Confirmado
+**Estado:** Corregido en `1e0854d`.
 
 Existe `/health`, pero Docker no tiene un `HEALTHCHECK` declarado.
 
@@ -297,7 +297,7 @@ Existe `/health`, pero Docker no tiene un `HEALTHCHECK` declarado.
 ### D-06 - Produccion usa puertos temporales HTTP
 
 **Severidad:** Alta
-**Estado:** Confirmado
+**Estado:** Mitigado: dominio HTTPS y Let’s Encrypt activos; queda retirar puertos temporales.
 
 La aplicacion esta publicada temporalmente mediante IP y HTTP. Antes de considerarla produccion definitiva deben configurarse dominio, HTTPS y Traefik.
 
@@ -305,11 +305,11 @@ La aplicacion esta publicada temporalmente mediante IP y HTTP. Antes de consider
 
 ### E-01 - Documentacion desactualizada
 
-`README.md` todavia menciona `radar_db` y una API separada en `localhost:3001`, aunque el sistema actual usa un contenedor combinado y `radar_v3`.
+`README.md` fue actualizado para el contenedor combinado y `radar_v3`.
 
 ### E-02 - Dos lockfiles
 
-El repositorio contiene `package-lock.json` y `bun.lock`. Docker usa `npm ci`, por lo que conviene elegir npm y retirar `bun.lock` para evitar instalaciones divergentes.
+`bun.lock` fue eliminado; Docker usa únicamente `package-lock.json` y `npm ci`.
 
 ### E-03 - Bundle frontend grande
 

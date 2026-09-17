@@ -633,6 +633,10 @@ createServer(async (request, response) => {
       })));
     }
 
+    if (request.method === 'GET' && pathname === '/api/gomotive/vehicles') {
+      return sendJson(response, 501, { message: 'Integración Gomotive no configurada', vehicles: [] });
+    }
+
     if (request.method === 'POST' && pathname === '/api/orders') {
       if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
       const order = await readBody(request);
