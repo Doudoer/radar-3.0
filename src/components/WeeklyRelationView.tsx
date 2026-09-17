@@ -413,7 +413,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
   // 4. RENDER FULL FINANCIAL DASHBOARD (UNLOCKED)
   // =========================================================================
   return (
-    <div className="flex flex-col gap-6 max-w-7xl mx-auto animate-fade-in select-none pb-12">
+    <div className="radar-view select-none pb-12">
       {/* Toast Feedback */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-[#10b981] text-[#042f2e] font-bold text-xs py-3 px-5 rounded-xl shadow-[0_10px_25px_rgba(16,185,129,0.4)] flex items-center gap-2.5 animate-bounce print:hidden">

@@ -20,9 +20,9 @@ export const AIReportsView: React.FC = () => {
   const money = (value: string | number | undefined) => Number(value || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
   return (
-    <div className="flex flex-col gap-6 animate-fade-in max-w-7xl mx-auto">
+    <div className="radar-view">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[#111827]/80 p-5 rounded-xl border border-[#1e293b] backdrop-blur-md">
+      <div className="radar-view-header flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
             <span className="material-symbols-outlined text-[#388bfd] text-[26px]">smart_toy</span>
@@ -46,7 +46,11 @@ export const AIReportsView: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#1e293b] pb-4">
           <div>
             <span className="text-[11px] font-mono text-[#58a6ff] uppercase tracking-wider block">
-              {latestReport ? `Informe almacenado · ${latestReport.week_code}` : 'Analítica operativa en tiempo real'}
+              {latestReport
+                ? latestReport.week_code
+                  ? `Informe almacenado · ${latestReport.week_code}`
+                  : 'Informe almacenado'
+                : 'Analítica operativa en tiempo real'}
             </span>
             <h2 className="text-lg font-bold text-[#f1f5f9] mt-0.5">
               {latestReport?.title || 'Resumen de ventas y operación de RADAR'}

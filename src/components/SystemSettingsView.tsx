@@ -12,8 +12,8 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   userRole = 'admin',
 }) => {
   return (
-    <div className="flex flex-col gap-6 animate-fade-in max-w-7xl mx-auto">
-      <div className="bg-[#111827]/80 p-5 rounded-xl border border-[#1e293b] backdrop-blur-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="radar-view">
+      <div className="radar-view-header flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
             <span className="material-symbols-outlined text-[#58a6ff] text-[26px]">settings</span>
@@ -135,7 +135,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
           <div className="flex flex-col gap-3 text-xs">
             <div className="flex justify-between items-center py-2 border-b border-[#1e293b]">
               <span className="text-[#94a3b8]">Wasender Gateway (WhatsApp)</span>
-              <span className="text-[#10b981] font-semibold">Conectado (Sesión Activa)</span>
+              <span className="text-[#f59e0b] font-semibold">Preparado (configurable)</span>
             </div>
             <div className="flex justify-between items-center py-2 border-b border-[#1e293b]">
               <span className="text-[#94a3b8]">NHTSA VIN Decoder API</span>

@@ -221,7 +221,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
   };
 
   return (
-    <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-6 animate-fade-in">
+    <div className="radar-view">
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>

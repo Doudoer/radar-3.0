@@ -9,7 +9,7 @@ export const CalendarView: React.FC = () => {
   ];
 
   return (
-    <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-6">
+    <div className="radar-view">
       <div>
         <h2 className="font-headline-md text-2xl md:text-3xl font-bold text-[#dfe2ef] tracking-tight mb-1">
           Agenda de Bahías y Citas de Taller

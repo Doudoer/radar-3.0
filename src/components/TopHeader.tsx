@@ -33,7 +33,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         </button>
         <div className="flex items-center gap-2">
           <div className="w-2.5 h-2.5 rounded-full bg-[#388bfd] shadow-[0_0_8px_#388bfd]" />
-          <span className="font-bold text-[#58a6ff] text-[16px] tracking-wider uppercase">RADAR V2</span>
+          <span className="font-bold text-[#58a6ff] text-[16px] tracking-wider uppercase">RADAR V3</span>
         </div>
       </div>
 

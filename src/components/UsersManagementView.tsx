@@ -90,9 +90,9 @@ export const UsersManagementView: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col gap-6 animate-fade-in max-w-7xl mx-auto">
+    <div className="radar-view">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[#111827]/80 p-5 rounded-xl border border-[#1e293b] backdrop-blur-md">
+      <div className="radar-view-header flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
             <span className="material-symbols-outlined text-[#58a6ff] text-[26px]">manage_accounts</span>
@@ -120,7 +120,7 @@ export const UsersManagementView: React.FC = () => {
                 <th className="py-3 px-4">Usuario</th>
                 <th className="py-3 px-4">Rol en Radar</th>
                 <th className="py-3 px-4">Departamento</th>
-                <th className="py-3 px-4">Último Acceso</th>
+                <th className="py-3 px-4">Actualización</th>
                 <th className="py-3 px-4">Estado</th>
                 <th className="py-3 px-4 text-right">Acciones</th>
               </tr>

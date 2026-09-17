@@ -51,7 +51,7 @@ export const AIAlertsView: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col gap-6 animate-fade-in max-w-7xl mx-auto">
+    <div className="radar-view">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[#111827]/80 p-5 rounded-xl border border-[#1e293b] backdrop-blur-md">
         <div>

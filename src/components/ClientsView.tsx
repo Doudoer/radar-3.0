@@ -315,7 +315,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-5 animate-fade-in max-w-7xl mx-auto select-none">
+    <div className="radar-view select-none">
       {/* Toast Feedback */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-[#10b981] text-[#042f2e] font-bold text-xs py-3 px-5 rounded-xl shadow-[0_10px_25px_rgba(16,185,129,0.4)] flex items-center gap-2.5 animate-bounce">

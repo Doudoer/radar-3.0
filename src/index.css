@@ -27,6 +27,35 @@
   font-family: 'JetBrains Mono', monospace;
 }
 
+.radar-view {
+  width: 100%;
+  max-width: 1600px;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  animation: radarViewIn 180ms ease-out both;
+}
+
+.radar-view-header {
+  background: rgba(17, 24, 39, 0.8);
+  border: 1px solid #1e293b;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  backdrop-filter: blur(12px);
+}
+
+.radar-panel {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 0.75rem;
+}
+
+@keyframes radarViewIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* Glassmorphism & Glow */
 .glass-card {
   background: rgba(28, 31, 41, 0.65);

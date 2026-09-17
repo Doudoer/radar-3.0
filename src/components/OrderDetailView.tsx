@@ -283,7 +283,7 @@ Warranty: ${order.warrantyDays || 60} days (effective upon physical delivery)
 Delivery Type: ${isHomeDelivery ? 'Home Delivery' : 'Pickup at RADAR Main Store'}`;
 
   return (
-    <div className="w-full max-w-7xl mx-auto flex flex-col gap-5 animate-fade-in text-[#dfe2ef] pb-8">
+    <div className="radar-view text-[#dfe2ef] pb-8">
       {/* 1. TOP HEADER & BREADCRUMB ROW */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

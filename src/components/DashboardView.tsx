@@ -101,7 +101,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   };
 
   return (
-    <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-6">
+    <div className="radar-view">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>

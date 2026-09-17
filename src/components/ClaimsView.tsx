@@ -358,7 +358,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
   };
 
   return (
-    <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-6 animate-fade-in relative pb-16">
+    <div className="radar-view relative pb-16">
       {/* Toast Alert */}
       {toastMessage && (
         <div className="fixed top-20 right-6 z-50 bg-[#10b981] text-[#064e3b] font-bold text-xs py-2.5 px-4 rounded-xl shadow-[0_0_25px_rgba(16,185,129,0.4)] flex items-center gap-2 animate-bounce border border-[#34d399]">

@@ -63,7 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex items-center gap-3">
             <div className="w-3 h-3 rounded-full bg-[#388bfd] shadow-[0_0_10px_#388bfd] shrink-0" />
             <h1 className="font-bold text-[#58a6ff] tracking-[0.2em] text-[15px] leading-none uppercase">
-              RADAR V2
+              RADAR V3
             </h1>
           </div>
           {/* Mobile close button */}

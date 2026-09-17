@@ -93,7 +93,7 @@ export const GomotiveFleetView: React.FC = () => {
   const idleUnits = fleet.filter((vehicle) => vehicle.idleMinutes >= 120);
 
   return (
-    <div className="w-full max-w-[1400px] mx-auto flex flex-col gap-6">
+    <div className="radar-view">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-[#60a5fa]">GOMotive</p>
