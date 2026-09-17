@@ -1,60 +1,248 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
-
 # Radar 3.0
 
-Aplicación Radar 3.0 con frontend Vite y API Node/MySQL.
+Radar 3.0 es un ERP/CRM operativo para gestionar órdenes de refacciones automotrices, clientes, vehículos, inventario, entregas, reclamos, llamadas, reportes y usuarios internos.
 
-## Run Locally
+- Frontend: React 19 + Vite + TypeScript.
+- API: Node.js + TypeScript + `mysql2/promise`.
+- Base de datos: MySQL/MariaDB.
+- Validación: Zod.
+- Sesiones: JWT en cookie `HttpOnly`.
+- Producción: contenedor único servido detrás de Dokploy/Traefik.
 
-**Prerequisites:** Node.js and a MySQL/MariaDB database.
+## Repositorio
 
+Repositorio remoto del proyecto:
 
-1. Install dependencies:
-   `npm install`
-2. Start the local API in one terminal:
-   `npm run api`
-3. Start the frontend in another terminal:
-   `npm run dev`
+https://github.com/Doudoer/radar-3.0
 
-Open `http://localhost:3000`. The dashboard reads from `radar_v3`; frontend and API share the same local origin.
+Producción:
 
-The API uses `PORT`, `API_PORT`, `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `JWT_SECRET`, and `CORS_ORIGIN`. The frontend uses `/api` when served behind the same origin.
+https://radar-rsy.store/
 
-## Production containers
+## Funcionalidades
 
-- `Dockerfile`: build y runtime único para frontend + API en el puerto `3000`.
-- `VITE_API_URL` usa `/api` por defecto porque frontend y API comparten origen.
+- Dashboard operativo con KPIs, actividad y métricas SLA.
+- Gestión de órdenes: creación, edición, estados, entregas, garantías y detalle operativo.
+- Directorio de clientes con relación de órdenes.
+- Búsqueda de piezas y consulta VIN.
+- Gestión de reclamos y garantías con restauración de estado de la orden.
+- Registro de llamadas.
+- Operaciones y traspaso de órdenes.
+- Relación semanal y módulo financiero protegido por 2FA.
+- Alertas y reportes ejecutivos.
+- Configuración del sistema e integración futura de mensajería.
+- Gestión de usuarios, roles, estado de cuenta y permisos.
+- Loading global durante sesión, carga de datos y transición de vistas.
+- Layout visual compartido para las vistas principales.
 
-Authentication is provided by the API with bcrypt password verification and short-lived JWT sessions. Set a strong `JWT_SECRET` in the API environment before deployment. User roles come from the `users.role` column; the UI no longer allows changing roles locally.
+## Requisitos
 
-The production container runs as a non-root user, enforces JSON request limits, validates content types, sends security headers, and exposes `/health` for Dokploy health checks. Production traffic must use HTTPS through Traefik.
+- Node.js 22 o superior.
+- npm.
+- MySQL 8+ o MariaDB compatible.
+- Base de datos `radar_v3` creada y accesible.
 
-## Estructura modular
+## Desarrollo local
 
-- `src/server/config.ts`: puertos, CORS, pool MySQL y configuración de runtime.
-- `src/server/auth.ts`: JWT, cookies HttpOnly, rate limit, roles y revocación por actualización de usuario.
-- `src/server/schemas.ts`: validación Zod de payloads.
-- `src/server/http.ts`: parsing JSON, respuestas HTTP y serving de la SPA.
-- `src/server/orders.ts`: consulta, normalización y persistencia auxiliar de órdenes.
+Instalar dependencias:
+
+```bash
+npm install
+```
+
+Crear un archivo `.env` a partir de `.env.example` y completar la conexión a MySQL/MariaDB.
+
+Iniciar la API en el puerto `3001`:
+
+```bash
+PORT=3001 npm run api
+```
+
+En otra terminal, iniciar Vite en el puerto `3000` apuntando a la API:
+
+```bash
+VITE_API_URL=http://localhost:3001/api npm run dev -- --port 3000
+```
+
+Abrir:
+
+http://localhost:3000
+
+La separación de puertos es necesaria durante el desarrollo. En producción, frontend y API comparten el mismo origen y el frontend usa `/api`.
+
+## Variables de entorno
+
+Variables principales:
+
+| Variable | Uso |
+| --- | --- |
+| `PORT` / `API_PORT` | Puerto HTTP de la API. |
+| `DB_HOST` | Host de MySQL/MariaDB. |
+| `DB_PORT` | Puerto de base de datos. |
+| `DB_NAME` | Nombre de la base, normalmente `radar_v3`. |
+| `DB_USER` | Usuario de aplicación. |
+| `DB_PASSWORD` | Contraseña de aplicación. |
+| `JWT_SECRET` | Secreto largo y aleatorio para las sesiones. |
+| `CORS_ORIGIN` | Origen permitido del frontend. |
+| `APP_URL` | URL pública de la aplicación. |
+| `VITE_API_URL` | URL de API usada por Vite en desarrollo. |
+
+Nunca guardar credenciales reales en Git. En Dokploy deben configurarse como variables o secretos del entorno de producción.
+
+## Scripts
+
+| Comando | Función |
+| --- | --- |
+| `npm run dev` | Servidor de desarrollo Vite. |
+| `npm run api` | API Node mediante `tsx`. |
+| `npm run lint` | Comprobación TypeScript con `tsc --noEmit`. |
+| `npm run build` | Compilación del frontend en `dist/`. |
+| `npm run build:api` | Bundle de API en `dist/server.js`. |
+| `npm run preview` | Previsualización del build frontend. |
+| `npm run clean` | Elimina artefactos locales de build. |
+
+Validación recomendada antes de publicar:
+
+```bash
+npm run lint
+npm run build
+npm run build:api
+npm audit --omit=dev
+```
+
+## API disponible
+
+Todas las rutas `/api/*`, excepto login, requieren sesión válida. Las operaciones administrativas requieren rol `admin`.
+
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| `GET` | `/health` | Healthcheck de API y base de datos. |
+| `POST` | `/api/auth/login` | Inicia sesión. |
+| `POST` | `/api/auth/logout` | Cierra sesión. |
+| `GET` | `/api/auth/me` | Consulta la sesión actual. |
+| `GET` | `/api/orders` | Lista órdenes. |
+| `POST` | `/api/orders` | Crea una orden. |
+| `PUT` | `/api/orders/:id` | Actualiza una orden. |
+| `GET` | `/api/customers` | Lista clientes. |
+| `GET` | `/api/claims` | Lista reclamos. |
+| `POST` | `/api/claims` | Crea un reclamo. |
+| `PUT` | `/api/claims/:id` | Actualiza un reclamo. |
+| `GET` | `/api/calls` | Lista llamadas. |
+| `POST` | `/api/calls` | Registra una llamada. |
+| `GET` | `/api/notifications` | Consulta notificaciones almacenadas. |
+| `GET` | `/api/activities` | Consulta actividad reciente. |
+| `GET` | `/api/analytics` | Consulta indicadores y ventas diarias. |
+| `GET` | `/api/reports` | Consulta reportes IA almacenados. |
+| `GET` | `/api/inventory` | Consulta inventario/logística. |
+| `GET` | `/api/users` | Lista usuarios, solo administradores. |
+| `PUT` | `/api/users/:id` | Edita cuenta, rol, estado y permisos. |
+
+## Arquitectura
+
+### Backend
+
+- `server.ts`: router HTTP y coordinación de casos de uso.
+- `src/server/config.ts`: puerto, CORS, pool y resolución del frontend compilado.
+- `src/server/auth.ts`: JWT, cookies, rate limit, roles y revocación por `updated_at`.
+- `src/server/schemas.ts`: esquemas Zod para payloads.
+- `src/server/http.ts`: body JSON, respuestas y serving de la SPA.
+- `src/server/orders.ts`: consulta y normalización de órdenes.
 - `src/server/claims.ts`: consulta y normalización de reclamos.
-- `src/server/analytics.ts`: consultas de indicadores y ventas diarias.
-- `src/server/notifications/`: eventos, canales y configuración futura de notificaciones/Wasender.
-- `src/hooks/useAuthSession.ts`: sesión y logout del frontend.
-- `src/hooks/useRadarData.ts`: carga y estado de órdenes, clientes y actividades.
-- `src/hooks/useOrderActions.ts`: creación, actualización, transiciones y reclamos de órdenes.
-- `src/services/`: acceso HTTP del frontend.
-- `src/components/`: vistas y módulos visuales del dominio.
-- `src/server/files/`: almacenamiento seguro futuro de archivos e imágenes simples/múltiples.
-- `src/integrations/wasender/`: cliente Wasender desacoplado y configurable.
+- `src/server/analytics.ts`: indicadores y ventas diarias.
+- `src/server/notifications/`: eventos, canales y configuración de notificaciones.
+- `src/server/files/`: almacenamiento seguro futuro de archivos e imágenes.
 
-`server.ts` conserva el router y coordina los casos de uso; las responsabilidades transversales viven en `src/server/`.
+### Frontend
 
-## Integraciones preparadas
+- `src/App.tsx`: composición de layout, navegación y modales.
+- `src/components/`: vistas y componentes del dominio.
+- `src/hooks/useAuthSession.ts`: sesión y logout.
+- `src/hooks/useRadarData.ts`: carga inicial de órdenes, clientes y actividad.
+- `src/hooks/useOrderActions.ts`: creación, edición, transiciones y reclamos.
+- `src/hooks/useViewLoading.ts`: loading de cambio de vista.
+- `src/components/LoadingOverlay.tsx`: loading global.
+- `src/services/`: llamadas HTTP al backend.
+- `src/utils/`: reglas de estados y utilidades.
+- `src/index.css`: tokens y contenedores visuales compartidos.
 
-El almacenamiento de archivos se puede consumir con `saveUpload()` y `saveUploads()` desde `src/server/files`. Genera nombres UUID, limita MIME/tamaño y evita rutas controladas por el usuario.
+## Archivos, imágenes y Wasender
 
-Wasender se consume mediante `wasender.sendText()`, `wasender.sendImage()` y `wasender.sendFile()` desde `src/integrations/wasender`. No realiza llamadas hasta configurar sus variables en Dokploy.
+El módulo [src/server/files](src/server/files) está preparado para cargas simples y múltiples:
 
-Las notificaciones futuras se gestionan mediante `notificationService`. Admite eventos de alertas, estados, órdenes, reclamos, entregas, facturas, seguridad y sistema. `in_app` está disponible como canal local; el canal Wasender requiere `NOTIFICATIONS_WASENDER_ENABLED=true`, credenciales Wasender y destinatarios configurados. Los eventos se pueden ajustar individualmente mediante `NOTIFICATIONS_EVENT_CONFIG` o variables `NOTIFICATIONS_<EVENT>_ENABLED` y `NOTIFICATIONS_<EVENT>_RECIPIENTS`.
+- `saveUpload()` guarda un archivo.
+- `saveUploads()` guarda hasta 20 archivos con rollback ante error.
+- `removeUpload()` elimina usando validación de ruta.
+- Los nombres internos usan UUID.
+- Se validan MIME, tamaño, extensión y directorio de almacenamiento.
+- Las imágenes se separan de los archivos generales.
+
+El módulo [src/integrations/wasender](src/integrations/wasender) expone:
+
+- `wasender.sendText()`.
+- `wasender.sendImage()`.
+- `wasender.sendFile()`.
+
+No se realizan llamadas externas mientras falten `WASENDER_BASE_URL` y `WASENDER_API_KEY`.
+
+## Notificaciones configurables
+
+`notificationService` permite preparar eventos de:
+
+- alertas;
+- notificaciones generales;
+- cambios de estado;
+- órdenes;
+- reclamos;
+- entregas;
+- facturas;
+- seguridad;
+- sistema.
+
+Los canales disponibles son `in_app` y `wasender`. Wasender está desactivado por defecto. Para habilitarlo se requieren:
+
+```env
+NOTIFICATIONS_ENABLED="true"
+NOTIFICATIONS_WASENDER_ENABLED="true"
+NOTIFICATIONS_DEFAULT_RECIPIENTS="521555555555,521555555556"
+```
+
+La configuración individual puede hacerse con `NOTIFICATIONS_EVENT_CONFIG` o variables como `NOTIFICATIONS_ORDER_ENABLED` y `NOTIFICATIONS_CLAIM_RECIPIENTS`. El servicio no se conecta a Wasender sin configuración explícita.
+
+## Seguridad
+
+- Contraseñas verificadas con bcrypt.
+- Sesiones JWT en cookies `HttpOnly`, `Secure` en producción y `SameSite=Lax`.
+- Logout con eliminación de cookie.
+- Validación de payloads con Zod.
+- Límite de tamaño para cuerpos JSON.
+- Validación obligatoria de `Content-Type`.
+- Rate limit de login en memoria.
+- Roles administrativos para usuarios, analytics y reportes.
+- Protección contra desactivación o degradación de la propia cuenta administradora.
+- Headers de seguridad, CSP y HSTS bajo HTTPS.
+- Contenedor de producción ejecutado como usuario no root.
+- Healthcheck para Dokploy.
+- Sin credenciales reales en el repositorio.
+
+## Docker y producción
+
+El [Dockerfile](Dockerfile) usa dos etapas:
+
+1. Compila frontend y API.
+2. Ejecuta un runtime Node 22 con solo dependencias de producción.
+
+El contenedor expone el puerto `3000`, sirve frontend y API desde el mismo proceso y ejecuta:
+
+```bash
+node dist/server.js
+```
+
+El endpoint de healthcheck es:
+
+https://radar-rsy.store/health
+
+El despliegue se gestiona en Dokploy conectado al branch `main`. Después de publicar cambios en GitHub es necesario esperar o iniciar un nuevo deploy para que Dokploy construya la imagen actualizada.
+
+## Estado actual
+
+El proyecto está operativo en local y preparado para producción. Los módulos de uploads, Wasender y notificaciones están desacoplados y configurables, pero permanecen sin envíos externos automáticos hasta que se definan credenciales, destinatarios y reglas de negocio.
