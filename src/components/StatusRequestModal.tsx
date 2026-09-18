@@ -7,6 +7,7 @@ const reportStatuses: Array<{ id: OrderStatus; label: string }> = [
   { id: 'pagado', label: 'Pagado' },
   { id: 'en_preparacion', label: 'En preparación' },
   { id: 'espera_confirmacion', label: 'En espera de confirmación' },
+  { id: 'reclamo', label: 'Cambio / Reclamo' },
 ];
 
 interface StatusRequestModalProps {
@@ -21,9 +22,46 @@ const orderDate = (order: Order) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
-const cleanText = (value: string, max = 70) => value.replace(/\s+/g, ' ').trim().slice(0, max);
+const cleanText = (value: string, max = 140) => value
+  .replace(/[–—]/g, '-')
+  .replace(/[^\x20-\x7EÀ-ÿ]/g, '')
+  .replace(/\s+/g, ' ')
+  .trim()
+  .slice(0, max);
 
 const partType = (order: Order) => /tra|transmisi|transmission|caja|gearbox/i.test(order.mainPart) ? 'TRA' : 'ENG';
+
+const displayDate = (value: string) => {
+  const [year, month, day] = value.split('-');
+  return `${month}/${day}/${year}`;
+};
+
+const wrapText = (text: string, font: { widthOfTextAtSize: (value: string, size: number) => number }, size: number, maxWidth: number) => {
+  const words = cleanText(text).split(' ').filter(Boolean);
+  const lines: string[] = [];
+  let line = '';
+  words.forEach((word) => {
+    const candidate = line ? `${line} ${word}` : word;
+    if (font.widthOfTextAtSize(candidate, size) <= maxWidth) {
+      line = candidate;
+    } else {
+      if (line) lines.push(line);
+      line = word;
+    }
+  });
+  if (line) lines.push(line);
+  return lines.length ? lines : ['-'];
+};
+
+const orderType = (order: Order) => order.status === 'reclamo' || Boolean(order.claimReason) ? 'CAMBIO' : 'VENTA';
+
+const yardNotes = (order: Order) => {
+  const delivery = order.deliveryType === 'envio_domicilio' ? 'Envío' : 'Retiro en Tienda';
+  if (orderType(order) === 'CAMBIO') {
+    return `Cambio urgente / ${order.notes || order.claimReason || 'Buscar en yarda'} / ${delivery}`;
+  }
+  return order.notes || delivery;
+};
 
 export const StatusRequestModal: React.FC<StatusRequestModalProps> = ({ isOpen, orders, onClose }) => {
   const [fromDate, setFromDate] = useState('');
@@ -68,32 +106,95 @@ export const StatusRequestModal: React.FC<StatusRequestModalProps> = ({ isOpen, 
       const pdf = await PDFDocument.create();
       const regular = await pdf.embedFont(StandardFonts.Helvetica);
       const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-      const blue = rgb(0.12, 0.32, 0.58);
-      let page = pdf.addPage([612, 792]);
-      let y = 748;
-      const addPageIfNeeded = () => { if (y < 70) { page = pdf.addPage([612, 792]); y = 748; } };
-      page.drawText('SOLICITUD DE ESTATUS', { x: 42, y, size: 18, font: bold, color: blue });
-      y -= 28;
-      page.drawText(`Rango: ${fromDate} a ${toDate}  |  Ordenes: ${selectedOrders.length}`, { x: 42, y, size: 9, font: regular, color: rgb(0.3, 0.3, 0.3) });
-      y -= 26;
-      page.drawLine({ start: { x: 42, y }, end: { x: 570, y }, thickness: 1, color: blue });
-      y -= 22;
+      const pageSize: [number, number] = [841.89, 595.28];
+      const margin = 12;
+      const tableWidth = pageSize[0] - margin * 2;
+      const columns = [64, 112, 40, 77, 80, 40, 213, 57, 134];
+      const headers = ['FECHA', 'CLIENTE', 'AÑO', 'MARCA', 'MODELO', 'TIPO', 'SPECS', 'TIPO\nORDEN', 'NOTAS / STATUS PATIO'];
+      const navy = rgb(0.08, 0.12, 0.2);
+      const headerBlue = rgb(0.11, 0.16, 0.25);
+      const grid = rgb(0.77, 0.82, 0.89);
+      const paleYellow = rgb(1, 0.98, 0.84);
+      let page = pdf.addPage(pageSize);
+      let y = 0;
 
-      selectedOrders.forEach((order, index) => {
-        addPageIfNeeded();
-        const details = [
-          `${index + 1}. ${cleanText(order.customer.name, 52)} | ${order.vehicle.year || '-'} ${cleanText(order.vehicle.make, 20)} ${cleanText(order.vehicle.model, 24)}`,
-          `Tipo: ${partType(order)}    Orden: ${cleanText(order.code, 28)}    Estatus: ${cleanText(order.status, 24)}`,
-          `Descripcion: ${cleanText(order.productSpecs || order.mainPart || '-', 90)}`,
-          `VIN: ${cleanText(order.vehicle.vin || 'No registrado', 70)}`,
+      const drawReportHeader = () => {
+        page.drawText('PENDIENTES POR STATUS', { x: margin, y: 564, size: 17, font: bold, color: navy });
+        page.drawText('Control y seguimiento de solicitudes de partes a patio', { x: margin, y: 549, size: 8.5, font: regular, color: rgb(0.29, 0.36, 0.47) });
+        const range = `Rango: ${displayDate(fromDate)} al ${displayDate(toDate)}  |  Total Registros: ${selectedOrders.length}`;
+        const rangeWidth = bold.widthOfTextAtSize(range, 8) + 14;
+        page.drawRectangle({ x: pageSize[0] - margin - rangeWidth, y: 551, width: rangeWidth, height: 18, color: rgb(0.95, 0.97, 0.99), borderColor: grid, borderWidth: 0.75 });
+        page.drawText(range, { x: pageSize[0] - margin - rangeWidth + 7, y: 557, size: 8, font: bold, color: rgb(0.2, 0.27, 0.37) });
+        page.drawLine({ start: { x: margin, y: 541 }, end: { x: pageSize[0] - margin, y: 541 }, thickness: 1.5, color: navy });
+        y = 532;
+      };
+
+      const drawTableHeader = () => {
+        const height = 31;
+        page.drawRectangle({ x: margin, y: y - height, width: tableWidth, height, color: headerBlue });
+        let x = margin;
+        headers.forEach((header, index) => {
+          header.split('\n').forEach((line, lineIndex) => {
+            const width = bold.widthOfTextAtSize(line, 7.2);
+            page.drawText(line, { x: x + Math.max(4, (columns[index] - width) / 2), y: y - 13 - lineIndex * 9, size: 7.2, font: bold, color: rgb(1, 1, 1) });
+          });
+          x += columns[index];
+        });
+        y -= height;
+      };
+
+      const startPage = () => {
+        drawReportHeader();
+        drawTableHeader();
+      };
+
+      startPage();
+      selectedOrders.forEach((order) => {
+        const date = orderDate(order);
+        const type = orderType(order);
+        const values = [
+          date ? date.toLocaleDateString('en-US') : '-',
+          order.customer.name || '-',
+          String(order.vehicle.year || '-'),
+          order.vehicle.make || '-',
+          order.vehicle.model || '-',
+          partType(order),
+          order.productSpecs || order.mainPart || '-',
+          type,
+          yardNotes(order),
         ];
-        page.drawText(details[0], { x: 42, y, size: 10, font: bold, color: rgb(0.08, 0.12, 0.2) });
-        y -= 16;
-        details.slice(1).forEach((line) => { page.drawText(line, { x: 52, y, size: 9, font: regular, color: rgb(0.2, 0.23, 0.28) }); y -= 14; });
-        y -= 10;
-        page.drawLine({ start: { x: 52, y }, end: { x: 570, y }, thickness: 0.5, color: rgb(0.82, 0.84, 0.88) });
-        y -= 14;
+        const lines = values.map((value, index) => wrapText(value, index === 1 ? bold : regular, 7.3, columns[index] - 10));
+        const rowHeight = Math.max(24, Math.max(...lines.map((cellLines) => cellLines.length)) * 9 + 10);
+        if (y - rowHeight < 48) {
+          page = pdf.addPage(pageSize);
+          startPage();
+        }
+
+        const highlighted = /buscar en yarda|cambio urgente/i.test(values[8]);
+        page.drawRectangle({ x: margin, y: y - rowHeight, width: tableWidth, height: rowHeight, color: highlighted ? paleYellow : rgb(1, 1, 1), borderColor: grid, borderWidth: 0.6 });
+        let x = margin;
+        lines.forEach((cellLines, index) => {
+          if (index > 0) page.drawLine({ start: { x, y }, end: { x, y: y - rowHeight }, thickness: 0.6, color: grid });
+          const cellFont = index === 1 || (index === 8 && type === 'CAMBIO') ? bold : regular;
+          const textColor = index === 8 && type === 'CAMBIO' ? rgb(0.75, 0.08, 0.08) : navy;
+          cellLines.forEach((line, lineIndex) => {
+            const centered = [0, 2, 5, 7].includes(index);
+            const lineWidth = cellFont.widthOfTextAtSize(line, 7.3);
+            const textX = centered ? x + Math.max(4, (columns[index] - lineWidth) / 2) : x + 5;
+            page.drawText(line, { x: textX, y: y - 14 - lineIndex * 9, size: 7.3, font: cellFont, color: textColor });
+          });
+          x += columns[index];
+        });
+        y -= rowHeight;
       });
+
+      const instruction = 'Instrucción de Patio: Revisar las notas/status de cada orden, confirmar ubicación y estado físico de la pieza, y priorizar los cambios urgentes.';
+      if (y < 34) {
+        page = pdf.addPage(pageSize);
+        startPage();
+      }
+      page.drawRectangle({ x: margin, y: y - 29, width: tableWidth, height: 23, color: rgb(0.96, 0.97, 0.99), borderColor: grid, borderWidth: 0.6 });
+      page.drawText(instruction, { x: margin + 7, y: y - 20, size: 7.5, font: bold, color: rgb(0.25, 0.32, 0.42) });
 
       const bytes = await pdf.save();
       const blob = new Blob([bytes], { type: 'application/pdf' });
