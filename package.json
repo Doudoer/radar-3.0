@@ -11,6 +11,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "db:setup": "npm run db:migrate && npm run db:seed",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "build:api": "esbuild server.ts --bundle --platform=node --format=esm --outfile=dist/server.js --packages=external",
     "build": "vite build",
     "preview": "vite preview",
@@ -38,6 +40,7 @@
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3"
+    "vite": "^6.2.3",
+    "vitest": "^5.0.1"
   }
 }

@@ -120,6 +120,8 @@ Nunca guardar credenciales reales en Git. En Dokploy deben configurarse como var
 | `npm run db:migrate` | Aplica migraciones pendientes. |
 | `npm run db:seed` | Crea el administrador inicial si no existe. |
 | `npm run db:setup` | Ejecuta migraciones y seed. |
+| `npm test` | Ejecuta las pruebas automatizadas una vez. |
+| `npm run test:watch` | Ejecuta las pruebas en modo interactivo. |
 | `npm run lint` | Comprobación TypeScript con `tsc --noEmit`. |
 | `npm run build` | Compilación del frontend en `dist/`. |
 | `npm run build:api` | Bundle de API en `dist/server.js`. |
@@ -129,6 +131,7 @@ Nunca guardar credenciales reales en Git. En Dokploy deben configurarse como var
 Validación recomendada antes de publicar:
 
 ```bash
+npm test
 npm run lint
 npm run build
 npm run build:api
