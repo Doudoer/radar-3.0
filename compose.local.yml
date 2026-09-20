@@ -1,0 +1,22 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: radar-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: radar_v3
+      MYSQL_USER: radar_app
+      MYSQL_PASSWORD: radar_local_password
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - radar_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-proot", "--silent"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  radar_mysql_data:

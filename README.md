@@ -52,7 +52,22 @@ Instalar dependencias:
 npm install
 ```
 
-Crear un archivo `.env` a partir de `.env.example` y completar la conexión a MySQL/MariaDB.
+Docker Desktop puede iniciar una base MySQL local aislada:
+
+```bash
+npm run db:up
+```
+
+Crear un archivo `.env` a partir de `.env.example` y completar la conexión. Para el contenedor local se usan `DB_HOST=127.0.0.1`, `DB_PORT=3306`, `DB_NAME=radar_v3`, `DB_USER=radar_app` y `DB_PASSWORD=radar_local_password`.
+
+Aplicar migraciones y crear el administrador inicial:
+
+```bash
+set -a; source .env; set +a
+npm run db:setup
+```
+
+El seed exige `ADMIN_EMAIL` y una `ADMIN_PASSWORD` de al menos 12 caracteres. Es idempotente y no modifica un administrador existente.
 
 Iniciar la API en el puerto `3001`:
 
@@ -88,6 +103,9 @@ Variables principales:
 | `CORS_ORIGIN` | Origen permitido del frontend. |
 | `APP_URL` | URL pública de la aplicación. |
 | `VITE_API_URL` | URL de API usada por Vite en desarrollo. |
+| `ADMIN_NAME` | Nombre del administrador creado por el seed. |
+| `ADMIN_EMAIL` | Correo del administrador creado por el seed. |
+| `ADMIN_PASSWORD` | Contraseña inicial; mínimo 12 caracteres. |
 
 Nunca guardar credenciales reales en Git. En Dokploy deben configurarse como variables o secretos del entorno de producción.
 
@@ -97,6 +115,11 @@ Nunca guardar credenciales reales en Git. En Dokploy deben configurarse como var
 | --- | --- |
 | `npm run dev` | Servidor de desarrollo Vite. |
 | `npm run api` | API Node mediante `tsx`. |
+| `npm run db:up` | Inicia MySQL local mediante Docker Compose. |
+| `npm run db:down` | Detiene MySQL local sin eliminar sus datos. |
+| `npm run db:migrate` | Aplica migraciones pendientes. |
+| `npm run db:seed` | Crea el administrador inicial si no existe. |
+| `npm run db:setup` | Ejecuta migraciones y seed. |
 | `npm run lint` | Comprobación TypeScript con `tsc --noEmit`. |
 | `npm run build` | Compilación del frontend en `dist/`. |
 | `npm run build:api` | Bundle de API en `dist/server.js`. |

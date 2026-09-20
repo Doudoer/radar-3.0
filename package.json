@@ -6,6 +6,11 @@
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "api": "tsx server.ts",
+    "db:up": "docker compose -f compose.local.yml up -d --wait",
+    "db:down": "docker compose -f compose.local.yml down",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx scripts/seed.ts",
+    "db:setup": "npm run db:migrate && npm run db:seed",
     "build:api": "esbuild server.ts --bundle --platform=node --format=esm --outfile=dist/server.js --packages=external",
     "build": "vite build",
     "preview": "vite preview",
