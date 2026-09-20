@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, PDFFont, PDFPage, RGB, StandardFonts, rgb } from 'pdf-lib';
 import { Order, OrderStatus } from '../types';
 
 const reportStatuses: Array<{ id: OrderStatus; label: string }> = [
@@ -63,6 +63,24 @@ const yardNotes = (order: Order) => {
   return order.notes || delivery;
 };
 
+const drawLabel = (
+  page: PDFPage,
+  text: string,
+  x: number,
+  y: number,
+  font: PDFFont,
+  textColor: RGB,
+  backgroundColor: RGB,
+  borderColor?: RGB,
+) => {
+  const size = 7;
+  const paddingX = 4;
+  const width = font.widthOfTextAtSize(text, size) + paddingX * 2;
+  page.drawRectangle({ x, y, width, height: 13, color: backgroundColor, borderColor, borderWidth: borderColor ? 0.6 : 0 });
+  page.drawText(text, { x: x + paddingX, y: y + 3.4, size, font, color: textColor });
+  return width;
+};
+
 export const StatusRequestModal: React.FC<StatusRequestModalProps> = ({ isOpen, orders, onClose }) => {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -107,14 +125,16 @@ export const StatusRequestModal: React.FC<StatusRequestModalProps> = ({ isOpen, 
       const regular = await pdf.embedFont(StandardFonts.Helvetica);
       const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
       const pageSize: [number, number] = [841.89, 595.28];
-      const margin = 12;
-      const tableWidth = pageSize[0] - margin * 2;
-      const columns = [64, 112, 40, 77, 80, 40, 213, 57, 134];
+      const margin = 22;
+      const columns = [62, 108, 39, 72, 75, 39, 203, 56, 143];
+      const tableWidth = columns.reduce((total, width) => total + width, 0);
       const headers = ['FECHA', 'CLIENTE', 'AÑO', 'MARCA', 'MODELO', 'TIPO', 'SPECS', 'TIPO\nORDEN', 'NOTAS / STATUS PATIO'];
       const navy = rgb(0.08, 0.12, 0.2);
       const headerBlue = rgb(0.11, 0.16, 0.25);
       const grid = rgb(0.77, 0.82, 0.89);
       const paleYellow = rgb(1, 0.98, 0.84);
+      const stripeBlue = rgb(0.96, 0.98, 1);
+      const tagYellow = rgb(1, 0.87, 0.31);
       let page = pdf.addPage(pageSize);
       let y = 0;
 
@@ -149,7 +169,7 @@ export const StatusRequestModal: React.FC<StatusRequestModalProps> = ({ isOpen, 
       };
 
       startPage();
-      selectedOrders.forEach((order) => {
+      selectedOrders.forEach((order, rowIndex) => {
         const date = orderDate(order);
         const type = orderType(order);
         const values = [
@@ -163,18 +183,80 @@ export const StatusRequestModal: React.FC<StatusRequestModalProps> = ({ isOpen, 
           type,
           yardNotes(order),
         ];
-        const lines = values.map((value, index) => wrapText(value, index === 1 ? bold : regular, 7.3, columns[index] - 10));
-        const rowHeight = Math.max(24, Math.max(...lines.map((cellLines) => cellLines.length)) * 9 + 10);
-        if (y - rowHeight < 48) {
+        const lines = values.map((value, index) => {
+          if ([5, 7].includes(index)) return [value];
+          return wrapText(value, index === 1 ? bold : regular, 7.3, columns[index] - 10);
+        });
+        const highlighted = /buscar en yarda|cambio urgente/i.test(values[8]);
+        const usesLongYardLabel = /disponible/i.test(values[8]);
+        const highlightedHeight = highlighted ? (type === 'CAMBIO' || usesLongYardLabel ? 39 : 29) : 0;
+        const rowHeight = Math.max(24, highlightedHeight, Math.max(...lines.map((cellLines) => cellLines.length)) * 9 + 10);
+        const reservedBottom = rowIndex === selectedOrders.length - 1 ? margin + 29 : margin;
+        if (y - rowHeight < reservedBottom) {
           page = pdf.addPage(pageSize);
           startPage();
         }
 
-        const highlighted = /buscar en yarda|cambio urgente/i.test(values[8]);
-        page.drawRectangle({ x: margin, y: y - rowHeight, width: tableWidth, height: rowHeight, color: highlighted ? paleYellow : rgb(1, 1, 1), borderColor: grid, borderWidth: 0.6 });
+        const rowColor = highlighted ? paleYellow : rowIndex % 2 ? stripeBlue : rgb(1, 1, 1);
+        page.drawRectangle({ x: margin, y: y - rowHeight, width: tableWidth, height: rowHeight, color: rowColor, borderColor: grid, borderWidth: 0.6 });
         let x = margin;
         lines.forEach((cellLines, index) => {
           if (index > 0) page.drawLine({ start: { x, y }, end: { x, y: y - rowHeight }, thickness: 0.6, color: grid });
+          if (index === 5) {
+            const isEngine = values[index] === 'ENG';
+            const labelWidth = bold.widthOfTextAtSize(values[index], 7) + 8;
+            drawLabel(
+              page,
+              values[index],
+              x + (columns[index] - labelWidth) / 2,
+              y - 18,
+              bold,
+              isEngine ? rgb(0.05, 0.36, 0.57) : rgb(0.72, 0.37, 0.02),
+              isEngine ? rgb(0.82, 0.94, 1) : rgb(1, 0.94, 0.7),
+            );
+            x += columns[index];
+            return;
+          }
+          if (index === 7) {
+            const isSale = type === 'VENTA';
+            const labelWidth = bold.widthOfTextAtSize(type, 7) + 8;
+            drawLabel(
+              page,
+              type,
+              x + (columns[index] - labelWidth) / 2,
+              y - 18,
+              bold,
+              isSale ? rgb(0.02, 0.48, 0.32) : rgb(0.8, 0.08, 0.08),
+              isSale ? rgb(0.88, 1, 0.95) : rgb(1, 0.9, 0.9),
+              isSale ? rgb(0.43, 0.88, 0.69) : rgb(1, 0.62, 0.62),
+            );
+            x += columns[index];
+            return;
+          }
+          if (index === 8 && highlighted) {
+            const note = cleanText(values[index]);
+            const urgentPrefix = type === 'CAMBIO' ? 'Cambio urgente /' : '';
+            const searchLabel = /disponible/i.test(note) ? 'Disponible - Buscar en yarda' : 'Buscar en yarda';
+            let noteY = y - 13;
+            if (urgentPrefix) {
+              page.drawText(urgentPrefix, { x: x + 5, y: noteY, size: 7.3, font: bold, color: rgb(0.78, 0.06, 0.06) });
+              noteY -= 13;
+            }
+            const labelWidth = drawLabel(page, searchLabel, x + 5, noteY - 3.4, bold, rgb(0.48, 0.31, 0.02), tagYellow, rgb(0.94, 0.65, 0.02));
+            const delivery = order.deliveryType === 'envio_domicilio' ? '/ Envío' : '/ Retiro';
+            const deliveryWidth = regular.widthOfTextAtSize(delivery, 7.3);
+            const deliveryX = x + labelWidth + 8;
+            const deliveryFits = deliveryX + deliveryWidth <= x + columns[index] - 5;
+            page.drawText(delivery, {
+              x: deliveryFits ? deliveryX : x + 5,
+              y: deliveryFits ? noteY : noteY - 13,
+              size: 7.3,
+              font: regular,
+              color: navy,
+            });
+            x += columns[index];
+            return;
+          }
           const cellFont = index === 1 || (index === 8 && type === 'CAMBIO') ? bold : regular;
           const textColor = index === 8 && type === 'CAMBIO' ? rgb(0.75, 0.08, 0.08) : navy;
           cellLines.forEach((line, lineIndex) => {
@@ -188,13 +270,23 @@ export const StatusRequestModal: React.FC<StatusRequestModalProps> = ({ isOpen, 
         y -= rowHeight;
       });
 
-      const instruction = 'Instrucción de Patio: Revisar las notas/status de cada orden, confirmar ubicación y estado físico de la pieza, y priorizar los cambios urgentes.';
-      if (y < 34) {
+      const instructionPrefix = 'Instrucción de Patio:';
+      const instructionStart = ' Las piezas con etiqueta ';
+      const instructionTag = 'Disponible - Buscar en yarda';
+      const instructionEnd = ' están confirmadas en inventario físico pero pendientes de localización/desmonte en el lote. Priorizar los Cambios urgentes.';
+      if (y - 29 < margin) {
         page = pdf.addPage(pageSize);
         startPage();
       }
       page.drawRectangle({ x: margin, y: y - 29, width: tableWidth, height: 23, color: rgb(0.96, 0.97, 0.99), borderColor: grid, borderWidth: 0.6 });
-      page.drawText(instruction, { x: margin + 7, y: y - 20, size: 7.5, font: bold, color: rgb(0.25, 0.32, 0.42) });
+      const instructionY = y - 20;
+      let instructionX = margin + 7;
+      page.drawText(instructionPrefix, { x: instructionX, y: instructionY, size: 7.5, font: bold, color: rgb(0.25, 0.32, 0.42) });
+      instructionX += bold.widthOfTextAtSize(instructionPrefix, 7.5);
+      page.drawText(instructionStart, { x: instructionX, y: instructionY, size: 7.5, font: regular, color: rgb(0.25, 0.32, 0.42) });
+      instructionX += regular.widthOfTextAtSize(instructionStart, 7.5);
+      instructionX += drawLabel(page, instructionTag, instructionX, instructionY - 3.5, bold, rgb(0.48, 0.31, 0.02), rgb(1, 0.91, 0.48), rgb(0.94, 0.65, 0.02)) + 2;
+      page.drawText(instructionEnd, { x: instructionX, y: instructionY, size: 7.5, font: regular, color: rgb(0.25, 0.32, 0.42) });
 
       const bytes = await pdf.save();
       const blob = new Blob([bytes], { type: 'application/pdf' });
