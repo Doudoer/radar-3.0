@@ -208,10 +208,98 @@ export interface RestoreResult {
   ok: boolean;
   message: string;
   restoredTables: string[];
+  clearedTables: string[];
+  preservedUsersCount: number;
   safetySnapshot?: string;
   durationMs: number;
   timestamp: string;
 }
+
+/**
+ * Reads all rows currently in the `users` table.
+ */
+export const fetchCurrentUsers = async (
+  connection: { query: (sql: string) => Promise<unknown> }
+): Promise<RowDataPacket[]> => {
+  try {
+    const [userRows] = (await connection.query('SELECT * FROM `users`')) as [RowDataPacket[], unknown];
+    return userRows || [];
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Wipes/clears all tables in the database except for `users`.
+ */
+export const clearDatabaseExceptUsers = async (
+  connection: { query: (sql: string) => Promise<unknown> }
+): Promise<string[]> => {
+  const [tableRows] = (await connection.query(
+    "SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'"
+  )) as [RowDataPacket[], unknown];
+
+  const clearedTables: string[] = [];
+
+  for (const tableRow of tableRows) {
+    const tableName = getTableName(tableRow);
+    if (tableName.toLowerCase() === 'users') {
+      continue; // Preserve users table!
+    }
+
+    const identifier = escapeIdentifier(tableName);
+    try {
+      await connection.query(`TRUNCATE TABLE ${identifier}`);
+      clearedTables.push(tableName);
+    } catch {
+      await connection.query(`DELETE FROM ${identifier}`);
+      clearedTables.push(tableName);
+    }
+  }
+
+  return clearedTables;
+};
+
+/**
+ * Re-inserts or merges preserved users into the `users` table after restoring SQL statements.
+ * This guarantees that current credentials and users are preserved even if the SQL backup dropped or had different users.
+ */
+export const restorePreservedUsers = async (
+  connection: { query: (sql: string) => Promise<unknown> },
+  preservedUsers: RowDataPacket[]
+): Promise<number> => {
+  if (!preservedUsers || preservedUsers.length === 0) return 0;
+
+  const [tableCheck] = (await connection.query("SHOW TABLES LIKE 'users'")) as [RowDataPacket[], unknown];
+  if (tableCheck.length === 0) {
+    return 0;
+  }
+
+  let restoredCount = 0;
+  const sample = preservedUsers[0];
+  const columns = Object.keys(sample);
+  const columnList = columns.map(escapeIdentifier).join(', ');
+  const updateClauses = columns
+    .filter((c) => c !== 'id' && c !== 'email')
+    .map((c) => `${escapeIdentifier(c)} = VALUES(${escapeIdentifier(c)})`)
+    .join(', ');
+
+  for (const user of preservedUsers) {
+    const values = columns.map((col) => escapeValue(user[col])).join(', ');
+    const query = updateClauses
+      ? `INSERT INTO \`users\` (${columnList}) VALUES (${values}) ON DUPLICATE KEY UPDATE ${updateClauses};`
+      : `INSERT IGNORE INTO \`users\` (${columnList}) VALUES (${values});`;
+
+    try {
+      await connection.query(query);
+      restoredCount++;
+    } catch (err) {
+      console.warn(`[Backup Restore] Advertencia al re-insertar usuario ${user.email || user.id}:`, err);
+    }
+  }
+
+  return restoredCount;
+};
 
 export const restoreDatabaseBackup = async (
   sqlContent: string,
@@ -248,22 +336,39 @@ export const restoreDatabaseBackup = async (
   try {
     await connection.query('SET FOREIGN_KEY_CHECKS = 0;');
     await connection.query('SET UNIQUE_CHECKS = 0;');
-    
-    // Execute SQL script
+
+    // 3. Preserve current users in memory
+    const preservedUsers = await fetchCurrentUsers(connection);
+    const preservedUsersCount = preservedUsers.length;
+
+    // 4. Wipe / clear all tables in the database except `users`
+    const clearedTables = await clearDatabaseExceptUsers(connection);
+
+    // 5. Execute new SQL backup statements into the blank database
     await connection.query(trimmedSql);
+
+    // 6. Guarantee that preserved users exist and are active
+    if (preservedUsersCount > 0) {
+      await restorePreservedUsers(connection, preservedUsers);
+    }
 
     await connection.query('SET FOREIGN_KEY_CHECKS = 1;');
     await connection.query('SET UNIQUE_CHECKS = 1;');
 
-    const [tableRows] = await connection.query<RowDataPacket[]>('SHOW FULL TABLES WHERE Table_type = \'BASE TABLE\'');
+    const [tableRows] = (await connection.query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")) as [
+      RowDataPacket[],
+      unknown
+    ];
     const restoredTables = tableRows.map((row) => getTableName(row));
 
     const durationMs = Date.now() - startTime;
 
     return {
       ok: true,
-      message: `Base de datos restaurada exitosamente (${restoredTables.length} tablas activas)`,
+      message: `Base de datos vaciada (${clearedTables.length} tablas) y restaurada exitosamente (${restoredTables.length} tablas activas, ${preservedUsersCount} usuarios conservados)`,
       restoredTables,
+      clearedTables,
+      preservedUsersCount,
       safetySnapshot: safetySnapshotName,
       durationMs,
       timestamp: new Date().toISOString(),
@@ -272,3 +377,4 @@ export const restoreDatabaseBackup = async (
     await connection.end();
   }
 };
+

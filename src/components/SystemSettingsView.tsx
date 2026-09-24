@@ -14,6 +14,8 @@ interface RestoreResult {
   ok: boolean;
   message: string;
   restoredTables?: string[];
+  clearedTables?: string[];
+  preservedUsersCount?: number;
   safetySnapshot?: string;
   durationMs?: number;
   timestamp?: string;
@@ -559,9 +561,17 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                       ¡ADVERTENCIA DE SOBREESCRITURA DE DATOS!
                     </p>
                     <p>
-                      Se van a reemplazar las tablas y registros actuales de la base de datos con el archivo:
+                      El sistema realizará la restauración en 2 fases automáticas:
                     </p>
-                    <div className="p-2 bg-[#040814] rounded-xl border border-red-500/20 font-mono text-cyan-300 text-[11px] flex justify-between">
+                    <ol className="list-decimal list-inside space-y-1 text-[11px] text-slate-300 pl-1">
+                      <li>
+                        <strong>Vaciado Total:</strong> Se dejarán en blanco todas las tablas de la base de datos (órdenes, clientes, reclamos, etc.), <strong className="text-emerald-300">conservando intactos los usuarios y contraseñas</strong>.
+                      </li>
+                      <li>
+                        <strong>Carga Limpia:</strong> Se importarán y ejecutarán los registros del archivo de respaldo seleccionado.
+                      </li>
+                    </ol>
+                    <div className="p-2 bg-[#040814] rounded-xl border border-red-500/20 font-mono text-cyan-300 text-[11px] flex justify-between items-center mt-2">
                       <span className="truncate">{restoreTarget.label}</span>
                       <span className="font-bold text-white shrink-0 ml-2">({restoreTarget.size})</span>
                     </div>
@@ -576,11 +586,11 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                         className="rounded border-cyan-500/40 bg-slate-900 text-cyan-500 focus:ring-cyan-400 w-4 h-4 cursor-pointer"
                       />
                       <span>
-                        Crear punto de restauración previo automático (<strong>Safety Snapshot</strong>) antes de aplicar.
+                        Crear punto de restauración previo automático (<strong>Safety Snapshot</strong>) antes de vaciar y aplicar.
                       </span>
                     </label>
                     <p className="text-[10px] text-slate-400 ml-6.5">
-                      Recomendado: Guarda el estado actual de la base de datos por si necesitas revertir este cambio.
+                      Recomendado: Guarda una copia del estado actual antes del vaciado por si necesitas revertir este cambio.
                     </p>
                   </div>
 
@@ -616,6 +626,16 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                         Tiempo de ejecución: <strong className="text-white">{(restoreResult.durationMs / 1000).toFixed(2)}s</strong>
                       </p>
                     )}
+                    {restoreResult.clearedTables && restoreResult.clearedTables.length > 0 && (
+                      <p className="text-[11px] font-mono text-slate-400">
+                        Tablas vaciadas previamente: <strong className="text-amber-300">{restoreResult.clearedTables.length} tablas</strong>
+                      </p>
+                    )}
+                    {typeof restoreResult.preservedUsersCount === 'number' && (
+                      <p className="text-[11px] font-mono text-slate-400">
+                        Usuarios y accesos preservados: <strong className="text-emerald-300">{restoreResult.preservedUsersCount} cuentas</strong>
+                      </p>
+                    )}
                     {restoreResult.safetySnapshot && (
                       <p className="text-[11px] font-mono text-slate-400">
                         Punto de seguridad guardado como: <strong className="text-cyan-300">{restoreResult.safetySnapshot}</strong>
@@ -625,7 +645,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
 
                   {restoreResult.restoredTables && restoreResult.restoredTables.length > 0 && (
                     <div>
-                      <span className="text-[11px] font-mono text-slate-400 block mb-1">Tablas restauradas con éxito:</span>
+                      <span className="text-[11px] font-mono text-slate-400 block mb-1">Tablas cargadas con éxito:</span>
                       <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-2 bg-[#040814] rounded-xl border border-cyan-500/15 custom-scrollbar">
                         {restoreResult.restoredTables.map((tbl) => (
                           <span key={tbl} className="px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30 text-[9px] font-mono text-emerald-300">
