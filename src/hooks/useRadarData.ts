@@ -1,33 +1,31 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { ActivityItem, Customer, Order } from '../types';
-import { INITIAL_ORDERS } from '../data/mockData';
 import { ordersApi } from '../services/ordersApi';
 import { apiFetch } from '../services/apiFetch';
 
 export const useRadarData = (authenticated: boolean) => {
-  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(INITIAL_ORDERS[0]?.id || 'ORD-516560');
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [databaseMessage, setDatabaseMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
+  const fetchAllData = useCallback(() => {
     if (!authenticated) return;
     setDatabaseMessage(null);
     setLoading(true);
 
     const ordersRequest = ordersApi.list()
       .then((databaseOrders) => {
-        if (databaseOrders.length > 0) {
-          setOrders(databaseOrders);
-          setSelectedOrderId(databaseOrders[0].id);
-        }
+        setOrders(databaseOrders);
+        setSelectedOrderId((current) => current && databaseOrders.some((o) => o.id === current) ? current : databaseOrders[0]?.id || null);
       })
       .catch((error) => {
-        setDatabaseMessage(error instanceof Error && error.message === 'Sesión expirada'
-          ? 'La sesión expiró. Inicia sesión nuevamente.'
-          : 'No se pudo cargar la base de datos. Mostrando datos locales.');
+        if (error instanceof Error && error.message === 'Sesión expirada') {
+          return;
+        }
+        setDatabaseMessage('No se pudo conectar con la base de datos.');
       });
 
     const activitiesRequest = apiFetch('/activities')
@@ -43,6 +41,10 @@ export const useRadarData = (authenticated: boolean) => {
     Promise.allSettled([ordersRequest, activitiesRequest, customersRequest]).finally(() => setLoading(false));
   }, [authenticated]);
 
+  useEffect(() => {
+    fetchAllData();
+  }, [fetchAllData]);
+
   const replaceOrder = (savedOrder: Order) => {
     setOrders((previousOrders) => previousOrders.map((order) => order.id === savedOrder.id ? savedOrder : order));
     setDatabaseMessage(null);
@@ -54,6 +56,18 @@ export const useRadarData = (authenticated: boolean) => {
     setDatabaseMessage(null);
   };
 
+  const refreshCustomers = async () => {
+    try {
+      const response = await apiFetch('/customers');
+      if (response.ok) {
+        const data = await response.json();
+        setCustomers(data);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   return {
     orders,
     setOrders,
@@ -61,10 +75,13 @@ export const useRadarData = (authenticated: boolean) => {
     setSelectedOrderId,
     activities,
     customers,
+    setCustomers,
     loading,
     databaseMessage,
     setDatabaseMessage,
     replaceOrder,
     prependOrder,
+    refreshCustomers,
+    fetchAllData,
   };
 };

@@ -5,7 +5,7 @@ ENV VITE_API_URL=/api
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN npm run build && npm run build:api
+RUN npm run build
 
 FROM node:22-bookworm-slim AS runtime
 

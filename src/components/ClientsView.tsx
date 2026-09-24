@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Customer, Order } from '../types';
+import { apiFetch } from '../services/apiFetch';
 
 interface ClientsViewProps {
   orders: Order[];
@@ -8,6 +9,7 @@ interface ClientsViewProps {
   onOpenSMS?: (customerName: string, phone: string) => void;
   userRole?: 'admin' | 'operador';
   onOpenNewOrderWithCustomer?: (customer: Customer) => void;
+  onRefreshCustomers?: () => void;
 }
 
 export const ClientsView: React.FC<ClientsViewProps> = ({
@@ -17,6 +19,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   onOpenSMS,
   userRole = 'admin',
   onOpenNewOrderWithCustomer,
+  onRefreshCustomers,
 }) => {
   // Master Customers State
   const [customerRecords, setCustomerRecords] = useState<Customer[]>(customers);
@@ -220,7 +223,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   };
 
   // Save Customer (Step 2 Submission)
-  const handleSaveCustomer = () => {
+  const handleSaveCustomer = async () => {
     const errors: { [key: string]: string } = {};
     if (!editingCustomer.phone?.trim()) {
       errors.phone = 'El teléfono principal es obligatorio para coordinación y fletes.';
@@ -232,46 +235,61 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
     const firstName = (editingCustomer.first_name || '').trim();
     const lastName = (editingCustomer.last_name || '').trim();
     const fullName = firstName && lastName ? `${firstName} ${lastName}` : firstName || editingCustomer.name || 'Cliente sin nombre';
-    const initials =
-      `${firstName[0] || ''}${lastName[0] || firstName[1] || ''}`.toUpperCase() || 'CL';
-
     const cleanWhatsapp = editingCustomer.whatsapp
       ? editingCustomer.whatsapp.replace(/\D/g, '')
       : editingCustomer.phone?.replace(/\D/g, '') || '';
 
-    const finalCustomer: Customer = {
-      id: editingCustomer.id || `CUST-${Math.floor(1000 + Math.random() * 9000)}`,
-      first_name: firstName,
-      last_name: lastName,
+    const payload = {
+      first_name: firstName || fullName.split(/\s+/)[0] || 'Cliente',
+      last_name: lastName || (fullName.includes(' ') ? fullName.split(/\s+/).slice(1).join(' ') : null),
       name: fullName,
       company: editingCustomer.company || '',
-      type: (editingCustomer.type as any) || 'Particular',
+      type: editingCustomer.type || 'Particular',
       email: editingCustomer.email || '',
       phone: editingCustomer.phone || '',
       whatsapp: cleanWhatsapp,
-      location: editingCustomer.location || 'Raleigh, NC',
-      address_shipping: editingCustomer.address_shipping || '',
-      shippingAddress: editingCustomer.address_shipping || '',
-      zip_code: editingCustomer.zip_code || '27604',
+      address_shipping: editingCustomer.address_shipping || editingCustomer.shippingAddress || '',
+      shippingAddress: editingCustomer.address_shipping || editingCustomer.shippingAddress || '',
+      zip_code: editingCustomer.zip_code || '',
       notes: editingCustomer.notes || '',
-      initials: initials,
-      createdAt: editingCustomer.createdAt || new Date().toISOString().split('T')[0],
-      deleted_at: null,
     };
 
-    if (wizardMode === 'create') {
-      setCustomerRecords([finalCustomer, ...customerRecords]);
-      showToast(`Cliente "${finalCustomer.name}" registrado exitosamente.`);
-    } else {
-      setCustomerRecords(customerRecords.map((c) => (c.id === finalCustomer.id ? finalCustomer : c)));
-      showToast(`Ficha de "${finalCustomer.name}" actualizada con éxito.`);
+    try {
+      if (wizardMode === 'create') {
+        const response = await apiFetch('/customers', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.message || 'Error al registrar cliente');
+        }
+        const created: Customer = await response.json();
+        setCustomerRecords([created, ...customerRecords]);
+        onRefreshCustomers?.();
+        showToast(`Cliente "${created.name}" registrado exitosamente.`);
+      } else if (editingCustomer.id) {
+        const response = await apiFetch(`/customers/${editingCustomer.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.message || 'Error al actualizar cliente');
+        }
+        const updated: Customer = await response.json();
+        setCustomerRecords(customerRecords.map((c) => (c.id === updated.id ? updated : c)));
+        onRefreshCustomers?.();
+        showToast(`Ficha de "${updated.name}" actualizada con éxito.`);
+      }
+      setIsWizardOpen(false);
+    } catch (err: any) {
+      showToast(`Error: ${err.message || 'No se pudo guardar el cliente'}`);
     }
-
-    setIsWizardOpen(false);
   };
 
   // Perform Soft Delete (Admin Protected)
-  const handleConfirmSoftDelete = () => {
+  const handleConfirmSoftDelete = async () => {
     if (!customerToDelete) return;
     if (userRole !== 'admin') {
       alert('Acción denegada: Solo los administradores tienen permiso para eliminar clientes.');
@@ -279,16 +297,24 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       return;
     }
 
-    setCustomerRecords((prev) =>
-      prev.map((c) =>
-        c.id === customerToDelete.id
-          ? { ...c, deleted_at: new Date().toISOString() }
-          : c
-      )
-    );
-
-    showToast(`Cliente "${customerToDelete.name}" enviado a la papelera (Soft Delete).`);
-    setCustomerToDelete(null);
+    try {
+      const response = await apiFetch(`/customers/${customerToDelete.id}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.message || 'Error al eliminar cliente');
+      }
+      setCustomerRecords((prev) =>
+        prev.filter((c) => c.id !== customerToDelete.id)
+      );
+      onRefreshCustomers?.();
+      showToast(`Cliente "${customerToDelete.name}" eliminado.`);
+    } catch (err: any) {
+      showToast(`Error: ${err.message || 'No se pudo eliminar el cliente'}`);
+    } finally {
+      setCustomerToDelete(null);
+    }
   };
 
   // Restore Soft Deleted Customer
@@ -315,32 +341,34 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   };
 
   return (
-    <div className="radar-view select-none">
+    <div className="radar-view select-none pb-8">
       {/* Toast Feedback */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#10b981] text-[#042f2e] font-bold text-xs py-3 px-5 rounded-xl shadow-[0_10px_25px_rgba(16,185,129,0.4)] flex items-center gap-2.5 animate-bounce">
-          <span className="material-symbols-outlined text-[20px]">check_circle</span>
-          <span>{toastMessage}</span>
+        <div className="fixed bottom-6 right-6 z-50 bg-[#041a14]/95 text-white font-medium text-xs py-3.5 px-5 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8),0_0_30px_rgba(16,185,129,0.35)] flex items-center gap-2.5 animate-bounce border-2 border-emerald-500/60 backdrop-blur-2xl">
+          <span className="material-symbols-outlined text-[20px] text-emerald-400">check_circle</span>
+          <span className="font-mono">{toastMessage}</span>
         </div>
       )}
 
       {/* Header Bar */}
-      <div className="bg-[#111827]/90 border border-[#1e293b] rounded-2xl p-5 md:p-6 backdrop-blur-md flex flex-col md:flex-row md:items-center justify-between gap-5 shadow-lg">
+      <div className="relative rounded-3xl bg-[#070c18]/92 border border-cyan-500/30 p-5 md:p-6 backdrop-blur-3xl flex flex-col md:flex-row md:items-center justify-between gap-5 shadow-[0_20px_50px_rgba(0,0,0,0.75)] overflow-hidden">
+        <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee]" />
+
         <div>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#388bfd]/30 to-[#1d4ed8]/40 border border-[#388bfd]/50 flex items-center justify-center text-[#58a6ff] shadow-inner">
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#0c1a30] via-[#060c18] to-[#040812] border border-cyan-400/60 flex items-center justify-center text-cyan-300 shadow-[0_0_18px_rgba(6,182,212,0.4)]">
               <span className="material-symbols-outlined text-[24px]">group</span>
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-xl md:text-2xl font-black text-[#f1f5f9] tracking-tight">
+                <h1 className="text-xl md:text-2xl font-black text-white tracking-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]">
                   Directorio de Clientes
                 </h1>
-                <span className="text-[11px] font-mono font-bold bg-[#1e293b] text-[#58a6ff] border border-[#388bfd]/30 px-2 py-0.5 rounded-full">
-                  /customers
+                <span className="text-[11px] font-mono font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-400/40 px-2.5 py-0.5 rounded-full shadow-[0_0_8px_rgba(6,182,212,0.25)]">
+                  /crm-clientes
                 </span>
               </div>
-              <p className="text-xs text-[#94a3b8] mt-0.5">
+              <p className="text-xs text-slate-400 font-mono mt-1">
                 CRM operativo centralizado para talleres mecánicos, flotas comerciales y particulares.
               </p>
             </div>
@@ -356,10 +384,10 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                 setShowTrash(!showTrash);
                 setCurrentPage(1);
               }}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer border ${
+              className={`px-3.5 py-2 rounded-2xl text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
                 showTrash
-                  ? 'bg-[#ef4444]/15 border-[#ef4444]/40 text-[#fca5a5]'
-                  : 'bg-[#1e293b]/70 border-[#334155]/60 text-[#94a3b8] hover:text-white'
+                  ? 'bg-red-500/15 border-red-500/40 text-red-300 shadow-[0_0_12px_rgba(239,68,68,0.25)]'
+                  : 'bg-[#040814] border-cyan-500/25 text-slate-400 hover:text-white hover:border-cyan-400/50'
               }`}
               title="Ver registros eliminados lógicamente (Soft Delete)"
             >
@@ -371,35 +399,35 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
           )}
 
           {/* Grid / Table View Switcher */}
-          <div className="flex items-center bg-[#0b1329] border border-[#1e293b] rounded-xl p-0.5">
+          <div className="flex items-center bg-[#040814] border border-cyan-500/30 rounded-2xl p-1 shadow-[inset_0_0_10px_rgba(0,0,0,0.6)]">
             <button
               onClick={() => setViewMode('grid')}
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+              className={`p-1.5 rounded-xl transition-all cursor-pointer ${
                 viewMode === 'grid'
-                  ? 'bg-[#1e293b] text-[#58a6ff] shadow-sm'
-                  : 'text-[#64748b] hover:text-[#cbd5e1]'
+                  ? 'bg-gradient-to-r from-cyan-400 to-emerald-400 text-slate-950 font-black shadow-[0_0_10px_rgba(6,182,212,0.4)]'
+                  : 'text-slate-400 hover:text-white'
               }`}
               title="Vista en Tarjetas"
             >
-              <span className="material-symbols-outlined text-[19px]">grid_view</span>
+              <span className="material-symbols-outlined text-[18px]">grid_view</span>
             </button>
             <button
               onClick={() => setViewMode('table')}
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+              className={`p-1.5 rounded-xl transition-all cursor-pointer ${
                 viewMode === 'table'
-                  ? 'bg-[#1e293b] text-[#58a6ff] shadow-sm'
-                  : 'text-[#64748b] hover:text-[#cbd5e1]'
+                  ? 'bg-gradient-to-r from-cyan-400 to-emerald-400 text-slate-950 font-black shadow-[0_0_10px_rgba(6,182,212,0.4)]'
+                  : 'text-slate-400 hover:text-white'
               }`}
               title="Vista en Tabla"
             >
-              <span className="material-symbols-outlined text-[19px]">table_rows</span>
+              <span className="material-symbols-outlined text-[18px]">table_rows</span>
             </button>
           </div>
 
           {/* New Customer Button */}
           <button
             onClick={handleOpenCreateWizard}
-            className="bg-gradient-to-r from-[#388bfd] to-[#2563eb] hover:from-[#2563eb] hover:to-[#1d4ed8] text-[#0a1120] hover:text-white font-bold text-xs py-2.5 px-4 rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-[0_0_15px_rgba(56,139,253,0.35)]"
+            className="bg-gradient-to-r from-cyan-400 via-blue-500 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 font-black text-xs py-2.5 px-4 rounded-2xl flex items-center gap-2 transition-all cursor-pointer shadow-[0_0_20px_rgba(6,182,212,0.4)] active:scale-95"
           >
             <span className="material-symbols-outlined text-[18px]">person_add</span>
             <span>Nuevo Cliente</span>
@@ -409,43 +437,47 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
       {/* KPI Cards Strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-[#111827]/70 border border-[#1e293b] rounded-xl p-3 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-[#388bfd]/10 text-[#388bfd] flex items-center justify-center">
+        <div className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-3.5 flex items-center gap-3 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_10px_#22d3ee]" />
+          <div className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-400/30 text-cyan-400 flex items-center justify-center shrink-0">
             <span className="material-symbols-outlined text-[20px]">badge</span>
           </div>
           <div>
-            <span className="text-[10px] uppercase font-bold text-[#64748b] block">Directorio Total</span>
-            <span className="text-base font-mono font-bold text-[#f1f5f9]">{totalActiveCustomers} Clientes</span>
+            <span className="text-[10px] font-mono uppercase font-bold text-cyan-400/80 block">Directorio Total</span>
+            <span className="text-base font-mono font-black text-white">{totalActiveCustomers} Clientes</span>
           </div>
         </div>
 
-        <div className="bg-[#111827]/70 border border-[#1e293b] rounded-xl p-3 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-[#6366f1]/15 text-[#818cf8] flex items-center justify-center">
+        <div className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-purple-500/25 p-3.5 flex items-center gap-3 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-purple-400 to-transparent shadow-[0_0_10px_#c084fc]" />
+          <div className="w-10 h-10 rounded-xl bg-purple-500/15 border border-purple-400/30 text-purple-400 flex items-center justify-center shrink-0">
             <span className="material-symbols-outlined text-[20px]">build</span>
           </div>
           <div>
-            <span className="text-[10px] uppercase font-bold text-[#64748b] block">Talleres Aliados</span>
-            <span className="text-base font-mono font-bold text-[#818cf8]">{totalTalleres} Registrados</span>
+            <span className="text-[10px] font-mono uppercase font-bold text-purple-400/80 block">Talleres Aliados</span>
+            <span className="text-base font-mono font-black text-purple-300">{totalTalleres} Registrados</span>
           </div>
         </div>
 
-        <div className="bg-[#111827]/70 border border-[#1e293b] rounded-xl p-3 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-[#10b981]/15 text-[#34d399] flex items-center justify-center">
+        <div className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-emerald-500/25 p-3.5 flex items-center gap-3 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_10px_#34d399]" />
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-400/30 text-emerald-400 flex items-center justify-center shrink-0">
             <span className="material-symbols-outlined text-[20px]">local_shipping</span>
           </div>
           <div>
-            <span className="text-[10px] uppercase font-bold text-[#64748b] block">Empresas & Flotas</span>
-            <span className="text-base font-mono font-bold text-[#34d399]">{totalEmpresas} Cuentas</span>
+            <span className="text-[10px] font-mono uppercase font-bold text-emerald-400/80 block">Empresas & Flotas</span>
+            <span className="text-base font-mono font-black text-emerald-300">{totalEmpresas} Cuentas</span>
           </div>
         </div>
 
-        <div className="bg-[#111827]/70 border border-[#1e293b] rounded-xl p-3 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-[#f59e0b]/15 text-[#fbbf24] flex items-center justify-center">
+        <div className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-amber-500/25 p-3.5 flex items-center gap-3 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-amber-400 to-transparent shadow-[0_0_10px_#fbbf24]" />
+          <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-400/30 text-amber-400 flex items-center justify-center shrink-0">
             <span className="material-symbols-outlined text-[20px]">workspace_premium</span>
           </div>
           <div>
-            <span className="text-[10px] uppercase font-bold text-[#64748b] block">Cuentas VIP</span>
-            <span className="text-base font-mono font-bold text-[#fbbf24]">{totalVIP} Cuentas</span>
+            <span className="text-[10px] font-mono uppercase font-bold text-amber-400/80 block">Cuentas VIP</span>
+            <span className="text-base font-mono font-black text-amber-300">{totalVIP} Cuentas</span>
           </div>
         </div>
       </div>

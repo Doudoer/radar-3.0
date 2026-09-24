@@ -11,10 +11,6 @@ import { TopHeader } from './components/TopHeader';
 import { DashboardView } from './components/DashboardView';
 import { OrdersTableView } from './components/OrdersTableView';
 import { OrderDetailView } from './components/OrderDetailView';
-import { InventoryView } from './components/InventoryView';
-import { FinanceView } from './components/FinanceView';
-import { DirectoryView } from './components/DirectoryView';
-import { CalendarView } from './components/CalendarView';
 import { ClientsView } from './components/ClientsView';
 import { ClaimsView } from './components/ClaimsView';
 import { OperationsView } from './components/OperationsView';
@@ -26,6 +22,7 @@ import { QuickSMSModal } from './components/QuickSMSModal';
 import { SearchModal } from './components/SearchModal';
 import { ExportModal } from './components/ExportModal';
 import { StatusRequestModal } from './components/StatusRequestModal';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { PersonalNotesWidget } from './components/PersonalNotesWidget';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { LoginView } from './components/LoginView';
@@ -50,6 +47,7 @@ export default function App() {
     setDatabaseMessage,
     replaceOrder,
     prependOrder,
+    refreshCustomers,
   } = useRadarData(authenticated && !authChecking);
   const { createOrder, updateOrder, updateOrderStatus, createOrderClaim } = useOrderActions({
     orders,
@@ -71,6 +69,7 @@ export default function App() {
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isStatusRequestOpen, setIsStatusRequestOpen] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [smsModalData, setSmsModalData] = useState<{ isOpen: boolean; customerName: string; phone: string; order?: Order | null }>({
     isOpen: false,
     customerName: '',
@@ -82,6 +81,10 @@ export default function App() {
 
   // Navigation handlers
   const handleNavigate = (screen: NavScreen) => {
+    if ((screen === 'relacion_semanal' || screen === 'finanzas') && userRole !== 'admin') {
+      setCurrentScreen('dashboard');
+      return;
+    }
     setCurrentScreen(screen);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -129,8 +132,14 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#080d19] text-[#dfe2ef] antialiased select-none font-sans">
+    <div className="flex h-screen w-screen overflow-hidden bg-[#050811] text-[#dfe2ef] antialiased select-none font-sans relative cyber-grid-bg">
       <LoadingOverlay visible={dataLoading || viewLoading} />
+
+      {/* Ambient Neon Backlight Orbs */}
+      <div className="absolute top-0 left-1/4 w-[36rem] h-[36rem] bg-cyan-500/8 rounded-full blur-[160px] pointer-events-none" />
+      <div className="absolute bottom-0 right-1/4 w-[36rem] h-[36rem] bg-emerald-500/8 rounded-full blur-[160px] pointer-events-none" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[45rem] h-[45rem] bg-blue-600/6 rounded-full blur-[180px] pointer-events-none" />
+
       {/* Left Sidebar */}
       <Sidebar
         currentScreen={currentScreen}
@@ -141,9 +150,10 @@ export default function App() {
         activeOrdersCount={orders.length}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
+        userRole={userRole}
       />
       {/* Main Content Column */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#0a0f1d]">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#070c18]/80 backdrop-blur-3xl z-10">
         {/* Sticky Top Header */}
         <TopHeader
           currentScreen={currentScreen}
@@ -151,6 +161,8 @@ export default function App() {
           onNavigate={handleNavigate}
           onOpenSearch={() => setIsSearchModalOpen(true)}
           onLogout={() => { void logout(); }}
+          onOpenChangePassword={() => setIsChangePasswordOpen(true)}
+          userName={authUser?.name || 'Usuario'}
           onOpenNewOrder={() => {
             setPrefillOrderData(null);
             setIsNewOrderModalOpen(true);
@@ -159,8 +171,9 @@ export default function App() {
         />
 
         {databaseMessage && (
-          <div className="mx-3 mt-3 rounded-md border border-[#f59e0b]/40 bg-[#f59e0b]/10 px-3 py-2 text-xs text-[#fbbf24] md:mx-6">
-            {databaseMessage}
+          <div className="mx-3 mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-300 md:mx-6 shadow-[0_0_15px_rgba(245,158,11,0.2)] flex items-center gap-2">
+            <span className="material-symbols-outlined text-[18px]">info</span>
+            <span>{databaseMessage}</span>
           </div>
         )}
 
@@ -204,6 +217,7 @@ export default function App() {
               onOpenSMS={(customerName, phone) =>
                 setSmsModalData({ isOpen: true, customerName, phone, order: null })
               }
+              onRefreshCustomers={refreshCustomers}
             />
           )}
 
@@ -226,12 +240,35 @@ export default function App() {
           )}
 
           {(currentScreen === 'relacion_semanal' || currentScreen === 'finanzas') && (
-            <WeeklyRelationView orders={orders} />
+            userRole === 'admin' ? (
+              <WeeklyRelationView
+                orders={orders}
+                onBackToDashboard={() => handleNavigate('dashboard')}
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center p-12 text-center">
+                <div className="w-14 h-14 rounded-2xl bg-[#ef4444]/15 border border-[#ef4444]/30 flex items-center justify-center text-[#fca5a5] mb-4">
+                  <span className="material-symbols-outlined text-[32px]">lock</span>
+                </div>
+                <h2 className="text-lg font-bold text-[#f1f5f9]">Acceso Restringido</h2>
+                <p className="text-xs text-[#94a3b8] max-w-sm mt-1.5">
+                  El módulo de Relación Semanal y Finanzas está reservado exclusivamente para la administración del sistema.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleNavigate('dashboard')}
+                  className="mt-5 px-4 py-2 rounded-xl bg-[#1e293b] hover:bg-[#334155] text-xs font-semibold text-[#cbd5e1] transition-colors cursor-pointer"
+                >
+                  Volver al Dashboard
+                </button>
+              </div>
+            )
           )}
 
           {(currentScreen === 'sistema' || currentScreen === 'configuracion' || currentScreen === 'ayuda') && (
             <SystemSettingsView
               userRole={userRole}
+              onOpenChangePassword={() => setIsChangePasswordOpen(true)}
             />
           )}
 
@@ -250,8 +287,6 @@ export default function App() {
               onCreateClaim={createOrderClaim}
             />
           )}
-
-          {currentScreen === 'calendario' && <CalendarView />}
         </main>
       </div>
 
@@ -288,6 +323,7 @@ export default function App() {
         orders={orders}
         onSelectOrder={handleSelectOrder}
         onNavigate={handleNavigate}
+        userRole={userRole}
       />
 
       <ExportModal
@@ -296,8 +332,8 @@ export default function App() {
         orders={orders}
       />
       <StatusRequestModal isOpen={isStatusRequestOpen} orders={orders} onClose={() => setIsStatusRequestOpen(false)} />
+      <ChangePasswordModal isOpen={isChangePasswordOpen} onClose={() => setIsChangePasswordOpen(false)} />
       <PersonalNotesWidget />
     </div>
   );
 }
-

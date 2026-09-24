@@ -3,13 +3,13 @@ import path from 'node:path';
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { frontendRoot, maxBodyBytes } from './config';
 
-export const readBody = async (request: IncomingMessage) => {
+export const readBody = async (request: IncomingMessage, maxBytes: number = maxBodyBytes) => {
   const contentType = String(request.headers['content-type'] || '').toLowerCase();
   if (!contentType.startsWith('application/json')) {
     throw Object.assign(new Error('Content-Type debe ser application/json'), { statusCode: 415 });
   }
   const contentLength = Number(request.headers['content-length'] || 0);
-  if (contentLength > maxBodyBytes) {
+  if (contentLength > maxBytes) {
     throw Object.assign(new Error('Payload demasiado grande'), { statusCode: 413 });
   }
 
@@ -17,7 +17,7 @@ export const readBody = async (request: IncomingMessage) => {
   let totalBytes = 0;
   for await (const chunk of request) {
     totalBytes += Buffer.byteLength(chunk);
-    if (totalBytes > maxBodyBytes) {
+    if (totalBytes > maxBytes) {
       throw Object.assign(new Error('Payload demasiado grande'), { statusCode: 413 });
     }
     chunks.push(chunk);

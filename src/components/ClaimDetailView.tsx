@@ -10,29 +10,177 @@ interface ClaimDetailViewProps {
 }
 
 export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({ claim, order, onBack, onOpenCalls, onResolve }) => {
-  const orderTotal = order?.financials.total ?? 0;
-  const orderBalance = order?.financials.balanceDue ?? Math.max(0, orderTotal - (order?.financials.downPayment ?? 0));
+  const orderTotal = order?.financials?.total ?? 0;
+  const orderBalance = order?.financials?.balanceDue ?? Math.max(0, orderTotal - (order?.financials?.downPayment ?? 0));
 
   return (
-    <div className="radar-view text-[#dfe2ef] pb-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-3">
-          <button type="button" onClick={onBack} className="mt-1 rounded-lg p-1 text-[#94a3b8] hover:bg-[#1e293b] hover:text-white" title="Volver a reclamos"><span className="material-symbols-outlined text-[24px]">arrow_back</span></button>
-          <div>
-            <div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-extrabold text-[#f1f5f9]">Detalle de Reclamo</h1><span className="rounded border border-[#2b3a58] bg-[#1e293b] px-2 py-0.5 font-mono text-xs text-[#58a6ff]">{claim.id}</span><span className="rounded-full border border-[#f59e0b]/50 bg-[#f59e0b]/15 px-2.5 py-1 text-xs font-bold text-[#fbbf24]">{claim.status}</span></div>
-            <p className="mt-1 text-xs text-[#94a3b8]">Orden {claim.orderCode} · {claim.customerName}</p>
+    <div className="radar-view text-[#dfe2ef] pb-8 space-y-6">
+      {/* Cyber Header Card */}
+      <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">
+        <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-red-400 to-cyan-400 shadow-[0_0_12px_#ef4444]" />
+        
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3.5">
+            <button
+              type="button"
+              onClick={onBack}
+              className="mt-1 rounded-xl p-2 bg-[#040814] border border-cyan-500/30 text-cyan-400 hover:text-white hover:bg-cyan-500/20 transition-all shadow-[0_0_10px_rgba(6,182,212,0.2)] cursor-pointer"
+              title="Volver a reclamos"
+            >
+              <span className="material-symbols-outlined text-[22px]">arrow_back</span>
+            </button>
+            <div>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h1 className="text-xl md:text-2xl font-black text-white tracking-tight">Detalle de Reclamo</h1>
+                <span className="rounded-lg border border-cyan-500/40 bg-cyan-950/40 px-2.5 py-0.5 font-mono text-xs font-bold text-cyan-300 shadow-[0_0_8px_rgba(6,182,212,0.3)]">
+                  {claim.id}
+                </span>
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold font-mono border ${
+                  claim.status === 'Pending'
+                    ? 'neon-badge-amber'
+                    : claim.status === 'In Process'
+                    ? 'neon-badge-cyan'
+                    : claim.status === 'Resolved'
+                    ? 'neon-badge-emerald'
+                    : 'neon-badge-red'
+                }`}>
+                  {claim.status}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-slate-400 flex items-center gap-2">
+                <span>Orden <strong className="font-mono text-cyan-300">{claim.orderCode}</strong></span>
+                <span>•</span>
+                <span>{claim.customerName}</span>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2.5 pl-12 sm:pl-0">
+            <button
+              type="button"
+              onClick={onOpenCalls}
+              className="cyber-btn-secondary px-4 py-2.5 text-xs font-bold flex items-center gap-1.5"
+            >
+              <span className="material-symbols-outlined text-[17px]">phone_in_talk</span>
+              <span>Ver Bitácora de Llamadas</span>
+            </button>
+            {claim.status !== 'Resolved' && (
+              <button
+                type="button"
+                onClick={onResolve}
+                className="bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 shadow-[0_0_20px_rgba(16,185,129,0.45)] cursor-pointer active:scale-95 transition-all"
+              >
+                <span className="material-symbols-outlined text-[18px]">verified</span>
+                <span>Marcar como Resuelto</span>
+              </button>
+            )}
           </div>
         </div>
-        <div className="flex flex-wrap gap-2 pl-10 sm:pl-0"><button type="button" onClick={onOpenCalls} className="rounded-xl border border-[#334155] bg-[#1e293b] px-4 py-2.5 text-xs font-bold text-[#f1f5f9] hover:bg-[#334155]">Ver bitácora</button>{claim.status !== 'Resolved' && <button type="button" onClick={onResolve} className="rounded-xl border border-[#10b981]/40 bg-[#10b981]/20 px-4 py-2.5 text-xs font-black text-[#34d399] hover:bg-[#10b981]/30">Marcar como resuelto</button>}</div>
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.15fr_0.85fr]">
         <div className="flex flex-col gap-5">
-          <section className="radar-panel p-5"><h2 className="flex items-center gap-2 text-sm font-bold text-[#f1f5f9]"><span className="material-symbols-outlined text-[#58a6ff]">inventory_2</span>Detalles de la Orden</h2><div className="mt-4 grid grid-cols-1 gap-3 text-xs text-[#cbd5e1] sm:grid-cols-2"><div><span className="text-[#94a3b8]">Código:</span> <strong className="font-mono text-[#f1f5f9]">{claim.orderCode}</strong></div><div><span className="text-[#94a3b8]">Estatus anterior:</span> <strong className="text-[#34d399]">{claim.previousOrderStatus}</strong></div><div><span className="text-[#94a3b8]">Vehículo:</span> <strong>{claim.vehicle}</strong></div><div><span className="text-[#94a3b8]">VIN:</span> <strong className="font-mono">{claim.vin || order?.vehicle.vin || '-'}</strong></div><div><span className="text-[#94a3b8]">Pieza:</span> <strong className="text-[#58a6ff]">{claim.mainPart}</strong></div><div><span className="text-[#94a3b8]">Stock:</span> <strong className="font-mono text-[#34d399]">{claim.stockNumber || '-'}</strong></div><div><span className="text-[#94a3b8]">Total:</span> <strong>${orderTotal.toFixed(2)}</strong></div><div><span className="text-[#94a3b8]">Balance:</span> <strong className="text-[#f87171]">${orderBalance.toFixed(2)}</strong></div></div></section>
-          <section className="radar-panel p-5"><h2 className="flex items-center gap-2 text-sm font-bold text-[#f1f5f9]"><span className="material-symbols-outlined text-[#f87171]">report_problem</span>Seguimiento del Reclamo</h2><div className="mt-4 rounded-xl border border-[#ef4444]/30 bg-[#ef4444]/10 p-3 text-xs text-[#fecaca]"><span className="font-bold">Motivo reportado:</span> {claim.claimReason}</div><div className="mt-4 grid grid-cols-1 gap-3 text-xs sm:grid-cols-3"><div className="rounded-xl border border-[#1e293b] bg-[#080e1e] p-3"><span className="block text-[#94a3b8]">Prioridad</span><strong className="text-[#fbbf24]">{claim.priority}</strong></div><div className="rounded-xl border border-[#1e293b] bg-[#080e1e] p-3"><span className="block text-[#94a3b8]">Llamadas</span><strong className="text-[#58a6ff]">{claim.callCount || 0}</strong></div><div className="rounded-xl border border-[#1e293b] bg-[#080e1e] p-3"><span className="block text-[#94a3b8]">Creado</span><strong className="text-[#f1f5f9]">{new Date(claim.createdAt).toLocaleDateString('es-ES')}</strong></div></div></section>
+          {/* Order Details Panel */}
+          <section className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">
+            <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_8px_#22d3ee]" />
+            <h2 className="flex items-center gap-2 text-sm font-bold text-white uppercase tracking-wider font-mono">
+              <span className="material-symbols-outlined text-cyan-400 text-[20px]">inventory_2</span>
+              Detalles de la Orden
+            </h2>
+            <div className="mt-4 grid grid-cols-1 gap-3 text-xs text-slate-300 sm:grid-cols-2">
+              <div className="p-2.5 rounded-xl bg-[#040814] border border-cyan-500/15">
+                <span className="text-slate-400 block text-[10px] font-mono uppercase">Código Orden:</span>
+                <strong className="font-mono text-cyan-300 text-sm">{claim.orderCode}</strong>
+              </div>
+              <div className="p-2.5 rounded-xl bg-[#040814] border border-cyan-500/15">
+                <span className="text-slate-400 block text-[10px] font-mono uppercase">Estatus anterior:</span>
+                <strong className="text-emerald-400 text-xs font-mono">{claim.previousOrderStatus || 'N/A'}</strong>
+              </div>
+              <div className="p-2.5 rounded-xl bg-[#040814] border border-cyan-500/15">
+                <span className="text-slate-400 block text-[10px] font-mono uppercase">Vehículo:</span>
+                <strong className="text-white text-xs">{claim.vehicle}</strong>
+              </div>
+              <div className="p-2.5 rounded-xl bg-[#040814] border border-cyan-500/15">
+                <span className="text-slate-400 block text-[10px] font-mono uppercase">VIN:</span>
+                <strong className="font-mono text-slate-200 text-xs">{claim.vin || order?.vehicle?.vin || '-'}</strong>
+              </div>
+              <div className="p-2.5 rounded-xl bg-[#040814] border border-cyan-500/15">
+                <span className="text-slate-400 block text-[10px] font-mono uppercase">Pieza / Repuesto:</span>
+                <strong className="text-cyan-300 text-xs">{claim.mainPart}</strong>
+              </div>
+              <div className="p-2.5 rounded-xl bg-[#040814] border border-cyan-500/15">
+                <span className="text-slate-400 block text-[10px] font-mono uppercase">Stock:</span>
+                <strong className="font-mono text-emerald-400 text-xs">{claim.stockNumber || '-'}</strong>
+              </div>
+              <div className="p-2.5 rounded-xl bg-[#040814] border border-cyan-500/15">
+                <span className="text-slate-400 block text-[10px] font-mono uppercase">Total Facturado:</span>
+                <strong className="text-white font-mono text-xs">${orderTotal.toFixed(2)} USD</strong>
+              </div>
+              <div className="p-2.5 rounded-xl bg-[#040814] border border-cyan-500/15">
+                <span className="text-slate-400 block text-[10px] font-mono uppercase">Balance Pendiente:</span>
+                <strong className="text-red-400 font-mono text-xs">${orderBalance.toFixed(2)} USD</strong>
+              </div>
+            </div>
+          </section>
+
+          {/* Follow-up Section */}
+          <section className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-red-500/25 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">
+            <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-red-400 to-transparent shadow-[0_0_8px_#ef4444]" />
+            <h2 className="flex items-center gap-2 text-sm font-bold text-white uppercase tracking-wider font-mono">
+              <span className="material-symbols-outlined text-red-400 text-[20px]">report_problem</span>
+              Seguimiento del Reclamo & Diagnóstico
+            </h2>
+            <div className="mt-4 rounded-xl border border-red-500/30 bg-red-950/20 p-3.5 text-xs text-red-200 shadow-[inset_0_0_15px_rgba(239,68,68,0.15)]">
+              <span className="font-bold text-red-400 block uppercase font-mono text-[10px] mb-1">Motivo reportado por cliente:</span>
+              <p className="leading-relaxed">{claim.claimReason}</p>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-3 text-xs sm:grid-cols-3">
+              <div className="rounded-xl border border-cyan-500/20 bg-[#040814] p-3">
+                <span className="block text-[10px] font-mono uppercase text-slate-400">Prioridad</span>
+                <strong className="text-amber-400 font-mono text-sm">{claim.priority}</strong>
+              </div>
+              <div className="rounded-xl border border-cyan-500/20 bg-[#040814] p-3">
+                <span className="block text-[10px] font-mono uppercase text-slate-400">Llamadas Registradas</span>
+                <strong className="text-cyan-300 font-mono text-sm">{claim.callCount || 0} llamadas</strong>
+              </div>
+              <div className="rounded-xl border border-cyan-500/20 bg-[#040814] p-3">
+                <span className="block text-[10px] font-mono uppercase text-slate-400">Fecha de Apertura</span>
+                <strong className="text-slate-200 font-mono text-sm">{new Date(claim.createdAt).toLocaleDateString('es-ES')}</strong>
+              </div>
+            </div>
+          </section>
         </div>
-        <section className="radar-panel p-5"><h2 className="flex items-center gap-2 text-sm font-bold text-[#f1f5f9]"><span className="material-symbols-outlined text-[#58a6ff]">person</span>Datos del Cliente</h2><div className="mt-4 flex flex-col gap-3 text-xs text-[#cbd5e1]"><div><span className="text-[#94a3b8]">Nombre:</span> <strong>{claim.customerName}</strong></div><div><span className="text-[#94a3b8]">Teléfono:</span> <strong className="font-mono">{claim.customerPhone}</strong></div>{claim.customerEmail && <div><span className="text-[#94a3b8]">Email:</span> {claim.customerEmail}</div>}<div><span className="text-[#94a3b8]">Asesor:</span> {claim.advisor}</div></div></section>
+
+        {/* Customer Sidebar */}
+        <section className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden h-fit">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_8px_#22d3ee]" />
+          <h2 className="flex items-center gap-2 text-sm font-bold text-white uppercase tracking-wider font-mono">
+            <span className="material-symbols-outlined text-cyan-400 text-[20px]">person</span>
+            Datos del Cliente
+          </h2>
+          <div className="mt-4 flex flex-col gap-3 text-xs text-slate-300">
+            <div className="p-2.5 rounded-xl bg-[#040814] border border-cyan-500/15">
+              <span className="text-slate-400 block text-[10px] font-mono uppercase">Nombre / Razón Social:</span>
+              <strong className="text-white text-sm">{claim.customerName}</strong>
+            </div>
+            <div className="p-2.5 rounded-xl bg-[#040814] border border-cyan-500/15">
+              <span className="text-slate-400 block text-[10px] font-mono uppercase">Teléfono de Contacto:</span>
+              <strong className="font-mono text-cyan-300 text-sm">{claim.customerPhone}</strong>
+            </div>
+            {claim.customerEmail && (
+              <div className="p-2.5 rounded-xl bg-[#040814] border border-cyan-500/15">
+                <span className="text-slate-400 block text-[10px] font-mono uppercase">Correo Electrónico:</span>
+                <span className="text-slate-200">{claim.customerEmail}</span>
+              </div>
+            )}
+            <div className="p-2.5 rounded-xl bg-[#040814] border border-cyan-500/15">
+              <span className="text-slate-400 block text-[10px] font-mono uppercase">Asesor Asignado:</span>
+              <strong className="text-emerald-400">{claim.advisor}</strong>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );
 };
+

@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import { Order, OrderStatus, CoreStatus } from '../types';
+import React, { useState, useEffect } from 'react';
+import { Order, OrderStatus, Claim, ClaimCall, ClaimStatus } from '../types';
 import { SecurityOtpModal } from './SecurityOtpModal';
 import { InvoiceModal } from './InvoiceModal';
 import { DispatchLabelModal } from './DispatchLabelModal';
 import { canTransitionOrderStatus, getAllowedNextStatuses, ORDER_STATUS_LABELS, requiresStatusAuthorization } from '../utils/orderStatusRules';
+import { apiFetch } from '../services/apiFetch';
 
 interface OrderDetailViewProps {
   order: Order;
@@ -26,18 +27,37 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   const currentStep = previewStep ?? recordedStep;
   const [stockAssigned, setStockAssigned] = useState<string | null>(order.stockNumber || null);
   const [copiedNotification, setCopiedNotification] = useState<string | null>(null);
-  const [messageLang, setMessageLang] = useState<'ES' | 'EN'>('ES');
+
+  // Claim Tracking & Follow-up State
+  const [associatedClaim, setAssociatedClaim] = useState<Claim | null>(null);
+  const [isLoadingClaim, setIsLoadingClaim] = useState<boolean>(false);
+  const [isCallModalOpen, setIsCallModalOpen] = useState<boolean>(false);
+  const [showCallHistory, setShowCallHistory] = useState<boolean>(false);
+  const [isResolveModalOpen, setIsResolveModalOpen] = useState<boolean>(false);
+
+  const [callForm, setCallForm] = useState({
+    callerName: order.customer.name || '',
+    callerPhone: order.customer.phone || '',
+    attendedBy: order.advisor || 'Carlos Mendoza',
+    summary: '',
+    sendWhatsApp: true,
+    isSubmitting: false,
+    error: '',
+  });
+
+  const [resolveForm, setResolveForm] = useState<{
+    targetStatus: OrderStatus;
+    notes: string;
+    isSubmitting: boolean;
+  }>({
+    targetStatus: 'entregado',
+    notes: '',
+    isSubmitting: false,
+  });
 
   // Workflow state fields
-  const [termsAttachment, setTermsAttachment] = useState<string>(order.termsAttachment || '');
-  const [callSummary, setCallSummary] = useState<string>(order.callDetail || '');
-  const [callConfirmed, setCallConfirmed] = useState<boolean>(order.callConfirmed || false);
-  const [scheduledPickup, setScheduledPickup] = useState<string>(order.scheduledPickupAt || '');
   const [extensionReason, setExtensionReason] = useState<string>(order.pickupExtensionReason || '');
   const [showExtensionModal, setShowExtensionModal] = useState<boolean>(false);
-  const [coreStatus, setCoreStatus] = useState<CoreStatus>(order.coreStatus || 'deposito_pendiente');
-  const [checklistDelivered, setChecklistDelivered] = useState<boolean>(order.checklistDelivered || false);
-  const [checklistInvoice, setChecklistInvoice] = useState<boolean>(order.checklistInvoice || false);
 
   // Modals state
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
@@ -74,11 +94,11 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   const totalPayable = Math.max(0, grossSubtotal - downPayment);
 
   // Warranty Days Remaining Calculation
-  const calculateWarrantyRemaining = (): { daysLeft: number; statusClass: string; label: string } => {
+  const calculateWarrantyRemaining = (): { daysLeft: number; badgeClass: string; label: string } => {
     if (order.status !== 'entregado' || !order.deliveredAt) {
       return {
         daysLeft: order.warrantyDays || 60,
-        statusClass: 'text-[#94a3b8] bg-[#94a3b8]/10 border-[#94a3b8]/30',
+        badgeClass: 'neon-badge-cyan',
         label: 'Inicia al entregar físicamente',
       };
     }
@@ -89,19 +109,19 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     if (daysLeft > 10) {
       return {
         daysLeft,
-        statusClass: 'text-[#34d399] bg-[#10b981]/15 border-[#10b981]/30',
+        badgeClass: 'neon-badge-emerald',
         label: `🟢 Vigente (${daysLeft} días restantes)`,
       };
     } else if (daysLeft > 0) {
       return {
         daysLeft,
-        statusClass: 'text-[#facc15] bg-[#eab308]/15 border-[#eab308]/30',
+        badgeClass: 'neon-badge-amber',
         label: `🟡 Crítica (${daysLeft} días restantes)`,
       };
     } else {
       return {
         daysLeft: 0,
-        statusClass: 'text-[#f87171] bg-[#ef4444]/15 border-[#ef4444]/30',
+        badgeClass: 'neon-badge-red',
         label: '🔴 Garantía Expirada',
       };
     }
@@ -109,9 +129,35 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
   const warrantyInfo = calculateWarrantyRemaining();
 
+  const fetchAssociatedClaim = async () => {
+    try {
+      setIsLoadingClaim(true);
+      const res = await apiFetch('/claims');
+      if (res.ok) {
+        const claims: Claim[] = await res.json();
+        const match = claims.find((c) => String(c.orderId) === String(order.id) || c.orderCode === order.code);
+        if (match) {
+          setAssociatedClaim(match);
+          setResolveForm((prev) => ({
+            ...prev,
+            targetStatus: (match.previousOrderStatus as OrderStatus) || 'entregado',
+          }));
+        }
+      }
+    } catch {
+      // silent catch
+    } finally {
+      setIsLoadingClaim(false);
+    }
+  };
+
+  useEffect(() => {
+    void fetchAssociatedClaim();
+  }, [order.id, order.code, order.status]);
+
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
-    setCopiedNotification(label);
+    setCopiedNotification(`${label} copiado al portapapeles`);
     setTimeout(() => setCopiedNotification(null), 2500);
   };
 
@@ -120,6 +166,147 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     setStockAssigned(newStock);
     if (onUpdateOrder) {
       onUpdateOrder({ ...order, stockNumber: newStock });
+    }
+  };
+
+  const handleRegisterCall = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!callForm.summary.trim()) {
+      setCallForm((prev) => ({ ...prev, error: 'Ingresa el resumen de la llamada.' }));
+      return;
+    }
+
+    setCallForm((prev) => ({ ...prev, isSubmitting: true, error: '' }));
+    const claimTargetId = associatedClaim?.id?.replace('REC-', '') || order.id;
+    const newCallNumber = ((associatedClaim?.callCount || associatedClaim?.calls?.length) || 0) + 1;
+    const wasenderMsg = `📢 Reclamo Orden #${order.code} - Llamada #${newCallNumber} | Cliente: ${callForm.callerName || order.customer.name} (${callForm.callerPhone || order.customer.phone}) | Atendió: ${callForm.attendedBy} | Detalle: ${callForm.summary}`;
+
+    try {
+      const res = await apiFetch(`/claims/${claimTargetId}/calls`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          callerName: callForm.callerName || order.customer.name,
+          callerPhone: callForm.callerPhone || order.customer.phone,
+          attendedBy: callForm.attendedBy || order.advisor,
+          conversationSummary: callForm.summary,
+          whatsappDispatched: callForm.sendWhatsApp,
+          whatsappMessage: wasenderMsg,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || 'Error al registrar llamada');
+      }
+
+      const newCall: ClaimCall = await res.json();
+      setAssociatedClaim((prev) => {
+        if (!prev) {
+          return {
+            id: `REC-${claimTargetId}`,
+            orderId: order.id,
+            orderCode: order.code,
+            customerName: order.customer.name,
+            customerPhone: order.customer.phone,
+            vehicle: `${order.vehicle.year} ${order.vehicle.make} ${order.vehicle.model}`,
+            mainPart: order.mainPart,
+            claimReason: order.claimReason || 'Reclamo en curso',
+            type: 'Reclamo de orden',
+            priority: 'Media',
+            status: 'Pending',
+            previousOrderStatus: 'entregado',
+            advisor: order.advisor || 'Carlos Mendoza',
+            createdAt: new Date().toISOString(),
+            callCount: 1,
+            calls: [newCall],
+          };
+        }
+        return {
+          ...prev,
+          calls: [newCall, ...(prev.calls || [])],
+          callCount: (prev.callCount || 0) + 1,
+        };
+      });
+
+      setIsCallModalOpen(false);
+      setCallForm((prev) => ({ ...prev, summary: '', isSubmitting: false }));
+      setCopiedNotification(`📞 Llamada #${newCallNumber} registrada en bitácora.`);
+      setTimeout(() => setCopiedNotification(null), 3000);
+    } catch (err: any) {
+      setCallForm((prev) => ({ ...prev, isSubmitting: false, error: err.message || 'Error al guardar la llamada.' }));
+    }
+  };
+
+  const handleResolveClaimFromDetail = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const claimTargetId = associatedClaim?.id?.replace('REC-', '');
+    setResolveForm((prev) => ({ ...prev, isSubmitting: true }));
+
+    try {
+      if (claimTargetId) {
+        const res = await apiFetch(`/claims/${claimTargetId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: 'Resolved',
+            orderId: Number(order.id),
+            previousOrderStatus: resolveForm.targetStatus,
+          }),
+        });
+        if (!res.ok) throw new Error('No se pudo resolver el reclamo en el servidor');
+      }
+
+      if (onUpdateOrder) {
+        onUpdateOrder({
+          ...order,
+          status: resolveForm.targetStatus,
+          claimReason: undefined,
+          deliveredAt: resolveForm.targetStatus === 'entregado' ? (order.deliveredAt || new Date().toISOString()) : order.deliveredAt,
+        });
+      }
+
+      setAssociatedClaim((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: 'Resolved' as ClaimStatus,
+              resolvedAt: new Date().toISOString(),
+            }
+          : null
+      );
+
+      setIsResolveModalOpen(false);
+      setCopiedNotification(`🟢 Reclamo resuelto. Orden restaurada a '${ORDER_STATUS_LABELS[resolveForm.targetStatus]}'.`);
+      setTimeout(() => setCopiedNotification(null), 3500);
+    } catch {
+      alert('No se pudo completar la resolución del reclamo.');
+    } finally {
+      setResolveForm((prev) => ({ ...prev, isSubmitting: false }));
+    }
+  };
+
+  const handleDenyClaimFromDetail = async () => {
+    if (!window.confirm(`¿Confirmas denegar la garantía del reclamo asociado a la orden #${order.code}?`)) {
+      return;
+    }
+    const claimTargetId = associatedClaim?.id?.replace('REC-', '');
+    try {
+      if (claimTargetId) {
+        await apiFetch(`/claims/${claimTargetId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: 'Denied',
+            orderId: Number(order.id),
+          }),
+        });
+      }
+      setAssociatedClaim((prev) => (prev ? { ...prev, status: 'Denied' as ClaimStatus } : null));
+      setCopiedNotification(`🔴 Garantía denegada para reclamo.`);
+      setTimeout(() => setCopiedNotification(null), 3000);
+    } catch {
+      alert('Error al denegar la garantía.');
     }
   };
 
@@ -160,6 +347,34 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       return;
     }
 
+    // Direct transition out of reclamo from dropdown
+    if (order.status === 'reclamo' && newStatus !== 'reclamo') {
+      if (associatedClaim?.id) {
+        const claimNum = associatedClaim.id.replace('REC-', '');
+        apiFetch(`/claims/${claimNum}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: 'Resolved',
+            orderId: Number(order.id),
+            previousOrderStatus: newStatus,
+          }),
+        }).catch(() => {});
+        setAssociatedClaim((prev) => (prev ? { ...prev, status: 'Resolved' as ClaimStatus } : null));
+      }
+      if (onUpdateOrder) {
+        onUpdateOrder({
+          ...order,
+          status: newStatus,
+          claimReason: undefined,
+          deliveredAt: newStatus === 'entregado' ? (order.deliveredAt || new Date().toISOString()) : order.deliveredAt,
+        });
+      }
+      setCopiedNotification(`ℹ️ Estatus cambiado a '${ORDER_STATUS_LABELS[newStatus]}'.`);
+      setTimeout(() => setCopiedNotification(null), 3000);
+      return;
+    }
+
     if (onUpdateOrder) {
       onUpdateOrder({
         ...order,
@@ -184,9 +399,12 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       } else if (onUpdateOrder) {
         onUpdateOrder({ ...order, status: 'reclamo', claimReason: reason });
       }
+      void fetchAssociatedClaim();
       setClaimModal({ isOpen: false, reason: '', isSaving: false, error: '' });
+      setCopiedNotification('🚨 Reclamo creado con éxito.');
+      setTimeout(() => setCopiedNotification(null), 3000);
     } catch {
-      setClaimModal((previous) => ({ ...previous, isSaving: false, error: 'No se pudo crear el reclamo en radar_db.' }));
+      setClaimModal((previous) => ({ ...previous, isSaving: false, error: 'No se pudo crear el reclamo en la base de datos.' }));
     }
   };
 
@@ -207,24 +425,28 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       title: 'Términos y Condiciones',
       sub: 'Notificación & Comprobante',
       desc: 'Envío de cotización formal, términos de garantía y registro de captura de envío.',
+      icon: 'verified_user',
     },
     {
       num: 2,
       title: 'Acuse de Términos',
       sub: 'Llamada o Chat (2-3 días)',
       desc: 'Confirmación verbal o comprobante digital de acuse recibido por el cliente.',
+      icon: 'support_agent',
     },
     {
       num: 3,
       title: 'Coordinación de Cita',
       sub: 'Pieza Lista & Agenda',
       desc: 'Programación de fecha/hora de retiro o delivery con gestión de prórrogas.',
+      icon: 'calendar_month',
     },
     {
       num: 4,
       title: 'Cierre Operativo',
       sub: 'Checklist & Garantía',
       desc: 'Verificación física, factura emitida, control de CORE e inicio de garantía.',
+      icon: 'task_alt',
     },
   ];
 
@@ -245,159 +467,343 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     });
   };
 
-  const templateMessageES = `Fecha de la orden: ${new Date().toLocaleDateString('es-ES')}
-Vehículo: ${vehicleName} ${order.vehicle.year}
-Pieza: ${partType}
-VIN: ${order.vehicle.vin}
-Stock #: ${stockAssigned || order.stockNumber || 'STK-2026-098'}
-
-DESGLOSE FINANCIERO:
-• Monto de la Parte: $${partPrice.toFixed(2)}
-• Abono / Downpayment: -$${downPayment.toFixed(2)}
-• Monto de Delivery: $${deliveryFee.toFixed(2)}
-• Monto del Core Fee: $${coreFee.toFixed(2)}
-────────────────────────────────
-TOTAL: $${totalPayable.toFixed(2)}
-
-Métodos de pago: Zelle, CashApp, Tarjeta, Efectivo
-Garantía: ${order.warrantyDays || 60} días (a partir de la entrega física)
-Tipo de Entrega: ${isHomeDelivery ? 'Envío' : 'Retiro en Tienda Principal RADAR'}`;
-
-  const templateMessageEN = `Order Date: ${new Date().toLocaleDateString('en-US')}
-Vehicle: ${vehicleName} ${order.vehicle.year}
-Part: ${partType}
-VIN: ${order.vehicle.vin}
-Stock #: ${stockAssigned || order.stockNumber || 'STK-2026-098'}
-
-FINANCIAL SUMMARY:
-• Part Price: $${partPrice.toFixed(2)}
-• Downpayment: -$${downPayment.toFixed(2)}
-• Delivery Fee: $${deliveryFee.toFixed(2)}
-• Core Fee: $${coreFee.toFixed(2)}
-────────────────────────────────
-TOTAL: $${totalPayable.toFixed(2)}
-
-Payment Methods: Zelle, CashApp, Card, Cash
-Warranty: ${order.warrantyDays || 60} days (effective upon physical delivery)
-Delivery Type: ${isHomeDelivery ? 'Home Delivery' : 'Pickup at RADAR Main Store'}`;
-
   return (
-    <div className="radar-view text-[#dfe2ef] pb-8">
-      {/* 1. TOP HEADER & BREADCRUMB ROW */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex flex-wrap items-center gap-3">
+    <div className="radar-view text-[#dfe2ef] pb-10 select-none space-y-6">
+      {/* 1. TOP HEADER & BREADCRUMB ROW (CYBER HUD CARD) */}
+      <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">
+        <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_14px_#22d3ee]" />
+
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+          <div className="flex items-start gap-4">
             <button
+              type="button"
               onClick={onBack}
-              className="hover:text-[#58a6ff] text-[#94a3b8] transition-colors cursor-pointer mr-1"
-              title="Volver"
+              className="mt-1 p-2.5 rounded-xl bg-[#040814] border border-cyan-500/30 text-cyan-400 hover:text-white hover:bg-cyan-500/20 hover:border-cyan-400 transition-all cursor-pointer shadow-[0_0_12px_rgba(6,182,212,0.2)]"
+              title="Volver al listado"
             >
-              <span className="material-symbols-outlined text-[24px]">arrow_back</span>
+              <span className="material-symbols-outlined text-[20px]">arrow_back</span>
             </button>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-[#f1f5f9] tracking-tight flex items-center gap-2">
-              <span>Orden</span>
-              <span className="text-[#388bfd] font-mono">#{order.code}</span>
-            </h1>
 
-            {/* Interactive Status Selector Dropdown */}
-            <select
-              value={order.status}
-              onChange={(e) => handleStatusChange(e.target.value as OrderStatus)}
-              className="bg-[#0b1329] border border-[#388bfd]/50 text-[#58a6ff] font-bold text-xs rounded-full px-3.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#388bfd] cursor-pointer shadow-sm uppercase tracking-wider"
-            >
-              {statusOptions.map((status) => (
-                <option key={status} value={status}>
-                  {status === order.status ? `Actual: ${ORDER_STATUS_LABELS[status]}` : ORDER_STATUS_LABELS[status]}
-                </option>
-              ))}
-            </select>
+            <div>
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2">
+                  <span>Orden</span>
+                  <span className="text-cyan-400 font-mono drop-shadow-[0_0_12px_rgba(34,211,238,0.4)]">
+                    #{order.code}
+                  </span>
+                </h1>
 
-            {downPayment === 0 ? (
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-[#ef4444]/15 text-[#f87171] border border-[#ef4444]/30">
-                Sin Abono ($0.00)
-              </span>
-            ) : (
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-[#10b981]/15 text-[#34d399] border border-[#10b981]/30">
-                Abono: ${downPayment.toFixed(2)}
-              </span>
-            )}
+                {/* Status Dropdown */}
+                <div className="relative inline-flex items-center">
+                  <select
+                    value={order.status}
+                    onChange={(e) => handleStatusChange(e.target.value as OrderStatus)}
+                    aria-label="Estado actual de la orden"
+                    className="appearance-none bg-[#040814]/90 border border-cyan-500/40 text-cyan-300 font-mono font-bold text-xs rounded-xl pl-3.5 pr-8 py-1.5 focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30 cursor-pointer shadow-[0_0_12px_rgba(6,182,212,0.2)] uppercase tracking-wider"
+                  >
+                    {statusOptions.map((status) => (
+                      <option key={status} value={status} className="bg-[#070c18] text-white">
+                        {status === order.status ? `● ${ORDER_STATUS_LABELS[status]}` : ORDER_STATUS_LABELS[status]}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="material-symbols-outlined text-cyan-400 text-[18px] absolute right-2 pointer-events-none">
+                    arrow_drop_down
+                  </span>
+                </div>
+
+                {/* Downpayment Badge */}
+                {downPayment === 0 ? (
+                  <span className="px-3 py-1 rounded-xl text-xs font-mono font-bold neon-badge-red flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                    <span>Sin Abono ($0.00)</span>
+                  </span>
+                ) : (
+                  <span className="px-3 py-1 rounded-xl text-xs font-mono font-bold neon-badge-emerald flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>Abono: ${downPayment.toFixed(2)}</span>
+                  </span>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs text-slate-400 mt-2 font-mono">
+                <span className="flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[15px] text-cyan-400">schedule</span>
+                  <span>{order.createdAt || '24 Oct 2026, 14:32'}</span>
+                </span>
+                <span>•</span>
+                <span className="flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[15px] text-cyan-400">person</span>
+                  <span>Asesor: <strong className="text-cyan-300">{order.advisor || 'Carlos Mendoza'}</strong></span>
+                </span>
+                <span>•</span>
+                <span className="flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[15px] text-cyan-400">
+                    {isHomeDelivery ? 'local_shipping' : 'storefront'}
+                  </span>
+                  <span>{isHomeDelivery ? 'Envío a Domicilio' : 'Retiro en Tienda'}</span>
+                </span>
+              </div>
+            </div>
           </div>
 
-          <p className="text-xs sm:text-sm text-[#94a3b8] mt-1 font-medium pl-8">
-            Creada el {order.createdAt || '24 Oct 2026, 14:32'} • Asesor:{' '}
-            <strong className="text-[#e2e8f0]">{order.advisor || 'Carlos Mendoza'}</strong>
-          </p>
-        </div>
+          {/* Top Right Action & Segmented Tabs */}
+          <div className="flex flex-wrap items-center gap-3 self-start lg:self-center">
+            {/* Quick Action Buttons */}
+            <button
+              type="button"
+              onClick={() => onOpenSMS(order.customer.name, order.customer.phone, order)}
+              className="cyber-btn-secondary px-3.5 py-2 text-xs font-bold flex items-center gap-1.5"
+              title="Abrir SMS Rápido"
+            >
+              <span className="material-symbols-outlined text-[16px] text-cyan-400">chat</span>
+              <span className="hidden sm:inline">SMS</span>
+            </button>
 
-        {/* Top Right Segmented Tabs */}
-        <div className="flex items-center bg-[#0b1329] border border-[#1e293b] p-1.5 rounded-xl shadow-lg self-start sm:self-auto overflow-x-auto max-w-full">
-          <button
-            onClick={() => setActiveTab('resumen')}
-            className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap transition-all cursor-pointer ${
-              activeTab === 'resumen'
-                ? 'bg-[#1e293b] text-[#58a6ff] shadow-md border border-[#388bfd]/30'
-                : 'text-[#94a3b8] hover:text-[#f1f5f9]'
-            }`}
-          >
-            1. Resumen
-          </button>
-          <button
-            onClick={() => setActiveTab('workflow')}
-            className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap transition-all cursor-pointer ${
-              activeTab === 'workflow'
-                ? 'bg-[#1e293b] text-[#58a6ff] shadow-md border border-[#388bfd]/30'
-                : 'text-[#94a3b8] hover:text-[#f1f5f9]'
-            }`}
-          >
-            2. Flujo
-          </button>
-          <button
-            onClick={() => setActiveTab('historial')}
-            className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap transition-all cursor-pointer ${
-              activeTab === 'historial'
-                ? 'bg-[#1e293b] text-[#58a6ff] shadow-md border border-[#388bfd]/30'
-                : 'text-[#94a3b8] hover:text-[#f1f5f9]'
-            }`}
-          >
-            3. Historial
-          </button>
+            <button
+              type="button"
+              onClick={() => setShowInvoiceModal(true)}
+              className="cyber-btn-secondary px-3.5 py-2 text-xs font-bold flex items-center gap-1.5"
+              title="Ver / Imprimir Factura"
+            >
+              <span className="material-symbols-outlined text-[16px] text-cyan-400">receipt_long</span>
+              <span className="hidden sm:inline">Factura</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowDispatchModal(true)}
+              className="cyber-btn-secondary px-3.5 py-2 text-xs font-bold flex items-center gap-1.5"
+              title="Imprimir Etiqueta 4x6"
+            >
+              <span className="material-symbols-outlined text-[16px] text-emerald-400">qr_code_2</span>
+              <span className="hidden sm:inline">Rótulo 4x6</span>
+            </button>
+
+            {/* Segmented Tabs */}
+            <div className="flex items-center bg-[#040814] border border-cyan-500/30 p-1 rounded-2xl shadow-inner">
+              <button
+                type="button"
+                onClick={() => setActiveTab('resumen')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-mono font-bold whitespace-nowrap transition-all cursor-pointer ${
+                  activeTab === 'resumen'
+                    ? 'bg-gradient-to-r from-cyan-400 to-emerald-400 text-slate-950 font-black shadow-[0_0_15px_rgba(6,182,212,0.4)]'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                1. Resumen
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('workflow')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-mono font-bold whitespace-nowrap transition-all cursor-pointer ${
+                  activeTab === 'workflow'
+                    ? 'bg-gradient-to-r from-cyan-400 to-emerald-400 text-slate-950 font-black shadow-[0_0_15px_rgba(6,182,212,0.4)]'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                2. Flujo
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('historial')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-mono font-bold whitespace-nowrap transition-all cursor-pointer ${
+                  activeTab === 'historial'
+                    ? 'bg-gradient-to-r from-cyan-400 to-emerald-400 text-slate-950 font-black shadow-[0_0_15px_rgba(6,182,212,0.4)]'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                3. Historial
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-      {order.status === 'reclamo' && (
-        <div className="rounded-2xl border border-[#ef4444]/40 bg-[#ef4444]/10 p-4 shadow-[0_0_24px_rgba(239,68,68,0.12)]">
-          <div className="flex flex-col sm:flex-row sm:items-start gap-3">
-            <div className="h-10 w-10 rounded-xl bg-[#ef4444]/20 border border-[#ef4444]/40 text-[#f87171] flex items-center justify-center shrink-0">
-              <span className="material-symbols-outlined text-[22px]">report_problem</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-sm font-black uppercase tracking-wider text-[#fecaca]">Reclamo abierto</h2>
-                <span className="rounded-full border border-[#ef4444]/40 bg-[#ef4444]/15 px-2 py-0.5 text-[10px] font-bold text-[#fca5a5]">
-                  Pendiente en Reclamos
-                </span>
+      {/* RECLAMO / CLAIMS TRACKING HUD CARD */}
+      {(order.status === 'reclamo' || (associatedClaim && associatedClaim.status !== 'Resolved')) && (
+        <div className="relative rounded-3xl bg-[#070c18]/95 backdrop-blur-2xl border border-red-500/40 p-5 md:p-6 shadow-[0_10px_35px_rgba(239,68,68,0.25)] overflow-hidden flex flex-col gap-4">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-red-500 to-rose-400 shadow-[0_0_15px_#ef4444]" />
+
+          {/* Top Info Header */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-red-500/20 border border-red-500/40 text-red-400 flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(239,68,68,0.3)]">
+                <span className="material-symbols-outlined text-[26px]">headset_mic</span>
               </div>
-              <p className="mt-1 text-xs text-[#fca5a5]">
-                Esta orden tiene un reclamo activo y requiere seguimiento antes de continuar el proceso normal.
-              </p>
-              {order.claimReason && (
-                <div className="mt-3 rounded-xl border border-[#ef4444]/30 bg-[#080e1e]/80 p-3 text-xs text-[#fee2e2]">
-                  <span className="font-bold text-[#fca5a5]">Motivo:</span> {order.claimReason}
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base font-black text-red-200 tracking-tight font-mono">
+                    SEGUIMIENTO DE RECLAMO & GARANTÍA
+                  </h2>
+                  {associatedClaim && (
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold font-mono bg-red-950/80 text-red-300 border border-red-500/30">
+                      {associatedClaim.id}
+                    </span>
+                  )}
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono ${
+                      associatedClaim?.status === 'Resolved'
+                        ? 'neon-badge-emerald'
+                        : associatedClaim?.status === 'Denied'
+                        ? 'neon-badge-red'
+                        : associatedClaim?.status === 'In Process'
+                        ? 'neon-badge-cyan'
+                        : 'neon-badge-amber'
+                    }`}
+                  >
+                    {associatedClaim?.status === 'Resolved'
+                      ? '🟢 Resuelto'
+                      : associatedClaim?.status === 'Denied'
+                      ? '🔴 Denegado'
+                      : associatedClaim?.status === 'In Process'
+                      ? '🔵 En Proceso'
+                      : '🟡 Reclamo Pendiente'}
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono bg-cyan-950/70 text-cyan-300 border border-cyan-500/30">
+                    📞 {(associatedClaim?.calls?.length || associatedClaim?.callCount || 0)} llamadas
+                  </span>
                 </div>
-              )}
+                <p className="text-xs text-red-300/80 mt-1">
+                  Reclamo activo en el sistema. Puedes registrar interacciones telefónicas con el cliente o resolver el reclamo restaurando la orden.
+                </p>
+              </div>
             </div>
+
+            {/* Quick Actions Buttons */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setCallForm({
+                    callerName: order.customer.name || '',
+                    callerPhone: order.customer.phone || '',
+                    attendedBy: order.advisor || 'Carlos Mendoza',
+                    summary: '',
+                    sendWhatsApp: true,
+                    isSubmitting: false,
+                    error: '',
+                  });
+                  setIsCallModalOpen(true);
+                }}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 hover:text-white border border-cyan-500/40 transition-all cursor-pointer flex items-center gap-1.5 shadow-[0_0_12px_rgba(6,182,212,0.2)]"
+              >
+                <span className="material-symbols-outlined text-[16px] text-cyan-400">add_call</span>
+                <span>Registrar Llamada</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setResolveForm({
+                    targetStatus: (associatedClaim?.previousOrderStatus as OrderStatus) || 'entregado',
+                    notes: '',
+                    isSubmitting: false,
+                  });
+                  setIsResolveModalOpen(true);
+                }}
+                className="px-3.5 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                <span>Resolver Reclamo</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleStatusChange('solicitud_reembolso')}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 hover:text-white border border-amber-500/40 transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <span className="material-symbols-outlined text-[16px] text-amber-400">currency_exchange</span>
+                <span>Solicitar Reembolso</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDenyClaimFromDetail}
+                className="px-3 py-2 rounded-xl text-xs font-bold bg-red-950/60 text-red-400 hover:bg-red-900/60 hover:text-red-200 border border-red-500/30 transition-all cursor-pointer flex items-center gap-1"
+                title="Denegar reclamo por violación de garantía"
+              >
+                <span className="material-symbols-outlined text-[15px]">block</span>
+                <span className="hidden sm:inline">Denegar</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Reason Reported Card */}
+          {(order.claimReason || associatedClaim?.claimReason) && (
+            <div className="p-3.5 rounded-2xl bg-[#040814]/90 border border-red-500/30 text-xs text-red-200 font-mono flex flex-col gap-1">
+              <span className="text-red-400 uppercase text-[10px] font-bold tracking-wider flex items-center gap-1">
+                <span className="material-symbols-outlined text-[14px]">warning</span>
+                <span>Motivo Reportado por el Cliente:</span>
+              </span>
+              <p className="text-slate-200">{order.claimReason || associatedClaim?.claimReason}</p>
+            </div>
+          )}
+
+          {/* Call History Expandable Bar */}
+          <div className="pt-2 border-t border-red-500/20 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setShowCallHistory(!showCallHistory)}
+                className="text-xs font-mono font-bold text-cyan-300 hover:text-cyan-200 flex items-center gap-1.5 cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[18px]">
+                  {showCallHistory ? 'expand_less' : 'history'}
+                </span>
+                <span>
+                  {showCallHistory ? 'Ocultar Historial de Bitácora' : `Ver Bitácora de Llamadas (${associatedClaim?.calls?.length || associatedClaim?.callCount || 0})`}
+                </span>
+              </button>
+              <span className="text-[11px] font-mono text-slate-400">
+                Cliente: <strong className="text-white">{order.customer.name}</strong> ({order.customer.phone})
+              </span>
+            </div>
+
+            {showCallHistory && (
+              <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-1 animate-fade-in">
+                {!associatedClaim?.calls || associatedClaim.calls.length === 0 ? (
+                  <div className="p-4 rounded-xl bg-[#040814] border border-cyan-500/20 text-center text-xs text-slate-400 font-mono">
+                    No hay llamadas registradas aún para este reclamo. Haz clic en <strong>"Registrar Llamada"</strong> para añadir la primera interacción.
+                  </div>
+                ) : (
+                  associatedClaim.calls.map((call, idx) => (
+                    <div
+                      key={call.id || idx}
+                      className="p-3 rounded-xl bg-[#040814] border border-cyan-500/25 flex flex-col gap-1.5 text-xs text-slate-300 font-mono"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+                        <span className="font-bold text-cyan-300">
+                          📞 Llamada #{call.callNumber || (associatedClaim.calls.length - idx)} · Atendió: <span className="text-white">{call.attendedBy || 'Operador'}</span>
+                        </span>
+                        <span>{call.createdAt ? new Date(call.createdAt).toLocaleString('es-ES') : 'Fecha no registrada'}</span>
+                      </div>
+                      <p className="text-slate-100 text-xs">{call.conversationSummary}</p>
+                      {call.whatsappDispatched && (
+                        <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-bold">
+                          <span className="material-symbols-outlined text-[13px]">check_circle</span>
+                          <span>Notificación WhatsApp Wasender Enviada</span>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* 2. WORKFLOW CALL CENTER STEPPER (4 PROGRESSIVE STAGES) */}
-      <div className="bg-[#0b1329] border border-[#1e293b] rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col gap-4">
+      {/* 2. CALL CENTER WORKFLOW STEPPER (4 PROGRESSIVE STAGES) */}
+      <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col gap-4">
+        <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_10px_#22d3ee]" />
+
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs font-bold tracking-widest text-[#94a3b8] uppercase">
-            <span className="material-symbols-outlined text-[#388bfd] text-[18px]">headset_mic</span>
-            <span>FLUJO GUIADO CALL CENTER RADAR (4 ETAPAS)</span>
+          <div className="flex items-center gap-2 text-xs font-bold tracking-widest text-cyan-300 font-mono uppercase">
+            <span className="material-symbols-outlined text-cyan-400 text-[18px]">headset_mic</span>
+            <span>FLUJO OPERATIVO CALL CENTER RADAR (4 ETAPAS)</span>
           </div>
-          <span className="font-mono text-xs font-bold text-[#58a6ff] bg-[#388bfd]/10 px-2.5 py-1 rounded-lg border border-[#388bfd]/25">
+          <span className="font-mono text-xs font-bold text-cyan-300 bg-cyan-950/60 px-3 py-1 rounded-xl border border-cyan-500/30 shadow-[0_0_8px_rgba(6,182,212,0.2)]">
             Paso Activo: {currentStep} de 4
           </span>
         </div>
@@ -412,42 +818,42 @@ Delivery Type: ${isHomeDelivery ? 'Home Delivery' : 'Pickup at RADAR Main Store'
             return (
               <div
                 key={step.num}
-                className={`p-4 rounded-xl border transition-all flex flex-col items-center text-center gap-2.5 relative ${
+                className={`p-4 rounded-2xl border transition-all flex flex-col items-center text-center gap-2.5 relative ${
                   isCurrent
-                    ? 'bg-[#111f38] border-[#388bfd] shadow-[0_0_15px_rgba(56,139,253,0.3)]'
+                    ? 'bg-[#091428] border-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.3)]'
                     : isCompleted
-                    ? 'bg-[#0f172a] border-[#10b981]/40'
-                    : 'bg-[#080e1e] border-[#1e293b] opacity-50'
+                    ? 'bg-[#06111f] border-emerald-500/40'
+                    : 'bg-[#040814]/70 border-cyan-500/10 opacity-50'
                 }`}
               >
                 {/* Step Circle Node */}
                 <div
-                  className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm transition-transform ${
+                  className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-transform ${
                     isCompleted
-                      ? 'bg-[#10b981] text-[#0a1120] shadow-[0_0_10px_rgba(16,185,129,0.4)]'
+                      ? 'bg-emerald-500 text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.5)]'
                       : isCurrent
-                      ? 'border-2 border-[#388bfd] bg-[#0b1329] text-[#58a6ff] shadow-[0_0_12px_#388bfd]'
-                      : 'bg-[#1e293b] text-[#64748b]'
+                      ? 'border-2 border-cyan-400 bg-cyan-950/80 text-cyan-300 shadow-[0_0_15px_rgba(34,211,238,0.5)] animate-pulse'
+                      : 'bg-[#0d182e] text-slate-500 border border-slate-700'
                   }`}
                 >
                   {isCompleted ? (
-                    <span className="material-symbols-outlined text-[20px] font-black">check</span>
+                    <span className="material-symbols-outlined text-[22px] font-black">check</span>
                   ) : isLocked ? (
-                    <span className="material-symbols-outlined text-[16px] text-[#64748b]">lock</span>
+                    <span className="material-symbols-outlined text-[18px] text-slate-500">lock</span>
                   ) : (
-                    <span>{step.num}</span>
+                    <span className="font-mono font-black">{step.num}</span>
                   )}
                 </div>
 
                 <div>
                   <h4
                     className={`font-bold text-xs sm:text-sm tracking-tight ${
-                      isCurrent ? 'text-[#58a6ff]' : isCompleted ? 'text-[#34d399]' : 'text-[#cbd5e1]'
+                      isCurrent ? 'text-cyan-300' : isCompleted ? 'text-emerald-300' : 'text-slate-400'
                     }`}
                   >
                     {step.title}
                   </h4>
-                  <span className="text-[11px] text-[#64748b] block">{step.sub}</span>
+                  <span className="text-[11px] text-slate-400 block font-mono mt-0.5">{step.sub}</span>
                 </div>
               </div>
             );
@@ -459,55 +865,62 @@ Delivery Type: ${isHomeDelivery ? 'Home Delivery' : 'Pickup at RADAR Main Store'
       {/* TAB 1: RESUMEN                                                           */}
       {/* ========================================================================= */}
       {activeTab === 'resumen' && (
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-6">
           {/* Main 3 Column Row */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Card 1: Refacción y Vehículo */}
-            <div className="bg-[#0b1329] border border-[#1e293b] rounded-2xl p-5 shadow-xl flex flex-col justify-between gap-4 relative overflow-hidden group">
+            <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.6)] flex flex-col justify-between gap-4 overflow-hidden group">
+              <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_8px_#22d3ee]" />
+
               {/* Vehicle Banner Background image */}
-              <div className="relative h-36 rounded-xl overflow-hidden bg-gradient-to-t from-[#0b1329] via-[#0b1329]/60 to-transparent flex items-end p-4 border border-[#1e293b]/60">
+              <div className="relative h-40 rounded-2xl overflow-hidden bg-gradient-to-t from-[#070c18] via-[#070c18]/60 to-transparent flex items-end p-4 border border-cyan-500/20">
                 <img
                   src={partImageUrl}
                   alt={isTransmission ? 'Transmisión automotriz' : 'Motor automotriz'}
-                  className="absolute inset-0 w-full h-full object-cover object-center opacity-40 group-hover:scale-105 transition-transform duration-500"
+                  className="absolute inset-0 w-full h-full object-cover object-center opacity-40 group-hover:scale-105 transition-transform duration-700"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#0b1329] via-transparent to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#070c18] via-transparent to-transparent" />
                 <div className="relative z-10">
-                  <h3 className="text-xl font-bold text-[#f1f5f9] tracking-tight">{vehicleName}</h3>
-                  <p className="text-xs text-[#94a3b8] font-medium">{vehicleDetails}</p>
+                  <h3 className="text-xl font-black text-white tracking-tight">{vehicleName}</h3>
+                  <p className="text-xs text-cyan-300 font-mono font-medium mt-0.5">{vehicleDetails}</p>
                 </div>
               </div>
 
               {/* Specs Grid */}
               <div className="grid grid-cols-2 gap-3 text-xs">
-                <div>
-                  <span className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider block">
+                <div className="p-2.5 rounded-xl bg-[#040814] border border-cyan-500/15">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase font-mono tracking-wider block">
                     VIN
                   </span>
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <span className="font-mono font-bold text-[#f1f5f9] truncate">
+                  <div className="flex items-center justify-between gap-1 mt-1">
+                    <span className="font-mono font-bold text-white truncate text-[11px]">
                       {order.vehicle.vin}
                     </span>
                     <button
+                      type="button"
                       onClick={() => handleCopy(order.vehicle.vin, 'VIN')}
-                      className="text-[#94a3b8] hover:text-[#58a6ff] cursor-pointer"
+                      className="text-cyan-400 hover:text-cyan-200 cursor-pointer p-0.5"
+                      title="Copiar VIN"
                     >
                       <span className="material-symbols-outlined text-[14px]">content_copy</span>
                     </button>
                   </div>
                 </div>
 
-                <div>
-                  <span className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider block">
+                <div className="p-2.5 rounded-xl bg-[#040814] border border-cyan-500/15">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase font-mono tracking-wider block">
                     STOCK #
                   </span>
-                  <div className="mt-0.5">
+                  <div className="mt-1">
                     {stockAssigned ? (
-                      <span className="font-mono font-bold text-[#34d399]">{stockAssigned}</span>
+                      <span className="font-mono font-bold text-emerald-300 text-[11px] block truncate">
+                        {stockAssigned}
+                      </span>
                     ) : (
                       <button
+                        type="button"
                         onClick={handleAssignStock}
-                        className="text-[#f59e0b] hover:text-[#fbbf24] font-bold cursor-pointer transition-colors text-xs"
+                        className="text-amber-400 hover:text-amber-300 font-bold cursor-pointer transition-colors text-[11px] font-mono"
                       >
                         + Asignar Stock
                       </button>
@@ -515,107 +928,140 @@ Delivery Type: ${isHomeDelivery ? 'Home Delivery' : 'Pickup at RADAR Main Store'
                   </div>
                 </div>
 
-                <div>
-                  <span className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider block">
+                <div className="p-2.5 rounded-xl bg-[#040814] border border-cyan-500/15">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase font-mono tracking-wider block">
                     PIEZA PRINCIPAL
                   </span>
-                  <span className="font-bold text-[#58a6ff] block mt-0.5">{partType}</span>
+                  <span className="font-bold text-cyan-300 block mt-1 truncate">{partType}</span>
                 </div>
 
-                <div>
-                  <span className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider block">
+                <div className="p-2.5 rounded-xl bg-[#040814] border border-cyan-500/15">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase font-mono tracking-wider block">
                     TIPO DE ENTREGA
                   </span>
-                  <span className="inline-flex items-center gap-1.5 bg-[#080e1e] border border-[#1e293b] text-xs font-bold text-[#f1f5f9] rounded-lg px-2 py-1 mt-0.5">
-                    <span className="material-symbols-outlined text-[15px] text-[#58a6ff]">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-white mt-1">
+                    <span className="material-symbols-outlined text-[15px] text-cyan-400">
                       {isHomeDelivery ? 'local_shipping' : 'storefront'}
                     </span>
-                    {isHomeDelivery ? 'Envío' : 'Retiro en Tienda'}
+                    <span>{isHomeDelivery ? 'Envío' : 'Retiro en Tienda'}</span>
                   </span>
                 </div>
               </div>
 
               {/* Technical Description Box */}
-              <div className="bg-[#080e1e] border border-[#1e293b] rounded-xl p-3 text-xs">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#64748b] block mb-1">
+              <div className="bg-[#040814] border border-cyan-500/20 rounded-2xl p-3.5 text-xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono block mb-1">
                   ESPECIFICACIONES & DESCRIPCIÓN TÉCNICA
                 </span>
-                <p className="text-[#cbd5e1] font-mono text-[11px] leading-relaxed">
+                <p className="text-slate-300 font-mono text-[11px] leading-relaxed">
                   {order.notes || order.productSpecs || '2.4 • 2.4L (VIN B, 8th digit), engine ID ED6 (Federal)'}
                 </p>
               </div>
             </div>
 
             {/* Card 2: Perfil del Cliente */}
-            <div className="bg-[#0b1329] border border-[#1e293b] rounded-2xl p-5 shadow-xl flex flex-col justify-between gap-4">
+            <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.6)] flex flex-col justify-between gap-4 overflow-hidden">
+              <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_8px_#22d3ee]" />
+
               <div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[#58a6ff] text-[20px]">person</span>
-                    <h3 className="font-bold text-base text-[#f1f5f9]">Datos de Cliente</h3>
+                    <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.2)]">
+                      <span className="material-symbols-outlined text-[18px]">person</span>
+                    </div>
+                    <h3 className="font-bold text-base text-white font-mono uppercase tracking-wider">
+                      Datos de Cliente
+                    </h3>
                   </div>
-                  <div className="w-9 h-9 rounded-full bg-[#1e293b] border border-[#334155] text-[#58a6ff] font-extrabold text-xs flex items-center justify-center shadow-inner">
+                  <div className="w-9 h-9 rounded-full bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 font-extrabold text-xs flex items-center justify-center shadow-[0_0_10px_rgba(6,182,212,0.3)]">
                     {order.customer.initials || 'SA'}
                   </div>
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#64748b] block mt-0.5">
+
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono block mt-2">
                   CLIENTE REGISTRADO (CRM)
                 </span>
 
                 <div className="flex flex-col gap-3 mt-4 text-xs">
-                  <div className="flex items-center gap-2.5 text-[#cbd5e1]">
-                    <span className="material-symbols-outlined text-[16px] text-[#94a3b8]">badge</span>
-                    <span className="font-semibold text-[#f1f5f9]">{order.customer.name}</span>
+                  <div className="p-3 rounded-xl bg-[#040814] border border-cyan-500/15 flex items-center gap-3">
+                    <span className="material-symbols-outlined text-[18px] text-cyan-400">badge</span>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-mono">Nombre</span>
+                      <strong className="text-white text-xs">{order.customer.name}</strong>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-2.5 text-[#cbd5e1]">
-                    <span className="material-symbols-outlined text-[16px] text-[#94a3b8]">call</span>
-                    <span className="font-mono font-bold text-[#f1f5f9]">{order.customer.phone}</span>
+                  <div className="p-3 rounded-xl bg-[#040814] border border-cyan-500/15 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="material-symbols-outlined text-[18px] text-emerald-400">call</span>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block font-mono">Teléfono</span>
+                        <strong className="font-mono text-cyan-300 text-xs">{order.customer.phone}</strong>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(order.customer.phone, 'Teléfono')}
+                      className="text-slate-400 hover:text-white p-1"
+                      title="Copiar teléfono"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">content_copy</span>
+                    </button>
                   </div>
 
                   {order.customer.shippingAddress?.trim() && (
-                    <div className="flex items-center gap-2.5 text-[#cbd5e1]">
-                      <span className="material-symbols-outlined text-[16px] text-[#94a3b8]">location_on</span>
-                      <span>{order.customer.shippingAddress}</span>
+                    <div className="p-3 rounded-xl bg-[#040814] border border-cyan-500/15 flex items-start gap-3">
+                      <span className="material-symbols-outlined text-[18px] text-amber-400 shrink-0 mt-0.5">location_on</span>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block font-mono">Dirección de Envío</span>
+                        <span className="text-slate-300 text-xs leading-relaxed">{order.customer.shippingAddress}</span>
+                      </div>
                     </div>
                   )}
                 </div>
               </div>
 
               {/* Action Button: SMS */}
-              <div className="pt-2 border-t border-[#1e293b]">
+              <div className="pt-2 border-t border-cyan-500/15">
                 <button
+                  type="button"
                   onClick={() => onOpenSMS(order.customer.name, order.customer.phone, order)}
-                  className="w-full py-2.5 px-3 rounded-xl bg-[#1e293b] hover:bg-[#334155] text-xs font-bold text-[#f1f5f9] flex items-center justify-center gap-2 transition-colors cursor-pointer border border-[#334155]"
+                  className="cyber-btn-primary w-full py-2.5 px-3 text-xs font-black flex items-center justify-center gap-2 cursor-pointer"
                 >
-                  <span className="material-symbols-outlined text-[16px] text-[#58a6ff]">chat</span>
-                  <span>SMS</span>
+                  <span className="material-symbols-outlined text-[18px]">chat</span>
+                  <span>Enviar Mensaje SMS / WhatsApp</span>
                 </button>
               </div>
             </div>
 
             {/* Card 3: Resumen Financiero */}
-            <div className="bg-[#0b1329] border border-[#1e293b] rounded-2xl p-5 shadow-xl flex flex-col justify-between gap-4">
+            <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.6)] flex flex-col justify-between gap-4 overflow-hidden">
+              <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_8px_#10b981]" />
+
               <div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[#10b981] text-[20px]">account_balance_wallet</span>
-                    <h3 className="font-bold text-base text-[#f1f5f9]">Resumen Financiero</h3>
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
+                      <span className="material-symbols-outlined text-[18px]">account_balance_wallet</span>
+                    </div>
+                    <h3 className="font-bold text-base text-white font-mono uppercase tracking-wider">
+                      Resumen Financiero
+                    </h3>
                   </div>
-                  <span className="text-[10px] font-mono text-[#34d399] font-bold bg-[#10b981]/10 px-2 py-0.5 rounded border border-[#10b981]/25">
+                  <span className="text-[10px] font-mono text-emerald-300 font-bold bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-500/30">
                     FÓRMULA RADAR
                   </span>
                 </div>
 
-                <div className="flex flex-col gap-2 mt-4 text-xs">
+                <div className="flex flex-col gap-2.5 mt-4 text-xs">
                   {/* 1. Monto de la Parte */}
-                  <div className="flex justify-between items-center text-[#cbd5e1]">
-                    <span className="font-medium">Monto de la Parte</span>
-                    <span className="font-mono font-bold text-[#f1f5f9]">${partPrice.toFixed(2)}</span>
+                  <div className="flex justify-between items-center p-2 rounded-xl bg-[#040814] border border-cyan-500/10">
+                    <span className="text-slate-300">Monto de la Parte</span>
+                    <span className="font-mono font-bold text-white">${partPrice.toFixed(2)}</span>
                   </div>
 
                   {/* 2. Abono o Downpayment */}
-                  <div className="flex justify-between items-center text-[#f59e0b]">
+                  <div className="flex justify-between items-center p-2 rounded-xl bg-[#040814] border border-amber-500/20 text-amber-300">
                     <span className="font-medium">Abono / Downpayment</span>
                     <span className="font-mono font-bold">
                       {downPayment > 0 ? `-$${downPayment.toFixed(2)}` : '$0.00'}
@@ -623,99 +1069,103 @@ Delivery Type: ${isHomeDelivery ? 'Home Delivery' : 'Pickup at RADAR Main Store'
                   </div>
 
                   {/* 3. Monto de Delivery */}
-                  <div className="flex justify-between items-center text-[#cbd5e1]">
-                    <span className="font-medium">Monto de Delivery</span>
-                    <span className="font-mono font-bold text-[#f1f5f9]">${deliveryFee.toFixed(2)}</span>
+                  <div className="flex justify-between items-center p-2 rounded-xl bg-[#040814] border border-cyan-500/10">
+                    <span className="text-slate-300">Monto de Delivery</span>
+                    <span className="font-mono font-bold text-white">${deliveryFee.toFixed(2)}</span>
                   </div>
 
                   {/* 4. Monto del Core Fee */}
-                  <div className="flex justify-between items-center text-[#cbd5e1]">
-                    <span className="font-medium">Monto del Core Fee</span>
-                    <span className="font-mono font-bold text-[#f1f5f9]">${coreFee.toFixed(2)}</span>
+                  <div className="flex justify-between items-center p-2 rounded-xl bg-[#040814] border border-cyan-500/10">
+                    <span className="text-slate-300">Monto del Core Fee</span>
+                    <span className="font-mono font-bold text-white">${coreFee.toFixed(2)}</span>
                   </div>
 
-                  <div className="h-px bg-[#1e293b] my-1" />
-
-                  {/* Subtotal de Cargos */}
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-[#94a3b8]">Subtotal de Cargos</span>
-                    <span className="font-mono font-bold text-[#94a3b8]">${grossSubtotal.toFixed(2)}</span>
+                  <div className="flex justify-between items-center pt-1 text-xs font-mono">
+                    <span className="text-slate-400">Subtotal de Cargos:</span>
+                    <span className="font-bold text-slate-300">${grossSubtotal.toFixed(2)}</span>
                   </div>
                 </div>
               </div>
 
               {/* 5. Glowing Big Total Box */}
-              <div className="border-t border-[#1e293b] pt-3">
+              <div className="border-t border-cyan-500/20 pt-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider block">
-                    {downPayment > 0 ? 'TOTAL A PAGAR (BALANCE)' : 'TOTAL ESTIMADO'}
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono block">
+                    {downPayment > 0 ? 'BALANCE PENDIENTE' : 'TOTAL ESTIMADO'}
                   </span>
                   {downPayment > 0 && (
-                    <span className="text-[10px] font-mono text-[#34d399] font-bold">
-                      Abono Aplicado: ${downPayment.toFixed(2)}
+                    <span className="text-[10px] font-mono text-emerald-300 font-bold">
+                      Abono: ${downPayment.toFixed(2)}
                     </span>
                   )}
                 </div>
-                <h2 className="text-2xl sm:text-3xl font-black text-[#58a6ff] tracking-tight font-mono drop-shadow-[0_0_15px_rgba(56,139,253,0.6)] mt-0.5">
-                  ${totalPayable.toFixed(2)}
+                <h2 className="text-2xl sm:text-3xl font-black text-cyan-300 tracking-tight font-mono drop-shadow-[0_0_15px_rgba(6,182,212,0.6)] mt-1">
+                  ${totalPayable.toFixed(2)}{' '}
+                  <span className="text-xs font-normal text-slate-400">USD</span>
                 </h2>
               </div>
             </div>
           </div>
 
-          {/* Bottom Section: Cobertura de Garantía con Semáforo & Emisión de Documentos */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Bottom Section: Cobertura de Garantía & Documentación Oficial */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Card 1: Cobertura de Garantía & Semáforo */}
-            <div className="bg-[#0b1329] border border-[#1e293b] rounded-2xl p-5 shadow-xl flex flex-col justify-between gap-4">
+            <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.6)] flex flex-col justify-between gap-4 overflow-hidden">
+              <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_8px_#10b981]" />
+
               <div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[#10b981] text-[20px]">verified_user</span>
-                    <h3 className="font-bold text-base text-[#f1f5f9]">Semáforo de Garantía</h3>
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
+                      <span className="material-symbols-outlined text-[18px]">verified_user</span>
+                    </div>
+                    <h3 className="font-bold text-base text-white font-mono uppercase tracking-wider">
+                      Semáforo de Garantía
+                    </h3>
                   </div>
-                  <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border font-mono ${warrantyInfo.statusClass}`}>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold font-mono border ${warrantyInfo.badgeClass}`}>
                     {warrantyInfo.label}
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 mt-3">
-                  <div className="bg-[#080e1e] border border-[#1e293b] p-3 rounded-xl">
-                    <span className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider block">
+                <div className="grid grid-cols-2 gap-3 mt-4">
+                  <div className="bg-[#040814] border border-cyan-500/15 p-3 rounded-2xl">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase font-mono tracking-wider block">
                       PLAN ASIGNADO
                     </span>
-                    <span className="text-xs font-bold text-[#34d399] mt-0.5 block">
+                    <span className="text-xs font-bold text-emerald-300 mt-1 block">
                       {order.warrantyDays || 60} Días de Garantía RADAR
                     </span>
                   </div>
 
-                  <div className="bg-[#080e1e] border border-[#1e293b] p-3 rounded-xl">
-                    <span className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider block">
+                  <div className="bg-[#040814] border border-cyan-500/15 p-3 rounded-2xl">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase font-mono tracking-wider block">
                       FECHA ENTREGA
                     </span>
-                    <span className="text-xs font-mono font-bold text-[#f1f5f9] mt-0.5 block">
-                      {order.deliveredAt ? new Date(order.deliveredAt).toLocaleDateString() : 'Pendiente Entrega'}
+                    <span className="text-xs font-mono font-bold text-white mt-1 block">
+                      {order.deliveredAt ? new Date(order.deliveredAt).toLocaleDateString('es-ES') : 'Pendiente Entrega Física'}
                     </span>
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-2.5 mt-3 text-xs text-[#cbd5e1]">
-                  <div className="flex items-start gap-2">
-                    <span className="material-symbols-outlined text-[16px] text-[#10b981] shrink-0 mt-0.5">
+                <div className="flex flex-col gap-2.5 mt-4 text-xs text-slate-300">
+                  <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-[#040814] border border-cyan-500/10">
+                    <span className="material-symbols-outlined text-[16px] text-emerald-400 shrink-0 mt-0.5">
                       check_circle
                     </span>
                     <div>
-                      <strong className="text-[#f1f5f9] block">Tren Motriz Completo</strong>
-                      <span className="text-[11px] text-[#94a3b8]">Motor, inyección, bloque, empaques y accesorios mecánicos</span>
+                      <strong className="text-white block">Tren Motriz Completo</strong>
+                      <span className="text-[11px] text-slate-400">Motor, inyección, bloque, empaques y accesorios mecánicos garantizados.</span>
                     </div>
                   </div>
 
-                  <div className="flex items-start gap-2">
-                    <span className="material-symbols-outlined text-[16px] text-[#10b981] shrink-0 mt-0.5">
+                  <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-[#040814] border border-cyan-500/10">
+                    <span className="material-symbols-outlined text-[16px] text-emerald-400 shrink-0 mt-0.5">
                       check_circle
                     </span>
                     <div>
-                      <strong className="text-[#f1f5f9] block">Garantía Activa Post-Entrega</strong>
-                      <span className="text-[11px] text-[#94a3b8]">Válida presentando recibo y número de orden #{order.code}</span>
+                      <strong className="text-white block">Garantía Activa Post-Entrega</strong>
+                      <span className="text-[11px] text-slate-400">Válida presentando recibo y número de orden #{order.code}.</span>
                     </div>
                   </div>
                 </div>
@@ -723,67 +1173,73 @@ Delivery Type: ${isHomeDelivery ? 'Home Delivery' : 'Pickup at RADAR Main Store'
             </div>
 
             {/* Card 2: Documentación Oficial & Despacho */}
-            <div className="bg-[#0b1329] border border-[#1e293b] rounded-2xl p-5 shadow-xl flex flex-col justify-between gap-4">
+            <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.6)] flex flex-col justify-between gap-4 overflow-hidden">
+              <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_8px_#22d3ee]" />
+
               <div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[#388bfd] text-[20px]">description</span>
-                    <h3 className="font-bold text-base text-[#f1f5f9]">Documentación Oficial & Despacho</h3>
+                    <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.2)]">
+                      <span className="material-symbols-outlined text-[18px]">description</span>
+                    </div>
+                    <h3 className="font-bold text-base text-white font-mono uppercase tracking-wider">
+                      Documentación Oficial & Despacho
+                    </h3>
                   </div>
-                  <span className="text-[10px] font-mono text-[#58a6ff] font-bold bg-[#388bfd]/10 px-2 py-0.5 rounded border border-[#388bfd]/25">
+                  <span className="text-[10px] font-mono text-cyan-300 font-bold bg-cyan-950/60 px-2 py-0.5 rounded-lg border border-cyan-500/30">
                     RADAR DOCS
                   </span>
                 </div>
 
-                <p className="text-xs text-[#94a3b8] mt-2">
-                  Generación e impresión de comprobantes fiscales, desglose de montos y rotulado para taller o paquetería.
+                <p className="text-xs text-slate-400 mt-2">
+                  Generación e impresión de comprobantes oficiales, desglose de montos y rotulado para taller o paquetería.
                 </p>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                  <div className="bg-[#080e1e] border border-[#1e293b] p-3 rounded-xl flex flex-col justify-between gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                  <div className="bg-[#040814] border border-cyan-500/15 p-3.5 rounded-2xl flex flex-col justify-between gap-3">
                     <div>
-                      <span className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider block">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase font-mono tracking-wider block">
                         COMPROBANTE
                       </span>
-                      <strong className="text-xs text-[#f1f5f9] block mt-0.5">Factura / Invoice</strong>
-                      <span className="text-[11px] text-[#94a3b8]">Desglose con CORE y Downpayment</span>
+                      <strong className="text-xs text-white block mt-0.5">Factura / Invoice</strong>
+                      <span className="text-[11px] text-slate-400">Desglose con CORE y Downpayment</span>
                     </div>
                     <button
                       type="button"
-                      disabled
-                      className="w-full py-2 rounded-xl bg-[#1e293b]/60 text-xs font-bold text-[#94a3b8] flex items-center justify-center gap-1.5 border border-[#334155]/60 opacity-60 cursor-not-allowed"
+                      onClick={() => setShowInvoiceModal(true)}
+                      className="cyber-btn-secondary w-full py-2 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
                     >
-                      <span className="material-symbols-outlined text-[15px] text-[#388bfd]">receipt</span>
+                      <span className="material-symbols-outlined text-[16px] text-cyan-400">receipt</span>
                       <span>Ver Factura</span>
                     </button>
                   </div>
 
-                  <div className="bg-[#080e1e] border border-[#1e293b] p-3 rounded-xl flex flex-col justify-between gap-2">
+                  <div className="bg-[#040814] border border-cyan-500/15 p-3.5 rounded-2xl flex flex-col justify-between gap-3">
                     <div>
-                      <span className="text-[10px] font-bold text-[#64748b] uppercase tracking-wider block">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase font-mono tracking-wider block">
                         LOGÍSTICA
                       </span>
-                      <strong className="text-xs text-[#f1f5f9] block mt-0.5">Etiqueta 4x6"</strong>
-                      <span className="text-[11px] text-[#94a3b8]">Rótulo con QR y tipo de entrega</span>
+                      <strong className="text-xs text-white block mt-0.5">Etiqueta 4x6"</strong>
+                      <span className="text-[11px] text-slate-400">Rótulo con QR y tipo de entrega</span>
                     </div>
                     <button
                       type="button"
-                      disabled
-                      className="w-full py-2 rounded-xl bg-[#1e293b]/60 text-xs font-bold text-[#94a3b8] flex items-center justify-center gap-1.5 border border-[#334155]/60 opacity-60 cursor-not-allowed"
+                      onClick={() => setShowDispatchModal(true)}
+                      className="cyber-btn-secondary w-full py-2 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
                     >
-                      <span className="material-symbols-outlined text-[15px] text-[#34d399]">qr_code_2</span>
+                      <span className="material-symbols-outlined text-[16px] text-emerald-400">qr_code_2</span>
                       <span>Imprimir 4x6</span>
                     </button>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-[#080e1e] border border-[#1e293b] p-3 rounded-xl flex items-center justify-between text-xs text-[#94a3b8]">
+              <div className="bg-[#040814] border border-cyan-500/15 p-3 rounded-2xl flex items-center justify-between text-xs text-slate-400">
                 <span className="flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[16px] text-[#58a6ff]">local_shipping</span>
-                  <span>Modo: <strong className="text-[#f1f5f9]">{isHomeDelivery ? 'Envío' : 'Retiro en Tienda'}</strong></span>
+                  <span className="material-symbols-outlined text-[16px] text-cyan-400">local_shipping</span>
+                  <span>Modo: <strong className="text-white">{isHomeDelivery ? 'Envío' : 'Retiro en Tienda'}</strong></span>
                 </span>
-                <span className="font-mono text-[11px] text-[#64748b]">ID: #{order.code}</span>
+                <span className="font-mono text-[11px] text-cyan-400">ID: #{order.code}</span>
               </div>
             </div>
           </div>
@@ -794,22 +1250,24 @@ Delivery Type: ${isHomeDelivery ? 'Home Delivery' : 'Pickup at RADAR Main Store'
       {/* TAB 2: FLUJO SIMPLIFICADO                                                */}
       {/* ========================================================================= */}
       {activeTab === 'workflow' && (
-        <div className="bg-[#0b1329] border border-[#1e293b] rounded-2xl p-6 shadow-xl flex flex-col gap-5">
-          <div className="flex items-center justify-between border-b border-[#1e293b] pb-4">
+        <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] flex flex-col gap-5 overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_8px_#22d3ee]" />
+
+          <div className="flex items-center justify-between border-b border-cyan-500/15 pb-4">
             <div>
-              <span className="text-xs font-mono text-[#58a6ff] uppercase font-bold tracking-wider">
+              <span className="text-xs font-mono text-cyan-400 uppercase font-bold tracking-wider">
                 Flujo operativo de la orden
               </span>
-              <h2 className="text-lg font-bold text-[#f1f5f9] mt-0.5">
+              <h2 className="text-lg font-bold text-white mt-0.5">
                 Marca cada paso para habilitar el siguiente
               </h2>
             </div>
-            <span className="rounded-lg border border-[#388bfd]/30 bg-[#388bfd]/10 px-3 py-1.5 text-xs font-mono font-bold text-[#58a6ff]">
+            <span className="rounded-xl border border-cyan-500/30 bg-cyan-950/60 px-3.5 py-1.5 text-xs font-mono font-bold text-cyan-300">
               Paso activo: {currentStep} de 4
             </span>
           </div>
 
-          <div className="grid grid-cols-1 gap-3">
+          <div className="grid grid-cols-1 gap-3.5">
             {workflowSteps.map((step) => {
               const isChecked = step.num < currentStep || (step.num === 4 && order.status === 'entregado');
               const isEnabled = step.num <= currentStep;
@@ -819,8 +1277,8 @@ Delivery Type: ${isHomeDelivery ? 'Home Delivery' : 'Pickup at RADAR Main Store'
                   key={step.num}
                   className={`flex items-center gap-4 rounded-2xl border p-4 transition-all ${
                     isEnabled
-                      ? 'border-[#263b61] bg-[#101c30] hover:border-[#388bfd]/60 cursor-pointer'
-                      : 'border-[#1e293b] bg-[#080e1e]/70 opacity-50 cursor-not-allowed'
+                      ? 'border-cyan-500/30 bg-[#061122] hover:border-cyan-400 hover:bg-[#091730] cursor-pointer shadow-[0_4px_20px_rgba(0,0,0,0.4)]'
+                      : 'border-cyan-500/10 bg-[#040814]/70 opacity-50 cursor-not-allowed'
                   }`}
                 >
                   <input
@@ -828,21 +1286,25 @@ Delivery Type: ${isHomeDelivery ? 'Home Delivery' : 'Pickup at RADAR Main Store'
                     checked={isChecked}
                     disabled={!isEnabled || isChecked}
                     onChange={() => handleWorkflowStepCheck(step.num)}
-                    className="h-5 w-5 rounded accent-[#10b981] disabled:opacity-60"
+                    className="h-5 w-5 rounded accent-emerald-400 disabled:opacity-60 cursor-pointer"
                   />
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#334155] bg-[#0b1329] text-sm font-black text-[#58a6ff]">
-                    {isChecked ? <span className="material-symbols-outlined text-[20px] text-[#34d399]">check</span> : step.num}
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-cyan-500/30 bg-[#040814] text-sm font-black text-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.2)]">
+                    {isChecked ? (
+                      <span className="material-symbols-outlined text-[22px] text-emerald-400">check</span>
+                    ) : (
+                      <span className="font-mono">{step.num}</span>
+                    )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
-                      <h3 className="font-bold text-sm text-[#f1f5f9]">{step.title}</h3>
-                      <span className={`text-[10px] font-bold uppercase tracking-wider ${
-                        isChecked ? 'text-[#34d399]' : isEnabled ? 'text-[#58a6ff]' : 'text-[#64748b]'
+                      <h3 className="font-bold text-sm text-white">{step.title}</h3>
+                      <span className={`text-[10px] font-bold font-mono uppercase tracking-wider ${
+                        isChecked ? 'text-emerald-400' : isEnabled ? 'text-cyan-400' : 'text-slate-500'
                       }`}>
                         {isChecked ? 'Completado' : isEnabled ? 'Disponible' : 'Bloqueado'}
                       </span>
                     </div>
-                    <p className="mt-1 text-xs text-[#94a3b8]">{step.desc}</p>
+                    <p className="mt-1 text-xs text-slate-400">{step.desc}</p>
                   </div>
                 </label>
               );
@@ -855,47 +1317,49 @@ Delivery Type: ${isHomeDelivery ? 'Home Delivery' : 'Pickup at RADAR Main Store'
       {/* TAB 3: HISTORIAL VIEW                                                    */}
       {/* ========================================================================= */}
       {activeTab === 'historial' && (
-        <div className="bg-[#0b1329] border border-[#1e293b] rounded-2xl p-6 shadow-xl flex flex-col gap-4">
-          <div className="flex items-center gap-2 text-sm font-bold text-[#f1f5f9]">
-            <span className="material-symbols-outlined text-[#388bfd] text-[20px]">history</span>
+        <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] flex flex-col gap-5 overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_8px_#22d3ee]" />
+
+          <div className="flex items-center gap-2 text-sm font-bold text-white font-mono uppercase tracking-wider">
+            <span className="material-symbols-outlined text-cyan-400 text-[20px]">history</span>
             <span>Bitácora de Eventos de la Orden #{order.code}</span>
           </div>
 
-          <div className="flex flex-col gap-3 relative pl-6 before:absolute before:left-3 before:top-4 before:bottom-4 before:w-[2px] before:bg-[#1e293b]">
-            <div className="bg-[#080e1e] border border-[#1e293b] rounded-xl p-4 flex flex-col gap-1 relative">
-              <div className="absolute -left-[27px] top-4 w-6 h-6 rounded-full bg-[#388bfd]/20 text-[#58a6ff] flex items-center justify-center text-[12px] border border-[#1e293b]">
+          <div className="flex flex-col gap-3.5 relative pl-6 before:absolute before:left-3 before:top-4 before:bottom-4 before:w-[2px] before:bg-cyan-500/20">
+            <div className="bg-[#040814] border border-cyan-500/20 rounded-2xl p-4 flex flex-col gap-1 relative">
+              <div className="absolute -left-[27px] top-4 w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-[12px] border border-cyan-500/40">
                 <span className="material-symbols-outlined text-[14px]">inventory_2</span>
               </div>
               <div className="flex items-center justify-between">
-                <h4 className="font-bold text-xs text-[#f1f5f9]">Creación de orden #{order.code}</h4>
-                <span className="font-mono text-[11px] text-[#94a3b8]">{order.createdAt || '24 Oct 2026, 14:32'}</span>
+                <h4 className="font-bold text-xs text-white">Creación de orden #{order.code}</h4>
+                <span className="font-mono text-[11px] text-cyan-400">{order.createdAt || '24 Oct 2026, 14:32'}</span>
               </div>
-              <p className="text-xs text-[#cbd5e1]">
+              <p className="text-xs text-slate-300">
                 Vehículo: {vehicleName} • Cliente: {order.customer.name} • Monto Total: ${grossSubtotal.toFixed(2)}
               </p>
             </div>
 
-            <div className="bg-[#080e1e] border border-[#1e293b] rounded-xl p-4 flex flex-col gap-1 relative">
-              <div className="absolute -left-[27px] top-4 w-6 h-6 rounded-full bg-[#10b981]/20 text-[#34d399] flex items-center justify-center text-[12px] border border-[#1e293b]">
+            <div className="bg-[#040814] border border-cyan-500/20 rounded-2xl p-4 flex flex-col gap-1 relative">
+              <div className="absolute -left-[27px] top-4 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-[12px] border border-emerald-500/40">
                 <span className="material-symbols-outlined text-[14px]">send</span>
               </div>
               <div className="flex items-center justify-between">
-                <h4 className="font-bold text-xs text-[#f1f5f9]">Notificación de Nueva Venta disparada (Wasender)</h4>
-                <span className="font-mono text-[11px] text-[#94a3b8]">Disparo Único</span>
+                <h4 className="font-bold text-xs text-white">Notificación de Nueva Venta disparada (Wasender)</h4>
+                <span className="font-mono text-[11px] text-emerald-400">Disparo Único</span>
               </div>
-              <p className="text-xs text-[#cbd5e1]">Alerta transmitida exitosamente a gerencia y taller.</p>
+              <p className="text-xs text-slate-300">Alerta transmitida exitosamente a gerencia y taller.</p>
             </div>
 
             {order.deliveredAt && (
-              <div className="bg-[#080e1e] border border-[#1e293b] rounded-xl p-4 flex flex-col gap-1 relative">
-                <div className="absolute -left-[27px] top-4 w-6 h-6 rounded-full bg-[#14b8a6]/20 text-[#2dd4bf] flex items-center justify-center text-[12px] border border-[#1e293b]">
+              <div className="bg-[#040814] border border-cyan-500/20 rounded-2xl p-4 flex flex-col gap-1 relative">
+                <div className="absolute -left-[27px] top-4 w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-[12px] border border-emerald-500/40">
                   <span className="material-symbols-outlined text-[14px]">verified</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <h4 className="font-bold text-xs text-[#f1f5f9]">Entrega Física y Comienzo de Garantía</h4>
-                  <span className="font-mono text-[11px] text-[#94a3b8]">{new Date(order.deliveredAt).toLocaleDateString()}</span>
+                  <h4 className="font-bold text-xs text-white">Entrega Física y Comienzo de Garantía</h4>
+                  <span className="font-mono text-[11px] text-emerald-400">{new Date(order.deliveredAt).toLocaleDateString('es-ES')}</span>
                 </div>
-                <p className="text-xs text-[#cbd5e1]">
+                <p className="text-xs text-slate-300">
                   Garantía activa de {order.warrantyDays || 60} días. Reloj en conteo regresivo.
                 </p>
               </div>
@@ -906,10 +1370,11 @@ Delivery Type: ${isHomeDelivery ? 'Home Delivery' : 'Pickup at RADAR Main Store'
 
       {/* Extension Modal */}
       {showExtensionModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-[#0b1329] border border-[#1e293b] rounded-2xl w-full max-w-md p-6 shadow-2xl flex flex-col gap-4 text-[#dfe2ef]">
-            <h3 className="font-bold text-base text-[#f1f5f9] flex items-center gap-2">
-              <span className="material-symbols-outlined text-[#facc15]">more_time</span>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+          <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-md p-6 shadow-2xl flex flex-col gap-4 text-slate-100 relative overflow-hidden">
+            <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-20" />
+            <h3 className="font-bold text-base text-white flex items-center gap-2">
+              <span className="material-symbols-outlined text-amber-400">more_time</span>
               <span>Registrar Prórroga de Retiro</span>
             </h3>
             <textarea
@@ -917,18 +1382,20 @@ Delivery Type: ${isHomeDelivery ? 'Home Delivery' : 'Pickup at RADAR Main Store'
               value={extensionReason}
               onChange={(e) => setExtensionReason(e.target.value)}
               placeholder="Motivo de la prórroga (ej: Cliente solicitó retirar el fin de semana por motivos laborales)..."
-              className="w-full bg-[#080e1e] border border-[#1e293b] rounded-xl p-3 text-xs text-[#f1f5f9] focus:outline-none focus:border-[#388bfd]"
+              className="cyber-input w-full resize-none text-xs"
             />
-            <div className="flex justify-end gap-2">
+            <div className="flex justify-end gap-2.5 pt-2">
               <button
+                type="button"
                 onClick={() => setShowExtensionModal(false)}
-                className="px-4 py-2 bg-[#1e293b] hover:bg-[#334155] rounded-xl text-xs font-bold cursor-pointer"
+                className="cyber-btn-secondary px-4 py-2 text-xs"
               >
                 Cerrar
               </button>
               <button
+                type="button"
                 onClick={() => setShowExtensionModal(false)}
-                className="px-4 py-2 bg-[#388bfd] hover:bg-[#2563eb] text-[#0a1120] font-black rounded-xl text-xs cursor-pointer"
+                className="cyber-btn-primary px-4 py-2 text-xs font-black"
               >
                 Guardar Prórroga
               </button>
@@ -939,65 +1406,268 @@ Delivery Type: ${isHomeDelivery ? 'Home Delivery' : 'Pickup at RADAR Main Store'
 
       {/* Claim Creation Modal */}
       {claimModal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <form onSubmit={handleSubmitClaim} className="bg-[#0b1329] border border-[#1e293b] rounded-2xl w-full max-w-lg p-6 shadow-2xl flex flex-col gap-4 text-[#dfe2ef]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+          <form onSubmit={handleSubmitClaim} className="bg-[#070c18]/95 backdrop-blur-2xl border border-red-500/40 rounded-3xl w-full max-w-lg p-6 shadow-2xl flex flex-col gap-4 text-slate-100 relative overflow-hidden">
+            <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-red-500 to-transparent shadow-[0_0_12px_#ef4444]" />
+
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="font-bold text-base text-[#f1f5f9] flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[#f87171]">report_problem</span>
+                <h3 className="font-bold text-base text-white flex items-center gap-2">
+                  <span className="material-symbols-outlined text-red-400">report_problem</span>
                   <span>Crear Reclamo Pendiente</span>
                 </h3>
-                <p className="mt-1 text-xs text-[#94a3b8]">
+                <p className="mt-1 text-xs text-slate-400 font-mono">
                   Orden #{order.code} · {order.customer.name}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setClaimModal({ isOpen: false, reason: '', isSaving: false, error: '' })}
-                className="rounded-lg p-1.5 text-[#94a3b8] hover:bg-[#1e293b] hover:text-white cursor-pointer"
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white cursor-pointer"
                 disabled={claimModal.isSaving}
               >
                 <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
 
-            <div className="rounded-xl border border-[#ef4444]/30 bg-[#ef4444]/10 p-3 text-xs text-[#fecaca]">
-              Al guardar, la orden pasará a estatus Reclamo y se creará un reclamo pendiente en el módulo de Reclamos.
+            <div className="rounded-2xl border border-red-500/30 bg-red-950/20 p-3.5 text-xs text-red-200">
+              Al guardar, la orden pasará a estatus <strong>Reclamo</strong> y se registrará automáticamente en el módulo de Reclamos.
             </div>
 
             <div>
-              <label className="mb-1 block text-xs font-bold text-[#f1f5f9]">Motivo del reclamo *</label>
+              <label className="mb-1.5 block text-xs font-bold text-slate-200">Motivo del reclamo *</label>
               <textarea
                 rows={5}
                 value={claimModal.reason}
                 onChange={(event) => setClaimModal((previous) => ({ ...previous, reason: event.target.value, error: '' }))}
                 placeholder="Describe el problema reportado por el cliente, síntomas, pieza afectada y cualquier detalle operativo..."
-                className="w-full resize-none rounded-xl border border-[#1e293b] bg-[#080e1e] p-3 text-xs text-[#f1f5f9] focus:border-[#ef4444] focus:outline-none"
+                className="cyber-input w-full resize-none text-xs focus:border-red-400 focus:ring-red-400/30"
                 disabled={claimModal.isSaving}
               />
             </div>
 
             {claimModal.error && (
-              <div className="rounded-lg border border-[#ef4444]/40 bg-[#ef4444]/10 px-3 py-2 text-xs font-bold text-[#fca5a5]">
+              <div className="rounded-xl border border-red-500/40 bg-red-950/30 px-3.5 py-2 text-xs font-bold text-red-300">
                 {claimModal.error}
               </div>
             )}
 
-            <div className="flex justify-end gap-2 border-t border-[#1e293b] pt-3">
+            <div className="flex justify-end gap-2.5 border-t border-cyan-500/15 pt-4">
               <button
                 type="button"
                 onClick={() => setClaimModal({ isOpen: false, reason: '', isSaving: false, error: '' })}
-                className="rounded-xl bg-[#1e293b] px-4 py-2 text-xs font-bold text-[#cbd5e1] hover:bg-[#334155] cursor-pointer disabled:opacity-50"
+                className="cyber-btn-secondary px-4 py-2 text-xs"
                 disabled={claimModal.isSaving}
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="rounded-xl bg-[#ef4444] px-4 py-2 text-xs font-black text-white hover:bg-[#dc2626] cursor-pointer disabled:opacity-50"
+                className="px-4 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-red-500 to-rose-600 hover:from-red-400 hover:to-rose-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)] cursor-pointer disabled:opacity-50"
                 disabled={claimModal.isSaving}
               >
                 {claimModal.isSaving ? 'Guardando...' : 'Crear Reclamo'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Call Register Modal */}
+      {isCallModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+          <form onSubmit={handleRegisterCall} className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/40 rounded-3xl w-full max-w-lg p-6 shadow-2xl flex flex-col gap-4 text-slate-100 relative overflow-hidden">
+            <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_#22d3ee]" />
+
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-base text-white flex items-center gap-2 font-mono">
+                  <span className="material-symbols-outlined text-cyan-400">headset_mic</span>
+                  <span>Registrar Llamada / Bitácora</span>
+                </h3>
+                <p className="mt-1 text-xs text-slate-400 font-mono">
+                  Orden #{order.code} · Reclamo {associatedClaim?.id || 'Activo'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCallModalOpen(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white cursor-pointer"
+                disabled={callForm.isSubmitting}
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-300">Nombre Contacto</label>
+                <input
+                  type="text"
+                  value={callForm.callerName}
+                  onChange={(e) => setCallForm({ ...callForm, callerName: e.target.value })}
+                  placeholder="Nombre de quien llama..."
+                  className="cyber-input w-full text-xs"
+                  disabled={callForm.isSubmitting}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-300">Teléfono Contacto</label>
+                <input
+                  type="text"
+                  value={callForm.callerPhone}
+                  onChange={(e) => setCallForm({ ...callForm, callerPhone: e.target.value })}
+                  placeholder="+1 (555) 000-0000"
+                  className="cyber-input w-full text-xs font-mono"
+                  disabled={callForm.isSubmitting}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-300">Atendido por (Operador / Asesor)</label>
+              <input
+                type="text"
+                value={callForm.attendedBy}
+                onChange={(e) => setCallForm({ ...callForm, attendedBy: e.target.value })}
+                placeholder="Nombre del asesor..."
+                className="cyber-input w-full text-xs"
+                disabled={callForm.isSubmitting}
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-bold text-slate-200">Resumen de la Conversación / Acuerdos *</label>
+              <textarea
+                rows={4}
+                value={callForm.summary}
+                onChange={(e) => setCallForm({ ...callForm, summary: e.target.value, error: '' })}
+                placeholder="Detalla lo acordado con el cliente, pruebas solicitadas, estatus de la pieza..."
+                className="cyber-input w-full resize-none text-xs focus:border-cyan-400 focus:ring-cyan-400/30"
+                disabled={callForm.isSubmitting}
+                required
+              />
+            </div>
+
+            <div className="flex items-center gap-2.5 p-3 rounded-xl bg-[#040814] border border-cyan-500/20">
+              <input
+                type="checkbox"
+                id="sendWhatsAppLog"
+                checked={callForm.sendWhatsApp}
+                onChange={(e) => setCallForm({ ...callForm, sendWhatsApp: e.target.checked })}
+                className="rounded bg-[#070c18] border-cyan-500/40 text-cyan-500 focus:ring-cyan-400/40 h-4 w-4"
+                disabled={callForm.isSubmitting}
+              />
+              <label htmlFor="sendWhatsAppLog" className="text-xs text-slate-300 cursor-pointer select-none flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-emerald-400 text-[16px]">send</span>
+                <span>Despachar notificación Wasender a canal de monitoreo interno</span>
+              </label>
+            </div>
+
+            {callForm.error && (
+              <div className="rounded-xl border border-red-500/40 bg-red-950/30 px-3.5 py-2 text-xs font-bold text-red-300">
+                {callForm.error}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2.5 border-t border-cyan-500/15 pt-4">
+              <button
+                type="button"
+                onClick={() => setIsCallModalOpen(false)}
+                className="cyber-btn-secondary px-4 py-2 text-xs"
+                disabled={callForm.isSubmitting}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-cyan-400 to-emerald-400 text-slate-950 shadow-[0_0_15px_rgba(6,182,212,0.4)] cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                disabled={callForm.isSubmitting}
+              >
+                <span className="material-symbols-outlined text-[16px]">save</span>
+                <span>{callForm.isSubmitting ? 'Guardando...' : 'Guardar Llamada'}</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Resolve Claim Modal */}
+      {isResolveModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+          <form onSubmit={handleResolveClaimFromDetail} className="bg-[#070c18]/95 backdrop-blur-2xl border border-emerald-500/40 rounded-3xl w-full max-w-lg p-6 shadow-2xl flex flex-col gap-4 text-slate-100 relative overflow-hidden">
+            <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_12px_#34d399]" />
+
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-base text-white flex items-center gap-2 font-mono">
+                  <span className="material-symbols-outlined text-emerald-400">check_circle</span>
+                  <span>Resolver Reclamo & Restaurar Orden</span>
+                </h3>
+                <p className="mt-1 text-xs text-slate-400 font-mono">
+                  Orden #{order.code} · Reclamo {associatedClaim?.id || 'Activo'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsResolveModalOpen(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white cursor-pointer"
+                disabled={resolveForm.isSubmitting}
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-3.5 text-xs text-emerald-200">
+              Al resolver el reclamo, la base de datos marcará el reclamo como <strong>Resolved</strong>, registrará el evento en la bitácora de auditoría y restaurará la orden al estado operativo seleccionado.
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-200">Estatus destino de la orden *</label>
+              <select
+                value={resolveForm.targetStatus}
+                onChange={(e) => setResolveForm({ ...resolveForm, targetStatus: e.target.value as OrderStatus })}
+                className="cyber-input w-full text-xs font-mono font-bold uppercase cursor-pointer"
+                disabled={resolveForm.isSubmitting}
+              >
+                <option value="entregado" className="bg-[#070c18] text-emerald-300">● Entregado (Garantía cerrada/conforme)</option>
+                <option value="en_preparacion" className="bg-[#070c18] text-cyan-300">● En Preparación (Reemplazo / Repuesto)</option>
+                <option value="listo_despacho" className="bg-[#070c18] text-cyan-300">● Listo para Despacho</option>
+                <option value="listo_retiro" className="bg-[#070c18] text-cyan-300">● Listo para Retiro</option>
+                <option value="en_camino" className="bg-[#070c18] text-cyan-300">● En Camino</option>
+                <option value="pagado" className="bg-[#070c18] text-slate-200">● Pagado</option>
+                <option value="cotizacion" className="bg-[#070c18] text-slate-200">● Cotización</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-slate-200">Notas de Resolución / Solución Técnica</label>
+              <textarea
+                rows={3}
+                value={resolveForm.notes}
+                onChange={(e) => setResolveForm({ ...resolveForm, notes: e.target.value })}
+                placeholder="Explica cómo se solventó el reclamo (ej: se ajustó la pieza, se envió repuesto, se acordó con cliente)..."
+                className="cyber-input w-full resize-none text-xs focus:border-emerald-400 focus:ring-emerald-400/30"
+                disabled={resolveForm.isSubmitting}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2.5 border-t border-emerald-500/15 pt-4">
+              <button
+                type="button"
+                onClick={() => setIsResolveModalOpen(false)}
+                className="cyber-btn-secondary px-4 py-2 text-xs"
+                disabled={resolveForm.isSubmitting}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-400 to-teal-500 text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.4)] cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                disabled={resolveForm.isSubmitting}
+              >
+                <span className="material-symbols-outlined text-[16px]">verified</span>
+                <span>{resolveForm.isSubmitting ? 'Resolviendo...' : 'Resolver Reclamo'}</span>
               </button>
             </div>
           </form>
@@ -1028,11 +1698,11 @@ Delivery Type: ${isHomeDelivery ? 'Home Delivery' : 'Pickup at RADAR Main Store'
         orderCode={order.code}
       />
 
-      {/* Toast */}
+      {/* Floating Toast Notification */}
       {copiedNotification && (
-        <div className="fixed bottom-6 right-6 bg-[#388bfd] text-[#0a1120] font-black px-4 py-2.5 rounded-xl shadow-2xl text-xs flex items-center gap-2 z-50 animate-bounce">
+        <div className="fixed bottom-6 right-6 bg-gradient-to-r from-cyan-400 to-emerald-400 text-slate-950 font-black px-4 py-2.5 rounded-2xl shadow-[0_0_20px_rgba(6,182,212,0.5)] text-xs flex items-center gap-2 z-50 animate-bounce">
           <span className="material-symbols-outlined text-[18px]">check_circle</span>
-          <span>{copiedNotification} copiado al portapapeles</span>
+          <span>{copiedNotification}</span>
         </div>
       )}
     </div>

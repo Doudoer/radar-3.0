@@ -15,6 +15,19 @@ export const useAuthSession = () => {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [checking, setChecking] = useState(true);
 
+  const handleUnauthorized = useCallback(() => {
+    sessionStorage.removeItem('radar_authenticated');
+    setAuthenticated(false);
+    setUser(null);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('radar:unauthorized', handleUnauthorized);
+    return () => {
+      window.removeEventListener('radar:unauthorized', handleUnauthorized);
+    };
+  }, [handleUnauthorized]);
+
   useEffect(() => {
     if (!authenticated) {
       setChecking(false);
@@ -23,14 +36,18 @@ export const useAuthSession = () => {
 
     apiFetch('/auth/me')
       .then((response) => response.ok ? response.json() : Promise.reject())
-      .then((payload) => setUser(payload.user))
+      .then((payload) => {
+        if (!payload?.user) {
+          handleUnauthorized();
+        } else {
+          setUser(payload.user);
+        }
+      })
       .catch(() => {
-        sessionStorage.removeItem('radar_authenticated');
-        setAuthenticated(false);
-        setUser(null);
+        handleUnauthorized();
       })
       .finally(() => setChecking(false));
-  }, [authenticated]);
+  }, [authenticated, handleUnauthorized]);
 
   const login = useCallback((authenticatedUser: AuthUser) => {
     sessionStorage.setItem('radar_authenticated', 'true');
@@ -39,11 +56,14 @@ export const useAuthSession = () => {
   }, []);
 
   const logout = useCallback(async () => {
-    await apiFetch('/auth/logout', { method: 'POST' });
-    sessionStorage.removeItem('radar_authenticated');
-    setAuthenticated(false);
-    setUser(null);
-  }, []);
+    try {
+      await apiFetch('/auth/logout', { method: 'POST' });
+    } catch {
+      // ignore
+    } finally {
+      handleUnauthorized();
+    }
+  }, [handleUnauthorized]);
 
   return {
     authenticated,

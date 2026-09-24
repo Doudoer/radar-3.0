@@ -3,97 +3,132 @@ import { NavScreen } from '../types';
 
 interface TopHeaderProps {
   currentScreen: NavScreen;
+  selectedOrderCode?: string;
   onNavigate: (screen: NavScreen) => void;
   onOpenSearch: () => void;
   onLogout: () => void;
   onToggleMobileMenu: () => void;
+  onOpenChangePassword?: () => void;
+  onOpenNewOrder?: () => void;
+  userName?: string;
   unreadCount?: number;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
   currentScreen,
+  selectedOrderCode,
   onNavigate,
   onOpenSearch,
   onLogout,
   onToggleMobileMenu,
+  onOpenChangePassword,
+  onOpenNewOrder,
+  userName = 'Usuario Administrador',
 }) => {
   return (
-    <header className="sticky top-0 z-30 shrink-0 w-full h-16 bg-[#0a1120]/95 border-b border-[#16233b] backdrop-blur-md flex justify-between items-center px-4 md:px-6 transition-all duration-300">
+    <header className="sticky top-0 z-30 shrink-0 w-full h-16 bg-[#060a16]/92 border-b border-cyan-500/25 backdrop-blur-2xl flex justify-between items-center px-4 md:px-6 transition-all duration-300 relative shadow-[0_4px_30px_rgba(0,0,0,0.6)]">
+      {/* Bottom Laser Line */}
+      <div className="absolute bottom-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_10px_#22d3ee]" />
+
       {/* Left: Mobile Menu Toggle & Brand (Hidden on Desktop) */}
       <div className="flex md:hidden items-center gap-3">
         <button
           onClick={onToggleMobileMenu}
-          className="text-[#c2c6d6] hover:text-[#adc6ff] p-1.5 rounded-lg hover:bg-[#31353f]/50 transition-colors cursor-pointer"
+          className="text-slate-300 hover:text-cyan-400 p-2 rounded-xl hover:bg-slate-800/60 transition-colors cursor-pointer"
           aria-label="Abrir menú"
         >
           <span className="material-symbols-outlined text-[24px]">menu</span>
         </button>
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full bg-[#388bfd] shadow-[0_0_8px_#388bfd]" />
-          <span className="font-bold text-[#58a6ff] text-[16px] tracking-wider uppercase">RADAR V3</span>
+          <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee] animate-pulse" />
+          <span className="font-black text-white text-[15px] tracking-wider uppercase">RADAR 3.0</span>
         </div>
       </div>
 
-      {/* Center/Left Desktop: Context Links & Search Bar */}
-      <div className="hidden md:flex items-center gap-6 flex-1 max-w-3xl">
-        {/* Search Bar */}
+      {/* Center/Left Desktop: Search Bar */}
+      <div className="hidden md:flex items-center gap-6 flex-1 max-w-2xl">
+        {/* Terminal Query Search Bar */}
         <div className="relative w-full max-w-md group">
-          <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-[#c2c6d6] text-[18px] group-focus-within:text-[#4d8eff] transition-colors pointer-events-none">
+          <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400/70 text-[19px] group-focus-within:text-cyan-300 transition-colors pointer-events-none drop-shadow-[0_0_6px_rgba(34,211,238,0.5)]">
             search
           </span>
           <input
             type="text"
             onClick={onOpenSearch}
             readOnly
-            placeholder="Buscar órdenes, clientes, piezas..."
-            className="w-full bg-[#0a0e17] border border-[rgba(255,255,255,0.08)] rounded-full py-1.5 pl-10 pr-14 text-[13px] text-[#dfe2ef] placeholder:text-[#c2c6d6]/60 focus:outline-none focus:border-[#4d8eff]/60 focus:ring-1 focus:ring-[#4d8eff]/60 transition-all cursor-pointer shadow-inner"
+            placeholder="Buscar órdenes, clientes, piezas, VIN..."
+            className="w-full bg-[#040814]/90 border border-cyan-500/25 rounded-2xl py-2 pl-10 pr-14 text-[13px] text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30 transition-all cursor-pointer shadow-[inset_0_0_15px_rgba(0,0,0,0.6)] hover:border-cyan-500/40"
           />
-          <div className="absolute right-3.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5 pointer-events-none opacity-60">
-            <kbd className="font-data-mono text-[10px] border border-[rgba(255,255,255,0.15)] rounded px-1 bg-[#31353f]/80 text-[#c2c6d6]">
-              ⌘
-            </kbd>
-            <kbd className="font-data-mono text-[10px] border border-[rgba(255,255,255,0.15)] rounded px-1 bg-[#31353f]/80 text-[#c2c6d6]">
-              K
+          <div className="absolute right-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
+            <kbd className="font-mono text-[10px] border border-cyan-500/30 rounded px-1.5 py-0.5 bg-[#0a1426] text-cyan-300 shadow-[0_0_6px_rgba(6,182,212,0.2)]">
+              ⌘K
             </kbd>
           </div>
         </div>
+
+        {/* Selected Order Breadcrumb if viewing detail */}
+        {currentScreen === 'order-detail' && selectedOrderCode && (
+          <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-xl bg-cyan-500/10 border border-cyan-400/30 text-xs font-mono text-cyan-300">
+            <span>ÓRDEN:</span>
+            <strong className="text-white font-bold">{selectedOrderCode}</strong>
+          </div>
+        )}
       </div>
 
-      {/* Right Side: Trailing Actions */}
-      <div className="flex items-center gap-2">
-        {/* Mobile Search Button */}
+      {/* Right Side: Actions & Profile */}
+      <div className="flex items-center gap-3">
+        {/* New Order CTA */}
+        {onOpenNewOrder && (
+          <button
+            type="button"
+            onClick={onOpenNewOrder}
+            className="hidden sm:inline-flex items-center gap-1.5 py-1.5 px-3.5 rounded-xl text-xs font-black tracking-wide bg-gradient-to-r from-cyan-400 via-blue-500 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 shadow-[0_0_20px_rgba(6,182,212,0.4)] transition-all cursor-pointer active:scale-95"
+          >
+            <span className="material-symbols-outlined text-[17px]">add_circle</span>
+            <span>Nueva Orden</span>
+          </button>
+        )}
+
+        {/* Mobile Search Icon Button */}
         <button
           onClick={onOpenSearch}
-          className="md:hidden p-2 text-[#c2c6d6] hover:text-[#adc6ff] hover:bg-[#31353f]/50 rounded-full transition-colors cursor-pointer"
+          className="md:hidden p-2 text-slate-300 hover:text-cyan-400 hover:bg-slate-800/60 rounded-xl transition-colors cursor-pointer"
           aria-label="Buscar"
         >
           <span className="material-symbols-outlined text-[20px]">search</span>
         </button>
 
-        {/* Icon Action Buttons */}
-        <div className="flex items-center gap-1 md:border-l border-[rgba(255,255,255,0.08)] md:pl-3 ml-1">
-          {/* User Profile Pill */}
-          <div className="flex items-center gap-2 pl-2 pr-3 py-1 bg-[#1c1f29]/80 border border-[rgba(255,255,255,0.08)] rounded-full hover:border-[#adc6ff]/40 transition-colors ml-1 cursor-pointer">
-            <div className="w-6 h-6 rounded-full overflow-hidden border border-[rgba(255,255,255,0.15)] shrink-0">
+        {/* User Profile Pill */}
+        <div className="flex items-center gap-2 pl-2 border-l border-cyan-500/20">
+          <button
+            type="button"
+            onClick={onOpenChangePassword}
+            title="Cambiar contraseña y perfil de seguridad"
+            className="flex items-center gap-2.5 pl-2 pr-3.5 py-1.5 bg-[#050c18]/90 border border-cyan-500/30 rounded-2xl hover:border-cyan-400 hover:bg-[#09152b] transition-all cursor-pointer group shadow-[0_0_15px_rgba(6,182,212,0.15)]"
+          >
+            <div className="w-7 h-7 rounded-xl overflow-hidden border border-cyan-400/50 shadow-[0_0_10px_rgba(34,211,238,0.4)] shrink-0 bg-slate-800">
               <img
-                src="https://lh3.googleusercontent.com/aida-public/AB6AXuCfNwUngK43UCstlkPA-MEV8fWnymADHhVe1b8wB-DtIJm8JQ-NL1v-6X4X2XUvkZr26Qx57UkNBun9zZzdraF0ztNLn9aNrTlsVGiNNbAg91EafQE-tJG3P_rrxXJgimduPeKuCtBm05Uj2Dt5111IqGG_-I2tnWnbgob7acuPw_Rnl7pISKzZEjtbImC4uy-zJLObeuI-ysYeEzGxVnEiSMugRHsT8Q7OcgE4Q7-zyEPgcYb2rzT6"
+                src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"
                 alt="Usuario"
                 className="w-full h-full object-cover"
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80';
-                }}
               />
             </div>
-            <span className="hidden xl:inline-block font-body-sm text-[13px] text-[#dfe2ef] font-medium">
-              Usuario Administrador
+            <span className="hidden xl:inline-block text-[13px] text-slate-200 font-semibold group-hover:text-cyan-300">
+              {userName}
             </span>
-          </div>
+            <span className="material-symbols-outlined text-[16px] text-cyan-400/70 group-hover:text-cyan-300">
+              key
+            </span>
+          </button>
+
+          {/* Logout Button */}
           <button
             type="button"
             onClick={onLogout}
-            className="ml-1 whitespace-nowrap rounded-lg border border-[#334155] bg-[#0f172a] px-3 py-2 text-xs font-semibold text-[#cbd5e1] transition hover:border-[#58a6ff] hover:text-white"
+            title="Cerrar sesión segura"
+            className="p-2 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-300 hover:text-red-200 text-xs font-semibold transition cursor-pointer flex items-center justify-center shadow-[0_0_12px_rgba(239,68,68,0.15)]"
           >
-            Cerrar sesión
+            <span className="material-symbols-outlined text-[18px]">logout</span>
           </button>
         </div>
       </div>

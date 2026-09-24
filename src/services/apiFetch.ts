@@ -1,8 +1,17 @@
 import { API_URL } from './apiBase';
 
-export const apiFetch = (path: string, options: RequestInit = {}) => {
+export const apiFetch = async (path: string, options: RequestInit = {}) => {
   const headers = new Headers(options.headers);
-  headers.set('Content-Type', 'application/json');
+  if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json');
+  }
 
-  return fetch(`${API_URL}${path}`, { ...options, headers, credentials: 'include' });
+  const response = await fetch(`${API_URL}${path}`, { ...options, headers, credentials: 'include' });
+
+  if (response.status === 401 && !path.startsWith('/auth/login')) {
+    sessionStorage.removeItem('radar_authenticated');
+    window.dispatchEvent(new CustomEvent('radar:unauthorized'));
+  }
+
+  return response;
 };

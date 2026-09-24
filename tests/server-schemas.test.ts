@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { claimSchema, loginSchema, orderPayloadSchema, personalMessageSchema } from '../src/server/schemas';
+import {
+  changePasswordSchema,
+  claimCallCreateSchema,
+  claimSchema,
+  customerSchema,
+  loginSchema,
+  orderPayloadSchema,
+  personalMessageSchema,
+  refundCreateSchema,
+  uploadPayloadSchema,
+  userCreateSchema,
+  wasenderDispatchSchema,
+} from '../src/server/schemas';
 
 describe('server input schemas', () => {
   it('normalizes valid login credentials', () => {
@@ -40,5 +52,136 @@ describe('server input schemas', () => {
   it('requires a message body and bounds its subject', () => {
     expect(() => personalMessageSchema.parse({ recipientId: 2, subject: 'x'.repeat(161), content: 'Hola' })).toThrow();
     expect(() => personalMessageSchema.parse({ recipientId: 2, content: '   ' })).toThrow();
+  });
+
+  it('validates customer creation schema', () => {
+    const customer = customerSchema.parse({
+      first_name: 'Juan',
+      last_name: 'Pérez',
+      phone: '9195551234',
+      email: 'juan@test.com',
+      type: 'Taller Mecánico',
+    });
+    expect(customer.first_name).toBe('Juan');
+    expect(customer.type).toBe('Taller Mecánico');
+    expect(() => customerSchema.parse({ phone: '12' })).toThrow();
+  });
+
+  it('validates refund request schema', () => {
+    const refund = refundCreateSchema.parse({
+      orderId: '42',
+      amount: '350.50',
+      amountType: 'downpayment',
+      paymentMethod: 'Zelle',
+      reason: 'Garantía denegada por falta de stock',
+    });
+    expect(refund.orderId).toBe(42);
+    expect(refund.amount).toBe(350.50);
+    expect(() => refundCreateSchema.parse({ orderId: 0, amount: -10, reason: 'x' })).toThrow();
+  });
+
+  it('validates call register schema', () => {
+    const call = claimCallCreateSchema.parse({
+      callerName: 'Maria Rodriguez',
+      conversationSummary: 'Cliente reporta fuga de aceite en transmisión.',
+    });
+    expect(call.conversationSummary).toContain('fuga');
+    expect(() => claimCallCreateSchema.parse({ conversationSummary: '' })).toThrow();
+  });
+
+  it('enforces password policy (min 8 chars, uppercase, lowercase, digit, symbol/dot)', () => {
+    // Too short (< 8 chars)
+    expect(() => userCreateSchema.parse({
+      name: 'Nuevo Usuario',
+      email: 'nuevo@radar.local',
+      password: 'Rad.1',
+    })).toThrow();
+
+    // Missing uppercase
+    expect(() => userCreateSchema.parse({
+      name: 'Nuevo Usuario',
+      email: 'nuevo@radar.local',
+      password: 'radar.pass123',
+    })).toThrow();
+
+    // Missing lowercase
+    expect(() => userCreateSchema.parse({
+      name: 'Nuevo Usuario',
+      email: 'nuevo@radar.local',
+      password: 'RADAR.PASS123',
+    })).toThrow();
+
+    // Missing digit
+    expect(() => userCreateSchema.parse({
+      name: 'Nuevo Usuario',
+      email: 'nuevo@radar.local',
+      password: 'Radar.Password!',
+    })).toThrow();
+
+    // Missing symbol or dot
+    expect(() => userCreateSchema.parse({
+      name: 'Nuevo Usuario',
+      email: 'nuevo@radar.local',
+      password: 'RadarPassword123',
+    })).toThrow();
+
+    // Valid passwords
+    const validUserWithDot = userCreateSchema.parse({
+      name: 'Nuevo Usuario',
+      email: 'nuevo@radar.local',
+      password: 'Radar.2026',
+    });
+    expect(validUserWithDot.email).toBe('nuevo@radar.local');
+
+    const validUserWithSymbol = userCreateSchema.parse({
+      name: 'Nuevo Usuario',
+      email: 'nuevo@radar.local',
+      password: 'Admin#Password1',
+    });
+    expect(validUserWithSymbol.email).toBe('nuevo@radar.local');
+  });
+
+  it('validates password change requirements', () => {
+    expect(() => changePasswordSchema.parse({
+      currentPassword: 'old',
+      newPassword: 'short',
+    })).toThrow();
+
+    expect(() => changePasswordSchema.parse({
+      currentPassword: 'password_actual_123',
+      newPassword: 'invalidpasswordwithoutupper',
+    })).toThrow();
+
+    const validChange = changePasswordSchema.parse({
+      currentPassword: 'password_actual_123',
+      newPassword: 'Radar.NewPassword2026!',
+    });
+    expect(validChange.newPassword).toBe('Radar.NewPassword2026!');
+  });
+
+  it('validates file upload payload', () => {
+    const validUpload = uploadPayloadSchema.parse({
+      filename: 'evidencia.png',
+      contentType: 'image/png',
+      base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    });
+    expect(validUpload.filename).toBe('evidencia.png');
+    expect(validUpload.contentType).toBe('image/png');
+    expect(() => uploadPayloadSchema.parse({
+      filename: 'evidencia.exe',
+      contentType: 'application/x-msdownload',
+      base64: 'abc',
+    })).toThrow();
+  });
+
+  it('validates wasender dispatch payload', () => {
+    const validDispatch = wasenderDispatchSchema.parse({
+      phone: '9195551234',
+      message: 'Tu orden está lista para entrega.',
+      orderId: '5',
+    });
+    expect(validDispatch.phone).toBe('9195551234');
+    expect(validDispatch.orderId).toBe(5);
+    expect(() => wasenderDispatchSchema.parse({ phone: '', message: '' })).toThrow();
   });
 });

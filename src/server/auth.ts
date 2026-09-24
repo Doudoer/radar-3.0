@@ -74,7 +74,7 @@ export const userIsActive = async (claims: Claims) => {
   const user = rows[0];
   if (!user?.active) return false;
   const issuedAt = Number(claims.iat || 0) * 1000;
-  return !issuedAt || !user.updated_at || new Date(user.updated_at).getTime() <= issuedAt + 1000;
+  return !issuedAt || !user.updated_at || new Date(user.updated_at).getTime() <= issuedAt + 2000;
 };
 
 export const setSessionCookie = (response: ServerResponse, token: string) => {

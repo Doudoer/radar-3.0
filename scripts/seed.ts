@@ -27,11 +27,12 @@ const run = async () => {
   try {
     const passwordHash = await bcrypt.hash(password, 12);
     const [result] = await connection.execute<mysql.ResultSetHeader>(
-      `INSERT IGNORE INTO users (name, email, password, role, permissions, active)
-       VALUES (?, ?, ?, 'admin', ?, 1)`,
+      `INSERT INTO users (name, email, password, role, permissions, active)
+       VALUES (?, ?, ?, 'admin', ?, 1)
+       ON DUPLICATE KEY UPDATE password = VALUES(password), name = VALUES(name), role = VALUES(role), permissions = VALUES(permissions), active = VALUES(active)`,
       [name, email, passwordHash, JSON.stringify(['*'])],
     );
-    console.log(result.affectedRows === 1 ? `Created administrator ${email}` : `Administrator ${email} already exists; no changes made`);
+    console.log(`Administrator ${email} configured successfully (affected rows: ${result.affectedRows})`);
   } finally {
     await connection.end();
   }

@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Order, Claim, RefundRequest } from '../types';
-import { INITIAL_CLAIMS, INITIAL_REFUND_REQUESTS } from '../data/claimsData';
 import { apiFetch } from '../services/apiFetch';
 
 interface OperationsViewProps {
@@ -74,9 +73,21 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
     );
   }, [operators, selectedOperatorName]);
 
-  // Claims and Refund Requests from memory/mock
-  const [claims] = useState<Claim[]>(INITIAL_CLAIMS);
-  const [refundRequests] = useState<RefundRequest[]>(INITIAL_REFUND_REQUESTS);
+  // Claims and Refund Requests from API
+  const [claims, setClaims] = useState<Claim[]>([]);
+  const [refundRequests, setRefundRequests] = useState<RefundRequest[]>([]);
+
+  useEffect(() => {
+    apiFetch('/claims')
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then(setClaims)
+      .catch(() => setClaims([]));
+
+    apiFetch('/refunds')
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then(setRefundRequests)
+      .catch(() => setRefundRequests([]));
+  }, []);
 
   // Filter Orders for Current Operator
   const operatorOrders = useMemo(() => {
@@ -230,17 +241,20 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
     e.preventDefault();
     if (!transferSelectedOrder) return;
 
-    if (transferOtpInput.trim() !== generatedOtp && transferOtpInput.trim() !== '123456') {
+    if (transferOtpInput.trim() !== generatedOtp) {
       setTransferError('Código OTP incorrecto o expirado. Verifica el código enviado al WhatsApp del creador.');
       return;
     }
 
     // Atomic Reassignment of Order to current operator
     const oldAdvisor = transferSelectedOrder.advisor || 'Operador Anterior';
-    const updatedOrder: Order = {
+    const targetOp = operators.find((op) => op.name === selectedOperatorName);
+
+    const updatedOrder: any = {
       ...transferSelectedOrder,
       advisor: selectedOperatorName,
-      notes: `${transferSelectedOrder.notes || ''}\n[${new Date().toLocaleDateString()}] Traspaso de venta transferido de ${oldAdvisor} a ${selectedOperatorName} con código OTP ${generatedOtp} (Validado por WhatsApp Wasender).`,
+      userId: targetOp ? Number(targetOp.id) : undefined,
+      notes: `${transferSelectedOrder.notes || ''}\n[${new Date().toLocaleDateString()}] Traspaso de venta transferido de ${oldAdvisor} a ${selectedOperatorName} (Código OTP verificado).`,
     };
 
     if (onUpdateOrder) {
@@ -269,50 +283,52 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
       )}
 
       {/* SECTION 1 & 2: Header with Operator Selector for Super Admin */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-[#111827]/80 p-5 rounded-2xl border border-[#1e293b] backdrop-blur-md">
-        <div className="flex items-center gap-4">
+      <div className="relative rounded-3xl bg-[#070c18]/92 backdrop-blur-2xl border border-cyan-500/30 p-5 shadow-[0_20px_50px_rgba(0,0,0,0.75)] flex flex-col lg:flex-row lg:items-center justify-between gap-4 overflow-hidden">
+        <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee]" />
+
+        <div className="flex items-center gap-4 relative z-10">
           <div className="relative">
-            <div className="w-14 h-14 rounded-2xl bg-[#388bfd]/15 border-2 border-[#388bfd] shadow-[0_0_20px_rgba(56,139,253,0.3)] flex items-center justify-center text-lg font-black text-[#58a6ff]">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#0c1a30] via-[#060c18] to-[#040812] border-2 border-cyan-400/60 shadow-[0_0_20px_rgba(6,182,212,0.4)] flex items-center justify-center text-lg font-black text-cyan-300 font-mono">
               {currentOperator?.name.split(' ').map((part) => part[0]).join('').slice(0, 2) || '--'}
             </div>
-            <span className="absolute -bottom-1 -right-1 w-4 h-4 bg-[#10b981] border-2 border-[#0a0f1d] rounded-full" />
+            <span className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-400 shadow-[0_0_8px_#34d399] border-2 border-[#070c18] rounded-full animate-pulse" />
           </div>
 
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-xl md:text-2xl font-black text-[#f1f5f9] tracking-tight">
+              <h1 className="text-xl md:text-2xl font-black text-white tracking-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]">
                 {currentOperator?.name || 'Sin operador activo'}
               </h1>
-              <span className="text-xs font-mono bg-[#1e293b] text-[#58a6ff] px-2.5 py-0.5 rounded-full border border-[#2b3a58]">
+              <span className="text-xs font-mono bg-cyan-500/15 text-cyan-300 px-2.5 py-0.5 rounded-full border border-cyan-400/40 font-bold shadow-[0_0_8px_rgba(6,182,212,0.25)]">
                 {currentOperator?.role || 'Sin datos'}
               </span>
-              <span className="text-[11px] font-mono bg-[#090d16] text-[#94a3b8] px-2 py-0.5 rounded border border-[#1e293b]">
+              <span className="text-[11px] font-mono bg-[#040814] text-slate-400 px-2.5 py-0.5 rounded-md border border-cyan-500/20">
                 /mis-operaciones
               </span>
             </div>
-            <p className="text-xs text-[#94a3b8] mt-1 flex items-center gap-3">
+            <p className="text-xs text-slate-400 font-mono mt-1 flex items-center gap-3">
               <span>✉️ {currentOperator?.email || 'Sin correo registrado'}</span>
             </p>
           </div>
         </div>
 
         {/* Action Controls & Admin Selector */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 relative z-10">
           {/* Super Admin Operator Switcher */}
           {userRole === 'admin' && (
-            <div className="flex items-center gap-2 bg-[#090d16] border border-[#2b3a58] rounded-xl px-3 py-1.5 shadow-sm">
-              <span className="material-symbols-outlined text-[#58a6ff] text-[18px]">
+            <div className="flex items-center gap-2 bg-[#040814]/90 border border-cyan-500/30 rounded-2xl px-3.5 py-2 shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]">
+              <span className="material-symbols-outlined text-cyan-400 text-[18px]">
                 manage_accounts
               </span>
               <div className="flex flex-col">
-                <span className="text-[9px] uppercase font-bold text-[#94a3b8]">Auditar Operador:</span>
+                <span className="text-[9px] uppercase font-mono font-bold text-cyan-400/80">Auditar Operador:</span>
                 <select
                   value={selectedOperatorName}
                   onChange={(e) => setSelectedOperatorName(e.target.value)}
-                  className="bg-transparent text-xs font-bold text-[#f1f5f9] focus:outline-none cursor-pointer pr-2"
+                  className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer pr-2 font-mono"
                 >
                   {operators.map((op) => (
-                    <option key={op.id} value={op.name} className="bg-[#111827] text-white">
+                    <option key={op.id} value={op.name} className="bg-[#070c18] text-white">
                       {op.name} ({op.role.split(' ')[0]})
                     </option>
                   ))}
@@ -328,7 +344,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
               setTransferStep('select');
               setIsTransferModalOpen(true);
             }}
-            className="bg-[#1c2438] hover:bg-[#25324d] text-[#58a6ff] hover:text-white border border-[#2b3a58] px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
+            className="bg-[#060e1d] hover:bg-[#0a1730] text-cyan-300 hover:text-white border border-cyan-500/30 px-3.5 py-2.5 rounded-2xl text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.15)] active:scale-95"
           >
             <span className="material-symbols-outlined text-[18px]">swap_horiz</span>
             <span>Solicitar Traspaso de Venta</span>
@@ -338,7 +354,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
           <button
             type="button"
             onClick={() => setIsPrintModalOpen(true)}
-            className="bg-[#388bfd] hover:bg-[#2b79e2] text-white font-bold text-xs py-2 px-4 rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-[0_0_18px_rgba(56,139,253,0.35)] active:scale-95"
+            className="bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 font-black text-xs py-2.5 px-4 rounded-2xl flex items-center gap-2 transition-all cursor-pointer shadow-[0_0_20px_rgba(6,182,212,0.35)] active:scale-95"
           >
             <span className="material-symbols-outlined text-[18px]">print</span>
             <span>Imprimir / PDF</span>
@@ -346,118 +362,121 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
         </div>
       </div>
 
-      {/* SECTION 3: 5 Key Performance Indicators (KPIs) Cards */}
+      {/* SECTION 3: 5 Key Performance Indicators (KPIs) Cyber HUD Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {/* KPI 1: Órdenes Activas */}
-        <div className="bg-[#0f172a] border border-[#388bfd]/30 rounded-2xl p-4 flex flex-col justify-between bg-gradient-to-br from-[#0f172a] to-[#388bfd]/10 shadow-lg">
+        <div className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/30 p-4 flex flex-col justify-between shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_10px_#22d3ee]" />
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-[#58a6ff] uppercase tracking-wider">
+            <span className="text-[10px] font-mono font-bold text-cyan-400 uppercase tracking-wider">
               Órdenes Activas
             </span>
-            <div className="w-8 h-8 rounded-xl bg-[#388bfd]/20 text-[#58a6ff] flex items-center justify-center border border-[#388bfd]/40">
+            <div className="w-8 h-8 rounded-xl bg-cyan-500/15 text-cyan-400 flex items-center justify-center border border-cyan-400/30">
               <span className="material-symbols-outlined text-[18px]">inventory_2</span>
             </div>
           </div>
           <div className="mt-2">
-            <span className="text-2xl font-mono font-black text-[#f1f5f9]">{kpis.activeCount}</span>
-            <p className="text-[10px] text-[#93c5fd]/90 mt-0.5">En seguimiento & despacho</p>
+            <span className="text-2xl font-mono font-black text-white">{kpis.activeCount}</span>
+            <p className="text-[10px] font-mono text-slate-400 mt-0.5">En seguimiento & despacho</p>
           </div>
         </div>
 
         {/* KPI 2: Ventas de la Semana */}
-        <div className="bg-[#0f172a] border border-[#10b981]/30 rounded-2xl p-4 flex flex-col justify-between bg-gradient-to-br from-[#0f172a] to-[#10b981]/10 shadow-lg">
+        <div className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-emerald-500/30 p-4 flex flex-col justify-between shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_10px_#34d399]" />
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-[#34d399] uppercase tracking-wider">
+            <span className="text-[10px] font-mono font-bold text-emerald-400 uppercase tracking-wider">
               Ventas Semanales
             </span>
-            <div className="w-8 h-8 rounded-xl bg-[#10b981]/20 text-[#34d399] flex items-center justify-center border border-[#10b981]/40">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-400/30">
               <span className="material-symbols-outlined text-[18px]">shopping_bag</span>
             </div>
           </div>
           <div className="mt-2">
-            <span className="text-2xl font-mono font-black text-[#34d399]">
+            <span className="text-2xl font-mono font-black text-emerald-300">
               ${kpis.weeklySalesSum.toLocaleString('en-US', { minimumFractionDigits: 2 })}
             </span>
-            <p className="text-[10px] text-[#a7f3d0]/90 mt-0.5">
-              {kpis.weeklyCount} ventas registradas esta semana
+            <p className="text-[10px] font-mono text-slate-400 mt-0.5">
+              {kpis.weeklyCount} ventas registradas
             </p>
           </div>
         </div>
 
         {/* KPI 3: Ventas del Mes */}
-        <div className="bg-[#0f172a] border border-[#8b5cf6]/30 rounded-2xl p-4 flex flex-col justify-between bg-gradient-to-br from-[#0f172a] to-[#8b5cf6]/10 shadow-lg">
+        <div className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-purple-500/30 p-4 flex flex-col justify-between shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-purple-400 to-transparent shadow-[0_0_10px_#c084fc]" />
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-[#c084fc] uppercase tracking-wider">
+            <span className="text-[10px] font-mono font-bold text-purple-400 uppercase tracking-wider">
               Ventas del Mes
             </span>
-            <div className="w-8 h-8 rounded-xl bg-[#8b5cf6]/20 text-[#c084fc] flex items-center justify-center border border-[#8b5cf6]/40">
+            <div className="w-8 h-8 rounded-xl bg-purple-500/15 text-purple-400 flex items-center justify-center border border-purple-400/30">
               <span className="material-symbols-outlined text-[18px]">trending_up</span>
             </div>
           </div>
           <div className="mt-2">
-            <span className="text-2xl font-mono font-black text-[#c084fc]">
+            <span className="text-2xl font-mono font-black text-purple-300">
               ${kpis.monthlySalesSum.toLocaleString('en-US', { minimumFractionDigits: 2 })}
             </span>
-            <p className="text-[10px] text-[#d8b4fe]/90 mt-0.5">{kpis.monthlyCount} ventas acumuladas</p>
+            <p className="text-[10px] font-mono text-slate-400 mt-0.5">{kpis.monthlyCount} acumuladas</p>
           </div>
         </div>
 
         {/* KPI 4: Reembolsos */}
-        <div className="bg-[#0f172a] border border-[#f59e0b]/30 rounded-2xl p-4 flex flex-col justify-between bg-gradient-to-br from-[#0f172a] to-[#f59e0b]/10 shadow-lg">
+        <div className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-amber-500/30 p-4 flex flex-col justify-between shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-amber-400 to-transparent shadow-[0_0_10px_#fbbf24]" />
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-[#fbbf24] uppercase tracking-wider">
+            <span className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-wider">
               Reembolsos
             </span>
-            <div className="w-8 h-8 rounded-xl bg-[#f59e0b]/20 text-[#fbbf24] flex items-center justify-center border border-[#f59e0b]/40">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center border border-amber-400/30">
               <span className="material-symbols-outlined text-[18px]">currency_exchange</span>
             </div>
           </div>
           <div className="mt-2">
-            <span className="text-2xl font-mono font-black text-[#fbbf24]">
+            <span className="text-2xl font-mono font-black text-amber-300">
               ${kpis.refundsSum.toLocaleString('en-US', { minimumFractionDigits: 2 })}
             </span>
-            <p className="text-[10px] text-[#fcd34d]/90 mt-0.5">{kpis.refundsCount} solicitudes reg.</p>
+            <p className="text-[10px] font-mono text-slate-400 mt-0.5">{kpis.refundsCount} solicitudes reg.</p>
           </div>
         </div>
 
-        {/* KPI 5: Reclamos Obtenidos */}
-        <div className="bg-[#0f172a] border border-[#ef4444]/30 rounded-2xl p-4 flex flex-col justify-between bg-gradient-to-br from-[#0f172a] to-[#ef4444]/10 shadow-lg col-span-2 sm:col-span-1">
+        {/* KPI 5: Reclamos */}
+        <div className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-red-500/30 p-4 flex flex-col justify-between shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden col-span-2 sm:col-span-1">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-red-400 to-transparent shadow-[0_0_10px_#f87171]" />
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-[#f87171] uppercase tracking-wider">
+            <span className="text-[10px] font-mono font-bold text-red-400 uppercase tracking-wider">
               Reclamos
             </span>
-            <div className="w-8 h-8 rounded-xl bg-[#ef4444]/20 text-[#f87171] flex items-center justify-center border border-[#ef4444]/40">
+            <div className="w-8 h-8 rounded-xl bg-red-500/15 text-red-400 flex items-center justify-center border border-red-400/30">
               <span className="material-symbols-outlined text-[18px]">warning</span>
             </div>
           </div>
           <div className="mt-2">
-            <span className="text-2xl font-mono font-black text-[#f87171]">{kpis.openClaimsCount}</span>
-            <p className="text-[10px] text-[#fca5a5]/90 mt-0.5">Casos activos en garantía</p>
+            <span className="text-2xl font-mono font-black text-red-400">{kpis.openClaimsCount}</span>
+            <p className="text-[10px] font-mono text-slate-400 mt-0.5">Casos activos</p>
           </div>
         </div>
       </div>
 
       {/* SECTION 4: 4 Segmented Tabs */}
-      <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl overflow-hidden shadow-xl flex flex-col">
+      <div className="relative rounded-3xl bg-[#070c18]/92 backdrop-blur-3xl border border-cyan-500/25 overflow-hidden shadow-[0_25px_70px_rgba(0,0,0,0.75)] flex flex-col">
+        <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee]" />
+
         {/* Navigation Tabs Header */}
-        <div className="p-3 bg-[#111827] border-b border-[#1e293b] flex flex-wrap items-center justify-between gap-3">
+        <div className="p-3.5 bg-[#040814]/90 border-b border-cyan-500/20 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setActiveTab('semana')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+              className={`px-4 py-2 rounded-2xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center gap-2 ${
                 activeTab === 'semana'
-                  ? 'bg-[#10b981] text-[#064e3b] shadow-md shadow-[#10b981]/20 font-black'
-                  : 'bg-[#090d16] text-[#94a3b8] hover:text-white border border-[#1e293b]'
+                  ? 'bg-emerald-500/20 border-2 border-emerald-400 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.35)]'
+                  : 'bg-[#040814] text-slate-400 hover:text-white border border-cyan-500/20'
               }`}
             >
               <span className="material-symbols-outlined text-[16px]">shopping_bag</span>
               <span>1. Ventas de la Semana</span>
-              <span
-                className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                  activeTab === 'semana' ? 'bg-[#064e3b]/20 text-[#064e3b]' : 'bg-[#1e293b] text-[#cbd5e1]'
-                }`}
-              >
+              <span className="text-[10px] px-2 py-0.5 rounded-md font-mono font-bold bg-[#02050c] text-white border border-cyan-500/25">
                 {weeklyOrders.length}
               </span>
             </button>
@@ -465,19 +484,15 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
             <button
               type="button"
               onClick={() => setActiveTab('mes')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+              className={`px-4 py-2 rounded-2xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center gap-2 ${
                 activeTab === 'mes'
-                  ? 'bg-[#8b5cf6] text-white shadow-md shadow-[#8b5cf6]/20 font-black'
-                  : 'bg-[#090d16] text-[#94a3b8] hover:text-white border border-[#1e293b]'
+                  ? 'bg-purple-500/20 border-2 border-purple-400 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.35)]'
+                  : 'bg-[#040814] text-slate-400 hover:text-white border border-cyan-500/20'
               }`}
             >
               <span className="material-symbols-outlined text-[16px]">trending_up</span>
               <span>2. Ventas del Mes</span>
-              <span
-                className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                  activeTab === 'mes' ? 'bg-white/20 text-white' : 'bg-[#1e293b] text-[#cbd5e1]'
-                }`}
-              >
+              <span className="text-[10px] px-2 py-0.5 rounded-md font-mono font-bold bg-[#02050c] text-white border border-cyan-500/25">
                 {monthlyOrders.length}
               </span>
             </button>
@@ -485,19 +500,15 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
             <button
               type="button"
               onClick={() => setActiveTab('activas')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+              className={`px-4 py-2 rounded-2xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center gap-2 ${
                 activeTab === 'activas'
-                  ? 'bg-[#388bfd] text-white shadow-md shadow-[#388bfd]/20 font-black'
-                  : 'bg-[#090d16] text-[#94a3b8] hover:text-white border border-[#1e293b]'
+                  ? 'bg-cyan-500/20 border-2 border-cyan-400 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.35)]'
+                  : 'bg-[#040814] text-slate-400 hover:text-white border border-cyan-500/20'
               }`}
             >
               <span className="material-symbols-outlined text-[16px]">inventory_2</span>
               <span>3. Órdenes Activas</span>
-              <span
-                className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                  activeTab === 'activas' ? 'bg-white/20 text-white' : 'bg-[#1e293b] text-[#cbd5e1]'
-                }`}
-              >
+              <span className="text-[10px] px-2 py-0.5 rounded-md font-mono font-bold bg-[#02050c] text-white border border-cyan-500/25">
                 {activeOrders.length}
               </span>
             </button>

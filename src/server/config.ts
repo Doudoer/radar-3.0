@@ -29,6 +29,7 @@ export const pool = createPool({
   database: process.env.DB_NAME || 'radar_v3',
   waitForConnections: true,
   connectionLimit: 8,
+  timezone: 'Z',
 });
 
 if (process.env.NODE_ENV === 'production') {

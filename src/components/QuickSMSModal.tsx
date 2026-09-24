@@ -85,105 +85,167 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
   const summaryText = `${spanishMessage}\n\n${englishMessage}`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/75 backdrop-blur-md">
-      <div className="bg-[#111827] border border-[#263750] rounded-2xl w-full max-w-3xl max-h-[92vh] shadow-2xl overflow-hidden flex flex-col text-xs text-[#cbd5e1]">
-        <div className="px-4 py-3 border-b border-[#263750] bg-[#10213a] flex items-center justify-between">
-          <div>
-            <h3 className="font-bold text-[#f1f5f9] text-sm">Vista Rápida Compartible - {orderCode}</h3>
-            <p className="text-[11px] text-[#9fb2cf] mt-0.5">Resumen para SMS, entrega y seguimiento del cliente</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/85 backdrop-blur-xl animate-fade-in">
+      <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-3xl max-h-[92vh] shadow-[0_20px_60px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col text-xs text-slate-300 relative">
+        {/* Laser Hairline */}
+        <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-20" />
+
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-cyan-500/20 bg-[#0a1022]/80 backdrop-blur-md flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+              <span className="material-symbols-outlined text-[18px]">share</span>
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-slate-100 text-sm">Vista Rápida Compartible</h3>
+                <span className="font-mono text-[10px] text-cyan-400 bg-cyan-950/40 border border-cyan-500/30 px-2 py-0.5 rounded-full font-bold">
+                  {orderCode}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">Resumen para SMS, despacho y seguimiento con el cliente</p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="h-8 w-8 rounded-lg border border-[#3b4d6a] text-[#cbd5e1] hover:text-white hover:bg-[#1e293b] flex items-center justify-center cursor-pointer"
+            className="h-8 w-8 rounded-lg border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 flex items-center justify-center cursor-pointer transition-colors"
           >
             <span className="material-symbols-outlined text-[18px]">close</span>
           </button>
         </div>
 
-        <div className="p-4 overflow-y-auto custom-scrollbar flex flex-col gap-4">
-          <section className="rounded-xl border border-[#24508f] bg-[#102543] p-3">
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <div className="flex items-center gap-2 text-[#8ec5ff] font-bold text-[11px]">
-                <span className="material-symbols-outlined text-[16px]">local_shipping</span>
-                Formato para Mensaje de Entrega / Delivery
+        <div className="p-5 overflow-y-auto custom-scrollbar flex flex-col gap-4">
+          <section className="rounded-2xl border border-cyan-500/30 bg-[#091024]/70 p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3 mb-3.5">
+              <div className="flex items-center gap-2 text-cyan-300 font-bold text-xs uppercase tracking-wider">
+                <span className="material-symbols-outlined text-[18px] text-cyan-400">local_shipping</span>
+                <span>Formato de Despacho & Mensaje Rápido</span>
               </div>
-              <span className="rounded-full border border-[#7c3aed]/50 bg-[#7c3aed]/20 px-2 py-1 text-[10px] text-[#d8b4fe]">
+              <span className="rounded-full border border-purple-500/40 bg-purple-950/40 px-2.5 py-1 text-[10px] text-purple-300 font-mono font-bold">
                 {deliveryMode}{!deliveryAddress && !isHomeDelivery ? ' (sin dirección)' : ''}
               </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="rounded-lg bg-[#0b1324] p-3 border border-[#1d3354]">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              {/* English Version */}
+              <div className="rounded-xl bg-[#060b17] p-3.5 border border-cyan-500/20">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-bold text-[11px] text-[#8ec5ff]">Formato (English)</span>
+                  <span className="font-bold text-[11px] text-cyan-400 font-mono">Formato (English)</span>
                   <div className="flex gap-1.5">
-                    <button type="button" onClick={() => copyText('English', englishMessage)} className="px-2 py-1 rounded-md bg-[#1e293b] text-[10px] font-bold text-white border border-[#334155] cursor-pointer">Copiar</button>
-                    <button type="button" onClick={() => openWhatsApp(englishMessage)} className="px-2 py-1 rounded-md bg-[#22c55e] text-[10px] font-bold text-[#062711] cursor-pointer">WA</button>
+                    <button
+                      type="button"
+                      onClick={() => copyText('English', englishMessage)}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-bold text-slate-200 border border-slate-700 cursor-pointer transition-all active:scale-95"
+                    >
+                      Copiar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openWhatsApp(englishMessage)}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-[10px] font-bold text-slate-950 cursor-pointer transition-all active:scale-95 flex items-center gap-1 shadow-[0_0_8px_rgba(16,185,129,0.3)]"
+                    >
+                      <span>WA</span>
+                    </button>
                   </div>
                 </div>
-                <pre className="whitespace-pre-wrap rounded-md bg-[#172033] p-2 text-[11px] leading-relaxed text-[#f8fafc] font-mono min-h-40">{englishMessage}</pre>
+                <pre className="whitespace-pre-wrap rounded-lg bg-[#040812] p-2.5 text-[11px] leading-relaxed text-slate-200 font-mono min-h-40 border border-slate-800/80">{englishMessage}</pre>
               </div>
 
-              <div className="rounded-lg bg-[#0b1324] p-3 border border-[#1d3354]">
+              {/* Spanish Version */}
+              <div className="rounded-xl bg-[#060b17] p-3.5 border border-amber-500/20">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-bold text-[11px] text-[#fbbf24]">Formato (Español)</span>
+                  <span className="font-bold text-[11px] text-amber-400 font-mono">Formato (Español)</span>
                   <div className="flex gap-1.5">
-                    <button type="button" onClick={() => copyText('Español', spanishMessage)} className="px-2 py-1 rounded-md bg-[#1e293b] text-[10px] font-bold text-white border border-[#334155] cursor-pointer">Copiar</button>
-                    <button type="button" onClick={() => openWhatsApp(spanishMessage)} className="px-2 py-1 rounded-md bg-[#22c55e] text-[10px] font-bold text-[#062711] cursor-pointer">WA</button>
+                    <button
+                      type="button"
+                      onClick={() => copyText('Español', spanishMessage)}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-bold text-slate-200 border border-slate-700 cursor-pointer transition-all active:scale-95"
+                    >
+                      Copiar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openWhatsApp(spanishMessage)}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-[10px] font-bold text-slate-950 cursor-pointer transition-all active:scale-95 flex items-center gap-1 shadow-[0_0_8px_rgba(16,185,129,0.3)]"
+                    >
+                      <span>WA</span>
+                    </button>
                   </div>
                 </div>
-                <pre className="whitespace-pre-wrap rounded-md bg-[#172033] p-2 text-[11px] leading-relaxed text-[#f8fafc] font-mono min-h-40">{spanishMessage}</pre>
+                <pre className="whitespace-pre-wrap rounded-lg bg-[#040812] p-2.5 text-[11px] leading-relaxed text-slate-200 font-mono min-h-40 border border-slate-800/80">{spanishMessage}</pre>
               </div>
             </div>
           </section>
 
-          <div className="flex items-center justify-between gap-3 border-t border-[#263750] pt-3">
-            <span className="font-bold text-[#dfe2ef]">Ficha Técnica Completa de la Orden</span>
+          <div className="flex items-center justify-between gap-3 border-t border-cyan-500/20 pt-3">
+            <span className="font-bold text-slate-200 text-xs">Ficha Técnica Consolidada</span>
             <button
               type="button"
               onClick={() => copyText('Resumen completo', summaryText)}
-              className="rounded-lg border border-[#334155] bg-[#0b1324] px-3 py-2 text-[11px] font-bold text-[#f1f5f9] hover:bg-[#1e293b] cursor-pointer"
+              className="rounded-xl border border-cyan-500/30 bg-cyan-950/30 hover:bg-cyan-950/60 px-3 py-1.5 text-[11px] font-bold text-cyan-300 transition-all cursor-pointer flex items-center gap-1.5"
             >
-              Copiar Resumen Completo
+              <span className="material-symbols-outlined text-[15px]">content_copy</span>
+              <span>Copiar Resumen Completo</span>
             </button>
           </div>
 
-          <section className="rounded-xl border border-[#475569] bg-[#1f2937]/70 p-4">
-            <h4 className="font-bold text-[#f8fafc] mb-3">Detalles del Vehículo</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-[#475569]/50 pt-3">
-              <div><strong>Unidad:</strong> {vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : '-'}</div>
-              <div><strong>Tipo de pieza:</strong> <span className="text-[#58a6ff]">{order?.mainPart || '-'}</span></div>
-              <div><strong>VIN:</strong> <span className="font-mono">{vehicle?.vin || '-'}</span></div>
-              <div><strong>Stock #:</strong> <span className="font-mono text-[#34d399]">{order?.stockNumber || '-'}</span></div>
-              <div className="sm:col-span-2"><strong>Descripción:</strong> {order?.productSpecs || order?.notes || '-'}</div>
-            </div>
-          </section>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+            {/* Vehicle Card */}
+            <section className="rounded-xl border border-cyan-500/20 bg-[#070e1e] p-3.5 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-1.5 text-cyan-400 font-bold mb-2 pb-1.5 border-b border-cyan-500/20">
+                  <span className="material-symbols-outlined text-[16px]">directions_car</span>
+                  <span className="text-xs">Vehículo & Pieza</span>
+                </div>
+                <div className="space-y-1 text-[11px]">
+                  <p><strong className="text-slate-400">Unidad:</strong> <span className="text-slate-200 font-semibold">{vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : '-'}</span></p>
+                  <p><strong className="text-slate-400">Pieza:</strong> <span className="text-cyan-400 font-bold">{order?.mainPart || '-'}</span></p>
+                  <p><strong className="text-slate-400">VIN:</strong> <span className="font-mono text-slate-300">{vehicle?.vin || '-'}</span></p>
+                  <p><strong className="text-slate-400">Stock #:</strong> <span className="font-mono text-emerald-400 font-bold">{order?.stockNumber || '-'}</span></p>
+                </div>
+              </div>
+            </section>
 
-          <section className="rounded-xl border border-[#475569] bg-[#1f2937]/70 p-4">
-            <h4 className="font-bold text-[#f8fafc] mb-3">Detalles del Cliente</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-[#475569]/50 pt-3">
-              <div><strong>Nombre:</strong> {order?.customer.name || customerName}</div>
-              <div><strong>Teléfono:</strong> <span className="font-mono">{order?.customer.phone || phone}</span></div>
-              {deliveryAddress && <div className="sm:col-span-2"><strong>Dirección:</strong> {deliveryAddress}</div>}
-            </div>
-          </section>
+            {/* Client Card */}
+            <section className="rounded-xl border border-cyan-500/20 bg-[#070e1e] p-3.5 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-1.5 text-emerald-400 font-bold mb-2 pb-1.5 border-b border-cyan-500/20">
+                  <span className="material-symbols-outlined text-[16px]">person</span>
+                  <span className="text-xs">Datos del Cliente</span>
+                </div>
+                <div className="space-y-1 text-[11px]">
+                  <p><strong className="text-slate-400">Nombre:</strong> <span className="text-slate-200 font-semibold">{order?.customer.name || customerName}</span></p>
+                  <p><strong className="text-slate-400">Teléfono:</strong> <span className="font-mono text-emerald-400">{order?.customer.phone || phone}</span></p>
+                  {deliveryAddress && <p><strong className="text-slate-400">Dirección:</strong> <span className="text-slate-300">{deliveryAddress}</span></p>}
+                </div>
+              </div>
+            </section>
 
-          <section className="rounded-xl border border-[#475569] bg-[#1f2937]/70 p-4">
-            <h4 className="font-bold text-[#f8fafc] mb-3">Detalles de Finanzas</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-[#475569]/50 pt-3">
-              <div><strong>Precio pieza:</strong> ${partPrice.toFixed(2)}</div>
-              <div><strong>Core fee:</strong> ${coreFee.toFixed(2)}</div>
-              <div><strong>Total:</strong> ${total.toFixed(2)}</div>
-              <div><strong>Abono:</strong> <span className="text-[#34d399]">${downPayment.toFixed(2)}</span></div>
-              <div><strong>Pendiente:</strong> <span className="text-[#f87171]">${balanceDue.toFixed(2)}</span></div>
-              <div><strong>Método:</strong> Por definir</div>
-            </div>
-          </section>
+            {/* Financials Card */}
+            <section className="rounded-xl border border-cyan-500/20 bg-[#070e1e] p-3.5 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-1.5 text-amber-400 font-bold mb-2 pb-1.5 border-b border-cyan-500/20">
+                  <span className="material-symbols-outlined text-[16px]">account_balance_wallet</span>
+                  <span className="text-xs">Estado de Cuenta</span>
+                </div>
+                <div className="space-y-1 text-[11px]">
+                  <p className="flex justify-between"><span className="text-slate-400">Precio Parte:</span> <span className="font-mono text-slate-200">${partPrice.toFixed(2)}</span></p>
+                  <p className="flex justify-between"><span className="text-slate-400">Abonado:</span> <span className="font-mono text-emerald-400 font-bold">${downPayment.toFixed(2)}</span></p>
+                  <p className="flex justify-between"><span className="text-slate-400">Core Fee:</span> <span className="font-mono text-slate-300">${coreFee.toFixed(2)}</span></p>
+                  <p className="flex justify-between border-t border-slate-800 pt-1 mt-1 font-bold">
+                    <span className="text-slate-300">Pendiente:</span>
+                    <span className="font-mono text-rose-400">${balanceDue.toFixed(2)}</span>
+                  </p>
+                </div>
+              </div>
+            </section>
+          </div>
 
           {copied && (
-            <div className="rounded-lg border border-[#34d399]/40 bg-[#10b981]/10 px-3 py-2 text-[#86efac] font-bold">
-              {copied} copiado al portapapeles.
+            <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/40 px-3.5 py-2 text-emerald-300 font-bold flex items-center gap-2 animate-fade-in shadow-[0_0_15px_rgba(16,185,129,0.2)]">
+              <span className="material-symbols-outlined text-[18px]">check_circle</span>
+              <span>{copied} copiado al portapapeles con éxito.</span>
             </div>
           )}
         </div>

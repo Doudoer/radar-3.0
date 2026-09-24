@@ -305,19 +305,172 @@ export const StatusRequestModal: React.FC<StatusRequestModalProps> = ({ isOpen, 
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 p-4 backdrop-blur-md">
-      <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-3xl min-h-0 flex-col overflow-hidden rounded-2xl border border-[#2b466e] bg-[#111827] shadow-2xl">
-        <div className="flex shrink-0 items-start justify-between border-b border-[#2b3a58] bg-[#182338] p-5">
-          <div><h2 className="flex items-center gap-2 text-lg font-bold text-[#f1f5f9]"><span className="material-symbols-outlined text-[#58a6ff]">assignment</span>Solicitud de estatus</h2><p className="mt-1 text-xs text-[#94a3b8]">Selecciona el rango y las órdenes que la yarda debe actualizar.</p></div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1 text-[#94a3b8] hover:bg-[#1e293b] hover:text-white"><span className="material-symbols-outlined">close</span></button>
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/85 p-4 backdrop-blur-xl animate-fade-in">
+      <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-3xl min-h-0 flex-col overflow-hidden rounded-3xl border border-cyan-500/30 bg-[#070c18]/95 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.85)] relative">
+        {/* Laser Hairline */}
+        <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-20" />
+
+        {/* Header */}
+        <div className="flex shrink-0 items-start justify-between border-b border-cyan-500/20 bg-[#0a1022]/80 backdrop-blur-md p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+              <span className="material-symbols-outlined text-[20px]">assignment</span>
+            </div>
+            <div>
+              <h2 className="text-base sm:text-lg font-bold text-slate-100">Solicitud de Estatus para Patio</h2>
+              <p className="mt-0.5 text-xs text-slate-400">Selecciona el rango y las órdenes que la yarda debe actualizar físicamente.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer"
+          >
+            <span className="material-symbols-outlined text-[20px]">close</span>
+          </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs text-[#cbd5e1]">Desde<input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className="mt-1 w-full rounded-lg border border-[#2b3a58] bg-[#080d19] px-3 py-2 text-sm text-white" /></label><label className="text-xs text-[#cbd5e1]">Hasta<input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} className="mt-1 w-full rounded-lg border border-[#2b3a58] bg-[#080d19] px-3 py-2 text-sm text-white" /></label></div>
-          <div className="mt-5"><p className="mb-2 text-xs font-bold uppercase tracking-wider text-[#94a3b8]">Estatus incluidos</p><div className="grid gap-2 sm:grid-cols-2">{reportStatuses.map((status) => <label key={status.id} className="flex items-center gap-2 rounded-lg border border-[#1e293b] bg-[#0b1329] p-2 text-xs text-[#cbd5e1]"><input type="checkbox" checked={selectedStatuses.includes(status.id)} onChange={() => toggleStatus(status.id)} className="h-4 w-4 accent-[#388bfd]" />{status.label}</label>)}</div></div>
-          <div className="mt-5 overflow-hidden rounded-xl border border-[#263653]"><div className="flex items-center justify-between border-b border-[#263653] bg-[#0b1329] px-3 py-2"><span className="text-xs font-bold text-[#f1f5f9]">Órdenes encontradas: {matchingOrders.length}</span><button type="button" onClick={selectAll} className="text-xs font-semibold text-[#58a6ff]">{selectedIds.length === matchingOrders.length && matchingOrders.length ? 'Quitar todas' : 'Seleccionar todas'}</button></div><div className="max-h-64 overflow-y-auto">{matchingOrders.map((order) => <label key={order.id} className="flex cursor-pointer items-start gap-3 border-b border-[#1e293b] px-3 py-3 text-xs hover:bg-[#13233c]"><input type="checkbox" checked={selectedIds.includes(order.id)} onChange={() => toggleOrder(order.id)} className="mt-1 h-4 w-4 accent-[#388bfd]" /><span><strong className="text-[#f1f5f9]">{order.code} · {order.customer.name}</strong><span className="block text-[#94a3b8]">{order.vehicle.year} {order.vehicle.make} {order.vehicle.model} · {partType(order)} · {order.status}</span></span></label>)}{!matchingOrders.length && <p className="p-6 text-center text-xs text-[#64748b]">No hay órdenes con esos filtros y fechas.</p>}</div></div>
-          {error && <p className="mt-3 rounded-lg border border-[#ef4444]/30 bg-[#ef4444]/10 px-3 py-2 text-xs text-[#fca5a5]">{error}</p>}
+
+        {/* Body */}
+        <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar p-5 space-y-5">
+          {/* Date range */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-xs text-slate-300 font-semibold">
+              <span className="block mb-1.5 text-slate-400">Fecha Inicial:</span>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(event) => setFromDate(event.target.value)}
+                className="w-full rounded-xl border border-cyan-500/30 bg-[#050914] px-3.5 py-2.5 text-xs text-slate-100 font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400"
+              />
+            </label>
+            <label className="text-xs text-slate-300 font-semibold">
+              <span className="block mb-1.5 text-slate-400">Fecha Final:</span>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(event) => setToDate(event.target.value)}
+                className="w-full rounded-xl border border-cyan-500/30 bg-[#050914] px-3.5 py-2.5 text-xs text-slate-100 font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400"
+              />
+            </label>
+          </div>
+
+          {/* Included Statuses */}
+          <div>
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-cyan-400 font-mono">
+              Estatus a Incluir en el Lote:
+            </p>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {reportStatuses.map((status) => {
+                const isSelected = selectedStatuses.includes(status.id);
+                return (
+                  <label
+                    key={status.id}
+                    className={`flex items-center gap-2 rounded-xl border p-2.5 text-xs cursor-pointer transition-all ${
+                      isSelected
+                        ? 'border-cyan-500/40 bg-cyan-950/30 text-cyan-300 shadow-sm'
+                        : 'border-slate-800 bg-[#050914] text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleStatus(status.id)}
+                      className="h-4 w-4 accent-cyan-400 rounded cursor-pointer"
+                    />
+                    <span className="font-medium text-[11px] truncate">{status.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Orders list */}
+          <div className="overflow-hidden rounded-2xl border border-cyan-500/30 bg-[#050914]">
+            <div className="flex items-center justify-between border-b border-cyan-500/20 bg-[#0a1022] px-4 py-2.5">
+              <span className="text-xs font-bold text-slate-200 font-mono flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                Órdenes Seleccionadas: {selectedIds.length} / {matchingOrders.length}
+              </span>
+              <button
+                type="button"
+                onClick={selectAll}
+                className="text-xs font-semibold text-cyan-400 hover:text-cyan-300 cursor-pointer font-mono"
+              >
+                {selectedIds.length === matchingOrders.length && matchingOrders.length ? 'Desmarcar todas' : 'Seleccionar todas'}
+              </button>
+            </div>
+            <div className="max-h-60 overflow-y-auto custom-scrollbar divide-y divide-slate-800/80">
+              {matchingOrders.map((order) => {
+                const isChecked = selectedIds.includes(order.id);
+                return (
+                  <label
+                    key={order.id}
+                    className={`flex cursor-pointer items-start gap-3 px-4 py-3 text-xs transition-colors ${
+                      isChecked ? 'bg-cyan-950/20' : 'hover:bg-slate-900/50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => toggleOrder(order.id)}
+                      className="mt-1 h-4 w-4 accent-cyan-400 rounded cursor-pointer shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <strong className="text-slate-100 font-mono text-cyan-400 font-bold">{order.code}</strong>
+                        <span className="text-slate-300 font-semibold">• {order.customer.name}</span>
+                      </div>
+                      <span className="block text-[11px] text-slate-400 mt-0.5">
+                        {order.vehicle.year} {order.vehicle.make} {order.vehicle.model} · <span className="text-slate-300 font-mono">{partType(order)}</span> · {order.status}
+                      </span>
+                    </div>
+                  </label>
+                );
+              })}
+              {!matchingOrders.length && (
+                <p className="p-8 text-center text-xs text-slate-500 font-mono">
+                  No hay órdenes que coincidan con las fechas y estatus seleccionados.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {error && (
+            <p className="rounded-xl border border-rose-500/30 bg-rose-950/30 px-3.5 py-2.5 text-xs text-rose-300 flex items-center gap-2">
+              <span className="material-symbols-outlined text-[16px] text-rose-400">error</span>
+              <span>{error}</span>
+            </p>
+          )}
         </div>
-        <div className="flex shrink-0 justify-end gap-2 border-t border-[#2b3a58] bg-[#182338] p-4"><button type="button" onClick={onClose} className="rounded-lg bg-[#1e293b] px-4 py-2 text-xs font-bold text-[#cbd5e1]">Cancelar</button><button type="button" onClick={() => void generatePdf()} disabled={generating} className="rounded-lg bg-[#388bfd] px-4 py-2 text-xs font-bold text-[#07111f] disabled:opacity-50">{generating ? 'Generando...' : 'Emitir reporte PDF'}</button></div>
+
+        {/* Footer */}
+        <div className="flex shrink-0 justify-end gap-2.5 border-t border-cyan-500/20 bg-[#0a1022]/80 backdrop-blur-md p-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl bg-slate-800 hover:bg-slate-700 px-4 py-2 text-xs font-bold text-slate-300 transition-colors cursor-pointer"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => void generatePdf()}
+            disabled={generating}
+            className="rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 px-5 py-2 text-xs font-black text-slate-950 disabled:opacity-50 transition-all shadow-[0_0_15px_rgba(6,182,212,0.35)] cursor-pointer flex items-center gap-1.5 active:scale-95"
+          >
+            {generating ? (
+              <>
+                <span className="w-3.5 h-3.5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                <span>Generando PDF...</span>
+              </>
+            ) : (
+              <>
+                <span className="material-symbols-outlined text-[16px]">picture_as_pdf</span>
+                <span>Emitir Reporte PDF</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

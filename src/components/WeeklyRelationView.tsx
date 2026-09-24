@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Order } from '../types';
 
 interface ExpenseItem {
@@ -21,27 +21,32 @@ interface ExpenseItem {
 
 interface WeeklyRelationViewProps {
   orders?: Order[];
+  onBackToDashboard?: () => void;
 }
 
 export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
   orders = [],
+  onBackToDashboard,
 }) => {
   // =========================================================================
   // 1. 2FA SECURITY GATE STATE
   // =========================================================================
   const [is2FAUnlocked, setIs2FAUnlocked] = useState(false);
 
-  const [otpCodeInput, setOtpCodeInput] = useState<string>('');
+  const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const digitInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [activeGeneratedOTP, setActiveGeneratedOTP] = useState<string | null>(null);
   const [otpCooldown, setOtpCooldown] = useState<number>(0);
   const [otpError, setOtpError] = useState<string | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<{
+    text: string;
+    code?: string;
+  } | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
   const [safeAnimation, setSafeAnimation] = useState<'idle' | 'spin' | 'unlock' | 'error'>('idle');
-  const [codeEffect, setCodeEffect] = useState<'idle' | 'sent' | 'typing' | 'error'>('idle');
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 4000);
+  const showToast = (text: string, code?: string) => {
+    setToastMessage({ text, code });
   };
 
   // Cooldown countdown
@@ -59,36 +64,125 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
     setOtpCooldown(60);
     setOtpError(null);
     setSafeAnimation('spin');
-    setCodeEffect('sent');
-    setTimeout(() => setSafeAnimation('idle'), 1800);
-    setTimeout(() => setCodeEffect('idle'), 1800);
+    setDigits(['', '', '', '', '', '']);
+    setTimeout(() => setSafeAnimation('idle'), 1200);
 
-    // Feedback simulating Wasender WhatsApp message
+    // Focus first input
+    setTimeout(() => {
+      digitInputRefs.current[0]?.focus();
+    }, 120);
+
+    // Feedback simulating Wasender WhatsApp message with auto-fill button
     showToast(
-      `📲 Wasender WhatsApp: Código 2FA enviado al +58 412-***7933: [${randomCode}]`
+      `Código de verificación 2FA generado y transmitido vía WhatsApp al +58 412-***7933:`,
+      randomCode
     );
   };
 
+  // Auto-fill test code helper
+  const handleAutoFillCode = (code: string) => {
+    const codeArr = code.split('').slice(0, 6);
+    setDigits(codeArr);
+    setOtpError(null);
+    setToastMessage(null);
+    executeVerification(code);
+  };
+
   // Verify entered 2FA OTP code
-  const handleVerifyOTP = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  const executeVerification = (codeToVerify: string) => {
     if (!activeGeneratedOTP) {
-      setOtpError('Debe solicitar un código 2FA primero pulsando el botón de WhatsApp.');
+      setOtpError('Por favor solicita primero el código de verificación pulsando "Solicitar Código".');
       return;
     }
 
-    if (otpCodeInput.trim() === activeGeneratedOTP) {
-      setIs2FAUnlocked(true);
+    setIsVerifying(true);
+    setOtpError(null);
+
+    setTimeout(() => {
+      if (codeToVerify === activeGeneratedOTP) {
+        setIs2FAUnlocked(true);
+        setOtpError(null);
+        setSafeAnimation('unlock');
+        setToastMessage({
+          text: '🔒 Sesión financiera 2FA desbloqueada exitosamente.',
+        });
+        setTimeout(() => setToastMessage(null), 3500);
+      } else {
+        setOtpError('Código de verificación incorrecto. Revisa tu WhatsApp o solicita un nuevo PIN.');
+        setSafeAnimation('error');
+        setTimeout(() => setSafeAnimation('idle'), 900);
+      }
+      setIsVerifying(false);
+    }, 450);
+  };
+
+  const handleDigitChange = (index: number, value: string) => {
+    // If multiple digits were pasted/typed into a single box
+    const cleanDigits = value.replace(/\D/g, '');
+    if (cleanDigits.length > 1) {
+      const newDigits = [...digits];
+      const slice = cleanDigits.slice(0, 6);
+      for (let i = 0; i < slice.length; i++) {
+        newDigits[i] = slice[i];
+      }
+      setDigits(newDigits);
       setOtpError(null);
-      setSafeAnimation('unlock');
-      setCodeEffect('sent');
-      showToast('🔒 Sesión financiera 2FA desbloqueada exitosamente.');
-    } else {
-      setOtpError('Código de verificación incorrecto. Revise el mensaje recibido o solicite un nuevo PIN.');
-      setSafeAnimation('error');
-      setCodeEffect('error');
-      setTimeout(() => setSafeAnimation('idle'), 900);
-      setTimeout(() => setCodeEffect('idle'), 900);
+      const nextFocus = Math.min(slice.length, 5);
+      digitInputRefs.current[nextFocus]?.focus();
+      if (slice.length === 6) {
+        executeVerification(slice);
+      }
+      return;
+    }
+
+    const singleDigit = cleanDigits.slice(-1);
+    const newDigits = [...digits];
+    newDigits[index] = singleDigit;
+    setDigits(newDigits);
+    setOtpError(null);
+
+    if (singleDigit && index < 5) {
+      digitInputRefs.current[index + 1]?.focus();
+    }
+
+    const fullCode = newDigits.join('');
+    if (fullCode.length === 6 && newDigits.every((d) => d !== '')) {
+      executeVerification(fullCode);
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace') {
+      if (!digits[index] && index > 0) {
+        const newDigits = [...digits];
+        newDigits[index - 1] = '';
+        setDigits(newDigits);
+        digitInputRefs.current[index - 1]?.focus();
+      }
+    } else if (e.key === 'ArrowLeft' && index > 0) {
+      digitInputRefs.current[index - 1]?.focus();
+    } else if (e.key === 'ArrowRight' && index < 5) {
+      digitInputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pastedText = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (!pastedText) return;
+
+    const newDigits = ['', '', '', '', '', ''];
+    for (let i = 0; i < pastedText.length; i++) {
+      newDigits[i] = pastedText[i];
+    }
+    setDigits(newDigits);
+    setOtpError(null);
+
+    const nextIndex = Math.min(pastedText.length, 5);
+    digitInputRefs.current[nextIndex]?.focus();
+
+    if (pastedText.length === 6) {
+      executeVerification(pastedText);
     }
   };
 
@@ -96,8 +190,11 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
   const handleLockSession = () => {
     setIs2FAUnlocked(false);
     setActiveGeneratedOTP(null);
-    setOtpCodeInput('');
-    showToast('Sesión financiera bloqueada. Se requerirá 2FA para el próximo ingreso.');
+    setDigits(['', '', '', '', '', '']);
+    setToastMessage({
+      text: 'Sesión financiera bloqueada. Se requerirá autenticación 2FA para el próximo ingreso.',
+    });
+    setTimeout(() => setToastMessage(null), 3500);
   };
 
   // =========================================================================
@@ -280,53 +377,111 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
   };
 
   // =========================================================================
-  // 3. RENDER 2FA LOCK SCREEN IF LOCKED
+  // 3. RENDER 2FA LOCK SCREEN IF LOCKED (CYBERPUNK NEON GLASSMORPHISM)
   // =========================================================================
   if (!is2FAUnlocked) {
+    const isCodeComplete = digits.every((d) => d !== '');
+
     return (
-      <div className="flex items-center justify-center min-h-[75vh] p-4 animate-fade-in select-none">
-        {/* Toast */}
+      <div className="flex items-center justify-center min-h-[82vh] p-4 sm:p-6 animate-fade-in select-none relative overflow-hidden">
+        {/* Floating WhatsApp Simulation Toast */}
         {toastMessage && (
-          <div className="fixed bottom-6 right-6 z-50 bg-[#10b981] text-[#042f2e] font-bold text-xs py-3 px-5 rounded-xl shadow-[0_10px_25px_rgba(16,185,129,0.4)] flex items-center gap-2.5 animate-bounce">
-            <span className="material-symbols-outlined text-[20px]">mark_chat_read</span>
-            <span>{toastMessage}</span>
+          <div className="fixed top-6 sm:top-8 right-6 z-50 max-w-md w-full sm:w-auto bg-[#041a14]/95 text-white font-medium text-xs py-3.5 px-5 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8),0_0_30px_rgba(16,185,129,0.35)] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-bounce border-2 border-emerald-500/60 backdrop-blur-2xl">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center text-emerald-400 shrink-0 shadow-[0_0_12px_rgba(16,185,129,0.4)]">
+                <span className="material-symbols-outlined text-[20px]">mark_chat_read</span>
+              </div>
+              <div className="text-left">
+                <div className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-bold">
+                  📲 Notificación Wasender 2FA
+                </div>
+                <div className="text-xs text-slate-200 mt-0.5">
+                  {toastMessage.text}{' '}
+                  {toastMessage.code && (
+                    <span className="font-mono font-black text-emerald-300 text-sm tracking-widest bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-500/40 ml-1">
+                      {toastMessage.code}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {toastMessage.code && (
+              <button
+                type="button"
+                onClick={() => handleAutoFillCode(toastMessage.code!)}
+                className="w-full sm:w-auto mt-2 sm:mt-0 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 text-slate-950 font-black text-[11px] tracking-wide shrink-0 transition-transform active:scale-95 shadow-[0_0_15px_rgba(16,185,129,0.5)] cursor-pointer"
+              >
+                ⚡ Insertar PIN
+              </button>
+            )}
           </div>
         )}
 
-        <div className="bg-[#0f172a] border border-[#1e293b] rounded-3xl p-6 sm:p-10 max-w-lg w-full shadow-2xl relative overflow-hidden flex flex-col items-center text-center">
-          {/* Top Decorative Glow */}
-          <div className="absolute -top-24 -left-24 w-48 h-48 bg-[#388bfd]/15 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute -bottom-24 -right-24 w-48 h-48 bg-[#10b981]/15 rounded-full blur-3xl pointer-events-none" />
+        {/* Ambient Neon Backlight Orbs */}
+        <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-cyan-500/12 rounded-full blur-[140px] pointer-events-none" />
+        <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-96 h-96 bg-emerald-500/12 rounded-full blur-[140px] pointer-events-none" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[32rem] h-[32rem] bg-blue-600/10 rounded-full blur-[150px] pointer-events-none" />
 
-          {/* Animated Safe Icon */}
-          <div className={`safe-vault ${safeAnimation === 'spin' ? 'safe-vault-spin' : ''} ${safeAnimation === 'unlock' ? 'safe-vault-unlock' : ''} ${safeAnimation === 'error' ? 'safe-vault-error' : ''}`}>
-            <div className="safe-door">
-              <span className="material-symbols-outlined text-[30px]">lock</span>
-              <div className="safe-dial" />
+        {/* Main Cyber Glassmorphic 2FA Card */}
+        <div className="relative max-w-lg w-full rounded-[30px] bg-[#070c18]/92 backdrop-blur-3xl border border-cyan-500/35 p-7 sm:p-10 shadow-[0_25px_70px_rgba(0,0,0,0.85),0_0_60px_rgba(6,182,212,0.18),inset_0_1px_2px_rgba(255,255,255,0.15)] flex flex-col items-center text-center overflow-hidden">
+          {/* Top Laser Edge Light Line */}
+          <div className="absolute top-0 inset-x-0 h-[2.5px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_18px_#22d3ee]" />
+
+          {/* Holographic Radar / Security Scanner */}
+          <div className="relative mb-5 flex items-center justify-center">
+            {/* Outer Orbit Ring */}
+            <div className="absolute -inset-4 rounded-full border border-dashed border-cyan-500/30 animate-cyber-orbit pointer-events-none" />
+            {/* Counter Orbit Ring */}
+            <div className="absolute -inset-7 rounded-full border border-dotted border-emerald-400/25 animate-cyber-orbit-reverse pointer-events-none" />
+            {/* Glow Aura */}
+            <div className="absolute inset-0 rounded-3xl bg-cyan-500/20 blur-xl animate-pulse" />
+
+            {/* Core Shield Pod */}
+            <div
+              className={`relative w-22 h-22 rounded-3xl bg-gradient-to-br from-[#0c1a30] via-[#060c18] to-[#040812] border-2 border-cyan-400/60 flex items-center justify-center text-cyan-400 shadow-[0_0_35px_rgba(6,182,212,0.4),inset_0_0_20px_rgba(6,182,212,0.25)] overflow-hidden transition-all duration-300 ${
+                safeAnimation === 'spin' ? 'rotate-180 scale-105 border-emerald-400 text-emerald-400' : ''
+              } ${safeAnimation === 'unlock' ? 'border-emerald-400 text-emerald-400 scale-110 shadow-[0_0_40px_rgba(16,185,129,0.6)]' : ''} ${
+                safeAnimation === 'error' ? 'animate-shake border-red-500 text-red-400 shadow-[0_0_35px_rgba(239,68,68,0.5)]' : ''
+              }`}
+            >
+              {/* Laser Scanline Beam */}
+              <div className="absolute inset-x-0 h-[2px] bg-cyan-400 shadow-[0_0_10px_#22d3ee] animate-cyber-scan pointer-events-none" />
+
+              <span className="material-symbols-outlined text-[42px] drop-shadow-[0_0_12px_rgba(34,211,238,0.8)]">
+                {safeAnimation === 'unlock' ? 'lock_open' : 'security'}
+              </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-[10px] uppercase font-bold tracking-widest bg-[#1e293b] text-[#58a6ff] border border-[#388bfd]/30 px-2.5 py-0.5 rounded-full">
-              Barrera de Seguridad 2FA
-            </span>
+          {/* Security Badge */}
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#040b17]/90 border border-cyan-400/40 text-[10.5px] font-mono font-bold tracking-[0.22em] text-cyan-300 uppercase mb-3 shadow-[0_0_15px_rgba(6,182,212,0.25)]">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-ping" />
+            <span>AUTENTICACIÓN EN DOS PASOS (2FA)</span>
           </div>
 
-          <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+          {/* Title */}
+          <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)]">
             Relación Semanal & Finanzas
           </h2>
 
-          <p className="text-xs text-[#94a3b8] mt-2 leading-relaxed max-w-md">
-            Esta sección consolida información financiera confidencial (ganancias netas, nóminas y márgenes comerciales de RADAR). Para continuar, solicite el código de seguridad enviado vía WhatsApp al teléfono autorizado.
+          <p className="text-xs text-[#94a3b8] mt-1.5 leading-relaxed max-w-sm">
+            Bóveda financiera protegida de Radar 3.0. Para desbloquear el acceso, ingresa el PIN de 6 dígitos transmitido por WhatsApp.
           </p>
 
-          {/* Phone Target Card */}
-          <div className="w-full bg-[#0b1329] border border-[#1e293b] rounded-2xl p-3.5 my-5 flex items-center justify-between text-xs">
-            <div className="flex items-center gap-2.5 text-left">
-              <span className="material-symbols-outlined text-[#10b981] text-[22px]">chat</span>
+          {/* WhatsApp Transmission Pod */}
+          <div className="w-full bg-[#050b16]/95 border border-cyan-500/30 hover:border-cyan-400/50 rounded-2xl p-4 mt-5 mb-5 flex items-center justify-between gap-3 text-xs shadow-[inset_0_0_20px_rgba(0,0,0,0.7)] transition-all">
+            <div className="flex items-center gap-3 text-left">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-400/40 flex items-center justify-center text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)] shrink-0">
+                <span className="material-symbols-outlined text-[22px]">chat</span>
+              </div>
               <div>
-                <span className="text-[10px] uppercase font-bold text-[#64748b] block">Teléfono 2FA Autorizado</span>
-                <strong className="text-[#f1f5f9] font-mono text-sm">+58 412-***7933</strong>
+                <span className="text-[10px] uppercase font-mono font-bold text-emerald-400/90 block tracking-wider">
+                  CANAL SEGURO WHATSAPP
+                </span>
+                <strong className="text-white font-mono text-sm tracking-wider drop-shadow-[0_0_8px_rgba(255,255,255,0.4)]">
+                  +58 412-***7933
+                </strong>
               </div>
             </div>
 
@@ -334,56 +489,116 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
               type="button"
               onClick={handleRequestOTP}
               disabled={otpCooldown > 0}
-              className={`py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+              className={`py-2 px-3.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
                 otpCooldown > 0
-                  ? 'bg-[#1e293b] text-[#64748b] cursor-not-allowed border border-[#334155]'
-                  : 'bg-[#10b981] hover:bg-[#059669] text-[#042f2e] hover:text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                  ? 'bg-[#0f172a] text-[#64748b] cursor-not-allowed border border-[#1e293b]'
+                  : 'bg-gradient-to-r from-emerald-400 to-cyan-500 hover:from-emerald-300 hover:to-cyan-400 text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.4)] hover:shadow-[0_0_25px_rgba(34,211,238,0.6)]'
               }`}
             >
-              <span className="material-symbols-outlined text-[16px]">send</span>
-              <span>{otpCooldown > 0 ? `Reenviar (${otpCooldown}s)` : 'Solicitar Código'}</span>
+              <span className="material-symbols-outlined text-[16px]">
+                {otpCooldown > 0 ? 'hourglass_top' : 'send'}
+              </span>
+              <span>{otpCooldown > 0 ? `${otpCooldown}s` : 'Solicitar Código'}</span>
             </button>
           </div>
 
-          {/* Verification Code Form */}
-          <form onSubmit={handleVerifyOTP} className="w-full flex flex-col gap-4">
-            <div>
-              <label className="block text-xs font-bold text-[#cbd5e1] mb-2 text-left">
-                Ingrese el PIN de 6 Dígitos recibido:
+          {/* 6-Digit Segmented PIN Grid */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              executeVerification(digits.join(''));
+            }}
+            className="w-full"
+          >
+            <div className="mb-2 text-left flex items-center justify-between">
+              <label className="text-[11px] font-mono uppercase tracking-wider text-cyan-300/90 font-bold">
+                PIN de Seguridad (6 dígitos)
               </label>
-              <input
-                type="text"
-                maxLength={6}
-                placeholder="Código de 6 dígitos"
-                value={otpCodeInput}
-                onChange={(e) => {
-                  setOtpCodeInput(e.target.value.replace(/\D/g, ''));
-                  setOtpError(null);
-                  setCodeEffect('typing');
-                  setTimeout(() => setCodeEffect('idle'), 260);
-                }}
-                className={`w-full bg-[#0b1329] border border-[#1e293b] focus:border-[#388bfd] rounded-2xl py-3 px-4 text-center font-mono text-xl tracking-[0.4em] text-white placeholder:text-[#475569] focus:outline-none transition-all otp-code-field ${codeEffect === 'sent' ? 'otp-code-pulse' : ''} ${codeEffect === 'typing' ? 'otp-code-typing' : ''} ${codeEffect === 'error' ? 'otp-code-error' : ''}`}
-              />
+              {activeGeneratedOTP && (
+                <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1 font-bold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  PIN transmitido
+                </span>
+              )}
             </div>
 
+            {/* 6 Segmented Inputs Container */}
+            <div className="flex items-center justify-between gap-1.5 sm:gap-2.5 my-3">
+              {digits.map((digit, idx) => (
+                <React.Fragment key={idx}>
+                  {idx === 3 && (
+                    <div className="text-cyan-400/60 font-mono font-bold text-xl select-none px-0.5 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]">
+                      •
+                    </div>
+                  )}
+                  <input
+                    ref={(el) => (digitInputRefs.current[idx] = el)}
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={1}
+                    value={digit}
+                    onChange={(e) => handleDigitChange(idx, e.target.value)}
+                    onKeyDown={(e) => handleKeyDown(idx, e)}
+                    onPaste={handlePaste}
+                    className={`w-11 h-14 sm:w-13 sm:h-16 rounded-2xl text-center font-mono text-2xl font-black transition-all outline-none ${
+                      digit
+                        ? 'bg-[#0a1830] border-2 border-cyan-400 text-cyan-300 shadow-[0_0_20px_rgba(34,211,238,0.45),inset_0_0_12px_rgba(34,211,238,0.2)]'
+                        : 'bg-[#040814] border border-cyan-500/25 text-white focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30 focus:shadow-[0_0_15px_rgba(34,211,238,0.3)]'
+                    } ${
+                      otpError
+                        ? 'border-red-500 text-red-400 shadow-[0_0_20px_rgba(239,68,68,0.35)] bg-red-950/20'
+                        : ''
+                    }`}
+                  />
+                </React.Fragment>
+              ))}
+            </div>
+
+            {/* Error message */}
             {otpError && (
-              <div className="bg-[#ef4444]/15 border border-[#ef4444]/30 rounded-xl p-2.5 text-xs text-[#fca5a5] flex items-center gap-2 text-left">
-                <span className="material-symbols-outlined text-[18px] shrink-0">error</span>
-                <span>{otpError}</span>
+              <div className="my-3 p-3 bg-red-500/15 border border-red-500/40 rounded-2xl text-xs text-red-200 flex items-center gap-2.5 text-left animate-shake shadow-[0_0_20px_rgba(239,68,68,0.2)]">
+                <span className="material-symbols-outlined text-[19px] text-red-400 shrink-0">error</span>
+                <span className="font-mono">{otpError}</span>
               </div>
             )}
 
+            {/* Action Button */}
             <button
               type="submit"
-              className="w-full bg-gradient-to-r from-[#388bfd] to-[#2563eb] hover:from-[#2563eb] hover:to-[#1d4ed8] text-[#0a1120] hover:text-white font-bold text-sm py-3 px-4 rounded-2xl transition-all cursor-pointer shadow-[0_0_20px_rgba(56,139,253,0.35)] flex items-center justify-center gap-2"
+              disabled={!isCodeComplete || isVerifying}
+              className="w-full mt-4 bg-gradient-to-r from-cyan-400 via-blue-500 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 font-black tracking-wider uppercase text-xs py-3.5 px-5 rounded-2xl transition-all cursor-pointer shadow-[0_0_30px_rgba(6,182,212,0.45)] hover:shadow-[0_0_40px_rgba(16,185,129,0.6)] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-[0.98]"
             >
-              <span className="material-symbols-outlined text-[18px]">key</span>
-              <span>Desbloquear Acceso Financiero</span>
+              {isVerifying ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                  <span>AUTENTICANDO ACCESO...</span>
+                </>
+              ) : (
+                <>
+                  <span className="material-symbols-outlined text-[20px]">verified_user</span>
+                  <span>VERIFICAR Y DESBLOQUEAR</span>
+                </>
+              )}
             </button>
+
+            {/* Return to Dashboard option */}
+            {onBackToDashboard && (
+              <button
+                type="button"
+                onClick={onBackToDashboard}
+                className="mt-3 text-[11px] font-medium text-[#94a3b8] hover:text-cyan-300 transition-colors cursor-pointer inline-flex items-center gap-1.5"
+              >
+                <span className="material-symbols-outlined text-[14px]">arrow_back</span>
+                <span>Volver al Dashboard Principal</span>
+              </button>
+            )}
           </form>
 
-          <div className="mt-4 pt-4 border-t border-[#1e293b] w-full text-center text-[11px] text-[#64748b]">
-            <span>Wasender 2FA Security Gateway</span>
+          {/* Footer Security Matrix */}
+          <div className="mt-6 pt-4 border-t border-cyan-500/15 w-full flex items-center justify-center gap-2 text-[10px] font-mono text-cyan-400/60 uppercase tracking-widest">
+            <span className="material-symbols-outlined text-[14px] text-emerald-400">lock</span>
+            <span>SHA-256 E2EE • PROTOCOLO SENTINEL 2FA</span>
           </div>
         </div>
       </div>

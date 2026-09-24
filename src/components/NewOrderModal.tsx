@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Order, OrderStatus, PrefillOrderData, Customer } from '../types';
-import { INITIAL_CUSTOMERS } from '../data/customersData';
 import { MAKE_MODEL_MAP } from '../data/vehicleData';
 
 interface NewOrderModalProps {
@@ -20,7 +19,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   onUpdateOrder,
   editingOrder,
   initialPrefillData,
-  existingCustomers = INITIAL_CUSTOMERS,
+  existingCustomers = [],
 }) => {
   // Stepper State (1: Vehículo & Pieza, 2: Datos del Cliente, 3: Finanzas & Envío)
   const [currentStep, setCurrentStep] = useState<number>(1);
@@ -509,24 +508,27 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-      <div className="bg-[#111827] border border-[#1e293b] rounded-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto shadow-2xl flex flex-col custom-scrollbar">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+      <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-3xl max-h-[92vh] overflow-y-auto shadow-[0_20px_60px_rgba(0,0,0,0.85)] flex flex-col custom-scrollbar relative overflow-hidden">
+        {/* Laser Hairline */}
+        <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-30" />
+
         {/* Header con Título y Botón Cerrar */}
-        <div className="p-4 sm:p-5 border-b border-[#1e293b] flex justify-between items-center bg-[#0b1329] sticky top-0 z-20">
+        <div className="p-4 sm:p-5 border-b border-cyan-500/20 flex justify-between items-center bg-[#0a1022]/90 backdrop-blur-md sticky top-0 z-20">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[#388bfd]/20 text-[#58a6ff] flex items-center justify-center border border-[#388bfd]/40 shadow-[0_0_12px_rgba(56,139,253,0.25)]">
+            <div className="w-10 h-10 rounded-xl bg-cyan-500/15 text-cyan-400 flex items-center justify-center border border-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.25)] shrink-0">
               <span className="material-symbols-outlined text-[20px]">add_shopping_cart</span>
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-base sm:text-lg text-[#f1f5f9] tracking-tight">
+                <h3 className="font-bold text-base sm:text-lg text-slate-100 tracking-tight">
                   {editingOrder ? 'Editar Orden de Trabajo' : 'Crear Nueva Orden de Trabajo'}
                 </h3>
-                <span className="text-[10px] bg-[#388bfd]/20 text-[#58a6ff] border border-[#388bfd]/40 px-2 py-0.5 rounded-full font-mono font-bold">
+                <span className="text-[10px] bg-cyan-950/50 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full font-mono font-bold">
                   Paso {currentStep} de 3
                 </span>
               </div>
-              <p className="text-xs text-[#94a3b8]">
+              <p className="text-xs text-slate-400">
                 Asistente guiado: 1. Vehículo y Pieza → 2. Cliente → 3. Finanzas y Envío
               </p>
             </div>
@@ -534,14 +536,14 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="text-[#94a3b8] hover:text-white p-1.5 rounded-lg hover:bg-[#1e293b] transition-colors cursor-pointer"
+            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
         {/* STEPPER NAVIGATION BAR */}
-        <div className="bg-[#090e1a] border-b border-[#1e293b] px-4 py-3 sm:px-6">
+        <div className="bg-[#050914]/90 border-b border-cyan-500/20 px-4 py-3 sm:px-6">
           <div className="grid grid-cols-3 gap-2 relative">
             {stepsConfig.map((s) => {
               const isCompleted = s.num < currentStep;
@@ -552,7 +554,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   type="button"
                   key={s.num}
                   onClick={() => {
-                    // Permitir saltar hacia atrás o ir si ya se completó el anterior
                     if (s.num <= currentStep) {
                       setStepError(null);
                       setCurrentStep(s.num);
@@ -560,19 +561,19 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   }}
                   className={`flex flex-col sm:flex-row items-center sm:items-start gap-2.5 p-2.5 rounded-xl transition-all text-left ${
                     isCurrent
-                      ? 'bg-[#388bfd]/15 border border-[#388bfd]/40 shadow-sm'
+                      ? 'bg-cyan-950/40 border border-cyan-500/60 shadow-[0_0_15px_rgba(6,182,212,0.15)]'
                       : isCompleted
-                      ? 'bg-[#10b981]/10 border border-[#10b981]/30 hover:bg-[#10b981]/20 cursor-pointer'
+                      ? 'bg-emerald-950/20 border border-emerald-500/30 hover:bg-emerald-950/30 cursor-pointer'
                       : 'bg-transparent border border-transparent opacity-40 cursor-not-allowed'
                   }`}
                 >
                   <div
                     className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-xs font-bold font-mono transition-all ${
                       isCurrent
-                        ? 'bg-[#388bfd] text-[#0a1120] shadow-[0_0_10px_rgba(56,139,253,0.5)]'
+                        ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 shadow-[0_0_10px_rgba(6,182,212,0.5)]'
                         : isCompleted
-                        ? 'bg-[#10b981] text-[#0a1120]'
-                        : 'bg-[#1e293b] text-[#94a3b8]'
+                        ? 'bg-emerald-500 text-slate-950'
+                        : 'bg-slate-800 text-slate-400'
                     }`}
                   >
                     {isCompleted ? (
@@ -583,10 +584,10 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   </div>
 
                   <div className="hidden sm:block min-w-0">
-                    <div className={`text-xs font-bold truncate ${isCurrent ? 'text-[#58a6ff]' : isCompleted ? 'text-[#34d399]' : 'text-[#94a3b8]'}`}>
+                    <div className={`text-xs font-bold truncate ${isCurrent ? 'text-cyan-300' : isCompleted ? 'text-emerald-300' : 'text-slate-400'}`}>
                       {s.label}
                     </div>
-                    <div className="text-[10px] text-[#64748b] truncate">{s.desc}</div>
+                    <div className="text-[10px] text-slate-500 truncate">{s.desc}</div>
                   </div>
                 </button>
               );
@@ -594,9 +595,9 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           </div>
 
           {/* Progress Line */}
-          <div className="w-full bg-[#1e293b] h-1.5 rounded-full mt-3 overflow-hidden">
+          <div className="w-full bg-slate-900 h-1.5 rounded-full mt-3 overflow-hidden">
             <div
-              className="bg-gradient-to-r from-[#388bfd] to-[#10b981] h-full transition-all duration-300 rounded-full"
+              className="bg-gradient-to-r from-cyan-400 via-blue-500 to-emerald-400 h-full transition-all duration-300 rounded-full"
               style={{ width: `${(currentStep / 3) * 100}%` }}
             />
           </div>
@@ -604,23 +605,23 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
 
         {/* Error Alert if any */}
         {stepError && (
-          <div className="mx-5 sm:mx-6 mt-4 p-3 bg-[#ef4444]/15 border border-[#ef4444]/40 rounded-xl flex items-center gap-2.5 text-xs text-[#fca5a5] animate-shake">
-            <span className="material-symbols-outlined text-[18px] text-[#ef4444]">error</span>
+          <div className="mx-5 sm:mx-6 mt-4 p-3 bg-rose-950/30 border border-rose-500/30 rounded-xl flex items-center gap-2.5 text-xs text-rose-300 animate-shake">
+            <span className="material-symbols-outlined text-[18px] text-rose-400">error</span>
             <span>{stepError}</span>
           </div>
         )}
 
         {/* Car-Part Auto-Import Alert Banner (Si existe prefill) */}
         {initialPrefillData && currentStep === 1 && (
-          <div className="mx-5 sm:mx-6 mt-4 bg-[#10b981]/15 border border-[#10b981]/40 rounded-xl p-3 flex items-start gap-3 shadow-lg animate-fade-in">
-            <span className="material-symbols-outlined text-[#34d399] text-[20px] shrink-0 mt-0.5">
+          <div className="mx-5 sm:mx-6 mt-4 bg-emerald-950/30 border border-emerald-500/30 rounded-xl p-3 flex items-start gap-3 shadow-lg animate-fade-in">
+            <span className="material-symbols-outlined text-emerald-400 text-[20px] shrink-0 mt-0.5">
               bolt
             </span>
             <div className="flex-1 text-xs">
-              <strong className="text-[#34d399] font-bold block">
+              <strong className="text-emerald-300 font-bold block">
                 Datos Pre-cargados desde Car-Part / Registro
               </strong>
-              <p className="text-[11px] text-[#e2e8f0] mt-0.5">
+              <p className="text-[11px] text-slate-300 mt-0.5">
                 Vehículo ({vehicleMake} {vehicleModel} {vehicleYear}), pieza cotizada (${partPrice}), VIN y stock #{stockNumber || 'STK'}.
               </p>
             </div>
@@ -628,34 +629,35 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
         )}
 
         {/* Form Body */}
-        <form onSubmit={handleFormSubmit} className="p-5 sm:p-6 flex flex-col gap-6 text-xs text-[#cbd5e1]">
+        <form onSubmit={handleFormSubmit} className="p-5 sm:p-6 flex flex-col gap-6 text-xs text-slate-300">
+          {/* ========================================================================= */}
           {/* ========================================================================= */}
           {/* PASO 1: SOLICITUD DE DATOS DEL VEHÍCULO Y PIEZA */}
           {/* ========================================================================= */}
           {currentStep === 1 && (
             <div className="flex flex-col gap-5 animate-fade-in">
-              <div className="flex items-center justify-between bg-[#0a0f1d] p-3 rounded-xl border border-[#1e293b]">
-                <div className="flex items-center gap-2 text-[#58a6ff]">
-                  <span className="material-symbols-outlined text-[18px]">directions_car</span>
-                  <span className="font-bold text-xs uppercase tracking-wider">Paso 1: Datos del Vehículo & Pieza Solicitada</span>
+              <div className="flex items-center justify-between bg-[#080e1c] p-3.5 rounded-2xl border border-cyan-500/20">
+                <div className="flex items-center gap-2.5 text-cyan-400">
+                  <span className="material-symbols-outlined text-[20px]">directions_car</span>
+                  <span className="font-bold text-xs uppercase tracking-wider font-mono">Paso 1: Datos del Vehículo & Pieza Solicitada</span>
                 </div>
-                <span className="text-[10px] text-[#94a3b8] font-mono">1 de 3</span>
+                <span className="text-[10px] text-cyan-400 font-mono font-bold bg-cyan-950/40 px-2 py-0.5 rounded-full border border-cyan-500/30">1 de 3</span>
               </div>
 
               {/* Ficha Técnica del Vehículo */}
-              <div className="bg-[#0a0f1d] p-4 rounded-xl border border-[#1e293b] flex flex-col gap-3">
-                <div className="flex items-center gap-2 text-xs font-bold text-[#f1f5f9] border-b border-[#1e293b]/70 pb-2">
-                  <span className="material-symbols-outlined text-[16px] text-[#388bfd]">garage</span>
+              <div className="bg-[#050914] p-4.5 rounded-2xl border border-cyan-500/20 flex flex-col gap-3.5 shadow-sm">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-100 border-b border-cyan-500/20 pb-2.5">
+                  <span className="material-symbols-outlined text-[17px] text-cyan-400">garage</span>
                   <span>Ficha Técnica del Vehículo</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block mb-1 text-[#94a3b8] font-medium">Año *</label>
+                    <label className="block mb-1 text-slate-400 font-medium text-[11px]">Año *</label>
                     <select
                       value={vehicleYear}
                       onChange={(e) => handleManualYearChange(e.target.value)}
-                      className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2.5 text-[#f1f5f9] font-mono focus:outline-none focus:border-[#388bfd] cursor-pointer"
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 cursor-pointer text-xs"
                     >
                       <option value="">Selecciona año</option>
                       {yearOptions.map((year) => (
@@ -665,12 +667,12 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="block mb-1 text-[#94a3b8] font-medium">Marca *</label>
+                    <label className="block mb-1 text-slate-400 font-medium text-[11px]">Marca *</label>
                     <select
                       value={vehicleMake}
                       onChange={(e) => handleManualMakeChange(e.target.value)}
                       disabled={!vehicleYear}
-                      className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2.5 text-[#f1f5f9] focus:outline-none focus:border-[#388bfd] disabled:opacity-50 cursor-pointer"
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 disabled:opacity-40 cursor-pointer text-xs"
                     >
                       <option value="">Selecciona marca</option>
                       {vehicleMake && !makeOptions.includes(vehicleMake) && (
@@ -683,7 +685,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="block mb-1 text-[#94a3b8] font-medium">Modelo *</label>
+                    <label className="block mb-1 text-slate-400 font-medium text-[11px]">Modelo *</label>
                     <select
                       required
                       autoFocus
@@ -693,7 +695,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                         if (stepError) setStepError(null);
                       }}
                       disabled={!vehicleMake}
-                      className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2.5 text-[#f1f5f9] focus:outline-none focus:border-[#388bfd] disabled:opacity-50 cursor-pointer"
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 disabled:opacity-40 cursor-pointer text-xs"
                     >
                       <option value="">Selecciona modelo</option>
                       {vehicleModel && !modelOptions.includes(vehicleModel) && (
@@ -706,7 +708,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   </div>
 
                   <div className="sm:col-span-2">
-                    <label className="block mb-1 text-[#94a3b8] font-medium">Número de Serie (VIN - 17 Dígitos)</label>
+                    <label className="block mb-1 text-slate-400 font-medium text-[11px]">Número de Serie (VIN - 17 Dígitos)</label>
                     <input
                       type="text"
                       value={vehicleVIN}
@@ -722,17 +724,17 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       }}
                       onBlur={() => void decodeVin(vehicleVIN)}
                       placeholder="1FTEW1EP5KFB81920"
-                      className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2.5 text-[#f1f5f9] font-mono uppercase tracking-wider focus:outline-none focus:border-[#388bfd]"
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-mono uppercase tracking-wider focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-xs shadow-inner"
                     />
                     <span className={`mt-1 block text-[10px] font-medium ${
-                      vinDecodeStatus === 'error' ? 'text-[#f87171]' : vinDecodeStatus === 'success' ? 'text-[#34d399]' : 'text-[#64748b]'
+                      vinDecodeStatus === 'error' ? 'text-rose-400' : vinDecodeStatus === 'success' ? 'text-emerald-400' : 'text-slate-500'
                     }`}>
                       {vinDecodeMessage || 'Se decodifica automáticamente al completar 17 caracteres'}
                     </span>
                   </div>
 
                   <div>
-                    <label className="block mb-1 text-[#94a3b8] font-medium">Millaje Reportado *</label>
+                    <label className="block mb-1 text-slate-400 font-medium text-[11px]">Millaje Reportado *</label>
                     <input
                       type="number"
                       min={0}
@@ -743,22 +745,22 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                         if (stepError) setStepError(null);
                       }}
                       placeholder="0"
-                      className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2.5 text-[#f1f5f9] font-mono focus:outline-none focus:border-[#388bfd]"
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-xs shadow-inner"
                     />
                   </div>
                 </div>
               </div>
 
               {/* Pieza & Refacción Solicitada */}
-              <div className="bg-[#0a0f1d] p-4 rounded-xl border border-[#1e293b] flex flex-col gap-3">
-                <div className="flex items-center gap-2 text-xs font-bold text-[#f1f5f9] border-b border-[#1e293b]/70 pb-2">
-                  <span className="material-symbols-outlined text-[16px] text-[#fbbf24]">settings</span>
+              <div className="bg-[#050914] p-4.5 rounded-2xl border border-cyan-500/20 flex flex-col gap-3.5 shadow-sm">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-100 border-b border-cyan-500/20 pb-2.5">
+                  <span className="material-symbols-outlined text-[17px] text-amber-400">settings</span>
                   <span>Pieza Solicitada & Datos de Yarda / Stock</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="sm:col-span-2">
-                    <label className="block mb-1 text-[#94a3b8] font-medium">Pieza Principal Solicitada *</label>
+                    <label className="block mb-1 text-slate-400 font-medium text-[11px]">Pieza Principal Solicitada *</label>
                     <select
                       required
                       value={mainPart}
@@ -766,16 +768,16 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                         setMainPart(e.target.value);
                         if (stepError) setStepError(null);
                       }}
-                      className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2.5 text-[#f1f5f9] font-medium focus:outline-none focus:border-[#388bfd]"
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-medium focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-xs cursor-pointer"
                     >
                       <option value="">Seleccionar tipo</option>
-                      <option value="Engine">Engine</option>
-                      <option value="Transmission">Transmission</option>
+                      <option value="Engine">Engine (Motor)</option>
+                      <option value="Transmission">Transmission (Transmisión)</option>
                     </select>
                   </div>
 
                   <div>
-                    <label className="block mb-1 text-[#94a3b8] font-medium">Stock # (Yarda / Proveedor) *</label>
+                    <label className="block mb-1 text-slate-400 font-medium text-[11px]">Stock # (Yarda / Proveedor) *</label>
                     <input
                       type="text"
                       required
@@ -785,29 +787,29 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                         if (stepError) setStepError(null);
                       }}
                       placeholder="STK-RDZ-4491"
-                      className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2.5 text-[#f1f5f9] font-mono focus:outline-none focus:border-[#388bfd]"
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-xs shadow-inner"
                     />
                   </div>
 
                   <div className="sm:col-span-3">
-                    <label className="block mb-1 text-[#94a3b8] font-medium">Especificaciones Técnicas / Interchange Notes</label>
+                    <label className="block mb-1 text-slate-400 font-medium text-[11px]">Especificaciones Técnicas / Interchange Notes</label>
                     <input
                       type="text"
                       value={productSpecs}
                       onChange={(e) => setProductSpecs(e.target.value)}
                       placeholder="Ej. 2.7L Turbo VIN P, RUNS GREAT TESTED, COMPRESSION 175 PSI, OEM spec"
-                      className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2.5 text-[#f1f5f9] text-xs focus:outline-none focus:border-[#388bfd]"
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                     />
                   </div>
 
                   <div className="sm:col-span-3">
-                    <label className="block mb-1 text-[#94a3b8] font-medium">Notas de Búsqueda / Yarda / Instrucciones Internas</label>
+                    <label className="block mb-1 text-slate-400 font-medium text-[11px]">Notas de Búsqueda / Yarda / Instrucciones Internas</label>
                     <textarea
                       rows={2}
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
                       placeholder="Observaciones de compra, contacto del desguace, instrucciones de embalaje..."
-                      className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2.5 text-[#f1f5f9] text-xs focus:outline-none focus:border-[#388bfd]"
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                     />
                   </div>
                 </div>
@@ -816,39 +818,40 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           )}
 
           {/* ========================================================================= */}
+          {/* ========================================================================= */}
           {/* PASO 2: LLENAR DATOS DEL CLIENTE / SELECCIONAR CLIENTE EXISTENTE */}
           {/* ========================================================================= */}
           {currentStep === 2 && (
             <div className="flex flex-col gap-4 animate-fade-in">
               {/* Header del Paso 2 */}
-              <div className="flex items-center justify-between bg-[#0a0f1d] p-3 rounded-xl border border-[#1e293b]">
-                <div className="flex items-center gap-2 text-[#34d399]">
-                  <span className="material-symbols-outlined text-[18px]">person</span>
-                  <span className="font-bold text-xs uppercase tracking-wider">Paso 2: Datos del Cliente & Despacho</span>
+              <div className="flex items-center justify-between bg-[#080e1c] p-3.5 rounded-2xl border border-cyan-500/20">
+                <div className="flex items-center gap-2.5 text-emerald-400">
+                  <span className="material-symbols-outlined text-[20px]">person</span>
+                  <span className="font-bold text-xs uppercase tracking-wider font-mono">Paso 2: Datos del Cliente & Despacho</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-[#94a3b8] font-mono">2 de 3</span>
+                  <span className="text-[10px] text-emerald-400 font-mono font-bold bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/30">2 de 3</span>
                 </div>
               </div>
 
               {/* Selector de Modo: Buscar Existente vs Nuevo Manual */}
-              <div className="flex items-center bg-[#0d1527] p-1 rounded-xl border border-[#1e293b] gap-1">
+              <div className="flex items-center bg-[#050914] p-1.5 rounded-2xl border border-cyan-500/20 gap-1.5 shadow-inner">
                 <button
                   type="button"
                   onClick={() => {
                     setClientMode('search');
                     if (stepError) setStepError(null);
                   }}
-                  className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                  className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
                     clientMode === 'search'
-                      ? 'bg-[#388bfd] text-white shadow-md'
-                      : 'text-[#94a3b8] hover:text-[#f1f5f9] hover:bg-[#1e293b]/40'
+                      ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 shadow-[0_0_12px_rgba(6,182,212,0.35)]'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
                   }`}
                 >
                   <span className="material-symbols-outlined text-[16px]">contacts</span>
                   <span>Seleccionar Cliente Existente (CRM)</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                    clientMode === 'search' ? 'bg-white/20 text-white' : 'bg-[#1e293b] text-[#94a3b8]'
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${
+                    clientMode === 'search' ? 'bg-black/30 text-slate-950' : 'bg-slate-800 text-slate-400'
                   }`}>
                     {existingCustomers.length}
                   </span>
@@ -861,10 +864,10 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                     setSelectedCustomerId(null);
                     if (stepError) setStepError(null);
                   }}
-                  className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                  className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
                     clientMode === 'manual'
-                      ? 'bg-[#388bfd] text-white shadow-md'
-                      : 'text-[#94a3b8] hover:text-[#f1f5f9] hover:bg-[#1e293b]/40'
+                      ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 shadow-[0_0_12px_rgba(6,182,212,0.35)]'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
                   }`}
                 >
                   <span className="material-symbols-outlined text-[16px]">person_add</span>
@@ -877,25 +880,25 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 <div className="flex flex-col gap-3">
                   {/* SI YA HAY UN CLIENTE SELECCIONADO: Tarjeta de Cliente Vinculado */}
                   {selectedCustomerId && selectedCustomerObj ? (
-                    <div className="bg-[#0b192e] border-2 border-[#388bfd]/60 rounded-xl p-4 flex flex-col gap-3 shadow-lg">
+                    <div className="bg-[#050914] border-2 border-cyan-500/50 rounded-2xl p-4.5 flex flex-col gap-3.5 shadow-lg relative overflow-hidden">
                       <div className="flex items-start justify-between">
                         <div className="flex items-center gap-3">
-                          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#388bfd] to-[#10b981] text-white font-bold text-base flex items-center justify-center shadow-md">
+                          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-emerald-500 text-slate-950 font-black text-base flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.4)]">
                             {selectedCustomerObj.initials || selectedCustomerObj.name.substring(0, 2).toUpperCase()}
                           </div>
                           <div>
                             <div className="flex items-center gap-2">
-                              <h4 className="font-bold text-sm text-[#f1f5f9]">
+                              <h4 className="font-bold text-sm text-slate-100">
                                 {selectedCustomerObj.name}
                               </h4>
-                              <span className="text-[10px] bg-[#34d399]/20 text-[#34d399] border border-[#34d399]/40 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
-                                <span className="material-symbols-outlined text-[12px]">verified</span>
+                              <span className="text-[10px] bg-emerald-950/50 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-mono font-bold flex items-center gap-1">
+                                <span className="material-symbols-outlined text-[12px] text-emerald-400">verified</span>
                                 Cliente CRM Vinculado
                               </span>
                             </div>
                             {selectedCustomerObj.company && (
-                              <p className="text-xs text-[#94a3b8] font-medium flex items-center gap-1 mt-0.5">
-                                <span className="material-symbols-outlined text-[13px] text-[#fbbf24]">domain</span>
+                              <p className="text-xs text-slate-400 font-medium flex items-center gap-1 mt-0.5">
+                                <span className="material-symbols-outlined text-[13px] text-amber-400">domain</span>
                                 {selectedCustomerObj.company}
                               </p>
                             )}
@@ -906,7 +909,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                           <button
                             type="button"
                             onClick={() => setSelectedCustomerId(null)}
-                            className="px-2.5 py-1.5 text-xs bg-[#1e293b] hover:bg-[#334155] text-[#cbd5e1] rounded-lg border border-[#334155] flex items-center gap-1 cursor-pointer transition-colors"
+                            className="px-2.5 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl border border-slate-700 flex items-center gap-1 cursor-pointer transition-colors font-semibold"
                           >
                             <span className="material-symbols-outlined text-[14px]">swap_horiz</span>
                             <span>Cambiar</span>
@@ -914,7 +917,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                           <button
                             type="button"
                             onClick={handleClearCustomerSelection}
-                            className="p-1.5 text-xs bg-[#ef4444]/15 hover:bg-[#ef4444]/25 text-[#f87171] rounded-lg border border-[#ef4444]/30 cursor-pointer transition-colors"
+                            className="p-1.5 text-xs bg-rose-950/30 hover:bg-rose-950/60 text-rose-400 rounded-xl border border-rose-500/30 cursor-pointer transition-colors"
                             title="Desvincular cliente"
                           >
                             <span className="material-symbols-outlined text-[16px]">close</span>
@@ -923,29 +926,29 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       </div>
 
                       {/* Detalles de Contacto Resumidos */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-[#091122] p-3 rounded-lg border border-[#1e293b]/70 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-[#070e1c] p-3 rounded-xl border border-cyan-500/20 text-xs">
                         <div className="flex items-center gap-2">
-                          <span className="material-symbols-outlined text-[15px] text-[#34d399]">call</span>
-                          <span className="font-mono text-[#e2e8f0] font-medium">{customerPhone || 'Sin teléfono'}</span>
+                          <span className="material-symbols-outlined text-[15px] text-emerald-400">call</span>
+                          <span className="font-mono text-slate-200 font-medium">{customerPhone || 'Sin teléfono'}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="material-symbols-outlined text-[15px] text-[#58a6ff]">mail</span>
-                          <span className="text-[#cbd5e1] truncate">{customerEmail || 'Sin email'}</span>
+                          <span className="material-symbols-outlined text-[15px] text-cyan-400">mail</span>
+                          <span className="text-slate-300 truncate">{customerEmail || 'Sin email'}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="material-symbols-outlined text-[15px] text-[#fbbf24]">badge</span>
-                          <span className="text-[#e2e8f0] font-medium">{customerType}</span>
+                          <span className="material-symbols-outlined text-[15px] text-amber-400">badge</span>
+                          <span className="text-slate-200 font-medium">{customerType}</span>
                         </div>
                       </div>
 
                       {/* Dirección de despacho editable */}
-                      <div className="bg-[#091122] p-3 rounded-lg border border-[#1e293b]/70 flex flex-col gap-2">
+                      <div className="bg-[#070e1c] p-3.5 rounded-xl border border-cyan-500/20 flex flex-col gap-2">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5 text-xs font-bold text-[#f1f5f9]">
-                            <span className="material-symbols-outlined text-[15px] text-[#f43f5e]">local_shipping</span>
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-100">
+                            <span className="material-symbols-outlined text-[15px] text-rose-400">local_shipping</span>
                             <span>Dirección de Despacho para esta Orden</span>
                           </div>
-                          <span className="text-[10px] text-[#94a3b8]">(Editable para este pedido)</span>
+                          <span className="text-[10px] text-slate-400">(Editable para este pedido)</span>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -955,7 +958,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                               value={shippingAddress}
                               onChange={(e) => setShippingAddress(e.target.value)}
                               placeholder="Dirección completa de entrega o taller"
-                              className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2 text-[#f1f5f9] text-xs focus:outline-none focus:border-[#388bfd]"
+                              className="w-full bg-[#050914] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400"
                             />
                           </div>
                           <div>
@@ -964,7 +967,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                               value={zipCode}
                               onChange={(e) => setZipCode(e.target.value)}
                               placeholder="ZIP (Ej. 27520)"
-                              className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2 text-[#f1f5f9] font-mono text-xs focus:outline-none focus:border-[#388bfd]"
+                              className="w-full bg-[#050914] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400"
                             />
                           </div>
                         </div>
@@ -972,10 +975,10 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                     </div>
                   ) : (
                     /* SI NO HAY CLIENTE SELECCIONADO: Buscador & Lista de Clientes */
-                    <div className="bg-[#0a0f1d] p-4 rounded-xl border border-[#1e293b] flex flex-col gap-3">
+                    <div className="bg-[#050914] p-4.5 rounded-2xl border border-cyan-500/20 flex flex-col gap-3.5 shadow-sm">
                       {/* Barra de Búsqueda */}
                       <div className="relative">
-                        <span className="material-symbols-outlined absolute left-3 top-2.5 text-[#64748b] text-[18px]">
+                        <span className="material-symbols-outlined absolute left-3.5 top-3 text-cyan-400 text-[18px]">
                           search
                         </span>
                         <input
@@ -987,13 +990,13 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                             if (stepError) setStepError(null);
                           }}
                           placeholder="Buscar cliente por nombre, empresa, teléfono, email, ciudad o ZIP..."
-                          className="w-full bg-[#111827] border border-[#1e293b] rounded-xl py-2.5 pl-9 pr-8 text-xs text-[#f1f5f9] placeholder:text-[#64748b] focus:outline-none focus:border-[#388bfd] shadow-inner"
+                          className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl py-2.5 pl-10 pr-8 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                         />
                         {clientSearchQuery && (
                           <button
                             type="button"
                             onClick={() => setClientSearchQuery('')}
-                            className="absolute right-2.5 top-2.5 text-[#64748b] hover:text-[#cbd5e1] cursor-pointer"
+                            className="absolute right-2.5 top-2.5 text-slate-400 hover:text-white cursor-pointer"
                           >
                             <span className="material-symbols-outlined text-[16px]">cancel</span>
                           </button>
@@ -1014,10 +1017,10 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                             key={cat.id}
                             type="button"
                             onClick={() => setSelectedCategoryFilter(cat.id)}
-                            className={`px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap transition-all cursor-pointer ${
+                            className={`px-3 py-1 rounded-xl text-[11px] font-semibold whitespace-nowrap transition-all cursor-pointer ${
                               selectedCategoryFilter === cat.id
-                                ? 'bg-[#388bfd] text-white shadow-sm'
-                                : 'bg-[#111827] text-[#94a3b8] hover:text-[#cbd5e1] border border-[#1e293b]'
+                                ? 'bg-cyan-950/60 border border-cyan-500/60 text-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.2)]'
+                                : 'bg-[#070e1c] text-slate-400 hover:text-slate-200 border border-slate-800'
                             }`}
                           >
                             {cat.label}
@@ -1028,8 +1031,8 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       {/* Clientes Frecuentes / Atajos Rápidos */}
                       {!clientSearchQuery && (
                         <div className="flex flex-col gap-1.5 pt-1">
-                          <span className="text-[10px] text-[#64748b] uppercase tracking-wider font-bold">
-                            Clientes Frecuentes Sugeridos
+                          <span className="text-[10px] text-cyan-400 uppercase tracking-wider font-mono font-bold">
+                            Clientes Frecuentes Sugeridos:
                           </span>
                           <div className="flex flex-wrap gap-1.5">
                             {existingCustomers.slice(0, 5).map((quickCust) => (
@@ -1037,11 +1040,11 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                                 key={quickCust.id}
                                 type="button"
                                 onClick={() => handleSelectCustomer(quickCust)}
-                                className="px-2.5 py-1 rounded-lg bg-[#111827] hover:bg-[#388bfd]/20 hover:border-[#388bfd]/50 border border-[#1e293b] text-[#cbd5e1] text-[11px] flex items-center gap-1.5 transition-all cursor-pointer"
+                                className="px-3 py-1.5 rounded-xl bg-[#070e1c] hover:bg-cyan-950/40 hover:border-cyan-500/50 border border-slate-800 text-slate-200 text-[11px] flex items-center gap-2 transition-all cursor-pointer"
                               >
-                                <span className="w-2 h-2 rounded-full bg-[#34d399]" />
-                                <span className="font-medium">{quickCust.name}</span>
-                                <span className="text-[9px] text-[#64748b]">({quickCust.type})</span>
+                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                                <span className="font-semibold">{quickCust.name}</span>
+                                <span className="text-[9px] text-slate-400 font-mono">({quickCust.type})</span>
                               </button>
                             ))}
                           </div>
@@ -1057,36 +1060,36 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                               <div
                                 key={cust.id}
                                 onClick={() => handleSelectCustomer(cust)}
-                                className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                                className={`p-3 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer transition-all ${
                                   isSelected
-                                    ? 'bg-[#388bfd]/20 border-[#388bfd] text-white shadow-sm'
-                                    : 'bg-[#111827]/80 hover:bg-[#1e293b] border-[#1e293b] text-[#cbd5e1]'
+                                    ? 'bg-cyan-950/40 border-cyan-500 text-white shadow-[0_0_15px_rgba(6,182,212,0.2)]'
+                                    : 'bg-[#070e1c]/80 hover:bg-[#070e1c] border-slate-800 hover:border-cyan-500/30 text-slate-300'
                                 }`}
                               >
                                 <div className="flex items-center gap-2.5 min-w-0">
-                                  <div className="w-8 h-8 rounded-lg bg-[#1e293b] border border-[#334155] text-[#58a6ff] font-bold text-xs flex items-center justify-center shrink-0">
+                                  <div className="w-8 h-8 rounded-xl bg-[#0a1428] border border-cyan-500/30 text-cyan-400 font-bold text-xs flex items-center justify-center shrink-0 shadow-inner">
                                     {cust.initials || cust.name.substring(0, 2).toUpperCase()}
                                   </div>
                                   <div className="min-w-0">
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="font-bold text-xs text-[#f1f5f9] truncate">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-bold text-xs text-slate-100 truncate">
                                         {cust.name}
                                       </span>
-                                      <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold shrink-0 ${
+                                      <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold shrink-0 font-mono ${
                                         cust.type === 'VIP'
-                                          ? 'bg-[#a78bfa]/20 text-[#c4b5fd]'
+                                          ? 'bg-purple-950/40 text-purple-300 border border-purple-500/30'
                                           : cust.type === 'Taller Mecánico'
-                                          ? 'bg-[#34d399]/20 text-[#6ee7b7]'
+                                          ? 'bg-emerald-950/40 text-emerald-300 border border-emerald-500/30'
                                           : cust.type === 'Flota Mantenimiento'
-                                          ? 'bg-[#fbbf24]/20 text-[#fcd34d]'
-                                          : 'bg-[#64748b]/20 text-[#cbd5e1]'
+                                          ? 'bg-amber-950/40 text-amber-300 border border-amber-500/30'
+                                          : 'bg-slate-800 text-slate-300'
                                       }`}>
                                         {cust.type}
                                       </span>
                                     </div>
-                                    <div className="text-[11px] text-[#94a3b8] flex items-center gap-2 truncate mt-0.5">
-                                      {cust.company && <span className="text-[#e2e8f0]">{cust.company} •</span>}
-                                      <span>{cust.phone}</span>
+                                    <div className="text-[11px] text-slate-400 flex items-center gap-2 truncate mt-0.5">
+                                      {cust.company && <span className="text-slate-200">{cust.company} •</span>}
+                                      <span className="font-mono text-slate-300">{cust.phone}</span>
                                       {cust.location && <span>• {cust.location}</span>}
                                     </div>
                                   </div>
@@ -1098,17 +1101,17 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                                     e.stopPropagation();
                                     handleSelectCustomer(cust);
                                   }}
-                                  className="px-3 py-1.5 bg-[#388bfd]/20 hover:bg-[#388bfd] text-[#58a6ff] hover:text-white rounded-lg text-xs font-semibold border border-[#388bfd]/40 transition-all shrink-0 cursor-pointer flex items-center gap-1"
+                                  className="px-3.5 py-1.5 bg-cyan-500/15 hover:bg-cyan-500 text-cyan-400 hover:text-slate-950 rounded-xl text-xs font-bold border border-cyan-500/40 transition-all shrink-0 cursor-pointer flex items-center gap-1.5"
                                 >
-                                  <span className="material-symbols-outlined text-[14px]">check</span>
+                                  <span className="material-symbols-outlined text-[15px]">check</span>
                                   <span>Seleccionar</span>
                                 </button>
                               </div>
                             );
                           })
                         ) : (
-                          <div className="p-6 text-center text-[#94a3b8] flex flex-col items-center gap-2 bg-[#111827]/40 rounded-xl border border-dashed border-[#1e293b]">
-                            <span className="material-symbols-outlined text-[28px] text-[#64748b]">person_search</span>
+                          <div className="p-6 text-center text-slate-400 flex flex-col items-center gap-2 bg-[#070e1c]/40 rounded-2xl border border-dashed border-slate-800">
+                            <span className="material-symbols-outlined text-[28px] text-slate-600">person_search</span>
                             <p className="text-xs">
                               No se encontraron clientes con el criterio &quot;{clientSearchQuery}&quot;.
                             </p>
@@ -1118,7 +1121,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                                 setCustomerName(clientSearchQuery);
                                 setClientMode('manual');
                               }}
-                              className="mt-1 px-3 py-1.5 bg-[#388bfd] hover:bg-[#2f81f7] text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-sm"
+                              className="mt-1 px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-[0_0_12px_rgba(6,182,212,0.35)] active:scale-95"
                             >
                               <span className="material-symbols-outlined text-[15px]">person_add</span>
                               <span>Registrar &quot;{clientSearchQuery}&quot; como nuevo</span>
@@ -1133,9 +1136,9 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
 
               {/* MODO 2: REGISTRAR NUEVO CLIENTE MANUAL */}
               {clientMode === 'manual' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-[#0a0f1d] p-4 rounded-xl border border-[#1e293b]">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 bg-[#050914] p-4.5 rounded-2xl border border-cyan-500/20 shadow-sm">
                   <div>
-                    <label className="block mb-1 text-[#94a3b8] font-medium">Nombre Completo / Razón Social *</label>
+                    <label className="block mb-1 text-slate-400 font-medium text-[11px]">Nombre Completo / Razón Social *</label>
                     <input
                       type="text"
                       required
@@ -1146,16 +1149,16 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                         if (stepError) setStepError(null);
                       }}
                       placeholder="Ej. Roberto Sánchez o Taller Hermanos Gómez"
-                      className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2.5 text-[#f1f5f9] focus:outline-none focus:border-[#388bfd] transition-colors"
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                     />
                   </div>
 
                   <div>
-                    <label className="block mb-1 text-[#94a3b8] font-medium">Tipo de Cliente</label>
+                    <label className="block mb-1 text-slate-400 font-medium text-[11px]">Tipo de Cliente</label>
                     <select
                       value={customerType}
                       onChange={(e) => setCustomerType(e.target.value as any)}
-                      className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2.5 text-[#f1f5f9] focus:outline-none focus:border-[#388bfd] transition-colors cursor-pointer"
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 cursor-pointer"
                     >
                       <option value="Particular">Particular (Cliente Directo)</option>
                       <option value="Taller Mecánico">Taller Mecánico Aliado</option>
@@ -1166,46 +1169,46 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="block mb-1 text-[#94a3b8] font-medium">Teléfono / WhatsApp de Contacto *</label>
+                    <label className="block mb-1 text-slate-400 font-medium text-[11px]">Teléfono / WhatsApp de Contacto *</label>
                     <input
                       type="text"
                       value={customerPhone}
                       onChange={(e) => setCustomerPhone(e.target.value)}
                       placeholder="+1 (919) 555-0188"
-                      className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2.5 text-[#f1f5f9] font-mono focus:outline-none focus:border-[#388bfd] transition-colors"
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                     />
                   </div>
 
                   <div>
-                    <label className="block mb-1 text-[#94a3b8] font-medium">Correo Electrónico (Notificaciones)</label>
+                    <label className="block mb-1 text-slate-400 font-medium text-[11px]">Correo Electrónico (Notificaciones)</label>
                     <input
                       type="email"
                       value={customerEmail}
                       onChange={(e) => setCustomerEmail(e.target.value)}
                       placeholder="cliente@ejemplo.com"
-                      className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2.5 text-[#f1f5f9] focus:outline-none focus:border-[#388bfd] transition-colors"
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                     />
                   </div>
 
                   <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
                     <div className="sm:col-span-2">
-                      <label className="block mb-1 text-[#94a3b8] font-medium">Dirección de Despacho / Taller</label>
+                      <label className="block mb-1 text-slate-400 font-medium text-[11px]">Dirección de Despacho / Taller</label>
                       <input
                         type="text"
                         value={shippingAddress}
                         onChange={(e) => setShippingAddress(e.target.value)}
                         placeholder="Calle, Número, Taller / Local, Ciudad"
-                        className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2.5 text-[#f1f5f9] focus:outline-none focus:border-[#388bfd] transition-colors"
+                        className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                       />
                     </div>
                     <div>
-                      <label className="block mb-1 text-[#94a3b8] font-medium">Código Postal (ZIP)</label>
+                      <label className="block mb-1 text-slate-400 font-medium text-[11px]">Código Postal (ZIP)</label>
                       <input
                         type="text"
                         value={zipCode}
                         onChange={(e) => setZipCode(e.target.value)}
                         placeholder="Ej. 27520"
-                        className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2.5 text-[#f1f5f9] font-mono focus:outline-none focus:border-[#388bfd] transition-colors"
+                        className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                       />
                     </div>
                   </div>
@@ -1215,24 +1218,25 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           )}
 
           {/* ========================================================================= */}
+          {/* ========================================================================= */}
           {/* PASO 3: FINANZAS Y ENVÍO */}
           {/* ========================================================================= */}
           {currentStep === 3 && (
             <div className="flex flex-col gap-4 animate-fade-in">
-              <div className="flex items-center justify-between bg-[#0a0f1d] p-3 rounded-xl border border-[#1e293b]">
-                <div className="flex items-center gap-2 text-[#a78bfa]">
-                  <span className="material-symbols-outlined text-[18px]">account_balance_wallet</span>
-                  <span className="font-bold text-xs uppercase tracking-wider">Paso 3: Finanzas, Envío & Liquidación</span>
+              <div className="flex items-center justify-between bg-[#080e1c] p-3.5 rounded-2xl border border-cyan-500/20">
+                <div className="flex items-center gap-2.5 text-purple-400">
+                  <span className="material-symbols-outlined text-[20px]">account_balance_wallet</span>
+                  <span className="font-bold text-xs uppercase tracking-wider font-mono">Paso 3: Finanzas, Envío & Liquidación</span>
                 </div>
-                <span className="text-[10px] text-[#94a3b8] font-mono">3 de 3</span>
+                <span className="text-[10px] text-purple-400 font-mono font-bold bg-purple-950/40 px-2 py-0.5 rounded-full border border-purple-500/30">3 de 3</span>
               </div>
 
               {/* Inputs de Desglose */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-[#0a0f1d] p-4 rounded-xl border border-[#1e293b]">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5 bg-[#050914] p-4.5 rounded-2xl border border-cyan-500/20 shadow-sm">
                 <div>
-                  <label className="block mb-1 text-[#58a6ff] font-semibold text-[11px]">1. Monto Parte ($ USD) *</label>
+                  <label className="block mb-1 text-cyan-400 font-bold text-[11px] font-mono">1. Monto Parte ($ USD) *</label>
                   <div className="relative">
-                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#58a6ff] font-bold text-xs">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-cyan-400 font-bold text-xs font-mono">$</span>
                     <input
                       type="number"
                       min={0}
@@ -1241,15 +1245,15 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       value={partPrice}
                       onChange={(e) => handlePriceChange(e.target.value)}
                       placeholder="0.00"
-                      className="w-full bg-[#111827] border border-[#388bfd]/50 rounded-lg py-2 pl-7 pr-2 font-mono text-[#58a6ff] font-bold text-xs focus:outline-none focus:border-[#388bfd]"
+                      className="w-full bg-[#070e1c] border border-cyan-500/40 rounded-xl py-2.5 pl-7 pr-2 font-mono text-cyan-300 font-bold text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block mb-1 text-[#f59e0b] font-semibold text-[11px]">2. Abono / Downpayment ($)</label>
+                  <label className="block mb-1 text-amber-400 font-bold text-[11px] font-mono">2. Abono / Anticipo ($)</label>
                   <div className="relative">
-                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#f59e0b] font-bold text-xs">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-400 font-bold text-xs font-mono">$</span>
                     <input
                       type="number"
                       min={0}
@@ -1260,15 +1264,15 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                         if (stepError) setStepError(null);
                       }}
                       placeholder="0.00"
-                      className="w-full bg-[#111827] border border-[#f59e0b]/50 rounded-lg py-2 pl-7 pr-2 font-mono text-[#f59e0b] font-bold text-xs focus:outline-none focus:border-[#f59e0b]"
+                      className="w-full bg-[#070e1c] border border-amber-500/40 rounded-xl py-2.5 pl-7 pr-2 font-mono text-amber-300 font-bold text-xs focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 shadow-inner"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block mb-1 text-[#94a3b8] font-semibold text-[11px]">3. Flete / Delivery ($)</label>
+                  <label className="block mb-1 text-slate-400 font-medium text-[11px] font-mono">3. Flete / Delivery ($)</label>
                   <div className="relative">
-                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#94a3b8] font-bold text-xs">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs font-mono">$</span>
                     <input
                       type="number"
                       min={0}
@@ -1279,15 +1283,15 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                         if (stepError) setStepError(null);
                       }}
                       placeholder="0.00"
-                      className="w-full bg-[#111827] border border-[#1e293b] rounded-lg py-2 pl-7 pr-2 font-mono text-[#f1f5f9] font-bold text-xs focus:outline-none focus:border-[#388bfd] disabled:opacity-40"
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl py-2.5 pl-7 pr-2 font-mono text-slate-100 font-bold text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 disabled:opacity-40 shadow-inner"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block mb-1 text-[#94a3b8] font-semibold text-[11px]">4. Depósito Core Fee ($)</label>
+                  <label className="block mb-1 text-slate-400 font-medium text-[11px] font-mono">4. Depósito Core Fee ($)</label>
                   <div className="relative">
-                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#94a3b8] font-bold text-xs">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs font-mono">$</span>
                     <input
                       type="number"
                       min={0}
@@ -1298,54 +1302,54 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                         if (stepError) setStepError(null);
                       }}
                       placeholder="0.00"
-                      className="w-full bg-[#111827] border border-[#1e293b] rounded-lg py-2 pl-7 pr-2 font-mono text-[#f1f5f9] font-bold text-xs focus:outline-none focus:border-[#388bfd]"
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl py-2.5 pl-7 pr-2 font-mono text-slate-100 font-bold text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                     />
                   </div>
                 </div>
               </div>
 
               {/* Total Balance Calculation Bar */}
-              <div className="bg-[#111827] p-4 rounded-xl border border-[#388bfd]/30 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-inner">
+              <div className="bg-[#060c1a] p-4.5 rounded-2xl border border-cyan-500/40 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-[0_0_20px_rgba(6,182,212,0.15)] relative overflow-hidden">
                 <div className="flex items-center gap-4 text-xs">
                   <div>
-                    <span className="text-[#94a3b8] block text-[10px] uppercase">Subtotal Bruto:</span>
-                    <span className="font-mono font-bold text-[#f1f5f9] text-sm">${grossSubtotal.toFixed(2)}</span>
+                    <span className="text-slate-400 block text-[10px] uppercase font-mono">Subtotal Bruto:</span>
+                    <span className="font-mono font-bold text-slate-100 text-sm">${grossSubtotal.toFixed(2)}</span>
                   </div>
-                  <span className="text-[#64748b] text-lg font-light">-</span>
+                  <span className="text-slate-600 text-lg font-light">-</span>
                   <div>
-                    <span className="text-[#f59e0b] block text-[10px] uppercase">Anticipo Pagado:</span>
-                    <span className="font-mono font-bold text-[#f59e0b] text-sm">${numDown.toFixed(2)}</span>
+                    <span className="text-amber-400 block text-[10px] uppercase font-mono">Anticipo Pagado:</span>
+                    <span className="font-mono font-bold text-amber-400 text-sm">${numDown.toFixed(2)}</span>
                   </div>
-                  <span className="text-[#64748b] text-lg font-light">=</span>
+                  <span className="text-slate-600 text-lg font-light">=</span>
                 </div>
 
                 <div className="text-right">
-                  <span className="text-[10px] text-[#34d399] uppercase font-bold tracking-wider block">
+                  <span className="text-[10px] text-emerald-400 uppercase font-bold tracking-wider block font-mono">
                     Saldo Restante al Despachar (Balance Due):
                   </span>
-                  <span className="text-xl sm:text-2xl font-black font-mono text-[#58a6ff] drop-shadow-[0_0_10px_rgba(56,139,253,0.5)]">
-                    ${balanceDue.toFixed(2)} <span className="text-xs font-normal text-[#94a3b8]">USD</span>
+                  <span className="text-xl sm:text-2xl font-black font-mono text-cyan-300 drop-shadow-[0_0_12px_rgba(6,182,212,0.6)]">
+                    ${balanceDue.toFixed(2)} <span className="text-xs font-normal text-slate-400">USD</span>
                   </span>
                 </div>
               </div>
 
               {/* Políticas de Entrega y Garantía */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#0a0f1d] p-4 rounded-xl border border-[#1e293b]">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#050914] p-4.5 rounded-2xl border border-cyan-500/20 shadow-sm">
                 <div>
-                  <label className="block mb-1 text-[#94a3b8] font-semibold text-xs">Tipo de Entrega / Despacho</label>
+                  <label className="block mb-1.5 text-slate-300 font-semibold text-xs">Tipo de Entrega / Despacho</label>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => {
                         setDeliveryType('retiro_tienda');
                       }}
-                      className={`py-2 px-3 rounded-lg border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      className={`py-2.5 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
                         deliveryType === 'retiro_tienda'
-                          ? 'bg-[#10b981]/20 border-[#10b981] text-[#34d399] shadow-[0_0_10px_rgba(16,185,129,0.2)]'
-                          : 'bg-[#111827] border-[#1e293b] text-[#94a3b8] hover:text-[#f1f5f9]'
+                          ? 'bg-emerald-950/40 border-emerald-500 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.25)]'
+                          : 'bg-[#070e1c] border-slate-800 text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      <span className="material-symbols-outlined text-[16px]">storefront</span>
+                      <span className="material-symbols-outlined text-[17px]">storefront</span>
                       <span>Retiro en Patio ($0)</span>
                     </button>
 
@@ -1354,13 +1358,13 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       onClick={() => {
                         setDeliveryType('envio_domicilio');
                       }}
-                      className={`py-2 px-3 rounded-lg border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      className={`py-2.5 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
                         deliveryType === 'envio_domicilio'
-                          ? 'bg-[#388bfd]/20 border-[#388bfd] text-[#58a6ff] shadow-[0_0_10px_rgba(56,139,253,0.2)]'
-                          : 'bg-[#111827] border-[#1e293b] text-[#94a3b8] hover:text-[#f1f5f9]'
+                          ? 'bg-cyan-950/40 border-cyan-500 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.25)]'
+                          : 'bg-[#070e1c] border-slate-800 text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      <span className="material-symbols-outlined text-[16px]">local_shipping</span>
+                      <span className="material-symbols-outlined text-[17px]">local_shipping</span>
                       <span>Envío a Domicilio</span>
                     </button>
                   </div>
@@ -1368,7 +1372,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
 
                 {deliveryType === 'envio_domicilio' && (
                   <div className="sm:col-span-2 order-last">
-                    <label className="block mb-1 text-[#58a6ff] font-semibold text-xs">Dirección de Envío a Domicilio *</label>
+                    <label className="block mb-1 text-cyan-400 font-semibold text-xs">Dirección de Envío a Domicilio *</label>
                     <div className="grid grid-cols-1 sm:grid-cols-[1fr_130px] gap-2">
                       <input
                         type="text"
@@ -1378,44 +1382,44 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                           if (stepError) setStepError(null);
                         }}
                         placeholder="Calle, número, ciudad, estado"
-                        className="w-full bg-[#111827] border border-[#388bfd]/50 rounded-lg p-2.5 text-[#f1f5f9] focus:outline-none focus:border-[#388bfd]"
+                        className="w-full bg-[#070e1c] border border-cyan-500/40 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                       />
                       <input
                         type="text"
                         value={zipCode}
                         onChange={(e) => setZipCode(e.target.value)}
                         placeholder="ZIP"
-                        className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2.5 text-[#f1f5f9] font-mono focus:outline-none focus:border-[#388bfd]"
+                        className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                       />
                     </div>
-                    <p className="mt-1 text-[10px] text-[#94a3b8]">Esta dirección se almacena junto con la orden y se usa para despacho.</p>
+                    <p className="mt-1 text-[10px] text-slate-400">Esta dirección se almacena junto con la orden y se usa para despacho.</p>
                   </div>
                 )}
 
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-[#94a3b8] font-semibold text-xs">
+                    <label className="text-slate-300 font-semibold text-xs">
                       Garantía (Auto-asignada según precio)
                     </label>
-                    <span className="text-[10px] text-[#34d399] font-mono font-semibold">
+                    <span className="text-[10px] text-emerald-400 font-mono font-bold">
                       {warrantyDays} Días Activa
                     </span>
                   </div>
-                  <div className="rounded-lg border border-[#1e293b] bg-[#111827] px-3 py-2 text-xs text-[#cbd5e1]">
-                    <span className="font-mono font-bold text-[#34d399]">{warrantyDays} días</span>
-                    <span className="ml-2 text-[#94a3b8]">calculados por monto de parte</span>
+                  <div className="rounded-xl border border-cyan-500/20 bg-[#070e1c] px-3.5 py-2 text-xs text-slate-300 flex items-center justify-between">
+                    <span className="font-mono font-bold text-emerald-400">{warrantyDays} días</span>
+                    <span className="text-slate-500 text-[11px]">calculados por monto de parte</span>
                   </div>
                 </div>
               </div>
 
               {/* Asesor y Estatus Inicial */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#0a0f1d] p-4 rounded-xl border border-[#1e293b]">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#050914] p-4.5 rounded-2xl border border-cyan-500/20 shadow-sm">
                 <div>
-                  <label className="block mb-1 text-[#94a3b8] text-xs font-semibold">Asesor Comercial Asignado</label>
+                  <label className="block mb-1 text-slate-400 text-xs font-semibold">Asesor Comercial Asignado</label>
                   <select
                     value={advisor}
                     onChange={(e) => setAdvisor(e.target.value)}
-                    className="w-full bg-[#111827] border border-[#1e293b] rounded-lg p-2.5 text-[#f1f5f9] focus:outline-none focus:border-[#388bfd]"
+                    className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 cursor-pointer"
                   >
                     <option value="Carlos Mendoza (Ventas)">Carlos Mendoza (Ventas)</option>
                     <option value="Alejandro Morales (Ventas)">Alejandro Morales (Ventas)</option>
@@ -1425,40 +1429,41 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block mb-1 text-[#94a3b8] text-xs font-semibold">Estatus Inicial de Apertura</label>
-                  <div className="rounded-lg border border-[#388bfd]/40 bg-[#388bfd]/10 px-3 py-2 text-xs font-bold text-[#58a6ff]">
-                    Cotización
+                  <label className="block mb-1 text-slate-400 text-xs font-semibold">Estatus Inicial de Apertura</label>
+                  <div className="rounded-xl border border-cyan-500/40 bg-cyan-950/40 px-3.5 py-2.5 text-xs font-bold text-cyan-300 font-mono flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                    <span>Cotización</span>
                   </div>
                 </div>
               </div>
 
               {/* Resumen Final de la Orden */}
-              <div className="bg-[#0b1329] border border-[#388bfd]/30 rounded-xl p-3.5 flex items-center justify-between text-xs">
+              <div className="bg-[#070e1c] border border-cyan-500/30 rounded-2xl p-4 flex items-center justify-between text-xs shadow-inner">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-[#388bfd]/20 text-[#58a6ff] flex items-center justify-center">
-                    <span className="material-symbols-outlined text-[18px]">verified</span>
+                  <div className="w-9 h-9 rounded-xl bg-cyan-500/15 text-cyan-400 flex items-center justify-center border border-cyan-500/30 shrink-0">
+                    <span className="material-symbols-outlined text-[19px]">verified</span>
                   </div>
                   <div>
-                    <div className="text-[#f1f5f9] font-bold">{customerName || 'Cliente'} — {vehicleMake} {vehicleModel} {vehicleYear}</div>
-                    <div className="text-[11px] text-[#94a3b8]">{mainPart} • Garantía {warrantyDays} días • {deliveryType === 'retiro_tienda' ? 'Retiro en Patio' : 'Envío a Domicilio'}</div>
+                    <div className="text-slate-100 font-bold">{customerName || 'Cliente'} — {vehicleMake} {vehicleModel} {vehicleYear}</div>
+                    <div className="text-[11px] text-slate-400">{mainPart} • Garantía {warrantyDays} días • {deliveryType === 'retiro_tienda' ? 'Retiro en Patio' : 'Envío a Domicilio'}</div>
                   </div>
                 </div>
                 <div className="text-right">
-                  <span className="text-[10px] text-[#94a3b8] uppercase block">Total a Pagar</span>
-                  <span className="text-base font-bold font-mono text-[#34d399]">${grossSubtotal.toFixed(2)}</span>
+                  <span className="text-[10px] text-slate-400 uppercase font-mono block">Total a Pagar</span>
+                  <span className="text-base font-bold font-mono text-emerald-400">${grossSubtotal.toFixed(2)}</span>
                 </div>
               </div>
             </div>
           )}
 
           {/* STEPPER FOOTER CONTROLS */}
-          <div className="pt-3 border-t border-[#1e293b] flex items-center justify-between gap-3 bg-[#0b1329] -mx-5 -mb-5 sm:-mx-6 sm:-mb-6 p-4 rounded-b-2xl sticky bottom-0 z-10">
+          <div className="pt-3.5 border-t border-cyan-500/20 flex items-center justify-between gap-3 bg-[#0a1022]/90 backdrop-blur-md -mx-5 -mb-5 sm:-mx-6 sm:-mb-6 p-4.5 rounded-b-3xl sticky bottom-0 z-20">
             <div>
               {currentStep > 1 ? (
                 <button
                   type="button"
                   onClick={handlePrev}
-                  className="px-4 py-2 rounded-lg bg-[#1e293b] hover:bg-[#334155] text-[#cbd5e1] font-semibold text-xs flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 border border-slate-700"
                 >
                   <span className="material-symbols-outlined text-[16px]">arrow_back</span>
                   <span>Anterior</span>
@@ -1467,15 +1472,15 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-3.5 py-2 rounded-lg bg-[#1e293b] hover:bg-[#334155] text-[#94a3b8] hover:text-white transition-colors cursor-pointer text-xs font-semibold"
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer text-xs font-semibold"
                 >
                   Cancelar
                 </button>
               )}
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-[#64748b] hidden sm:inline font-mono">
+            <div className="flex items-center gap-2.5">
+              <span className="text-[11px] text-slate-500 hidden sm:inline font-mono">
                 Paso {currentStep} de 3
               </span>
 
@@ -1483,7 +1488,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 <button
                   type="button"
                   onClick={validateAndNext}
-                  className="px-5 py-2.5 rounded-lg bg-[#388bfd] hover:bg-[#2563eb] text-[#0a1120] font-bold transition-all shadow-[0_0_12px_rgba(56,139,253,0.3)] cursor-pointer active:scale-95 flex items-center gap-1.5 text-xs"
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black transition-all shadow-[0_0_15px_rgba(6,182,212,0.35)] cursor-pointer active:scale-95 flex items-center gap-1.5 text-xs"
                 >
                   <span>Siguiente Paso</span>
                   <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
@@ -1492,7 +1497,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 <button
                   type="button"
                   onClick={handleSubmit}
-                  className="px-5 py-2.5 rounded-lg bg-[#10b981] hover:bg-[#059669] text-[#0a1120] font-black transition-all shadow-[0_0_15px_rgba(16,185,129,0.4)] cursor-pointer active:scale-95 flex items-center gap-2 text-xs"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black transition-all shadow-[0_0_20px_rgba(16,185,129,0.4)] cursor-pointer active:scale-95 flex items-center gap-2 text-xs"
                 >
                   <span className="material-symbols-outlined text-[18px]">check_circle</span>
                   <span>{editingOrder ? 'Guardar Cambios' : 'Guardar y Aperturar Orden'}</span>

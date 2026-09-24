@@ -53,33 +53,42 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
-      <div className="bg-[#181b25] border border-[rgba(255,255,255,0.12)] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col">
-        <div className="p-4 border-b border-[rgba(255,255,255,0.08)] flex justify-between items-center bg-[#1c1f29]">
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[#4d8eff] text-[20px]">download</span>
-            <h3 className="font-headline-sm text-base font-bold text-[#dfe2ef]">
-              Exportar Reporte de Órdenes
-            </h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+      <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-md shadow-[0_20px_60px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col relative">
+        {/* Laser Hairline */}
+        <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-20" />
+
+        {/* Header */}
+        <div className="p-4.5 border-b border-cyan-500/20 flex justify-between items-center bg-[#0a1022]/80 backdrop-blur-md">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+              <span className="material-symbols-outlined text-[20px]">download</span>
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-100">
+                Exportar Reporte de Órdenes
+              </h3>
+              <p className="text-[11px] text-cyan-400 font-mono">Consolidación de datos</p>
+            </div>
           </div>
           <button
             onClick={onClose}
-            className="text-[#c2c6d6] hover:text-white p-1 rounded hover:bg-[#31353f] transition-colors cursor-pointer"
+            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
           >
-            <span className="material-symbols-outlined text-[18px]">close</span>
+            <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
-        <div className="p-5 flex flex-col gap-4 text-xs text-[#dfe2ef]">
-          <p className="text-[#c2c6d6]">
-            Se generará un archivo consolidado con las {orders.length} órdenes activas del taller y CRM.
+        <div className="p-5 flex flex-col gap-4 text-xs text-slate-300">
+          <p className="text-slate-400 leading-relaxed">
+            Se generará un archivo consolidado con las <strong className="text-cyan-400 font-mono">{orders.length}</strong> órdenes activas del taller, despacho y CRM.
           </p>
 
           <div>
-            <label className="font-data-label text-[10px] text-[#adc6ff] uppercase tracking-wider block mb-2 font-semibold">
+            <label className="text-[10px] text-cyan-400 uppercase tracking-wider block mb-2 font-mono font-bold">
               Formato de Exportación:
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-2.5">
               {[
                 { id: 'csv', label: 'CSV / Excel', icon: 'table_chart' },
                 { id: 'json', label: 'JSON Data', icon: 'data_object' },
@@ -89,31 +98,31 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                   key={fmt.id}
                   type="button"
                   onClick={() => setFormat(fmt.id as any)}
-                  className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 transition-all cursor-pointer ${
+                  className={`p-3 rounded-2xl border flex flex-col items-center gap-2 transition-all cursor-pointer ${
                     format === fmt.id
-                      ? 'bg-[#4d8eff]/20 border-[#4d8eff] text-[#adc6ff] font-semibold'
-                      : 'bg-[#0a0e17] border-[rgba(255,255,255,0.08)] text-[#c2c6d6] hover:bg-[#31353f]'
+                      ? 'bg-cyan-950/40 border-cyan-500/60 text-cyan-300 font-bold shadow-[0_0_15px_rgba(6,182,212,0.2)]'
+                      : 'bg-[#050914] border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
                   }`}
                 >
-                  <span className="material-symbols-outlined text-[20px]">{fmt.icon}</span>
+                  <span className="material-symbols-outlined text-[22px]">{fmt.icon}</span>
                   <span className="text-[11px]">{fmt.label}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="flex justify-end gap-2 pt-2 border-t border-[rgba(255,255,255,0.08)]">
+          <div className="flex justify-end gap-2.5 pt-3 border-t border-cyan-500/20">
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 rounded-lg bg-[#31353f] text-[#c2c6d6] hover:text-white transition-colors cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 text-xs font-semibold transition-colors cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="button"
               onClick={handleExport}
-              className="px-4 py-1.5 rounded-lg bg-[#4d8eff] text-[#00285d] font-bold hover:bg-[#3b7cee] transition-all flex items-center gap-1.5 cursor-pointer shadow-[0_0_10px_rgba(77,142,255,0.4)]"
+              className="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.35)] active:scale-95"
             >
               <span className="material-symbols-outlined text-[16px]">file_download</span>
               <span>{downloaded ? 'Descargando...' : 'Descargar Archivo'}</span>

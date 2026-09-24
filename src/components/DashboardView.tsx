@@ -67,10 +67,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       claims,
       overdueSlas: slaMetrics.filter((sla) => sla.status === 'overdue').length,
       distribution: [
-        { label: 'En proceso', count: orders.filter((order) => inProgressStatuses.has(order.status)).length, color: '#4d8eff' },
-        { label: 'Ventas cerradas', count: orders.filter((order) => paidStatuses.has(order.status)).length, color: '#4edea3' },
-        { label: 'Esperando acción', count: orders.filter((order) => pendingStatuses.has(order.status)).length, color: '#f59e0b' },
-        { label: 'Incidencias', count: orders.filter((order) => issueStatuses.has(order.status)).length, color: '#ef4444' },
+        { label: 'En proceso', count: orders.filter((order) => inProgressStatuses.has(order.status)).length, color: '#22d3ee' },
+        { label: 'Ventas cerradas', count: orders.filter((order) => paidStatuses.has(order.status)).length, color: '#34d399' },
+        { label: 'Esperando acción', count: orders.filter((order) => pendingStatuses.has(order.status)).length, color: '#fbbf24' },
+        { label: 'Incidencias', count: orders.filter((order) => issueStatuses.has(order.status)).length, color: '#f87171' },
       ].map((item) => ({ ...item, percentage: Math.round((item.count / totalOrders) * 100) })),
     };
   }, [orders, slaMetrics]);
@@ -99,23 +99,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   };
 
   return (
-    <div className="radar-view">
-      {/* Page Header */}
+    <div className="radar-view select-none pb-8">
+      {/* Page Header with Cyber HUD Badge */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h2 className="font-headline-md text-2xl md:text-3xl font-bold text-[#dfe2ef] tracking-tight mb-1">
-            Panorama General
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#040b17]/90 border border-cyan-400/40 text-[10px] font-mono font-bold tracking-[0.2em] text-cyan-300 uppercase mb-2 shadow-[0_0_12px_rgba(6,182,212,0.25)]">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399] animate-ping" />
+            <span>TELEMETRÍA EN VIVO • RADAR 3.0</span>
+          </div>
+          <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)]">
+            Panorama Operativo & Finanzas
           </h2>
-          <div className="flex items-center gap-2">
-            <p className="font-body-sm text-[13px] text-[#c2c6d6]">
-              Resumen operativo del día. Última actualización: {lastUpdated}
+          <div className="flex items-center gap-2 mt-1">
+            <p className="text-xs text-slate-400 font-mono">
+              Sincronización en tiempo real • Última captura: <span className="text-cyan-300">{lastUpdated}</span>
             </p>
             <button
               onClick={handleRefresh}
-              className={`p-1 text-[#c2c6d6] hover:text-[#4d8eff] rounded-md transition-colors cursor-pointer ${
-                isRefreshing ? 'animate-spin text-[#4d8eff]' : ''
+              className={`p-1 text-slate-400 hover:text-cyan-400 rounded-lg transition cursor-pointer hover:bg-slate-800/60 ${
+                isRefreshing ? 'animate-spin text-cyan-400' : ''
               }`}
-              title="Actualizar datos"
+              title="Actualizar telemetría"
             >
               <span className="material-symbols-outlined text-[16px]">refresh</span>
             </button>
@@ -123,47 +127,45 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Date Filter & Control Buttons */}
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <button
-              onClick={() => setActiveDateFilter(activeDateFilter === 'Hoy' ? 'Últimos 7 días' : 'Hoy')}
-              className="glass-card px-3.5 py-2 rounded-lg font-body-sm text-[13px] text-[#dfe2ef] hover:bg-[#31353f] transition-colors flex items-center gap-2 cursor-pointer shadow-sm"
-            >
-              <span className="material-symbols-outlined text-[18px] text-[#4d8eff]">calendar_month</span>
-              <span>{activeDateFilter}</span>
-            </button>
-          </div>
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => setActiveDateFilter(activeDateFilter === 'Hoy' ? 'Últimos 7 días' : 'Hoy')}
+            className="px-3.5 py-2 rounded-2xl bg-[#060e1d]/90 border border-cyan-500/30 text-xs font-mono font-bold text-slate-200 hover:border-cyan-400 hover:bg-[#09152b] transition-all flex items-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.15)]"
+          >
+            <span className="material-symbols-outlined text-[17px] text-cyan-400">calendar_month</span>
+            <span>{activeDateFilter}</span>
+          </button>
 
           <button
             onClick={() => setTimeRange(timeRange === '30D' ? '7D' : '30D')}
-            className="glass-card px-3.5 py-2 rounded-lg font-body-sm text-[13px] text-[#dfe2ef] hover:bg-[#31353f] transition-colors flex items-center gap-2 cursor-pointer shadow-sm"
+            className="px-3.5 py-2 rounded-2xl bg-[#060e1d]/90 border border-cyan-500/30 text-xs font-mono font-bold text-slate-200 hover:border-cyan-400 hover:bg-[#09152b] transition-all flex items-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.15)]"
           >
-            <span className="material-symbols-outlined text-[18px] text-[#adc6ff]">filter_list</span>
-            <span>Filtros ({timeRange})</span>
+            <span className="material-symbols-outlined text-[17px] text-emerald-400">tune</span>
+            <span>Rango ({timeRange})</span>
           </button>
         </div>
       </div>
 
-      {/* 4 KPIs Grid */}
+      {/* 4 KPIs Cyber HUD Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* KPI 1: Ventas Netas */}
-        <div className="glass-card p-4 rounded-xl glow-hover transition-all duration-300 relative overflow-hidden group">
-          <div className="absolute -right-4 -top-4 w-24 h-24 bg-[#4edea3]/10 rounded-full blur-xl group-hover:bg-[#4edea3]/20 transition-colors pointer-events-none" />
+        {/* KPI 1: Ventas Totales */}
+        <div className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-emerald-500/35 p-5 shadow-[0_15px_35px_rgba(0,0,0,0.7),0_0_30px_rgba(16,185,129,0.15)] overflow-hidden group hover:border-emerald-400 transition-all">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_12px_#34d399]" />
           <div className="flex justify-between items-start mb-3 relative z-10">
-            <span className="font-body-sm text-[13px] text-[#c2c6d6]">Ventas Netas (M)</span>
-            <span className="material-symbols-outlined text-[#4edea3] bg-[#4edea3]/10 p-1.5 rounded-lg text-[20px]">
-              trending_up
+            <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-emerald-400/90">
+              Ventas Consolidadas
             </span>
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-400/40 flex items-center justify-center text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.3)]">
+              <span className="material-symbols-outlined text-[18px]">trending_up</span>
+            </div>
           </div>
           <div className="relative z-10">
-            <span className="font-display-lg font-data-mono text-3xl lg:text-4xl font-extrabold text-[#dfe2ef] tracking-tight">
+            <span className="font-mono text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
               ${dashboardMetrics.sales.toLocaleString('en-US', { maximumFractionDigits: 0 })}
             </span>
-            <div className="flex items-center gap-1 mt-1.5 text-[#4edea3]">
-              <span className="material-symbols-outlined text-[14px]">arrow_upward</span>
-              <span className="font-body-sm font-data-mono text-[12px] font-medium">
-                {orders.filter((order) => ['pagado', 'facturado', 'entregado'].includes(order.status)).length} ventas registradas
-              </span>
+            <div className="flex items-center gap-1.5 mt-2 text-emerald-300 text-xs font-mono font-semibold">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>{orders.filter((order) => ['pagado', 'facturado', 'entregado'].includes(order.status)).length} ventas cerradas</span>
             </div>
           </div>
         </div>
@@ -171,64 +173,68 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         {/* KPI 2: Órdenes Activas */}
         <div
           onClick={onNavigateTaller}
-          className="glass-card p-4 rounded-xl glow-hover transition-all duration-300 relative overflow-hidden group cursor-pointer border hover:border-[#4d8eff]/50"
+          className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/35 p-5 shadow-[0_15px_35px_rgba(0,0,0,0.7),0_0_30px_rgba(6,182,212,0.15)] overflow-hidden group hover:border-cyan-400 transition-all cursor-pointer"
         >
-          <div className="absolute -right-4 -top-4 w-24 h-24 bg-[#4d8eff]/10 rounded-full blur-xl group-hover:bg-[#4d8eff]/20 transition-colors pointer-events-none" />
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_#22d3ee]" />
           <div className="flex justify-between items-start mb-3 relative z-10">
-            <span className="font-body-sm text-[13px] text-[#c2c6d6]">Órdenes Activas</span>
-            <span className="material-symbols-outlined text-[#4d8eff] bg-[#4d8eff]/10 p-1.5 rounded-lg text-[20px]">
-              shopping_cart
+            <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-cyan-400/90">
+              Órdenes Activas
             </span>
+            <div className="w-8 h-8 rounded-xl bg-cyan-500/15 border border-cyan-400/40 flex items-center justify-center text-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.3)]">
+              <span className="material-symbols-outlined text-[18px]">inventory_2</span>
+            </div>
           </div>
           <div className="relative z-10">
-            <span className="font-display-lg font-data-mono text-3xl lg:text-4xl font-extrabold text-[#dfe2ef] tracking-tight">
+            <span className="font-mono text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
               {dashboardMetrics.activeOrders}
             </span>
-            <div className="flex items-center gap-1 mt-1.5 text-[#adc6ff]">
-              <span className="material-symbols-outlined text-[14px]">arrow_upward</span>
-              <span className="font-body-sm font-data-mono text-[12px] font-medium">En seguimiento operativo</span>
+            <div className="flex items-center gap-1.5 mt-2 text-cyan-300 text-xs font-mono font-semibold">
+              <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+              <span>En seguimiento operativo</span>
             </div>
           </div>
         </div>
 
         {/* KPI 3: Reclamos Pendientes */}
-        <div className="glass-card p-4 rounded-xl glow-hover transition-all duration-300 relative overflow-hidden group border-[#f59e0b]/30">
-          <div className="absolute -right-4 -top-4 w-24 h-24 bg-[#f59e0b]/10 rounded-full blur-xl group-hover:bg-[#f59e0b]/20 transition-colors pointer-events-none" />
+        <div className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-amber-500/35 p-5 shadow-[0_15px_35px_rgba(0,0,0,0.7),0_0_30px_rgba(245,158,11,0.15)] overflow-hidden group hover:border-amber-400 transition-all">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-amber-400 to-transparent shadow-[0_0_12px_#fbbf24]" />
           <div className="flex justify-between items-start mb-3 relative z-10">
-            <span className="font-body-sm text-[13px] text-[#c2c6d6]">Reclamos Pendientes</span>
-            <span className="material-symbols-outlined text-[#f59e0b] bg-[#f59e0b]/10 p-1.5 rounded-lg text-[20px]">
-              warning
+            <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-amber-400/90">
+              Reclamos Abiertos
             </span>
+            <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-400/40 flex items-center justify-center text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.3)]">
+              <span className="material-symbols-outlined text-[18px]">warning</span>
+            </div>
           </div>
           <div className="relative z-10">
-            <span className="font-display-lg font-data-mono text-3xl lg:text-4xl font-extrabold text-[#dfe2ef] tracking-tight">
+            <span className="font-mono text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
               {dashboardMetrics.claims}
             </span>
-            <div className="flex items-center gap-1 mt-1.5 text-[#f59e0b]">
-              <span className="material-symbols-outlined text-[14px]">arrow_downward</span>
-              <span className="font-body-sm font-data-mono text-[12px] font-medium">Requieren resolución</span>
+            <div className="flex items-center gap-1.5 mt-2 text-amber-300 text-xs font-mono font-semibold">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              <span>Requieren resolución</span>
             </div>
           </div>
         </div>
 
         {/* KPI 4: Alertas SLA */}
-        <div className="glass-card p-4 rounded-xl glow-hover transition-all duration-300 relative overflow-hidden group border-[#ef4444]/30">
-          <div className="absolute -right-4 -top-4 w-24 h-24 bg-[#ef4444]/10 rounded-full blur-xl group-hover:bg-[#ef4444]/20 transition-colors pointer-events-none" />
+        <div className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-red-500/35 p-5 shadow-[0_15px_35px_rgba(0,0,0,0.7),0_0_30px_rgba(239,68,68,0.15)] overflow-hidden group hover:border-red-400 transition-all">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-red-400 to-transparent shadow-[0_0_12px_#f87171]" />
           <div className="flex justify-between items-start mb-3 relative z-10">
-            <span className="font-body-sm text-[13px] text-[#c2c6d6]">Alertas SLA</span>
-            <span className="material-symbols-outlined text-[#ef4444] bg-[#ef4444]/10 p-1.5 rounded-lg text-[20px]">
-              timer_off
+            <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-red-400/90">
+              Alertas de Tiempo SLA
             </span>
+            <div className="w-8 h-8 rounded-xl bg-red-500/15 border border-red-400/40 flex items-center justify-center text-red-400 shadow-[0_0_12px_rgba(239,68,68,0.3)]">
+              <span className="material-symbols-outlined text-[18px]">timer_off</span>
+            </div>
           </div>
           <div className="relative z-10">
-            <span className="font-display-lg font-data-mono text-3xl lg:text-4xl font-extrabold text-[#dfe2ef] tracking-tight">
+            <span className="font-mono text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
               {dashboardMetrics.overdueSlas}
             </span>
-            <div className="flex items-center gap-1 mt-1.5 text-[#ef4444]">
-              <span className="material-symbols-outlined text-[14px]">priority_high</span>
-              <span className="font-body-sm font-data-mono text-[12px] font-medium">
-                Requieren atención
-              </span>
+            <div className="flex items-center gap-1.5 mt-2 text-red-300 text-xs font-mono font-semibold">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+              <span>Fuera de rango estándar</span>
             </div>
           </div>
         </div>
@@ -236,32 +242,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* Main Bento Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Tendencia de Ventas */}
-        <div className="glass-card rounded-xl lg:col-span-2 flex flex-col glow-hover transition-all">
-          <div className="p-4 border-b border-[rgba(255,255,255,0.08)] flex justify-between items-center">
+        {/* Tendencia de Ventas (HUD Graph) */}
+        <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 shadow-[0_20px_50px_rgba(0,0,0,0.7)] lg:col-span-2 flex flex-col overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee]" />
+
+          <div className="pb-4 border-b border-cyan-500/15 flex flex-wrap justify-between items-center gap-3">
             <div>
-              <h3 className="font-headline-sm text-[18px] font-bold text-[#dfe2ef]">Tendencia de Ventas</h3>
-              <p className="font-body-sm text-[13px] text-[#c2c6d6]">
-                Volumen diario últimos {timeRange === '30D' ? '30 días' : timeRange === '7D' ? '7 días' : '90 días'}
+              <h3 className="text-lg font-black text-white">Tendencia de Volumen Comercial</h3>
+              <p className="text-xs text-slate-400 font-mono">
+                Actividad y picos de venta en los últimos {timeRange === '30D' ? '30 días' : timeRange === '7D' ? '7 días' : '90 días'}
               </p>
             </div>
             <div className="flex items-center gap-2">
               {hoveredBar && (
-                <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded bg-[#0a0e17] border border-[#4d8eff]/30 text-xs font-data-mono">
-                  <span className="text-[#c2c6d6]">{hoveredBar.day}:</span>
-                  <span className="text-[#4edea3] font-bold">{hoveredBar.amount}</span>
-                  <span className="text-[#adc6ff]">({hoveredBar.count} órdenes)</span>
+                <div className="flex items-center gap-2 px-3 py-1 rounded-xl bg-[#040814] border border-cyan-400/40 text-xs font-mono shadow-[0_0_12px_rgba(6,182,212,0.25)]">
+                  <span className="text-slate-400">{hoveredBar.day}:</span>
+                  <span className="text-emerald-400 font-black">{hoveredBar.amount}</span>
+                  <span className="text-cyan-300">({hoveredBar.count} órdenes)</span>
                 </div>
               )}
-              <div className="flex bg-[#0f131c] rounded-lg p-0.5 border border-[rgba(255,255,255,0.08)]">
+              <div className="flex bg-[#040814] rounded-xl p-1 border border-cyan-500/30">
                 {(['7D', '30D', '90D'] as const).map((range) => (
                   <button
                     key={range}
                     onClick={() => setTimeRange(range)}
-                    className={`px-2 py-1 text-xs font-data-mono rounded cursor-pointer transition-colors ${
+                    className={`px-2.5 py-1 text-xs font-mono font-bold rounded-lg cursor-pointer transition-all ${
                       timeRange === range
-                        ? 'bg-[#4d8eff] text-[#00285d] font-bold'
-                        : 'text-[#c2c6d6] hover:text-[#dfe2ef]'
+                        ? 'bg-gradient-to-r from-cyan-400 to-emerald-400 text-slate-950 shadow-[0_0_10px_rgba(6,182,212,0.4)]'
+                        : 'text-slate-400 hover:text-white'
                     }`}
                   >
                     {range}
@@ -272,12 +280,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* Area / Bars Representation */}
-          <div className="p-4 flex-1 relative min-h-[260px] flex items-end justify-between gap-1.5 sm:gap-3 overflow-hidden">
-            {/* Gradient backdrop */}
+          <div className="py-6 flex-1 relative min-h-[220px] flex items-end justify-between gap-2 sm:gap-4 overflow-hidden">
             <div
-              className="w-full h-full absolute inset-0 opacity-20 pointer-events-none"
+              className="w-full h-full absolute inset-0 opacity-15 pointer-events-none"
               style={{
-                background: 'linear-gradient(to top, #4d8eff 0%, transparent 100%)',
+                background: 'linear-gradient(to top, #22d3ee 0%, transparent 100%)',
               }}
             />
 
@@ -290,10 +297,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               >
                 <div
                   style={{ height: bar.height }}
-                  className={`w-full rounded-t transition-all duration-200 ${
+                  className={`w-full rounded-t-xl transition-all duration-300 ${
                     bar.isLatest
-                      ? 'bg-[#4d8eff]/60 group-hover:bg-[#4d8eff] border-t-2 border-[#adc6ff] shadow-[0_0_12px_rgba(77,142,255,0.4)]'
-                      : 'bg-[#4d8eff]/30 group-hover:bg-[#4d8eff]/60'
+                      ? 'bg-gradient-to-t from-cyan-500 via-blue-500 to-emerald-400 group-hover:scale-105 shadow-[0_0_20px_rgba(34,211,238,0.5)] border-t-2 border-white'
+                      : 'bg-gradient-to-t from-cyan-500/30 to-blue-500/50 group-hover:from-cyan-400 group-hover:to-emerald-400 group-hover:shadow-[0_0_15px_rgba(6,182,212,0.4)]'
                   }`}
                 />
               </div>
@@ -301,7 +308,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* X-Axis labels */}
-          <div className="px-4 pb-3 flex justify-between font-data-label text-[11px] text-[#c2c6d6] border-t border-[rgba(255,255,255,0.08)] pt-2 tracking-wider">
+          <div className="pt-3 flex justify-between font-mono text-[11px] text-slate-400 border-t border-cyan-500/15 tracking-wider">
             <span>01 Nov</span>
             <span>15 Nov</span>
             <span>30 Nov</span>
@@ -309,25 +316,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Distribución por Estado */}
-        <div className="glass-card rounded-xl flex flex-col glow-hover transition-all">
-          <div className="p-4 border-b border-[rgba(255,255,255,0.08)] flex justify-between items-center">
-            <h3 className="font-headline-sm text-[18px] font-bold text-[#dfe2ef]">Distribución por Estado</h3>
-            <span className="material-symbols-outlined text-[#c2c6d6] text-[20px]">pie_chart</span>
+        <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 shadow-[0_20px_50px_rgba(0,0,0,0.7)] flex flex-col overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_#22d3ee]" />
+
+          <div className="pb-4 border-b border-cyan-500/15 flex justify-between items-center">
+            <h3 className="text-lg font-black text-white">Distribución de Órdenes</h3>
+            <span className="material-symbols-outlined text-cyan-400 text-[20px]">pie_chart</span>
           </div>
 
-          <div className="p-4 flex flex-col gap-4 flex-1 justify-center">
+          <div className="py-4 flex flex-col gap-4 flex-1 justify-center">
             {dashboardMetrics.distribution.map((item) => (
               <div key={item.label} className="w-full">
-                <div className="flex justify-between font-body-sm text-[13px] mb-1.5">
-                  <span className="text-[#dfe2ef] font-medium">{item.label}</span>
-                  <span className="font-data-mono font-bold" style={{ color: item.color }}>
-                    {item.percentage}% <span className="text-[#c2c6d6] font-normal">({item.count})</span>
+                <div className="flex justify-between text-xs font-mono mb-1.5">
+                  <span className="text-slate-200 font-bold">{item.label}</span>
+                  <span className="font-black" style={{ color: item.color }}>
+                    {item.percentage}% <span className="text-slate-400 font-normal">({item.count})</span>
                   </span>
                 </div>
-                <div className="h-2 w-full bg-[#31353f] rounded-full overflow-hidden">
+                <div className="h-2 w-full bg-[#040814] rounded-full overflow-hidden border border-slate-800">
                   <div
                     className="h-full rounded-full transition-all duration-500"
-                    style={{ width: `${item.percentage}%`, backgroundColor: item.color, boxShadow: `0 0 8px ${item.color}` }}
+                    style={{ width: `${item.percentage}%`, backgroundColor: item.color, boxShadow: `0 0 10px ${item.color}` }}
                   />
                 </div>
               </div>
@@ -338,55 +347,55 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* Secondary Section: SLAs & Activity Feed */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Monitor de SLAs (Taller & CRM) */}
-        <div className="glass-card rounded-xl flex flex-col overflow-hidden">
-          <div className="p-4 border-b border-[rgba(255,255,255,0.08)] flex justify-between items-center">
-            <h3 className="font-headline-sm text-[18px] font-bold text-[#dfe2ef]">
-              Monitor de SLAs (Taller & CRM)
-            </h3>
-            <span className="text-xs font-data-label px-2 py-0.5 rounded bg-[#31353f] text-[#adc6ff]">
-              EN VIVO
+        {/* Monitor de SLAs */}
+        <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 shadow-[0_20px_50px_rgba(0,0,0,0.7)] flex flex-col overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_#22d3ee]" />
+
+          <div className="pb-4 border-b border-cyan-500/15 flex justify-between items-center">
+            <h3 className="text-lg font-black text-white">Monitor de Tiempos SLA</h3>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 font-bold">
+              ● EN LÍNEA
             </span>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto mt-2">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-[#181b25] font-data-label text-[11px] text-[#c2c6d6] uppercase tracking-wider">
-                  <th className="p-3 font-semibold border-b border-[rgba(255,255,255,0.08)]">Métrica</th>
-                  <th className="p-3 font-semibold border-b border-[rgba(255,255,255,0.08)] text-center">Estado</th>
-                  <th className="p-3 font-semibold border-b border-[rgba(255,255,255,0.08)] text-right">Valor</th>
+                <tr className="font-mono text-[10px] text-cyan-400/80 uppercase tracking-wider border-b border-cyan-500/20">
+                  <th className="py-2.5 px-3 font-bold">Métrica</th>
+                  <th className="py-2.5 px-3 font-bold text-center">Estado</th>
+                  <th className="py-2.5 px-3 font-bold text-right">Valor</th>
                 </tr>
               </thead>
-              <tbody className="font-body-sm text-[13px] divide-y divide-[rgba(255,255,255,0.08)]">
+              <tbody className="text-xs divide-y divide-cyan-500/10">
                 {(slaMetrics || []).map((sla) => {
-                  let badgeStyles = 'bg-[#4edea3]/10 text-[#4edea3] border-[#4edea3]/25';
-                  let dotStyles = 'bg-[#4edea3] shadow-[0_0_4px_rgba(78,222,163,0.8)]';
+                  let badgeStyles = 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40 shadow-[0_0_8px_rgba(16,185,129,0.25)]';
+                  let dotStyles = 'bg-emerald-400 shadow-[0_0_6px_#34d399]';
 
                   if (sla.status === 'attention') {
-                    badgeStyles = 'bg-[#f59e0b]/10 text-[#f59e0b] border-[#f59e0b]/25';
-                    dotStyles = 'bg-[#f59e0b] shadow-[0_0_4px_rgba(245,158,11,0.8)]';
+                    badgeStyles = 'bg-amber-500/15 text-amber-300 border-amber-400/40 shadow-[0_0_8px_rgba(245,158,11,0.25)]';
+                    dotStyles = 'bg-amber-400 shadow-[0_0_6px_#fbbf24]';
                   } else if (sla.status === 'overdue') {
-                    badgeStyles = 'bg-[#ef4444]/10 text-[#ef4444] border-[#ef4444]/25';
-                    dotStyles = 'bg-[#ef4444] shadow-[0_0_4px_rgba(239,68,68,0.8)]';
+                    badgeStyles = 'bg-red-500/15 text-red-300 border-red-400/40 shadow-[0_0_8px_rgba(239,68,68,0.25)]';
+                    dotStyles = 'bg-red-400 shadow-[0_0_6px_#f87171]';
                   }
 
                   return (
                     <tr
                       key={sla.id}
                       onClick={onNavigateTaller}
-                      className="hover:bg-[#31353f]/40 transition-colors cursor-pointer"
+                      className="hover:bg-cyan-500/5 transition cursor-pointer group"
                     >
-                      <td className="p-3 text-[#dfe2ef] font-medium">{sla.name}</td>
-                      <td className="p-3 text-center">
+                      <td className="py-3 px-3 text-slate-200 font-medium group-hover:text-cyan-300">{sla.name}</td>
+                      <td className="py-3 px-3 text-center">
                         <span
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${badgeStyles}`}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold border ${badgeStyles}`}
                         >
                           <span className={`w-1.5 h-1.5 rounded-full ${dotStyles}`} />
                           {sla.statusLabel}
                         </span>
                       </td>
-                      <td className="p-3 text-right font-data-mono text-[#c2c6d6] font-medium">
+                      <td className="py-3 px-3 text-right font-mono text-slate-300 font-bold">
                         {sla.value}
                       </td>
                     </tr>
@@ -398,20 +407,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Actividad Reciente Feed */}
-        <div className="glass-card rounded-xl flex flex-col max-h-[420px]">
-          <div className="p-4 border-b border-[rgba(255,255,255,0.08)] flex justify-between items-center">
-            <h3 className="font-headline-sm text-[18px] font-bold text-[#dfe2ef]">Actividad Reciente</h3>
+        <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 shadow-[0_20px_50px_rgba(0,0,0,0.7)] flex flex-col overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_#22d3ee]" />
+
+          <div className="pb-4 border-b border-cyan-500/15 flex justify-between items-center">
+            <h3 className="text-lg font-black text-white">Actividad Reciente en Taller</h3>
           </div>
 
-          <div className="p-4 overflow-y-auto flex-1 flex flex-col gap-2.5">
+          <div className="pt-3 overflow-y-auto flex-1 flex flex-col gap-2.5">
             {(activities || []).slice(0, 4).map((item) => {
-              let iconBg = 'bg-[#4d8eff] text-[#00285d]';
+              let iconBg = 'bg-cyan-500/15 border-cyan-400/40 text-cyan-400';
               if (item.type === 'workshop') {
-                iconBg = 'bg-[#f59e0b]/20 text-[#f59e0b] border border-[#f59e0b]/30';
+                iconBg = 'bg-amber-500/15 border-amber-400/40 text-amber-400';
               } else if (item.type === 'lead') {
-                iconBg = 'bg-[#4edea3]/20 text-[#4edea3] border border-[#4edea3]/30';
+                iconBg = 'bg-emerald-500/15 border-emerald-400/40 text-emerald-400';
               } else if (item.type === 'alert') {
-                iconBg = 'bg-[#ef4444]/20 text-[#ef4444] border border-[#ef4444]/30';
+                iconBg = 'bg-red-500/15 border-red-400/40 text-red-400';
               }
 
               return (
@@ -421,18 +432,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     if (item.id === 'act-1') onSelectOrder('ORD-8924A');
                     else onNavigateTaller();
                   }}
-                  className="flex gap-3 p-2 rounded-lg hover:bg-[#31353f]/50 transition-colors cursor-pointer group"
+                  className="flex items-center gap-3 p-2.5 rounded-2xl bg-[#040814]/70 border border-cyan-500/15 hover:border-cyan-400/50 hover:bg-[#081326] transition-all cursor-pointer group"
                 >
                   <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${iconBg}`}
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border shadow-[0_0_10px_rgba(6,182,212,0.2)] ${iconBg}`}
                   >
-                    <span className="material-symbols-outlined text-[16px]">{item.icon}</span>
+                    <span className="material-symbols-outlined text-[18px]">{item.icon}</span>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="font-body-sm text-[13px] text-[#dfe2ef] leading-snug group-hover:text-white transition-colors">
+                    <p className="text-xs text-slate-200 font-medium group-hover:text-cyan-300 transition leading-snug">
                       {item.title}
                     </p>
-                    <span className="font-data-label text-[11px] text-[#c2c6d6] block mt-0.5 opacity-80">
+                    <span className="text-[10px] font-mono text-slate-400 block mt-0.5">
                       {item.timeAgo}
                     </span>
                   </div>

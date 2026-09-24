@@ -7,13 +7,13 @@ export type NavScreen =
   | 'relacion_semanal'
   | 'sistema'
   | 'usuarios'
+  | 'order-detail'
   | 'taller'
   | 'crm'
   | 'finanzas'
   | 'configuracion'
   | 'ayuda'
-  | 'directorio'
-  | 'calendario'
+  | 'directorio';
 
 // Catálogo Exhaustivo de Estatus en RADAR (13 Estatus)
 export type OrderStatus = 
@@ -168,17 +168,6 @@ export interface ActivityItem {
   timeAgo: string;
   type: 'invoice' | 'workshop' | 'lead' | 'alert' | 'otp' | 'status_change';
   icon: string;
-}
-
-export interface InventoryItem {
-  id: string;
-  sku: string;
-  name: string;
-  category: 'Vehículos' | 'Repuestos' | 'Accesorios' | 'Consumibles';
-  stock: number;
-  location: string;
-  price: number;
-  status: 'Disponible' | 'Bajo Stock' | 'Agotado';
 }
 
 export interface PrefillOrderData {
