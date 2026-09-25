@@ -56,6 +56,9 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   const [createSafetySnapshot, setCreateSafetySnapshot] = useState(true);
   const [confirmText, setConfirmText] = useState('');
   const [restoring, setRestoring] = useState(false);
+  const [restoreProgress, setRestoreProgress] = useState(0);
+  const [restoreStepIndex, setRestoreStepIndex] = useState(0);
+  const [restoreStepName, setRestoreStepName] = useState('');
   const [restoreResult, setRestoreResult] = useState<RestoreResult | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
 
@@ -184,6 +187,9 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     setConfirmText('');
     setRestoreResult(null);
     setRestoreError(null);
+    setRestoreProgress(0);
+    setRestoreStepIndex(0);
+    setRestoreStepName('');
     setIsRestoreModalOpen(true);
   };
 
@@ -198,6 +204,9 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     setConfirmText('');
     setRestoreResult(null);
     setRestoreError(null);
+    setRestoreProgress(0);
+    setRestoreStepIndex(0);
+    setRestoreStepName('');
     setIsRestoreModalOpen(true);
   };
 
@@ -207,6 +216,35 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     setRestoring(true);
     setRestoreError(null);
     setRestoreResult(null);
+    setRestoreProgress(10);
+    setRestoreStepIndex(1);
+    setRestoreStepName('Iniciando y preparando conexión a la base de datos...');
+
+    const interval = setInterval(() => {
+      setRestoreProgress((prev) => {
+        if (prev < 25) {
+          setRestoreStepIndex(1);
+          setRestoreStepName('Generando snapshot de seguridad previo...');
+          return prev + 3;
+        }
+        if (prev < 50) {
+          setRestoreStepIndex(2);
+          setRestoreStepName('Resguardando usuarios y accesos autorizados...');
+          return prev + 2;
+        }
+        if (prev < 75) {
+          setRestoreStepIndex(3);
+          setRestoreStepName('Vaciando base de datos a cero (dejando tablas en blanco)...');
+          return prev + 1.5;
+        }
+        if (prev < 94) {
+          setRestoreStepIndex(4);
+          setRestoreStepName('Cargando y ejecutando registros del archivo SQL...');
+          return prev + 0.8;
+        }
+        return prev;
+      });
+    }, 200);
 
     try {
       let payload: { filename?: string; sqlContent?: string; createSafetySnapshot: boolean };
@@ -217,6 +255,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
           createSafetySnapshot,
         };
       } else if (restoreTarget.type === 'upload' && restoreTarget.file) {
+        setRestoreStepName('Leyendo contenido del archivo SQL local...');
         const sqlText = await restoreTarget.file.text();
         payload = {
           sqlContent: sqlText,
@@ -238,11 +277,17 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
         throw new Error(data.message || 'Error durante la restauración de la base de datos');
       }
 
+      clearInterval(interval);
+      setRestoreProgress(100);
+      setRestoreStepIndex(5);
+      setRestoreStepName('¡Restauración y verificación completadas con éxito!');
       setRestoreResult(data);
       await fetchBackups();
     } catch (error) {
+      clearInterval(interval);
       setRestoreError(error instanceof Error ? error.message : 'Error inesperado al restaurar');
     } finally {
+      clearInterval(interval);
       setRestoring(false);
     }
   };
@@ -553,7 +598,83 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
             </div>
 
             <div className="p-5 space-y-4">
-              {!restoreResult ? (
+              {restoring ? (
+                /* Cyberpunk Animated Progress Section */
+                <div className="py-3 space-y-4">
+                  <div className="p-5 rounded-2xl bg-[#040814] border border-cyan-500/40 shadow-[0_0_30px_rgba(6,182,212,0.25)] space-y-4 relative overflow-hidden">
+                    <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee] animate-pulse" />
+
+                    {/* Progress Header */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_10px_#22d3ee] animate-ping" />
+                        <span className="text-xs font-mono font-black text-cyan-300 uppercase tracking-wider">
+                          Ejecutando Restauración
+                        </span>
+                      </div>
+                      <span className="text-base font-mono font-black text-white bg-cyan-950/80 border border-cyan-500/50 px-3 py-0.5 rounded-xl shadow-[0_0_12px_rgba(6,182,212,0.3)]">
+                        {Math.round(restoreProgress)}%
+                      </span>
+                    </div>
+
+                    {/* Glowing Progress Bar */}
+                    <div className="relative w-full h-4 rounded-full bg-slate-950 border border-cyan-500/30 overflow-hidden p-0.5 shadow-inner">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-cyan-500 via-indigo-500 to-emerald-400 shadow-[0_0_18px_rgba(34,211,238,0.9)] transition-all duration-300 relative overflow-hidden"
+                        style={{ width: `${Math.min(Math.max(restoreProgress, 6), 100)}%` }}
+                      >
+                        <div className="absolute inset-0 bg-white/20 animate-pulse" />
+                      </div>
+                    </div>
+
+                    {/* Active Phase Status */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs font-mono text-slate-300 pt-1">
+                      <span className="flex items-center gap-2 text-cyan-300 font-semibold truncate">
+                        <span className="material-symbols-outlined text-[16px] animate-spin text-cyan-400">sync</span>
+                        <span>{restoreStepName || 'Procesando volcado SQL...'}</span>
+                      </span>
+                      <span className="text-slate-400 text-[10px] shrink-0 font-mono">
+                        Fase {Math.min(restoreStepIndex, 4)} de 4
+                      </span>
+                    </div>
+
+                    {/* 4-Stage Visual Pipeline */}
+                    <div className="grid grid-cols-4 gap-2 pt-3 border-t border-cyan-500/15">
+                      {[
+                        { label: '1. Snapshot', icon: 'shield' },
+                        { label: '2. Usuarios', icon: 'group' },
+                        { label: '3. Vaciado', icon: 'delete_sweep' },
+                        { label: '4. Carga SQL', icon: 'database' },
+                      ].map((step, idx) => {
+                        const stepNum = idx + 1;
+                        const isDone = restoreStepIndex > stepNum || restoreProgress === 100;
+                        const isCurrent = restoreStepIndex === stepNum;
+                        return (
+                          <div
+                            key={step.label}
+                            className={`p-2 rounded-xl text-center flex flex-col items-center gap-1 border transition-all ${
+                              isDone
+                                ? 'bg-emerald-950/50 border-emerald-500/50 text-emerald-300'
+                                : isCurrent
+                                ? 'bg-cyan-950/70 border-cyan-400 text-white shadow-[0_0_12px_rgba(6,182,212,0.4)] scale-102'
+                                : 'bg-slate-900/40 border-slate-800 text-slate-400'
+                            }`}
+                          >
+                            <span className={`material-symbols-outlined text-[16px] ${isCurrent ? 'animate-bounce text-cyan-300' : ''}`}>
+                              {isDone ? 'check' : step.icon}
+                            </span>
+                            <span className="text-[10px] font-mono font-bold truncate max-w-full">{step.label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <p className="text-center text-[11px] text-slate-400 font-mono animate-pulse">
+                    ⚠️ Por favor no recargues ni cierres el navegador mientras se completa la operación.
+                  </p>
+                </div>
+              ) : !restoreResult ? (
                 <>
                   <div className="p-3.5 rounded-2xl bg-red-950/25 border border-red-500/30 text-xs text-red-200 leading-relaxed space-y-2">
                     <p className="font-bold flex items-center gap-1.5 text-red-300">
@@ -660,7 +781,12 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
             </div>
 
             <div className="px-5 py-4 border-t border-cyan-500/20 bg-[#0a1022] flex items-center justify-end gap-3">
-              {!restoreResult ? (
+              {restoring ? (
+                <div className="flex items-center gap-2 text-cyan-300 font-mono text-xs py-1">
+                  <span className="material-symbols-outlined text-[18px] animate-spin">sync</span>
+                  <span className="font-bold">Restaurando base de datos ({Math.round(restoreProgress)}%)...</span>
+                </div>
+              ) : !restoreResult ? (
                 <>
                   <button
                     type="button"
@@ -678,9 +804,9 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                     className="bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-black px-5 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-[0_0_20px_rgba(239,68,68,0.4)] disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer active:scale-95 transition-all"
                   >
                     <span className="material-symbols-outlined text-[18px]">
-                      {restoring ? 'sync' : 'database'}
+                      database
                     </span>
-                    <span>{restoring ? 'Restaurando Base de Datos...' : 'Confirmar Restauración Total'}</span>
+                    <span>Confirmar Restauración Total</span>
                   </button>
                 </>
               ) : (
