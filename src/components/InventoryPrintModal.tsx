@@ -355,7 +355,7 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
                           <tr>
                             <td><span class="pallet-badge">${item.palletNumber || 'S/P'}</span></td>
                             <td><strong>${item.year}</strong></td>
-                            <td><strong>${item.model}</strong></td>
+                            <td><strong>${item.model || '—'}</strong></td>
                             <td>
                               <span class="type-badge ${isMotor ? 'type-motor' : 'type-trans'}">
                                 ${item.partType}
@@ -589,7 +589,9 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
                               </span>
                             </td>
                             <td className="py-2 px-3 font-bold text-amber-300">{item.year}</td>
-                            <td className="py-2 px-3 font-bold text-white">{item.model}</td>
+                            <td className="py-2 px-3 font-bold text-white">
+                              {item.model || <span className="text-slate-500 font-normal italic">Sin modelo</span>}
+                            </td>
                             <td className="py-2 px-3">
                               <span
                                 className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${

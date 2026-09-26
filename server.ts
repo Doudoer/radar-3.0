@@ -782,7 +782,7 @@ const server = createServer(async (request, response) => {
       `, [
         payload.year,
         payload.brand,
-        payload.model,
+        payload.model || '',
         payload.partType || 'Motor',
         payload.vin || null,
         payload.palletNumber || null,

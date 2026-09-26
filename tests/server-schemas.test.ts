@@ -206,6 +206,20 @@ describe('server input schemas', () => {
     expect(part.palletNumber).toBe('PAL-104');
     expect(part.engineSpecs).toBe('1.5L Turbo');
     expect(part.notes).toBe('Probado con alternador y compresor');
-    expect(() => inventoryPartSchema.parse({ year: '', brand: 'Chevrolet', model: 'Malibu' })).toThrow();
+
+    // Model is optional (often only year and brand are known)
+    const partWithoutModel = inventoryPartSchema.parse({
+      year: '2020',
+      brand: 'Toyota',
+      partType: 'Motor',
+      engineSpecs: '1.6L',
+    });
+    expect(partWithoutModel.year).toBe('2020');
+    expect(partWithoutModel.brand).toBe('Toyota');
+    expect(partWithoutModel.model).toBe('');
+    expect(partWithoutModel.engineSpecs).toBe('1.6L');
+
+    expect(() => inventoryPartSchema.parse({ year: '', brand: 'Chevrolet' })).toThrow();
+    expect(() => inventoryPartSchema.parse({ year: '2019', brand: '' })).toThrow();
   });
 });

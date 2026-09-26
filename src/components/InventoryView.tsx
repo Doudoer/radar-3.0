@@ -237,8 +237,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   // Save Item (Create or Update)
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingItem.year?.trim() || !editingItem.brand?.trim() || !editingItem.model?.trim()) {
-      alert('Por favor completa el Año, la Marca y el Modelo de la pieza.');
+    if (!editingItem.year?.trim() || !editingItem.brand?.trim()) {
+      alert('Por favor selecciona primero el Año y luego la Marca.');
       return;
     }
 
@@ -574,7 +574,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       <td className="py-3 px-4 font-black text-white">{item.brand}</td>
 
                       {/* Model */}
-                      <td className="py-3 px-4 font-bold text-slate-200">{item.model}</td>
+                      <td className="py-3 px-4 font-bold text-slate-200">
+                        {item.model || <span className="text-slate-500 font-normal italic">Sin modelo</span>}
+                      </td>
 
                       {/* Part Type & Specs (Motor with Liters / Transmission with Traction) */}
                       <td className="py-3 px-4">
@@ -780,30 +782,29 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   )}
                 </div>
 
-                {/* 3. Modelo */}
+                {/* 3. Modelo (Opcional) */}
                 <div>
-                  <label className="text-[11px] text-slate-300 font-bold block mb-1">
-                    Modelo <span className="text-red-400">*</span>
+                  <label className="text-[11px] text-slate-300 font-bold block mb-1 flex items-center justify-between">
+                    <span>Modelo</span>
+                    <span className="text-slate-500 font-normal text-[10px]">(Opcional)</span>
                   </label>
                   {manualVehicleInput ? (
                     <input
                       type="text"
-                      required
                       value={editingItem.model || ''}
                       onChange={(e) => setEditingItem({ ...editingItem, model: e.target.value })}
-                      placeholder="Ej: Silverado 1500, F-150, Camry..."
+                      placeholder="Ej: Silverado 1500, F-150, Camry... (Opcional)"
                       className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-xs"
                     />
                   ) : (
                     <select
-                      required
                       disabled={!editingItem.brand}
                       value={editingItem.model || ''}
                       onChange={(e) => handleModelChange(e.target.value)}
                       className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-xs"
                     >
                       <option value="">
-                        {editingItem.brand ? 'Selecciona modelo' : 'Primero selecciona marca'}
+                        {editingItem.brand ? 'Sin modelo específico (Opcional)' : 'Primero selecciona marca'}
                       </option>
                       {editingItem.model && !modelOptions.includes(editingItem.model) && (
                         <option value={editingItem.model}>{editingItem.model}</option>
@@ -875,11 +876,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                         type="text"
                         value={editingItem.engineSpecs || ''}
                         onChange={(e) => setEditingItem({ ...editingItem, engineSpecs: e.target.value })}
-                        placeholder="Ej: 1.5L, 2.0L, 5.3L V8..."
+                        placeholder="Ej: 1.5L, 1.6L, 2.0L, 5.3L V8..."
                         className="w-full bg-[#070e1c] border border-emerald-500/40 rounded-xl p-2.5 text-emerald-200 font-mono font-bold focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 text-xs"
                       />
                       <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                        {['1.4L', '1.5L', '1.8L', '2.0L', '2.4L', '2.5L', '3.0L', '3.5L', '3.6L', '4.0L', '5.0L', '5.3L', '5.7L', '6.2L', '6.7L'].map((lit) => (
+                        {['1.4L', '1.5L', '1.6L', '1.8L', '2.0L', '2.4L', '2.5L', '3.0L', '3.5L', '3.6L', '4.0L', '5.0L', '5.3L', '5.7L', '6.0L', '6.2L', '6.6L', '6.7L'].map((lit) => (
                           <button
                             key={lit}
                             type="button"

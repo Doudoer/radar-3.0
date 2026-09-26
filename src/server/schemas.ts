@@ -184,7 +184,7 @@ export const backupRestoreSchema = z.object({
 export const inventoryPartSchema = z.object({
   year: z.string().trim().min(1, 'El año es requerido').max(50),
   brand: z.string().trim().min(1, 'La marca es requerida').max(100),
-  model: z.string().trim().min(1, 'El modelo es requerido').max(100),
+  model: z.string().trim().max(100).optional().nullable().default(''),
   partType: z.string().trim().min(1, 'El tipo de pieza es requerido').max(100).default('Motor'),
   vin: z.string().trim().max(50).optional().nullable(),
   palletNumber: z.string().trim().max(50).optional().nullable(),
