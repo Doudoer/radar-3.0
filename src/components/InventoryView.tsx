@@ -20,11 +20,13 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'Motor' | 'Transmisión'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'disponible' | 'reservado' | 'vendido'>('all');
 
   // Modal / Editor State
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<'create' | 'edit'>('create');
   const [editingItem, setEditingItem] = useState<Partial<InventoryPart>>({});
+  const [manualVehicleInput, setManualVehicleInput] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // VIN Decode Status
@@ -35,11 +37,13 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<InventoryPart | null>(null);
 
   // Quick suggestion constants
-  const COMMON_LITERS = [
-    '1.4L', '1.5L', '1.6L', '1.8L', '2.0L', '2.4L', '2.5L', '3.0L',
-    '3.5L', '3.6L', '4.0L', '5.0L', '5.3L', '5.7L', '6.0L', '6.2L', '6.6L', '6.7L'
-  ];
   const COMMON_TRACTIONS = ['4x4', '4x2', 'FWD', 'AWD', 'RWD'] as const;
+  const COMMON_STATUSES = [
+    { value: 'disponible', label: 'Disponible', color: 'emerald', bg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' },
+    { value: 'reservado', label: 'Reservado', color: 'amber', bg: 'bg-amber-500/20 text-amber-300 border-amber-500/40' },
+    { value: 'vendido', label: 'Vendido', color: 'blue', bg: 'bg-blue-500/20 text-blue-300 border-blue-500/40' },
+    { value: 'en_revision', label: 'En Revisión', color: 'purple', bg: 'bg-purple-500/20 text-purple-300 border-purple-500/40' },
+  ] as const;
 
   // Cascading vehicle options
   const yearOptions = useMemo(
@@ -49,10 +53,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const makeOptions = useMemo(() => Object.keys(MAKE_MODEL_MAP).sort(), []);
   const modelOptions = useMemo(
     () =>
-      editingItem.year && editingItem.brand
+      editingItem.brand
         ? MAKE_MODEL_MAP[editingItem.brand] || []
         : [],
-    [editingItem.year, editingItem.brand]
+    [editingItem.brand]
   );
 
   const resolveCatalogMake = (make: string) =>
@@ -62,17 +66,19 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     setEditingItem((prev) => ({
       ...prev,
       year: yearVal,
-      brand: '',
-      model: '',
+      ...(editorMode === 'create' ? { brand: '', model: '' } : {}),
     }));
   };
 
   const handleBrandChange = (brandVal: string) => {
-    setEditingItem((prev) => ({
-      ...prev,
-      brand: brandVal,
-      model: '',
-    }));
+    setEditingItem((prev) => {
+      const isCurrentModelValid = prev.model && MAKE_MODEL_MAP[brandVal]?.includes(prev.model);
+      return {
+        ...prev,
+        brand: brandVal,
+        model: isCurrentModelValid ? prev.model : '',
+      };
+    });
   };
 
   const handleModelChange = (modelVal: string) => {
@@ -150,14 +156,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     const total = items.length;
     const motors = items.filter((i) => (i.partType || '').toLowerCase().includes('motor')).length;
     const transmissions = items.filter((i) => (i.partType || '').toLowerCase().includes('transmi')).length;
+    const available = items.filter((i) => (i.status || 'disponible').toLowerCase() === 'disponible').length;
     const uniquePallets = new Set(items.map((i) => i.palletNumber).filter(Boolean)).size;
-    return { total, motors, transmissions, uniquePallets };
+    return { total, motors, transmissions, available, uniquePallets };
   }, [items]);
 
   // Filtered items
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
       if (typeFilter !== 'all' && item.partType !== typeFilter) return false;
+      if (statusFilter !== 'all' && (item.status || 'disponible').toLowerCase() !== statusFilter) return false;
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
         const matchBrand = item.brand?.toLowerCase().includes(query);
@@ -168,6 +176,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         const matchPallet = item.palletNumber?.toLowerCase().includes(query);
         const matchSpecs = item.engineSpecs?.toLowerCase().includes(query);
         const matchNotes = item.notes?.toLowerCase().includes(query);
+        const matchStatus = item.status?.toLowerCase().includes(query);
         if (
           !matchBrand &&
           !matchModel &&
@@ -176,18 +185,20 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           !matchVin &&
           !matchPallet &&
           !matchSpecs &&
-          !matchNotes
+          !matchNotes &&
+          !matchStatus
         ) {
           return false;
         }
       }
       return true;
     });
-  }, [items, typeFilter, searchQuery]);
+  }, [items, typeFilter, statusFilter, searchQuery]);
 
   // Open Create Form
   const handleOpenCreate = () => {
     setEditorMode('create');
+    setManualVehicleInput(false);
     setEditingItem({
       year: '',
       brand: '',
@@ -196,6 +207,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       engineSpecs: '',
       vin: '',
       palletNumber: '',
+      status: 'disponible',
       notes: '',
     });
     setVinDecodeStatus('idle');
@@ -206,7 +218,15 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   // Open Edit Form
   const handleOpenEdit = (item: InventoryPart) => {
     setEditorMode('edit');
-    setEditingItem({ ...item });
+    const isCustom = Boolean(
+      (item.brand && !MAKE_MODEL_MAP[item.brand]) ||
+      (item.brand && item.model && !MAKE_MODEL_MAP[item.brand]?.includes(item.model))
+    );
+    setManualVehicleInput(isCustom);
+    setEditingItem({
+      ...item,
+      status: (item.status || 'disponible').toLowerCase(),
+    });
     setVinDecodeStatus('idle');
     setVinDecodeMessage('');
     setIsEditorOpen(true);
@@ -216,7 +236,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingItem.year?.trim() || !editingItem.brand?.trim() || !editingItem.model?.trim()) {
-      alert('Por favor selecciona primero el Año, luego la Marca y de último el Modelo.');
+      alert('Por favor completa el Año, la Marca y el Modelo de la pieza.');
       return;
     }
 
@@ -229,7 +249,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       } else if (editingItem.id) {
         const updated = await inventoryApi.update(editingItem.id, editingItem);
         setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
-        showToast('Pieza actualizada.');
+        showToast(`Pieza #${editingItem.id} actualizada con éxito.`);
       }
       setIsEditorOpen(false);
     } catch (err: any) {
@@ -271,6 +291,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     onOpenNewOrderWithPart(prefill);
   };
 
+  const getStatusBadge = (status?: string) => {
+    const s = (status || 'disponible').toLowerCase();
+    const config = COMMON_STATUSES.find((st) => st.value === s) || COMMON_STATUSES[0];
+    return (
+      <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold font-mono uppercase border ${config.bg}`}>
+        {config.label}
+      </span>
+    );
+  };
+
   return (
     <div className="space-y-5 animate-fade-in text-slate-100 font-sans pb-10">
       {/* Toast Notification */}
@@ -295,7 +325,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 Inventario de Piezas
               </h1>
               <p className="text-xs text-slate-400 font-mono mt-0.5">
-                Registro simple de Motores y Transmisiones por Año, Marca, Modelo, VIN y Paleta
+                Control y edición de Motores y Transmisiones por Año, Marca, Modelo, VIN, Paleta y Estado
               </p>
             </div>
           </div>
@@ -370,7 +400,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       </div>
 
       {/* Filter & Search Toolbar */}
-      <div className="rounded-2xl bg-[#060b17] border border-cyan-500/20 p-3 sm:p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-lg">
+      <div className="rounded-2xl bg-[#060b17] border border-cyan-500/20 p-3 sm:p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shadow-lg">
         {/* Search */}
         <div className="relative flex-1">
           <span className="absolute left-3.5 top-1/2 -translate-y-1/2 material-symbols-outlined text-[18px] text-cyan-400 pointer-events-none">
@@ -380,7 +410,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Buscar por Año, Marca, Modelo, VIN o Paleta..."
+            placeholder="Buscar por Año, Marca, Modelo, VIN, Paleta o Notas..."
             className="w-full pl-10 pr-9 py-2.5 bg-[#03060f] border border-cyan-500/30 rounded-xl text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:shadow-[0_0_15px_rgba(6,182,212,0.25)] transition-all"
           />
           {searchQuery && (
@@ -395,30 +425,61 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
 
         {/* Filter Pills */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          {(
-            [
-              { id: 'all', label: 'Todas las Piezas' },
-              { id: 'Motor', label: 'Motores' },
-              { id: 'Transmisión', label: 'Transmisiones' },
-            ] as const
-          ).map((filter) => {
-            const isActive = typeFilter === filter.id;
-            return (
-              <button
-                key={filter.id}
-                type="button"
-                onClick={() => setTypeFilter(filter.id)}
-                className={`px-3 py-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer ${
-                  isActive
-                    ? 'bg-cyan-500/30 border border-cyan-400 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.3)]'
-                    : 'bg-[#03060f] border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
-                }`}
-              >
-                {filter.label}
-              </button>
-            );
-          })}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Type Filter */}
+          <div className="flex items-center gap-1 bg-[#03060f] p-1 rounded-xl border border-slate-800">
+            {(
+              [
+                { id: 'all', label: 'Todos' },
+                { id: 'Motor', label: 'Motores' },
+                { id: 'Transmisión', label: 'Transmisiones' },
+              ] as const
+            ).map((filter) => {
+              const isActive = typeFilter === filter.id;
+              return (
+                <button
+                  key={filter.id}
+                  type="button"
+                  onClick={() => setTypeFilter(filter.id)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-cyan-500/30 border border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.3)]'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {filter.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Status Filter */}
+          <div className="flex items-center gap-1 bg-[#03060f] p-1 rounded-xl border border-slate-800">
+            {(
+              [
+                { id: 'all', label: 'Todos' },
+                { id: 'disponible', label: 'Disponibles' },
+                { id: 'reservado', label: 'Reservados' },
+                { id: 'vendido', label: 'Vendidos' },
+              ] as const
+            ).map((filter) => {
+              const isActive = statusFilter === filter.id;
+              return (
+                <button
+                  key={filter.id}
+                  type="button"
+                  onClick={() => setStatusFilter(filter.id)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-emerald-500/30 border border-emerald-400 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {filter.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -472,6 +533,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   <th className="py-3 px-4">Modelo</th>
                   <th className="py-3 px-4">Tipo de Pieza</th>
                   <th className="py-3 px-4">VIN</th>
+                  <th className="py-3 px-4">Estado</th>
                   <th className="py-3 px-4 text-center">Acciones</th>
                 </tr>
               </thead>
@@ -479,7 +541,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 {filteredItems.map((item) => {
                   const isMotor = (item.partType || '').toLowerCase().includes('motor');
                   return (
-                    <tr key={item.id} className="hover:bg-cyan-500/5 transition-colors">
+                    <tr
+                      key={item.id}
+                      onDoubleClick={() => handleOpenEdit(item)}
+                      className="hover:bg-cyan-500/5 transition-colors cursor-pointer"
+                      title="Doble clic para editar esta pieza"
+                    >
                       {/* Pallet # */}
                       <td className="py-3 px-4">
                         <span className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-[0_0_10px_rgba(59,130,246,0.2)]">
@@ -540,9 +607,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                         {item.vin || '—'}
                       </td>
 
+                      {/* Status */}
+                      <td className="py-3 px-4">
+                        {getStatusBadge(item.status)}
+                      </td>
+
                       {/* Actions */}
                       <td className="py-3 px-4 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
+                        <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             onClick={() => handleConvertToOrder(item)}
@@ -556,10 +628,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                           <button
                             type="button"
                             onClick={() => handleOpenEdit(item)}
-                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 transition-colors cursor-pointer"
+                            className="px-2.5 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 hover:text-amber-200 border border-amber-500/30 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer hover:scale-105"
                             title="Editar pieza"
                           >
-                            <span className="material-symbols-outlined text-[16px]">edit</span>
+                            <span className="material-symbols-outlined text-[14px]">edit</span>
+                            <span className="hidden sm:inline">Editar</span>
                           </button>
 
                           <button
@@ -581,31 +654,44 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
       )}
 
-      {/* Editor Modal */}
+      {/* Editor Modal (Create or Edit) */}
       {isEditorOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in">
           <div className="relative w-full max-w-lg rounded-3xl bg-[#070c18] border border-cyan-500/40 shadow-[0_20px_60px_rgba(0,0,0,0.9)] p-5 sm:p-6 text-slate-100 max-h-[92vh] overflow-y-auto">
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-4 border-b border-cyan-500/20">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-emerald-500 flex items-center justify-center text-slate-950 font-black shadow-[0_0_15px_rgba(6,182,212,0.4)]">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-slate-950 font-black shadow-[0_0_15px_rgba(6,182,212,0.4)] ${
+                  editorMode === 'create'
+                    ? 'bg-gradient-to-br from-cyan-500 to-emerald-500'
+                    : 'bg-gradient-to-br from-amber-400 to-amber-600'
+                }`}>
                   <span className="material-symbols-outlined text-[20px]">
                     {editorMode === 'create' ? 'add_circle' : 'edit'}
                   </span>
                 </div>
                 <div>
-                  <h2 className="text-base font-black text-white uppercase tracking-wide">
-                    {editorMode === 'create' ? 'Registrar Pieza' : 'Editar Pieza'}
-                  </h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-black text-white uppercase tracking-wide">
+                      {editorMode === 'create' ? 'Registrar Pieza' : 'Editar Pieza'}
+                    </h2>
+                    {editorMode === 'edit' && editingItem.id && (
+                      <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-mono font-bold">
+                        #{editingItem.id}
+                      </span>
+                    )}
+                  </div>
                   <span className="text-[11px] font-mono text-slate-400">
-                    Datos requeridos y especificaciones de inventario
+                    {editorMode === 'create'
+                      ? 'Datos requeridos y especificaciones de inventario'
+                      : 'Modifica cualquier dato, especificación o estado de la pieza'}
                   </span>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setIsEditorOpen(false)}
-                className="p-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                className="p-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
               >
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
@@ -613,8 +699,22 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
             {/* Form */}
             <form onSubmit={handleSaveItem} className="space-y-4 mt-4 font-mono text-xs">
+              {/* Toggle manual vs catalog */}
+              <div className="flex items-center justify-end">
+                <button
+                  type="button"
+                  onClick={() => setManualVehicleInput(!manualVehicleInput)}
+                  className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[14px]">
+                    {manualVehicleInput ? 'list' : 'edit_note'}
+                  </span>
+                  <span>{manualVehicleInput ? 'Usar catálogo de marcas' : 'Escribir marca/modelo manual'}</span>
+                </button>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                {/* 1. Año (Cascading Step 1) */}
+                {/* 1. Año */}
                 <div>
                   <label className="text-[11px] text-slate-300 font-bold block mb-1">
                     Año <span className="text-red-400">*</span>
@@ -632,52 +732,74 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   </select>
                 </div>
 
-                {/* 2. Marca (Cascading Step 2: Enabled after Año) */}
+                {/* 2. Marca */}
                 <div>
                   <label className="text-[11px] text-slate-300 font-bold block mb-1">
                     Marca <span className="text-red-400">*</span>
                   </label>
-                  <select
-                    required
-                    disabled={!editingItem.year}
-                    value={editingItem.brand || ''}
-                    onChange={(e) => handleBrandChange(e.target.value)}
-                    className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-xs"
-                  >
-                    <option value="">
-                      {editingItem.year ? 'Selecciona marca' : 'Primero selecciona año'}
-                    </option>
-                    {editingItem.brand && !makeOptions.includes(editingItem.brand) && (
-                      <option value={editingItem.brand}>{editingItem.brand}</option>
-                    )}
-                    {makeOptions.map((make) => (
-                      <option key={make} value={make}>{make}</option>
-                    ))}
-                  </select>
+                  {manualVehicleInput ? (
+                    <input
+                      type="text"
+                      required
+                      value={editingItem.brand || ''}
+                      onChange={(e) => setEditingItem({ ...editingItem, brand: e.target.value })}
+                      placeholder="Ej: Chevrolet, Ford, Toyota..."
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-xs"
+                    />
+                  ) : (
+                    <select
+                      required
+                      disabled={!editingItem.year}
+                      value={editingItem.brand || ''}
+                      onChange={(e) => handleBrandChange(e.target.value)}
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-xs"
+                    >
+                      <option value="">
+                        {editingItem.year ? 'Selecciona marca' : 'Primero selecciona año'}
+                      </option>
+                      {editingItem.brand && !makeOptions.includes(editingItem.brand) && (
+                        <option value={editingItem.brand}>{editingItem.brand}</option>
+                      )}
+                      {makeOptions.map((make) => (
+                        <option key={make} value={make}>{make}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
-                {/* 3. Modelo (Cascading Step 3: Enabled after Marca) */}
+                {/* 3. Modelo */}
                 <div>
                   <label className="text-[11px] text-slate-300 font-bold block mb-1">
                     Modelo <span className="text-red-400">*</span>
                   </label>
-                  <select
-                    required
-                    disabled={!editingItem.brand}
-                    value={editingItem.model || ''}
-                    onChange={(e) => handleModelChange(e.target.value)}
-                    className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-xs"
-                  >
-                    <option value="">
-                      {editingItem.brand ? 'Selecciona modelo' : 'Primero selecciona marca'}
-                    </option>
-                    {editingItem.model && !modelOptions.includes(editingItem.model) && (
-                      <option value={editingItem.model}>{editingItem.model}</option>
-                    )}
-                    {modelOptions.map((model) => (
-                      <option key={model} value={model}>{model}</option>
-                    ))}
-                  </select>
+                  {manualVehicleInput ? (
+                    <input
+                      type="text"
+                      required
+                      value={editingItem.model || ''}
+                      onChange={(e) => setEditingItem({ ...editingItem, model: e.target.value })}
+                      placeholder="Ej: Silverado 1500, F-150, Camry..."
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-xs"
+                    />
+                  ) : (
+                    <select
+                      required
+                      disabled={!editingItem.brand}
+                      value={editingItem.model || ''}
+                      onChange={(e) => handleModelChange(e.target.value)}
+                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-xs"
+                    >
+                      <option value="">
+                        {editingItem.brand ? 'Selecciona modelo' : 'Primero selecciona marca'}
+                      </option>
+                      {editingItem.model && !modelOptions.includes(editingItem.model) && (
+                        <option value={editingItem.model}>{editingItem.model}</option>
+                      )}
+                      {modelOptions.map((model) => (
+                        <option key={model} value={model}>{model}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 {/* 4. Tipo de Pieza (Motor / Transmisión) */}
@@ -818,7 +940,39 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   />
                 </div>
 
-                {/* 8. Nota Extra / Observaciones */}
+                {/* 8. Estado de la Pieza */}
+                <div className="sm:col-span-2">
+                  <label className="text-[11px] text-slate-300 font-bold block mb-1.5 flex items-center justify-between">
+                    <span>Estado del Inventario</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Disponibilidad de la pieza:</span>
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {COMMON_STATUSES.map((statusOption) => {
+                      const isSelected = (editingItem.status || 'disponible').toLowerCase() === statusOption.value;
+                      return (
+                        <button
+                          key={statusOption.value}
+                          type="button"
+                          onClick={() => setEditingItem({ ...editingItem, status: statusOption.value })}
+                          className={`py-2 px-2.5 rounded-xl text-xs font-bold font-mono transition-all cursor-pointer flex items-center justify-center gap-1.5 border ${
+                            isSelected
+                              ? `${statusOption.bg} shadow-[0_0_12px_rgba(6,182,212,0.3)] scale-[1.02]`
+                              : 'bg-[#03060f] border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                          }`}
+                        >
+                          <span className={`w-2 h-2 rounded-full ${
+                            statusOption.value === 'disponible' ? 'bg-emerald-400' :
+                            statusOption.value === 'reservado' ? 'bg-amber-400' :
+                            statusOption.value === 'vendido' ? 'bg-blue-400' : 'bg-purple-400'
+                          }`} />
+                          <span>{statusOption.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 9. Nota Extra / Observaciones */}
                 <div className="sm:col-span-2">
                   <label className="text-[11px] text-slate-300 font-bold block mb-1 flex items-center gap-1.5">
                     <span className="material-symbols-outlined text-[14px] text-cyan-400">notes</span>
