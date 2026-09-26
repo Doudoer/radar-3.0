@@ -281,6 +281,7 @@ export interface InventoryPart {
   partType: string; // 'Motor' | 'Transmisión'
   vin?: string;
   palletNumber?: string;
+  engineSpecs?: string; // Litraje para Motor (ej: "1.5L", "5.3L V8") o Tracción para Transmisión (ej: "4x4", "4x2", "FWD", "AWD", "RWD")
   status?: string;
   notes?: string;
   createdAt?: string;

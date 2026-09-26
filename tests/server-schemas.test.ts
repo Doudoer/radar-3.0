@@ -187,7 +187,7 @@ describe('server input schemas', () => {
     expect(() => wasenderDispatchSchema.parse({ phone: '', message: '' })).toThrow();
   });
 
-  it('validates inventory part schema (year, brand, model, partType, vin, palletNumber)', () => {
+  it('validates inventory part schema (year, brand, model, partType, vin, palletNumber, engineSpecs, notes)', () => {
     const part = inventoryPartSchema.parse({
       year: '2017',
       brand: 'Chevrolet',
@@ -195,6 +195,8 @@ describe('server input schemas', () => {
       partType: 'Motor',
       vin: '1G1BE5SM8H7123456',
       palletNumber: 'PAL-104',
+      engineSpecs: '1.5L Turbo',
+      notes: 'Probado con alternador y compresor',
     });
     expect(part.year).toBe('2017');
     expect(part.brand).toBe('Chevrolet');
@@ -202,6 +204,8 @@ describe('server input schemas', () => {
     expect(part.partType).toBe('Motor');
     expect(part.vin).toBe('1G1BE5SM8H7123456');
     expect(part.palletNumber).toBe('PAL-104');
+    expect(part.engineSpecs).toBe('1.5L Turbo');
+    expect(part.notes).toBe('Probado con alternador y compresor');
     expect(() => inventoryPartSchema.parse({ year: '', brand: 'Chevrolet', model: 'Malibu' })).toThrow();
   });
 });

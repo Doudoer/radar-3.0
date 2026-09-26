@@ -87,6 +87,7 @@ const mapInventoryPartRow = (row: RowDataPacket) => {
     partType: row.part_type || 'Motor',
     vin: row.vin || '',
     palletNumber: row.pallet_number || '',
+    engineSpecs: row.engine_specs || '',
     status: (row.status || 'disponible').toLowerCase(),
     notes: row.notes || '',
     createdAt: row.created_at,
@@ -776,8 +777,8 @@ const server = createServer(async (request, response) => {
       
       const [result] = await pool.execute<ResultSetHeader>(`
         INSERT INTO inventory_parts (
-          year, brand, model, part_type, vin, pallet_number, status, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          year, brand, model, part_type, vin, pallet_number, engine_specs, status, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         payload.year,
         payload.brand,
@@ -785,6 +786,7 @@ const server = createServer(async (request, response) => {
         payload.partType || 'Motor',
         payload.vin || null,
         payload.palletNumber || null,
+        payload.engineSpecs || null,
         payload.status || 'disponible',
         payload.notes || null,
       ]);
@@ -814,6 +816,7 @@ const server = createServer(async (request, response) => {
       if (payload.partType !== undefined) { updates.push('part_type = ?'); values.push(payload.partType); }
       if (payload.vin !== undefined) { updates.push('vin = ?'); values.push(payload.vin); }
       if (payload.palletNumber !== undefined) { updates.push('pallet_number = ?'); values.push(payload.palletNumber); }
+      if (payload.engineSpecs !== undefined) { updates.push('engine_specs = ?'); values.push(payload.engineSpecs); }
       if (payload.status !== undefined) { updates.push('status = ?'); values.push(payload.status); }
       if (payload.notes !== undefined) { updates.push('notes = ?'); values.push(payload.notes); }
       

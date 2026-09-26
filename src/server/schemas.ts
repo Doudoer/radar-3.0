@@ -188,6 +188,7 @@ export const inventoryPartSchema = z.object({
   partType: z.string().trim().min(1, 'El tipo de pieza es requerido').max(100).default('Motor'),
   vin: z.string().trim().max(50).optional().nullable(),
   palletNumber: z.string().trim().max(50).optional().nullable(),
+  engineSpecs: z.string().trim().max(150).optional().nullable(),
   status: z.string().max(40).optional().default('disponible'),
   notes: z.string().max(5000).optional().nullable(),
 });
