@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { InventoryPart, PrefillOrderData } from '../types';
 import { inventoryApi } from '../services/inventoryApi';
 import { MAKE_MODEL_MAP } from '../data/vehicleData';
+import { InventoryPrintModal } from './InventoryPrintModal';
 
 interface InventoryViewProps {
   onOpenNewOrderWithPart?: (prefill: PrefillOrderData) => void;
@@ -24,6 +25,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   // Modal / Editor State
   const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<'create' | 'edit'>('create');
   const [editingItem, setEditingItem] = useState<Partial<InventoryPart>>({});
   const [manualVehicleInput, setManualVehicleInput] = useState(false);
@@ -330,7 +332,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 flex-wrap justify-end">
             <button
               type="button"
               onClick={fetchInventory}
@@ -342,6 +344,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 sync
               </span>
               <span className="hidden sm:inline">Actualizar</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsPrintModalOpen(true)}
+              disabled={loading || items.length === 0}
+              className="px-3.5 py-2.5 rounded-xl bg-[#0a1224] hover:bg-[#121f3a] text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold transition-all flex items-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.15)] hover:border-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98]"
+              title="Imprimir reporte de inventario clasificado y ordenado por marcas"
+            >
+              <span className="material-symbols-outlined text-[18px] text-cyan-400">print</span>
+              <span>Imprimir por Marcas</span>
             </button>
 
             <button
@@ -1058,6 +1071,13 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Inventory Print & Report Modal (Grouped by Brands) */}
+      <InventoryPrintModal
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+        items={items}
+      />
     </div>
   );
 };
