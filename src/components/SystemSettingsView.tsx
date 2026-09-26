@@ -569,20 +569,21 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
 
       {/* Confirmation & Rollback Modal */}
       {isRestoreModalOpen && restoreTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/85 backdrop-blur-xl animate-fade-in">
-          <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-red-500/40 rounded-3xl w-full max-w-xl shadow-[0_20px_60px_rgba(239,68,68,0.35)] overflow-hidden flex flex-col text-xs text-slate-300 relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in overflow-y-auto">
+          <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-red-500/40 rounded-2xl w-full max-w-lg max-h-[90vh] shadow-[0_15px_50px_rgba(239,68,68,0.3)] overflow-hidden flex flex-col text-xs text-slate-300 relative my-auto">
             <div className="h-[2px] bg-gradient-to-r from-transparent via-red-400 to-transparent shadow-[0_0_12px_#ef4444] absolute top-0 inset-x-0" />
 
-            <div className="px-5 py-4 border-b border-red-500/20 bg-red-950/30 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400">
-                  <span className="material-symbols-outlined text-[20px]">warning</span>
+            {/* Modal Header */}
+            <div className="px-4 py-2.5 border-b border-red-500/20 bg-red-950/30 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-lg bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 shrink-0">
+                  <span className="material-symbols-outlined text-[16px]">warning</span>
                 </div>
                 <div>
-                  <h3 className="font-black text-white text-sm tracking-wide uppercase font-mono">
-                    Confirmación Crítica: Restauración de Base de Datos
+                  <h3 className="font-black text-white text-xs sm:text-sm tracking-wide uppercase font-mono leading-tight">
+                    Restauración de Base de Datos
                   </h3>
-                  <span className="text-[10px] text-red-300/80 font-mono">Acción exclusiva para Super Administrador</span>
+                  <span className="text-[9px] text-red-300/80 font-mono">Exclusivo Super Administrador</span>
                 </div>
               </div>
 
@@ -590,37 +591,38 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsRestoreModalOpen(false)}
-                  className="text-slate-400 hover:text-white p-1 rounded-lg"
+                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
                 >
                   <span className="material-symbols-outlined text-[18px]">close</span>
                 </button>
               )}
             </div>
 
-            <div className="p-5 space-y-4">
+            {/* Modal Body */}
+            <div className="p-3.5 sm:p-4 space-y-2.5 overflow-y-auto custom-scrollbar flex-1">
               {restoring ? (
                 /* Cyberpunk Animated Progress Section */
-                <div className="py-3 space-y-4">
-                  <div className="p-5 rounded-2xl bg-[#040814] border border-cyan-500/40 shadow-[0_0_30px_rgba(6,182,212,0.25)] space-y-4 relative overflow-hidden">
+                <div className="space-y-2.5">
+                  <div className="p-3.5 rounded-xl bg-[#040814] border border-cyan-500/40 shadow-[0_0_25px_rgba(6,182,212,0.2)] space-y-2.5 relative overflow-hidden">
                     <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee] animate-pulse" />
 
                     {/* Progress Header */}
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_10px_#22d3ee] animate-ping" />
-                        <span className="text-xs font-mono font-black text-cyan-300 uppercase tracking-wider">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee] animate-ping" />
+                        <span className="text-[10px] font-mono font-black text-cyan-300 uppercase tracking-wider">
                           Ejecutando Restauración
                         </span>
                       </div>
-                      <span className="text-base font-mono font-black text-white bg-cyan-950/80 border border-cyan-500/50 px-3 py-0.5 rounded-xl shadow-[0_0_12px_rgba(6,182,212,0.3)]">
+                      <span className="text-xs font-mono font-black text-white bg-cyan-950/80 border border-cyan-500/50 px-2 py-0.5 rounded-md shadow-[0_0_8px_rgba(6,182,212,0.3)]">
                         {Math.round(restoreProgress)}%
                       </span>
                     </div>
 
                     {/* Glowing Progress Bar */}
-                    <div className="relative w-full h-4 rounded-full bg-slate-950 border border-cyan-500/30 overflow-hidden p-0.5 shadow-inner">
+                    <div className="relative w-full h-2.5 rounded-full bg-slate-950 border border-cyan-500/30 overflow-hidden p-0.5 shadow-inner">
                       <div
-                        className="h-full rounded-full bg-gradient-to-r from-cyan-500 via-indigo-500 to-emerald-400 shadow-[0_0_18px_rgba(34,211,238,0.9)] transition-all duration-300 relative overflow-hidden"
+                        className="h-full rounded-full bg-gradient-to-r from-cyan-500 via-indigo-500 to-emerald-400 shadow-[0_0_12px_rgba(34,211,238,0.9)] transition-all duration-300 relative overflow-hidden"
                         style={{ width: `${Math.min(Math.max(restoreProgress, 6), 100)}%` }}
                       >
                         <div className="absolute inset-0 bg-white/20 animate-pulse" />
@@ -628,23 +630,23 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                     </div>
 
                     {/* Active Phase Status */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs font-mono text-slate-300 pt-1">
-                      <span className="flex items-center gap-2 text-cyan-300 font-semibold truncate">
-                        <span className="material-symbols-outlined text-[16px] animate-spin text-cyan-400">sync</span>
-                        <span>{restoreStepName || 'Procesando volcado SQL...'}</span>
+                    <div className="flex items-center justify-between text-[10.5px] font-mono text-slate-300">
+                      <span className="flex items-center gap-1 text-cyan-300 font-semibold truncate">
+                        <span className="material-symbols-outlined text-[13px] animate-spin text-cyan-400">sync</span>
+                        <span className="truncate">{restoreStepName || 'Procesando volcado SQL...'}</span>
                       </span>
-                      <span className="text-slate-400 text-[10px] shrink-0 font-mono">
-                        Fase {Math.min(restoreStepIndex, 4)} de 4
+                      <span className="text-slate-400 text-[9.5px] shrink-0 font-mono ml-2">
+                        Fase {Math.min(restoreStepIndex, 4)}/4
                       </span>
                     </div>
 
                     {/* 4-Stage Visual Pipeline */}
-                    <div className="grid grid-cols-4 gap-2 pt-3 border-t border-cyan-500/15">
+                    <div className="grid grid-cols-4 gap-1.5 pt-1.5 border-t border-cyan-500/15">
                       {[
-                        { label: '1. Snapshot', icon: 'shield' },
-                        { label: '2. Usuarios', icon: 'group' },
-                        { label: '3. Vaciado', icon: 'delete_sweep' },
-                        { label: '4. Carga SQL', icon: 'database' },
+                        { label: 'Snapshot', icon: 'shield' },
+                        { label: 'Usuarios', icon: 'group' },
+                        { label: 'Vaciado', icon: 'delete_sweep' },
+                        { label: 'Carga SQL', icon: 'database' },
                       ].map((step, idx) => {
                         const stepNum = idx + 1;
                         const isDone = restoreStepIndex > stepNum || restoreProgress === 100;
@@ -652,78 +654,67 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                         return (
                           <div
                             key={step.label}
-                            className={`p-2 rounded-xl text-center flex flex-col items-center gap-1 border transition-all ${
+                            className={`p-1 rounded-md text-center flex flex-col items-center gap-0.5 border transition-all ${
                               isDone
                                 ? 'bg-emerald-950/50 border-emerald-500/50 text-emerald-300'
                                 : isCurrent
-                                ? 'bg-cyan-950/70 border-cyan-400 text-white shadow-[0_0_12px_rgba(6,182,212,0.4)] scale-102'
+                                ? 'bg-cyan-950/70 border-cyan-400 text-white shadow-[0_0_8px_rgba(6,182,212,0.4)]'
                                 : 'bg-slate-900/40 border-slate-800 text-slate-400'
                             }`}
                           >
-                            <span className={`material-symbols-outlined text-[16px] ${isCurrent ? 'animate-bounce text-cyan-300' : ''}`}>
+                            <span className={`material-symbols-outlined text-[12px] ${isCurrent ? 'animate-bounce text-cyan-300' : ''}`}>
                               {isDone ? 'check' : step.icon}
                             </span>
-                            <span className="text-[10px] font-mono font-bold truncate max-w-full">{step.label}</span>
+                            <span className="text-[8.5px] font-mono font-bold truncate max-w-full">{step.label}</span>
                           </div>
                         );
                       })}
                     </div>
                   </div>
 
-                  <p className="text-center text-[11px] text-slate-400 font-mono animate-pulse">
-                    ⚠️ Por favor no recargues ni cierres el navegador mientras se completa la operación.
+                  <p className="text-center text-[9.5px] text-slate-400 font-mono animate-pulse">
+                    ⚠️ No recargues ni cierres la pestaña mientras se ejecuta la restauración.
                   </p>
                 </div>
               ) : !restoreResult ? (
                 <>
-                  <div className="p-3.5 rounded-2xl bg-red-950/25 border border-red-500/30 text-xs text-red-200 leading-relaxed space-y-2">
-                    <p className="font-bold flex items-center gap-1.5 text-red-300">
-                      <span className="material-symbols-outlined text-[16px]">report</span>
-                      ¡ADVERTENCIA DE SOBREESCRITURA DE DATOS!
+                  <div className="p-2.5 rounded-xl bg-red-950/25 border border-red-500/30 text-[10.5px] text-red-200 leading-snug space-y-1">
+                    <p className="font-bold flex items-center gap-1 text-red-300 text-xs">
+                      <span className="material-symbols-outlined text-[14px]">report</span>
+                      ¡ADVERTENCIA DE SOBREESCRITURA!
                     </p>
-                    <p>
-                      El sistema realizará la restauración en 2 fases automáticas:
+                    <p className="text-[10px] text-slate-300">
+                      Se vaciarán todas las tablas operativas a cero, <strong className="text-emerald-300">conservando usuarios y claves</strong>, y luego se importará:
                     </p>
-                    <ol className="list-decimal list-inside space-y-1 text-[11px] text-slate-300 pl-1">
-                      <li>
-                        <strong>Vaciado Total:</strong> Se dejarán en blanco todas las tablas de la base de datos (órdenes, clientes, reclamos, etc.), <strong className="text-emerald-300">conservando intactos los usuarios y contraseñas</strong>.
-                      </li>
-                      <li>
-                        <strong>Carga Limpia:</strong> Se importarán y ejecutarán los registros del archivo de respaldo seleccionado.
-                      </li>
-                    </ol>
-                    <div className="p-2 bg-[#040814] rounded-xl border border-red-500/20 font-mono text-cyan-300 text-[11px] flex justify-between items-center mt-2">
+                    <div className="p-1.5 bg-[#040814] rounded-lg border border-red-500/20 font-mono text-cyan-300 text-[9.5px] flex justify-between items-center mt-0.5">
                       <span className="truncate">{restoreTarget.label}</span>
                       <span className="font-bold text-white shrink-0 ml-2">({restoreTarget.size})</span>
                     </div>
                   </div>
 
-                  <div className="p-3 bg-[#040814] rounded-xl border border-cyan-500/20 space-y-2">
-                    <label className="flex items-center gap-2.5 text-xs text-slate-200 cursor-pointer select-none">
+                  <div className="p-2 bg-[#040814] rounded-xl border border-cyan-500/20 text-xs">
+                    <label className="flex items-center gap-2 text-[10.5px] text-slate-200 cursor-pointer select-none">
                       <input
                         type="checkbox"
                         checked={createSafetySnapshot}
                         onChange={(e) => setCreateSafetySnapshot(e.target.checked)}
-                        className="rounded border-cyan-500/40 bg-slate-900 text-cyan-500 focus:ring-cyan-400 w-4 h-4 cursor-pointer"
+                        className="rounded border-cyan-500/40 bg-slate-900 text-cyan-500 focus:ring-cyan-400 w-3.5 h-3.5 cursor-pointer"
                       />
                       <span>
-                        Crear punto de restauración previo automático (<strong>Safety Snapshot</strong>) antes de vaciar y aplicar.
+                        Crear punto de restauración previo (<strong>Safety Snapshot</strong>).
                       </span>
                     </label>
-                    <p className="text-[10px] text-slate-400 ml-6.5">
-                      Recomendado: Guarda una copia del estado actual antes del vaciado por si necesitas revertir este cambio.
-                    </p>
                   </div>
 
                   {restoreError && (
-                    <div className="p-3 rounded-xl bg-red-950/40 border border-red-500/40 text-red-300 text-xs font-mono">
+                    <div className="p-2 rounded-lg bg-red-950/40 border border-red-500/40 text-red-300 text-[10.5px] font-mono">
                       Error: {restoreError}
                     </div>
                   )}
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs text-slate-300 block font-mono">
-                      Para confirmar, escribe la palabra <strong className="text-red-400 font-bold">RESTAURAR</strong>:
+                  <div className="space-y-1">
+                    <label className="text-[10.5px] text-slate-300 block font-mono">
+                      Escribe <strong className="text-red-400 font-bold tracking-wider">RESTAURAR</strong> para confirmar:
                     </label>
                     <input
                       type="text"
@@ -731,45 +722,47 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                       onChange={(e) => setConfirmText(e.target.value)}
                       placeholder="RESTAURAR"
                       disabled={restoring}
-                      className="w-full px-3 py-2 rounded-xl bg-[#040814] border border-cyan-500/30 text-white font-mono text-xs focus:outline-none focus:border-red-400"
+                      className="w-full px-3 py-1.5 rounded-lg bg-[#040814] border border-cyan-500/30 text-white font-mono text-xs focus:outline-none focus:border-red-400 uppercase tracking-widest text-center"
                     />
                   </div>
                 </>
               ) : (
-                <div className="py-3 space-y-3">
-                  <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs space-y-2">
-                    <div className="flex items-center gap-2 font-bold text-sm">
-                      <span className="material-symbols-outlined text-[22px]">check_circle</span>
+                <div className="py-1 space-y-2">
+                  <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs space-y-1">
+                    <div className="flex items-center gap-1.5 font-bold text-xs">
+                      <span className="material-symbols-outlined text-[18px]">check_circle</span>
                       <span>{restoreResult.message}</span>
                     </div>
-                    {restoreResult.durationMs && (
-                      <p className="text-[11px] font-mono text-slate-400">
-                        Tiempo de ejecución: <strong className="text-white">{(restoreResult.durationMs / 1000).toFixed(2)}s</strong>
-                      </p>
-                    )}
-                    {restoreResult.clearedTables && restoreResult.clearedTables.length > 0 && (
-                      <p className="text-[11px] font-mono text-slate-400">
-                        Tablas vaciadas previamente: <strong className="text-amber-300">{restoreResult.clearedTables.length} tablas</strong>
-                      </p>
-                    )}
-                    {typeof restoreResult.preservedUsersCount === 'number' && (
-                      <p className="text-[11px] font-mono text-slate-400">
-                        Usuarios y accesos preservados: <strong className="text-emerald-300">{restoreResult.preservedUsersCount} cuentas</strong>
-                      </p>
-                    )}
-                    {restoreResult.safetySnapshot && (
-                      <p className="text-[11px] font-mono text-slate-400">
-                        Punto de seguridad guardado como: <strong className="text-cyan-300">{restoreResult.safetySnapshot}</strong>
-                      </p>
-                    )}
+                    <div className="grid grid-cols-2 gap-1 text-[10px] font-mono text-slate-400 pt-0.5">
+                      {restoreResult.durationMs && (
+                        <p>
+                          Duración: <strong className="text-white">{(restoreResult.durationMs / 1000).toFixed(2)}s</strong>
+                        </p>
+                      )}
+                      {restoreResult.clearedTables && (
+                        <p>
+                          Tablas vaciadas: <strong className="text-amber-300">{restoreResult.clearedTables.length}</strong>
+                        </p>
+                      )}
+                      {typeof restoreResult.preservedUsersCount === 'number' && (
+                        <p>
+                          Usuarios conservados: <strong className="text-emerald-300">{restoreResult.preservedUsersCount}</strong>
+                        </p>
+                      )}
+                      {restoreResult.safetySnapshot && (
+                        <p className="truncate col-span-2">
+                          Safety Snapshot: <strong className="text-cyan-300">{restoreResult.safetySnapshot}</strong>
+                        </p>
+                      )}
+                    </div>
                   </div>
 
                   {restoreResult.restoredTables && restoreResult.restoredTables.length > 0 && (
                     <div>
-                      <span className="text-[11px] font-mono text-slate-400 block mb-1">Tablas cargadas con éxito:</span>
-                      <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-2 bg-[#040814] rounded-xl border border-cyan-500/15 custom-scrollbar">
+                      <span className="text-[9.5px] font-mono text-slate-400 block mb-0.5">Tablas cargadas:</span>
+                      <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto p-1 bg-[#040814] rounded-lg border border-cyan-500/15 custom-scrollbar">
                         {restoreResult.restoredTables.map((tbl) => (
-                          <span key={tbl} className="px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30 text-[9px] font-mono text-emerald-300">
+                          <span key={tbl} className="px-1.5 py-0.2 rounded bg-emerald-950/60 border border-emerald-500/30 text-[8.5px] font-mono text-emerald-300">
                             ✓ {tbl}
                           </span>
                         ))}
@@ -780,11 +773,12 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
               )}
             </div>
 
-            <div className="px-5 py-4 border-t border-cyan-500/20 bg-[#0a1022] flex items-center justify-end gap-3">
+            {/* Modal Footer */}
+            <div className="px-4 py-2.5 border-t border-cyan-500/20 bg-[#0a1022] flex items-center justify-end gap-2 shrink-0">
               {restoring ? (
-                <div className="flex items-center gap-2 text-cyan-300 font-mono text-xs py-1">
-                  <span className="material-symbols-outlined text-[18px] animate-spin">sync</span>
-                  <span className="font-bold">Restaurando base de datos ({Math.round(restoreProgress)}%)...</span>
+                <div className="flex items-center gap-1.5 text-cyan-300 font-mono text-xs py-0.5">
+                  <span className="material-symbols-outlined text-[14px] animate-spin">sync</span>
+                  <span className="font-bold text-[11px]">Restaurando ({Math.round(restoreProgress)}%)...</span>
                 </div>
               ) : !restoreResult ? (
                 <>
@@ -792,7 +786,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                     type="button"
                     onClick={() => setIsRestoreModalOpen(false)}
                     disabled={restoring}
-                    className="px-4 py-2 rounded-xl bg-[#040814] hover:bg-slate-800 text-slate-300 text-xs font-semibold transition-all cursor-pointer"
+                    className="px-3 py-1.5 rounded-lg bg-[#040814] hover:bg-slate-800 text-slate-300 text-xs font-semibold transition-all cursor-pointer"
                   >
                     Cancelar
                   </button>
@@ -801,9 +795,9 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                     type="button"
                     onClick={() => void executeRestore()}
                     disabled={confirmText.trim().toUpperCase() !== 'RESTAURAR' || restoring}
-                    className="bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-black px-5 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-[0_0_20px_rgba(239,68,68,0.4)] disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer active:scale-95 transition-all"
+                    className="bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-black px-3.5 py-1.5 rounded-lg text-xs flex items-center gap-1.5 shadow-[0_0_12px_rgba(239,68,68,0.4)] disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer active:scale-95 transition-all"
                   >
-                    <span className="material-symbols-outlined text-[18px]">
+                    <span className="material-symbols-outlined text-[15px]">
                       database
                     </span>
                     <span>Confirmar Restauración Total</span>
@@ -816,10 +810,10 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                     setIsRestoreModalOpen(false);
                     window.location.reload();
                   }}
-                  className="cyber-btn-primary px-5 py-2.5 text-xs font-black flex items-center gap-2"
+                  className="cyber-btn-primary px-3.5 py-1.5 text-xs font-black flex items-center gap-1"
                 >
-                  <span className="material-symbols-outlined text-[18px]">refresh</span>
-                  <span>Finalizar y Recargar Sistema</span>
+                  <span className="material-symbols-outlined text-[15px]">refresh</span>
+                  <span>Finalizar y Recargar</span>
                 </button>
               )}
             </div>

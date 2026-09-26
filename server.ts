@@ -27,6 +27,8 @@ import {
   wasenderDispatchSchema,
   backupRestoreSchema,
   backupSnapshotCreateSchema,
+  inventoryPartSchema,
+  inventoryPartUpdateSchema,
 } from './src/server/schemas';
 import { readBody, sendJson, serveFrontend } from './src/server/http';
 import { getOrders, mapOrder, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
@@ -73,6 +75,22 @@ const mapCustomerRow = (row: RowDataPacket) => {
     createdAt: row.created_at,
     deleted_at: row.deleted_at,
     order_count: Number(row.order_count || 0),
+  };
+};
+
+const mapInventoryPartRow = (row: RowDataPacket) => {
+  return {
+    id: String(row.id),
+    year: String(row.year || ''),
+    brand: row.brand || '',
+    model: row.model || '',
+    partType: row.part_type || 'Motor',
+    vin: row.vin || '',
+    palletNumber: row.pallet_number || '',
+    status: (row.status || 'disponible').toLowerCase(),
+    notes: row.notes || '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 };
 
@@ -742,17 +760,85 @@ createServer(async (request, response) => {
     }
 
     // ==========================================
-    // LOGISTICS & ACTIVITIES
+    // INVENTORY (HOLD & STOCK PARTS)
     // ==========================================
     if (request.method === 'GET' && pathname === '/api/inventory') {
       const [rows] = await pool.query<RowDataPacket[]>(`
-        SELECT li.*, ll.name AS list_name, o.order_code, o.product_type, o.stock_nr
-        FROM logistics_items li
-        LEFT JOIN logistics_lists ll ON ll.id = li.list_id
-        LEFT JOIN orders o ON o.id = li.order_id
-        ORDER BY li.created_at DESC
+        SELECT * FROM inventory_parts
+        WHERE deleted_at IS NULL
+        ORDER BY created_at DESC
       `);
-      return sendJson(response, 200, rows);
+      return sendJson(response, 200, rows.map(mapInventoryPartRow));
+    }
+
+    if (request.method === 'POST' && pathname === '/api/inventory') {
+      const payload = inventoryPartSchema.parse(await readBody(request));
+      
+      const [result] = await pool.execute<ResultSetHeader>(`
+        INSERT INTO inventory_parts (
+          year, brand, model, part_type, vin, pallet_number, status, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        payload.year,
+        payload.brand,
+        payload.model,
+        payload.partType || 'Motor',
+        payload.vin || null,
+        payload.palletNumber || null,
+        payload.status || 'disponible',
+        payload.notes || null,
+      ]);
+
+      const [createdRows] = await pool.query<RowDataPacket[]>('SELECT * FROM inventory_parts WHERE id = ?', [result.insertId]);
+      return sendJson(response, 201, mapInventoryPartRow(createdRows[0]));
+    }
+
+    const inventoryIdMatch = pathname.match(/^\/api\/inventory\/(\d+)$/);
+    if (inventoryIdMatch && request.method === 'GET') {
+      const partId = Number(inventoryIdMatch[1]);
+      const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM inventory_parts WHERE id = ? AND deleted_at IS NULL', [partId]);
+      if (rows.length === 0) return sendJson(response, 404, { message: 'Pieza de inventario no encontrada' });
+      return sendJson(response, 200, mapInventoryPartRow(rows[0]));
+    }
+
+    if (inventoryIdMatch && request.method === 'PUT') {
+      const partId = Number(inventoryIdMatch[1]);
+      const payload = inventoryPartUpdateSchema.parse(await readBody(request));
+      
+      const updates: string[] = [];
+      const values: any[] = [];
+      
+      if (payload.year !== undefined) { updates.push('year = ?'); values.push(payload.year); }
+      if (payload.brand !== undefined) { updates.push('brand = ?'); values.push(payload.brand); }
+      if (payload.model !== undefined) { updates.push('model = ?'); values.push(payload.model); }
+      if (payload.partType !== undefined) { updates.push('part_type = ?'); values.push(payload.partType); }
+      if (payload.vin !== undefined) { updates.push('vin = ?'); values.push(payload.vin); }
+      if (payload.palletNumber !== undefined) { updates.push('pallet_number = ?'); values.push(payload.palletNumber); }
+      if (payload.status !== undefined) { updates.push('status = ?'); values.push(payload.status); }
+      if (payload.notes !== undefined) { updates.push('notes = ?'); values.push(payload.notes); }
+      
+      if (updates.length > 0) {
+        updates.push('updated_at = CURRENT_TIMESTAMP');
+        values.push(partId);
+        const [result] = await pool.execute<ResultSetHeader>(
+          `UPDATE inventory_parts SET ${updates.join(', ')} WHERE id = ? AND deleted_at IS NULL`,
+          values
+        );
+        if (result.affectedRows === 0) return sendJson(response, 404, { message: 'Pieza de inventario no encontrada' });
+      }
+
+      const [updatedRows] = await pool.query<RowDataPacket[]>('SELECT * FROM inventory_parts WHERE id = ?', [partId]);
+      return sendJson(response, 200, mapInventoryPartRow(updatedRows[0]));
+    }
+
+    if (inventoryIdMatch && request.method === 'DELETE') {
+      const partId = Number(inventoryIdMatch[1]);
+      const [result] = await pool.execute<ResultSetHeader>(
+        'UPDATE inventory_parts SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL',
+        [partId]
+      );
+      if (result.affectedRows === 0) return sendJson(response, 404, { message: 'Pieza no encontrada' });
+      return sendJson(response, 200, { ok: true, id: partId });
     }
 
     if (request.method === 'GET' && pathname === '/api/activities') {

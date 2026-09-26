@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Order, Claim, ClaimCall, RefundRequest, ClaimStatus } from '../types';
 import { apiFetch } from '../services/apiFetch';
 import { ClaimDetailView } from './ClaimDetailView';
+import { RefundRequestView } from './RefundRequestView';
 
 interface ClaimsViewProps {
   orders?: Order[];
@@ -42,9 +43,10 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
   const [priorityFilter, setPriorityFilter] = useState<string>('Todas');
   const [showRefundsDrawer, setShowRefundsDrawer] = useState(true);
 
-  // Modals State
+  // Modals & View State
   const [isNewClaimModalOpen, setIsNewClaimModalOpen] = useState(false);
   const [isNewRefundModalOpen, setIsNewRefundModalOpen] = useState(false);
+  const [selectedOrderForRefund, setSelectedOrderForRefund] = useState<Order | null>(null);
   const [selectedClaimForCalls, setSelectedClaimForCalls] = useState<Claim | null>(null);
   const [selectedClaimDetail, setSelectedClaimDetail] = useState<Claim | null>(null);
   const [isPrintReportModalOpen, setIsPrintReportModalOpen] = useState(false);
@@ -454,6 +456,24 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
       showToast(`Error: ${err.message || 'No se pudo registrar el reembolso'}`);
     }
   };
+
+  if (selectedOrderForRefund) {
+    return (
+      <RefundRequestView
+        order={selectedOrderForRefund}
+        onBack={() => setSelectedOrderForRefund(null)}
+        onUpdateOrder={(updated) => {
+          if (onUpdateOrder) onUpdateOrder(updated);
+          void fetchClaimsAndRefunds();
+        }}
+        onSuccess={(msg) => {
+          showToast(msg);
+          setSelectedOrderForRefund(null);
+          void fetchClaimsAndRefunds();
+        }}
+      />
+    );
+  }
 
   if (selectedClaimDetail) {
     const detailOrder = orders.find((order) => order.id === selectedClaimDetail.orderId || order.code === selectedClaimDetail.orderCode);
@@ -1001,130 +1021,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
         </div>
       </div>
 
-      {/* MODAL: Detalle amplio del reclamo */}
-      {selectedClaimDetail && (() => {
-        const detailOrder = orders.find((order) => order.id === selectedClaimDetail.orderId || order.code === selectedClaimDetail.orderCode);
-        const orderTotal = detailOrder?.financials.total ?? 0;
-        const orderBalance = detailOrder?.financials.balanceDue ?? Math.max(0, orderTotal - (detailOrder?.financials.downPayment ?? 0));
 
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-            <div className="relative rounded-3xl bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 w-full max-w-3xl shadow-[0_20px_60px_rgba(0,0,0,0.8)] flex min-h-0 flex-col overflow-hidden max-h-[calc(100dvh-2rem)]">
-              <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee]" />
-              
-              <div className="p-5 bg-[#040814]/90 border-b border-cyan-500/20 flex shrink-0 items-start justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.3)]">
-                    <span className="material-symbols-outlined text-[22px]">verified_user</span>
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-base font-bold text-white">Detalle de Reclamo</h3>
-                      <span className="font-mono text-xs text-cyan-300 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-500/30">
-                        {selectedClaimDetail.id}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Orden {selectedClaimDetail.orderCode} · {selectedClaimDetail.customerName}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedClaimDetail(null)}
-                  className="p-1 rounded-xl text-slate-400 hover:text-white hover:bg-cyan-500/20 transition-all cursor-pointer"
-                  aria-label="Cerrar modal"
-                >
-                  <span className="material-symbols-outlined text-[20px]">close</span>
-                </button>
-              </div>
-
-              <div className="min-h-0 flex-1 p-6 grid grid-cols-1 gap-5 lg:grid-cols-[1.1fr_0.9fr] overflow-y-auto custom-scrollbar">
-                <div className="flex flex-col gap-4">
-                  <section className="rounded-2xl border border-cyan-500/20 bg-[#040814]/90 p-4">
-                    <h4 className="font-bold text-white flex items-center gap-2 text-sm font-mono uppercase">
-                      <span className="material-symbols-outlined text-cyan-400">inventory_2</span>
-                      Datos de la Orden
-                    </h4>
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-300">
-                      <div><span className="text-slate-400 block text-[10px] font-mono">Código:</span> <strong className="font-mono text-cyan-300">{selectedClaimDetail.orderCode}</strong></div>
-                      <div><span className="text-slate-400 block text-[10px] font-mono">Estatus anterior:</span> <strong className="text-emerald-400 font-mono">{selectedClaimDetail.previousOrderStatus || 'N/A'}</strong></div>
-                      <div><span className="text-slate-400 block text-[10px] font-mono">Vehículo:</span> <strong className="text-white">{selectedClaimDetail.vehicle}</strong></div>
-                      <div><span className="text-slate-400 block text-[10px] font-mono">Pieza:</span> <strong className="text-cyan-300">{selectedClaimDetail.mainPart}</strong></div>
-                      <div><span className="text-slate-400 block text-[10px] font-mono">Total:</span> <strong className="font-mono text-white">${orderTotal.toFixed(2)} USD</strong></div>
-                      <div><span className="text-slate-400 block text-[10px] font-mono">Balance:</span> <strong className="font-mono text-red-400">${orderBalance.toFixed(2)} USD</strong></div>
-                    </div>
-                  </section>
-
-                  <section className="rounded-2xl border border-red-500/25 bg-red-950/15 p-4 shadow-[inset_0_0_15px_rgba(239,68,68,0.15)]">
-                    <h4 className="font-bold text-red-400 flex items-center gap-2 text-sm font-mono uppercase">
-                      <span className="material-symbols-outlined text-red-400">report_problem</span>
-                      Motivo del Reclamo
-                    </h4>
-                    <p className="mt-2 text-xs text-red-200 leading-relaxed">{selectedClaimDetail.claimReason}</p>
-                    <div className="mt-3 grid grid-cols-3 gap-2 text-xs font-mono">
-                      <div className="rounded-xl border border-cyan-500/20 bg-[#040814] p-2 text-center">
-                        <span className="text-slate-400 block text-[10px]">Prioridad</span>
-                        <strong className="text-amber-400">{selectedClaimDetail.priority}</strong>
-                      </div>
-                      <div className="rounded-xl border border-cyan-500/20 bg-[#040814] p-2 text-center">
-                        <span className="text-slate-400 block text-[10px]">Llamadas</span>
-                        <strong className="text-cyan-300">{selectedClaimDetail.callCount || 0}</strong>
-                      </div>
-                      <div className="rounded-xl border border-cyan-500/20 bg-[#040814] p-2 text-center">
-                        <span className="text-slate-400 block text-[10px]">Creado</span>
-                        <strong className="text-slate-200">{new Date(selectedClaimDetail.createdAt).toLocaleDateString('es-ES')}</strong>
-                      </div>
-                    </div>
-                  </section>
-                </div>
-
-                <div className="flex flex-col gap-4">
-                  <section className="rounded-2xl border border-cyan-500/20 bg-[#040814]/90 p-4">
-                    <h4 className="font-bold text-white flex items-center gap-2 text-sm font-mono uppercase">
-                      <span className="material-symbols-outlined text-cyan-400">person</span>
-                      Datos del Cliente
-                    </h4>
-                    <div className="mt-3 flex flex-col gap-2.5 text-xs text-slate-300">
-                      <div><span className="text-slate-400 block text-[10px] font-mono">Nombre:</span> <strong className="text-white text-sm">{selectedClaimDetail.customerName}</strong></div>
-                      <div><span className="text-slate-400 block text-[10px] font-mono">Teléfono:</span> <strong className="font-mono text-cyan-300">{selectedClaimDetail.customerPhone}</strong></div>
-                      {selectedClaimDetail.customerEmail && <div><span className="text-slate-400 block text-[10px] font-mono">Email:</span> {selectedClaimDetail.customerEmail}</div>}
-                      <div><span className="text-slate-400 block text-[10px] font-mono">Asesor:</span> <strong className="text-emerald-400">{selectedClaimDetail.advisor}</strong></div>
-                    </div>
-                  </section>
-
-                  <section className="rounded-2xl border border-cyan-500/20 bg-[#040814]/90 p-4">
-                    <h4 className="font-bold text-white flex items-center gap-2 text-sm font-mono uppercase">
-                      <span className="material-symbols-outlined text-emerald-400">timeline</span>
-                      Acciones
-                    </h4>
-                    <div className="mt-3 flex flex-col gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedClaimForCalls(selectedClaimDetail);
-                          setCallerName(selectedClaimDetail.customerName);
-                          setCallerPhone(selectedClaimDetail.customerPhone);
-                        }}
-                        className="cyber-btn-secondary py-2.5 text-xs font-bold justify-center"
-                      >
-                        Ver / Registrar Llamadas
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleResolveClaim(selectedClaimDetail)}
-                        className="bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-[0_0_20px_rgba(16,185,129,0.45)] cursor-pointer active:scale-95 transition-all"
-                      >
-                        Marcar como Resuelto
-                      </button>
-                    </div>
-                  </section>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* MODAL 1: Bitácora y Registro de Llamadas del Cliente */}
       {selectedClaimForCalls && (
@@ -1455,7 +1352,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
         </div>
       )}
 
-      {/* MODAL 3: Nueva Solicitud de Reembolso */}
+      {/* MODAL 3: Seleccionar Orden para Reembolso (Vista) */}
       {isNewRefundModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
           <div className="relative rounded-3xl bg-[#070c18]/95 backdrop-blur-2xl border border-amber-500/30 w-full max-w-lg shadow-[0_20px_60px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden">
@@ -1467,8 +1364,8 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
                   <span className="material-symbols-outlined text-[22px]">currency_exchange</span>
                 </div>
                 <div>
-                  <h3 className="font-bold text-base text-white">Crear Solicitud de Reembolso</h3>
-                  <p className="text-xs text-slate-400">Gestión y liquidación de saldos a favor del cliente</p>
+                  <h3 className="font-bold text-base text-white">Solicitud de Reembolso</h3>
+                  <p className="text-xs text-slate-400">Selecciona la orden a reembolsar para abrir la vista dedicada</p>
                 </div>
               </div>
               <button
@@ -1479,93 +1376,42 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleCreateRefundRequest} className="p-6 flex flex-col gap-4 text-xs text-slate-300">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const match = orders.find((o) => o.id === newRefundOrderId);
+                if (match) {
+                  setIsNewRefundModalOpen(false);
+                  setSelectedOrderForRefund(match);
+                } else if (orders.length > 0) {
+                  setIsNewRefundModalOpen(false);
+                  setSelectedOrderForRefund(orders[0]);
+                }
+              }}
+              className="p-6 flex flex-col gap-4 text-xs text-slate-300"
+            >
               <div>
-                <label className="text-slate-200 block mb-1 font-semibold font-mono text-[11px] uppercase">Orden Vinculada *</label>
+                <label className="text-slate-200 block mb-1.5 font-semibold font-mono text-[11px] uppercase">
+                  Seleccionar Orden Destino *
+                </label>
                 <select
                   required
                   value={newRefundOrderId}
-                  onChange={(e) => {
-                    setNewRefundOrderId(e.target.value);
-                    const match = orders.find((o) => o.id === e.target.value);
-                    if (match) {
-                      setNewRefundAmount(String(match.financials.downPayment || match.financials.total || 500));
-                    }
-                  }}
-                  className="w-full bg-[#040814] border border-cyan-500/30 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-cyan-400"
+                  onChange={(e) => setNewRefundOrderId(e.target.value)}
+                  className="w-full bg-[#040814] border border-cyan-500/30 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-cyan-400 cursor-pointer"
                 >
                   <option value="">-- Seleccionar Orden --</option>
                   {orders.map((ord) => (
                     <option key={ord.id} value={ord.id}>
-                      {ord.code} · {ord.customer.name} (${ord.financials.total} USD)
+                      #{ord.code} · {ord.customer.name} · {ord.vehicle.make} {ord.vehicle.model} (${ord.financials.total} USD)
                     </option>
                   ))}
                 </select>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-slate-200 block mb-1 font-semibold font-mono text-[11px] uppercase">Tipo de Monto</label>
-                  <select
-                    value={newRefundAmountType}
-                    onChange={(e) => setNewRefundAmountType(e.target.value as any)}
-                    className="w-full bg-[#040814] border border-cyan-500/30 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-cyan-400"
-                  >
-                    <option value="downpayment">Anticipo (Downpayment)</option>
-                    <option value="total">Total de la Orden</option>
-                    <option value="custom">Monto Personalizado</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-slate-200 block mb-1 font-semibold font-mono text-[11px] uppercase">Monto en USD *</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={newRefundAmount}
-                    onChange={(e) => setNewRefundAmount(e.target.value)}
-                    className="w-full bg-[#040814] border border-cyan-500/30 rounded-xl p-2.5 text-xs text-amber-300 font-mono font-bold focus:outline-none focus:border-cyan-400"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-slate-200 block mb-1 font-semibold font-mono text-[11px] uppercase">Método de Pago</label>
-                  <select
-                    value={newRefundMethod}
-                    onChange={(e) => setNewRefundMethod(e.target.value as any)}
-                    className="w-full bg-[#040814] border border-cyan-500/30 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-cyan-400"
-                  >
-                    <option value="Zelle">Zelle</option>
-                    <option value="CashApp">CashApp</option>
-                    <option value="Efectivo">Efectivo (En Mostrador)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-slate-200 block mb-1 font-semibold font-mono text-[11px] uppercase">Cuenta / Correo / $Cashtag</label>
-                  <input
-                    type="text"
-                    required
-                    value={newRefundDetails}
-                    onChange={(e) => setNewRefundDetails(e.target.value)}
-                    placeholder="pagos@cliente.com o $cashtag"
-                    className="w-full bg-[#040814] border border-cyan-500/30 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-cyan-400"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-slate-200 block mb-1 font-semibold font-mono text-[11px] uppercase">Motivo del Reembolso</label>
-                <textarea
-                  rows={2}
-                  required
-                  value={newRefundReason}
-                  onChange={(e) => setNewRefundReason(e.target.value)}
-                  className="w-full bg-[#040814] border border-cyan-500/30 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-cyan-400"
-                />
+              <div className="p-3.5 rounded-2xl bg-amber-950/20 border border-amber-500/20 text-xs text-amber-200/90 flex items-center gap-2.5">
+                <span className="material-symbols-outlined text-[20px] text-amber-400 shrink-0">info</span>
+                <span>Al seleccionar la orden se abrirá la vista completa de desglose financiero, selección de método y confirmación contable.</span>
               </div>
 
               <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-amber-500/20">
@@ -1578,9 +1424,11 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-xs shadow-[0_0_20px_rgba(245,158,11,0.4)] transition-all cursor-pointer active:scale-95"
+                  disabled={!newRefundOrderId && orders.length === 0}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-xs shadow-[0_0_20px_rgba(245,158,11,0.4)] transition-all cursor-pointer active:scale-95 flex items-center gap-1.5"
                 >
-                  Registrar Solicitud
+                  <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                  <span>Abrir Vista de Reembolso</span>
                 </button>
               </div>
             </form>

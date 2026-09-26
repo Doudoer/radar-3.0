@@ -3,6 +3,7 @@ export type NavScreen =
   | 'ordenes'
   | 'clientes'
   | 'reclamos'
+  | 'inventario'
   | 'mis_operaciones'
   | 'relacion_semanal'
   | 'sistema'
@@ -95,6 +96,19 @@ export type CoreStatus =
   | 'no_aplica'
   | 'devuelto_reembolsado';
 
+export type AuctionHouse = 'Copart' | 'IAAI' | 'Otra';
+
+export interface AuctionLink {
+  id: string;
+  url: string;
+  auctionHouse?: AuctionHouse;
+  auctionDate?: string;
+  hasBuyNow?: boolean;
+  buyNowPrice?: number;
+  notes?: string;
+  createdAt?: string;
+}
+
 export interface Order {
   id: string; // e.g. "ORD-2026-0142" o "ORD-516560"
   code: string;
@@ -134,6 +148,10 @@ export interface Order {
     coverageItems: { title: string; subtitle: string }[];
   };
   
+  // Subasta y Cotización de Lotes
+  auctionActive?: boolean;
+  auctionLinks?: AuctionLink[];
+
   // Flujo Call Center (4 Etapas Secuenciales)
   termsAttachment?: string; // Comprobante captura de Términos
   callDetail?: string; // Resumen llamada de voz de acuse
@@ -253,5 +271,19 @@ export interface RefundRequest {
   createdAt: string;
   completedAt?: string;
   completedBy?: string;
+}
+
+export interface InventoryPart {
+  id: string;
+  year: string;
+  brand: string;
+  model: string;
+  partType: string; // 'Motor' | 'Transmisión'
+  vin?: string;
+  palletNumber?: string;
+  status?: string;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 

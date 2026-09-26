@@ -14,6 +14,7 @@ import { OrderDetailView } from './components/OrderDetailView';
 import { ClientsView } from './components/ClientsView';
 import { ClaimsView } from './components/ClaimsView';
 import { OperationsView } from './components/OperationsView';
+import { InventoryView } from './components/InventoryView';
 import { WeeklyRelationView } from './components/WeeklyRelationView';
 import { SystemSettingsView } from './components/SystemSettingsView';
 import { UsersManagementView } from './components/UsersManagementView';
@@ -122,6 +123,11 @@ export default function App() {
     setIsNewOrderModalOpen(true);
   };
 
+  const handleCreateOrderFromPart = (prefill: PrefillOrderData) => {
+    setPrefillOrderData(prefill);
+    setIsNewOrderModalOpen(true);
+  };
+
   const handleUpdateOrder = async (updatedOrder: Order) => {
     await updateOrder(updatedOrder);
   };
@@ -227,6 +233,13 @@ export default function App() {
               onUpdateOrder={handleUpdateOrder}
               userRole={userRole}
               onSelectOrder={handleSelectOrder}
+            />
+          )}
+
+          {(currentScreen === 'inventario' || (currentScreen as any) === 'piezas' || (currentScreen as any) === 'hold') && (
+            <InventoryView
+              onOpenNewOrderWithPart={handleCreateOrderFromPart}
+              userRole={userRole}
             />
           )}
 

@@ -11,6 +11,8 @@ import {
   uploadPayloadSchema,
   userCreateSchema,
   wasenderDispatchSchema,
+  inventoryPartSchema,
+  inventoryPartUpdateSchema,
 } from '../src/server/schemas';
 
 describe('server input schemas', () => {
@@ -183,5 +185,23 @@ describe('server input schemas', () => {
     expect(validDispatch.phone).toBe('9195551234');
     expect(validDispatch.orderId).toBe(5);
     expect(() => wasenderDispatchSchema.parse({ phone: '', message: '' })).toThrow();
+  });
+
+  it('validates inventory part schema (year, brand, model, partType, vin, palletNumber)', () => {
+    const part = inventoryPartSchema.parse({
+      year: '2017',
+      brand: 'Chevrolet',
+      model: 'Malibu',
+      partType: 'Motor',
+      vin: '1G1BE5SM8H7123456',
+      palletNumber: 'PAL-104',
+    });
+    expect(part.year).toBe('2017');
+    expect(part.brand).toBe('Chevrolet');
+    expect(part.model).toBe('Malibu');
+    expect(part.partType).toBe('Motor');
+    expect(part.vin).toBe('1G1BE5SM8H7123456');
+    expect(part.palletNumber).toBe('PAL-104');
+    expect(() => inventoryPartSchema.parse({ year: '', brand: 'Chevrolet', model: 'Malibu' })).toThrow();
   });
 });

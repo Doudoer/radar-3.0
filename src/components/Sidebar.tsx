@@ -29,6 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems: { id: NavScreen; label: string; icon: string; aliases?: NavScreen[] }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: 'grid_view' },
     { id: 'ordenes', label: 'Órdenes', icon: 'inventory_2', aliases: ['taller'] },
+    { id: 'inventario', label: 'Inventario & HOLD', icon: 'sell', aliases: ['piezas', 'hold'] },
     { id: 'clientes', label: 'Clientes CRM', icon: 'group', aliases: ['crm'] },
     { id: 'reclamos', label: 'Reclamos', icon: 'error_outline' },
     { id: 'mis_operaciones', label: 'Mis Operaciones', icon: 'assignment_ind' },

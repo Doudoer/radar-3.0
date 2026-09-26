@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Order, OrderStatus, Claim, ClaimCall, ClaimStatus } from '../types';
+import { Order, OrderStatus, Claim, ClaimCall, ClaimStatus, AuctionLink, AuctionHouse } from '../types';
 import { SecurityOtpModal } from './SecurityOtpModal';
-import { InvoiceModal } from './InvoiceModal';
-import { DispatchLabelModal } from './DispatchLabelModal';
+import { InvoiceView } from './InvoiceView';
+import { DispatchLabelView } from './DispatchLabelView';
+import { RefundRequestView } from './RefundRequestView';
 import { canTransitionOrderStatus, getAllowedNextStatuses, ORDER_STATUS_LABELS, requiresStatusAuthorization } from '../utils/orderStatusRules';
 import { apiFetch } from '../services/apiFetch';
 
@@ -22,11 +23,23 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   onCreateClaim,
 }) => {
   const [activeTab, setActiveTab] = useState<'resumen' | 'workflow' | 'historial'>('resumen');
+  const [subView, setSubView] = useState<'detail' | 'refund' | 'invoice' | 'dispatch'>('detail');
   const [previewStep, setPreviewStep] = useState<number | null>(null);
   const recordedStep = Math.min(4, Math.max(1, order.workflowStep || 1));
   const currentStep = previewStep ?? recordedStep;
   const [stockAssigned, setStockAssigned] = useState<string | null>(order.stockNumber || null);
   const [copiedNotification, setCopiedNotification] = useState<string | null>(null);
+
+  // Auction Search & Refund State
+  const [isAuctionActive, setIsAuctionActive] = useState<boolean>(
+    Boolean(order.auctionActive || (order.auctionLinks && order.auctionLinks.length > 0))
+  );
+  const [auctionLinks, setAuctionLinks] = useState<AuctionLink[]>(order.auctionLinks || []);
+  const [newAuctionUrl, setNewAuctionUrl] = useState<string>('');
+  const [newAuctionHouse, setNewAuctionHouse] = useState<AuctionHouse>('Copart');
+  const [newAuctionDate, setNewAuctionDate] = useState<string>('');
+  const [newHasBuyNow, setNewHasBuyNow] = useState<boolean>(false);
+  const [newBuyNowPrice, setNewBuyNowPrice] = useState<string>('');
 
   // Claim Tracking & Follow-up State
   const [associatedClaim, setAssociatedClaim] = useState<Claim | null>(null);
@@ -60,8 +73,6 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   const [showExtensionModal, setShowExtensionModal] = useState<boolean>(false);
 
   // Modals state
-  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-  const [showDispatchModal, setShowDispatchModal] = useState(false);
   const [claimModal, setClaimModal] = useState({ isOpen: false, reason: '', isSaving: false, error: '' });
   const [securityModal, setSecurityModal] = useState<{
     isOpen: boolean;
@@ -157,8 +168,90 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
-    setCopiedNotification(`${label} copiado al portapapeles`);
-    setTimeout(() => setCopiedNotification(null), 2500);
+    handleToast(`${label} copiado al portapapeles`);
+  };
+
+  const handleToast = (msg: string) => {
+    setCopiedNotification(msg);
+    setTimeout(() => setCopiedNotification(null), 3000);
+  };
+
+  const handleToggleAuction = () => {
+    const nextState = !isAuctionActive;
+    setIsAuctionActive(nextState);
+    if (onUpdateOrder) {
+      onUpdateOrder({
+        ...order,
+        auctionActive: nextState,
+        auctionLinks,
+      });
+    }
+    if (nextState) {
+      handleToast('🔨 Búsqueda en Subasta activada');
+    } else {
+      handleToast('Búsqueda en Subasta desactivada');
+    }
+  };
+
+  const handleUrlChange = (val: string) => {
+    setNewAuctionUrl(val);
+    if (/copart\.com/i.test(val)) {
+      setNewAuctionHouse('Copart');
+    } else if (/iaai\.com/i.test(val)) {
+      setNewAuctionHouse('IAAI');
+    }
+  };
+
+  const handleAddAuctionLink = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!newAuctionUrl.trim()) return;
+
+    let formattedUrl = newAuctionUrl.trim();
+    if (!/^https?:\/\//i.test(formattedUrl)) {
+      formattedUrl = `https://${formattedUrl}`;
+    }
+
+    const parsedBuyNow = newHasBuyNow ? parseFloat(newBuyNowPrice) || 0 : undefined;
+
+    const newLink: AuctionLink = {
+      id: String(Date.now()),
+      url: formattedUrl,
+      auctionHouse: newAuctionHouse,
+      auctionDate: newAuctionDate || undefined,
+      hasBuyNow: newHasBuyNow,
+      buyNowPrice: parsedBuyNow,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updatedLinks = [...auctionLinks, newLink];
+    setAuctionLinks(updatedLinks);
+    setIsAuctionActive(true);
+    setNewAuctionUrl('');
+    setNewAuctionDate('');
+    setNewHasBuyNow(false);
+    setNewBuyNowPrice('');
+
+    if (onUpdateOrder) {
+      onUpdateOrder({
+        ...order,
+        auctionActive: true,
+        auctionLinks: updatedLinks,
+      });
+    }
+
+    handleToast(`✅ Enlace de subasta (${newAuctionHouse}) agregado con éxito`);
+  };
+
+  const handleRemoveAuctionLink = (linkId: string) => {
+    const updatedLinks = auctionLinks.filter((l) => l.id !== linkId);
+    setAuctionLinks(updatedLinks);
+    if (onUpdateOrder) {
+      onUpdateOrder({
+        ...order,
+        auctionLinks: updatedLinks,
+      });
+    }
+    handleToast('Enlace de subasta eliminado');
   };
 
   const handleAssignStock = () => {
@@ -348,7 +441,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     }
 
     // Direct transition out of reclamo from dropdown
-    if (order.status === 'reclamo' && newStatus !== 'reclamo') {
+    if (order.status === 'reclamo') {
       if (associatedClaim?.id) {
         const claimNum = associatedClaim.id.replace('REC-', '');
         apiFetch(`/claims/${claimNum}`, {
@@ -467,6 +560,38 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     });
   };
 
+  if (subView === 'refund') {
+    return (
+      <RefundRequestView
+        order={order}
+        onBack={() => setSubView('detail')}
+        onUpdateOrder={onUpdateOrder}
+        onSuccess={(msg) => {
+          handleToast(msg);
+          setSubView('detail');
+        }}
+      />
+    );
+  }
+
+  if (subView === 'invoice') {
+    return (
+      <InvoiceView
+        order={order}
+        onBack={() => setSubView('detail')}
+      />
+    );
+  }
+
+  if (subView === 'dispatch') {
+    return (
+      <DispatchLabelView
+        order={order}
+        onBack={() => setSubView('detail')}
+      />
+    );
+  }
+
   return (
     <div className="radar-view text-[#dfe2ef] pb-10 select-none space-y-6">
       {/* 1. TOP HEADER & BREADCRUMB ROW (CYBER HUD CARD) */}
@@ -548,37 +673,35 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
           </div>
 
           {/* Top Right Action & Segmented Tabs */}
-          <div className="flex flex-wrap items-center gap-3 self-start lg:self-center">
-            {/* Quick Action Buttons */}
+          <div className="flex flex-wrap items-center gap-2.5 self-start lg:self-center">
+            {/* Action: Buscar en Subasta */}
             <button
               type="button"
-              onClick={() => onOpenSMS(order.customer.name, order.customer.phone, order)}
-              className="cyber-btn-secondary px-3.5 py-2 text-xs font-bold flex items-center gap-1.5"
-              title="Abrir SMS Rápido"
+              onClick={handleToggleAuction}
+              className={`px-3 py-2 rounded-xl text-xs font-bold font-mono flex items-center gap-1.5 transition-all cursor-pointer border ${
+                isAuctionActive
+                  ? 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
+                  : 'cyber-btn-secondary text-slate-300 hover:text-white'
+              }`}
+              title={isAuctionActive ? 'Desactivar Búsqueda en Subasta' : 'Activar Búsqueda en Subasta'}
             >
-              <span className="material-symbols-outlined text-[16px] text-cyan-400">chat</span>
-              <span className="hidden sm:inline">SMS</span>
+              <span className="material-symbols-outlined text-[16px] text-amber-400">gavel</span>
+              <span className="hidden sm:inline">
+                {isAuctionActive ? 'Subasta Activa' : 'Buscar en Subasta'}
+              </span>
             </button>
 
+            {/* Action: Solicitar Reembolso */}
             <button
               type="button"
-              onClick={() => setShowInvoiceModal(true)}
-              className="cyber-btn-secondary px-3.5 py-2 text-xs font-bold flex items-center gap-1.5"
-              title="Ver / Imprimir Factura"
+              onClick={() => setSubView('refund')}
+              className="cyber-btn-secondary px-3 py-2 text-xs font-bold font-mono flex items-center gap-1.5 text-amber-300 border-amber-500/30 hover:border-amber-400 hover:text-amber-200 shadow-[0_0_10px_rgba(245,158,11,0.15)]"
+              title="Solicitar Reembolso de la Orden"
             >
-              <span className="material-symbols-outlined text-[16px] text-cyan-400">receipt_long</span>
-              <span className="hidden sm:inline">Factura</span>
+              <span className="material-symbols-outlined text-[16px] text-amber-400">account_balance_wallet</span>
+              <span className="hidden sm:inline">Solicitar Reembolso</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setShowDispatchModal(true)}
-              className="cyber-btn-secondary px-3.5 py-2 text-xs font-bold flex items-center gap-1.5"
-              title="Imprimir Etiqueta 4x6"
-            >
-              <span className="material-symbols-outlined text-[16px] text-emerald-400">qr_code_2</span>
-              <span className="hidden sm:inline">Rótulo 4x6</span>
-            </button>
 
             {/* Segmented Tabs */}
             <div className="flex items-center bg-[#040814] border border-cyan-500/30 p-1 rounded-2xl shadow-inner">
@@ -788,6 +911,263 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                     </div>
                   ))
                 )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* AUCTION SEARCH HUD CARD (BÚSQUEDA EN SUBASTA ACTIVA) */}
+      {isAuctionActive && (
+        <div className="relative rounded-3xl bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/35 p-5 md:p-6 shadow-[0_10px_35px_rgba(6,182,212,0.2)] overflow-hidden flex flex-col gap-4 animate-fade-in">
+          <div className="absolute top-0 inset-x-0 h-[2.5px] bg-gradient-to-r from-transparent via-cyan-400 to-blue-500 shadow-[0_0_15px_#22d3ee]" />
+
+          {/* Top Info Header */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(6,182,212,0.3)]">
+                <span className="material-symbols-outlined text-[22px]">gavel</span>
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-black text-cyan-200 tracking-tight font-mono flex items-center gap-2">
+                  <span className="flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[16px] text-cyan-400">link</span>
+                    <span>Búsqueda en Subasta Activa</span>
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono bg-cyan-950/80 text-cyan-300 border border-cyan-500/30">
+                    {auctionLinks.length} {auctionLinks.length === 1 ? 'enlace registrado' : 'enlaces registrados'}
+                  </span>
+                </h3>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleToggleAuction}
+              className="px-3 py-1.5 rounded-xl bg-[#040814] hover:bg-red-950/50 border border-cyan-500/20 hover:border-red-500/40 text-slate-400 hover:text-red-300 text-xs font-mono transition-all cursor-pointer flex items-center gap-1"
+              title="Desactivar búsqueda en subasta"
+            >
+              <span className="material-symbols-outlined text-[15px]">close</span>
+              <span className="hidden sm:inline">Desactivar</span>
+            </button>
+          </div>
+
+          {/* Add Link Form */}
+          <form onSubmit={handleAddAuctionLink} className="space-y-3 bg-[#040814]/80 p-3.5 sm:p-4 rounded-2xl border border-cyan-500/20">
+            {/* Controls Bar: Auction House Selector & Buy Now Checkbox */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cyan-500/15 pb-3">
+              {/* Auction House Selector */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[15px] text-cyan-400">account_balance</span>
+                  <span>Subasta:</span>
+                </span>
+                <div className="flex items-center gap-1.5 bg-[#070c18] p-1 rounded-xl border border-cyan-500/20">
+                  <button
+                    type="button"
+                    onClick={() => setNewAuctionHouse('Copart')}
+                    className={`px-3 py-1 rounded-lg text-xs font-mono font-black transition-all cursor-pointer flex items-center gap-1 ${
+                      newAuctionHouse === 'Copart'
+                        ? 'bg-blue-600 text-white shadow-[0_0_12px_rgba(37,99,235,0.5)] border border-blue-400'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span>🔵</span>
+                    <span>Copart</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setNewAuctionHouse('IAAI')}
+                    className={`px-3 py-1 rounded-lg text-xs font-mono font-black transition-all cursor-pointer flex items-center gap-1 ${
+                      newAuctionHouse === 'IAAI'
+                        ? 'bg-amber-600 text-white shadow-[0_0_12px_rgba(217,119,6,0.5)] border border-amber-400'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span>🟡</span>
+                    <span>IAAI</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setNewAuctionHouse('Otra')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
+                      newAuctionHouse === 'Otra'
+                        ? 'bg-slate-700 text-white border border-slate-500'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Otra
+                  </button>
+                </div>
+              </div>
+
+              {/* Buy Now Checkbox & Price Field */}
+              <div className="flex items-center flex-wrap gap-2.5">
+                <label className="flex items-center gap-2 cursor-pointer select-none bg-[#070c18] px-3 py-1.5 rounded-xl border border-cyan-500/20 hover:border-emerald-500/40 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={newHasBuyNow}
+                    onChange={(e) => setNewHasBuyNow(e.target.checked)}
+                    className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-400/30 accent-emerald-500 cursor-pointer"
+                  />
+                  <span className="text-xs font-mono font-bold text-emerald-300 flex items-center gap-1">
+                    <span className="material-symbols-outlined text-[15px] text-emerald-400">bolt</span>
+                    <span>Tiene Compra Rápida (Buy Now)</span>
+                  </span>
+                </label>
+
+                {newHasBuyNow && (
+                  <div className="flex items-center gap-1.5 animate-fade-in">
+                    <div className="relative">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-emerald-400 font-mono font-bold text-xs">
+                        $
+                      </span>
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        value={newBuyNowPrice}
+                        onChange={(e) => setNewBuyNowPrice(e.target.value)}
+                        placeholder="Monto Buy Now"
+                        className="cyber-input pl-6 pr-3 py-1 text-xs font-mono text-emerald-300 focus:border-emerald-400 focus:ring-emerald-400/30 w-36"
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* URL Input, Auction Date, and Submit Button */}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+              <div className="sm:col-span-7 space-y-1">
+                <label className="text-xs font-mono font-bold text-slate-300 uppercase tracking-wider block">
+                  URL (Link de {newAuctionHouse})
+                </label>
+                <div className="relative">
+                  <span className="material-symbols-outlined text-slate-500 text-[18px] absolute left-3 top-1/2 -translate-y-1/2">
+                    link
+                  </span>
+                  <input
+                    type="text"
+                    value={newAuctionUrl}
+                    onChange={(e) => handleUrlChange(e.target.value)}
+                    placeholder={`https://www.${newAuctionHouse.toLowerCase() === 'iaai' ? 'iaai' : 'copart'}.com/lot/...`}
+                    className="cyber-input w-full pl-9 pr-3 py-2 text-xs font-mono text-cyan-200 focus:border-cyan-400 focus:ring-cyan-400/30"
+                  />
+                </div>
+              </div>
+
+              <div className="sm:col-span-3 space-y-1">
+                <label className="text-xs font-mono font-bold text-slate-300 uppercase tracking-wider block">
+                  Fecha de Subasta
+                </label>
+                <input
+                  type="date"
+                  value={newAuctionDate}
+                  onChange={(e) => setNewAuctionDate(e.target.value)}
+                  className="cyber-input w-full py-2 px-3 text-xs font-mono text-cyan-200 focus:border-cyan-400 focus:ring-cyan-400/30"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <button
+                  type="submit"
+                  disabled={!newAuctionUrl.trim()}
+                  className="w-full py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 shadow-[0_0_15px_rgba(6,182,212,0.35)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1 transition-all active:scale-95"
+                  title="Añadir enlace de subasta"
+                >
+                  <span className="material-symbols-outlined text-[18px]">add</span>
+                  <span className="font-mono">Añadir</span>
+                </button>
+              </div>
+            </div>
+          </form>
+
+          {/* Registered Links List */}
+          <div className="border-t border-cyan-500/15 pt-2">
+            {auctionLinks.length === 0 ? (
+              <p className="text-xs font-mono text-slate-400 py-1 italic">
+                No hay enlaces activos registrados.
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-56 overflow-y-auto custom-scrollbar">
+                {auctionLinks.map((link) => (
+                  <div
+                    key={link.id}
+                    className="p-2.5 rounded-xl bg-[#040814] border border-cyan-500/20 flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="flex items-center flex-wrap gap-2.5 min-w-0 flex-1">
+                      {/* Auction House Tag */}
+                      <span
+                        className={`px-2.5 py-0.5 rounded-lg text-[10.5px] font-mono font-black border shrink-0 ${
+                          link.auctionHouse === 'IAAI'
+                            ? 'bg-amber-950/80 border-amber-500/40 text-amber-300 shadow-[0_0_8px_rgba(245,158,11,0.3)]'
+                            : link.auctionHouse === 'Copart'
+                            ? 'bg-blue-950/80 border-blue-500/40 text-blue-300 shadow-[0_0_8px_rgba(59,130,246,0.3)]'
+                            : 'bg-slate-800 border-slate-700 text-slate-300'
+                        }`}
+                      >
+                        {link.auctionHouse === 'IAAI' ? '🟡 IAAI' : link.auctionHouse === 'Copart' ? '🔵 Copart' : '🏛️ Subasta'}
+                      </span>
+
+                      {/* URL Anchor */}
+                      <div className="flex items-center gap-1 min-w-0 max-w-full sm:max-w-md">
+                        <span className="material-symbols-outlined text-[16px] text-cyan-400 shrink-0">
+                          open_in_new
+                        </span>
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-cyan-300 hover:text-cyan-100 underline truncate font-mono text-xs font-medium"
+                          title={link.url}
+                        >
+                          {link.url}
+                        </a>
+                      </div>
+
+                      {/* Auction Date Badge */}
+                      {link.auctionDate && (
+                        <span className="px-2.5 py-0.5 rounded-lg bg-cyan-950/80 border border-cyan-500/30 text-[10.5px] font-mono text-cyan-300 shrink-0 flex items-center gap-1">
+                          <span className="material-symbols-outlined text-[13px]">calendar_today</span>
+                          <span>{link.auctionDate}</span>
+                        </span>
+                      )}
+
+                      {/* Buy Now Badge */}
+                      {link.hasBuyNow && (
+                        <span className="px-2.5 py-0.5 rounded-lg bg-emerald-950/90 border border-emerald-500/40 text-[10.5px] font-mono text-emerald-300 font-bold shrink-0 flex items-center gap-1 shadow-[0_0_10px_rgba(16,185,129,0.3)]">
+                          <span className="material-symbols-outlined text-[13px] text-emerald-400">bolt</span>
+                          <span>
+                            Buy Now: <strong className="text-white">${Number(link.buyNowPrice || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong>
+                          </span>
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(link.url, 'Enlace de subasta')}
+                        className="p-1.5 rounded-lg bg-[#070c18] border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 cursor-pointer transition-all"
+                        title="Copiar URL"
+                      >
+                        <span className="material-symbols-outlined text-[15px]">content_copy</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAuctionLink(link.id)}
+                        className="p-1.5 rounded-lg bg-[#070c18] border border-red-500/20 text-red-400 hover:text-red-200 hover:bg-red-950/40 cursor-pointer transition-all"
+                        title="Eliminar enlace"
+                      >
+                        <span className="material-symbols-outlined text-[15px]">delete</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -1206,7 +1586,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                     </div>
                     <button
                       type="button"
-                      onClick={() => setShowInvoiceModal(true)}
+                      onClick={() => setSubView('invoice')}
                       className="cyber-btn-secondary w-full py-2 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <span className="material-symbols-outlined text-[16px] text-cyan-400">receipt</span>
@@ -1224,7 +1604,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                     </div>
                     <button
                       type="button"
-                      onClick={() => setShowDispatchModal(true)}
+                      onClick={() => setSubView('dispatch')}
                       className="cyber-btn-secondary w-full py-2 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <span className="material-symbols-outlined text-[16px] text-emerald-400">qr_code_2</span>
@@ -1674,19 +2054,6 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
         </div>
       )}
 
-      {/* Invoice Modal */}
-      <InvoiceModal
-        isOpen={showInvoiceModal}
-        onClose={() => setShowInvoiceModal(false)}
-        order={order}
-      />
-
-      {/* Dispatch 4x6 Label Modal */}
-      <DispatchLabelModal
-        isOpen={showDispatchModal}
-        onClose={() => setShowDispatchModal(false)}
-        order={order}
-      />
 
       {/* Security OTP Modal */}
       <SecurityOtpModal
