@@ -1,0 +1,67 @@
+# Session: 2026-09-28
+
+**Started:** 2026-09-28
+**Last Updated:** 2026-09-28 19:46
+**Project:** Radar 3.0 (/Users/user/Desktop/Radar V3/radar-3.0)
+**Topic:** Inventory Features, Mark as Sold Flow, and Database Restore Protection
+
+---
+
+## What We Built / Accomplished
+
+1. **Rango de Años Compatibles y Checkbox de Año Exacto:**
+   - Campos `year_from` y `year_to` opcionales en el modal de inventario.
+   - Checkbox `is_exact_year_only` para piezas solo compatibles con el año de fabricación.
+   - Migración de base de datos y esquema de validación implementados.
+
+2. **Tarjeta de Detalle de Pieza de Inventario:**
+   - Modal con tarjeta completa de detalle al hacer clic en cualquier fila de inventario.
+   - Muestra toda la información: marca, modelo, año, rango compatible, VIN, pallet, tag code, especificaciones, held status, precio, costo, ubicación, notas y fotos.
+
+3. **Flujo de Piezas Vendidas:**
+   - Botón interactivo "Marcar como Vendida" con confirmación modal.
+   - Cambio de estado a `status = 'vendido'` y registro automático del timestamp `sold_at`.
+   - Pestañas de filtrado en la cabecera: **Disponibles**, **Vendidos** y **Todos**.
+   - Insignia con fecha exacta de salida en la tarjeta de detalle.
+   - Migración `005_inventory_parts_sold_at.sql`.
+
+4. **Protección Permanente de Inventario en Restauración de Respaldo SQL:**
+   - Exclusión de `inventory_parts` del vaciado destructivo en `src/server/backup.ts` (`PRESERVED_TABLES`).
+   - Resguardo automático en memoria previo (`fetchCurrentInventoryParts`).
+   - Verificación y auto-migración de estructura de tabla (`ensureInventoryPartsTable`).
+   - Re-inserción y fusión atómica (`restorePreservedInventoryParts` con `ON DUPLICATE KEY UPDATE`).
+   - Actualización visual en `SystemSettingsView.tsx` y pruebas unitarias completas en `tests/backup-restore.test.ts`.
+
+---
+
+## What WORKED (with evidence)
+
+- **Unit tests:** 26/26 tests passing (`npm test`).
+- **TypeScript build:** `npx tsc --noEmit` exit code 0 (zero errors).
+- **Git status:** All changes committed (`88fbc9c`) and pushed to `origin/main`.
+- **Backend & Frontend:** API running on `http://0.0.0.0:3001`, Vite frontend on `http://localhost:3000`.
+
+---
+
+## Current State of Files
+
+| File | Status | Notes |
+| --- | --- | --- |
+| `src/server/backup.ts` | Complete | Preserva usuarios e inventario en restore |
+| `server.ts` | Complete | Endpoints de inventario, sold_at, migraciones |
+| `src/components/InventoryView.tsx` | Complete | Tabs, vendido flow, detalle modal |
+| `src/components/SystemSettingsView.tsx` | Complete | UI de respaldo y restauración actualizada |
+| `src/server/schemas.ts` | Complete | Validaciones Zod para inventario y sold_at |
+| `src/types.ts` | Complete | Tipos TypeScript actualizados |
+| `migrations/005_inventory_parts_sold_at.sql` | Complete | Migración aplicada en MySQL |
+| `tests/backup-restore.test.ts` | Complete | Pruebas de preservación pasando |
+| `tests/server-schemas.test.ts` | Complete | Pruebas de esquema pasando |
+
+---
+
+## Instructions to Resume After Restart
+
+1. Iniciar Docker si no está corriendo: `docker start radar-mysql`
+2. Iniciar el backend: `npm run api` (puerto 3001)
+3. Iniciar el frontend: `npm run dev` (puerto 3000)
+4. La base de datos y todo el código están 100% actualizados y sincronizados con `origin/main`.
