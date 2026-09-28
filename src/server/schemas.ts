@@ -194,6 +194,7 @@ export const inventoryPartSchema = z.object({
   yearFrom: z.string().trim().max(50).optional().nullable().default(''),
   yearTo: z.string().trim().max(50).optional().nullable().default(''),
   isExactYearOnly: z.boolean().optional().default(false),
+  soldAt: z.string().trim().max(100).optional().nullable(),
 });
 
 export const inventoryPartUpdateSchema = inventoryPartSchema.partial();

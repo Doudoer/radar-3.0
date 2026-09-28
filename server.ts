@@ -95,6 +95,7 @@ const mapInventoryPartRow = (row: RowDataPacket) => {
     notes: row.notes || '',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    soldAt: row.sold_at || null,
   };
 };
 
@@ -777,11 +778,15 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && pathname === '/api/inventory') {
       const payload = inventoryPartSchema.parse(await readBody(request));
+      const isSold = (payload.status || 'disponible').toLowerCase() === 'vendido';
+      const soldAtValue = payload.soldAt !== undefined
+        ? (payload.soldAt ? new Date(payload.soldAt) : null)
+        : (isSold ? new Date() : null);
       
       const [result] = await pool.execute<ResultSetHeader>(`
         INSERT INTO inventory_parts (
-          year, year_from, year_to, is_exact_year_only, brand, model, part_type, vin, pallet_number, engine_specs, status, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          year, year_from, year_to, is_exact_year_only, brand, model, part_type, vin, pallet_number, engine_specs, status, notes, sold_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         payload.year,
         payload.yearFrom || null,
@@ -795,6 +800,7 @@ const server = createServer(async (request, response) => {
         payload.engineSpecs || null,
         payload.status || 'disponible',
         payload.notes || null,
+        soldAtValue,
       ]);
 
       const [createdRows] = await pool.query<RowDataPacket[]>('SELECT * FROM inventory_parts WHERE id = ?', [result.insertId]);
@@ -827,6 +833,16 @@ const server = createServer(async (request, response) => {
       if (payload.palletNumber !== undefined) { updates.push('pallet_number = ?'); values.push(payload.palletNumber); }
       if (payload.engineSpecs !== undefined) { updates.push('engine_specs = ?'); values.push(payload.engineSpecs); }
       if (payload.status !== undefined) { updates.push('status = ?'); values.push(payload.status); }
+      if (payload.soldAt !== undefined) {
+        updates.push('sold_at = ?');
+        values.push(payload.soldAt ? new Date(payload.soldAt) : null);
+      } else if (payload.status !== undefined) {
+        if (payload.status.toLowerCase() === 'vendido') {
+          updates.push('sold_at = IFNULL(sold_at, CURRENT_TIMESTAMP)');
+        } else if (payload.status.toLowerCase() === 'disponible') {
+          updates.push('sold_at = NULL');
+        }
+      }
       if (payload.notes !== undefined) { updates.push('notes = ?'); values.push(payload.notes); }
       
       if (updates.length > 0) {
@@ -1014,6 +1030,7 @@ const ensureDatabaseTables = async () => {
         notes TEXT NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        sold_at TIMESTAMP NULL DEFAULT NULL,
         deleted_at TIMESTAMP NULL DEFAULT NULL,
         INDEX inventory_parts_status (status),
         INDEX inventory_parts_brand_model (brand, model),
@@ -1030,6 +1047,15 @@ const ensureDatabaseTables = async () => {
         await pool.query('ALTER TABLE inventory_parts ADD COLUMN year_from VARCHAR(50) NULL AFTER year');
         await pool.query('ALTER TABLE inventory_parts ADD COLUMN year_to VARCHAR(50) NULL AFTER year_from');
         await pool.query('ALTER TABLE inventory_parts ADD COLUMN is_exact_year_only TINYINT(1) NOT NULL DEFAULT 0 AFTER year_to');
+      }
+    } catch {
+      // Table may have just been created with columns above
+    }
+
+    try {
+      const [soldCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM inventory_parts LIKE "sold_at"');
+      if (soldCols.length === 0) {
+        await pool.query('ALTER TABLE inventory_parts ADD COLUMN sold_at TIMESTAMP NULL DEFAULT NULL AFTER updated_at');
       }
     } catch {
       // Table may have just been created with columns above

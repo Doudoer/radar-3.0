@@ -38,6 +38,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   // Delete Confirmation State
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<InventoryPart | null>(null);
 
+  // Sold Confirmation State
+  const [soldConfirmItem, setSoldConfirmItem] = useState<InventoryPart | null>(null);
+  const [isMarkingSold, setIsMarkingSold] = useState(false);
+
   // Detail Card Modal State
   const [selectedDetailItem, setSelectedDetailItem] = useState<InventoryPart | null>(null);
   const [copiedDetailField, setCopiedDetailField] = useState<string | null>(null);
@@ -46,8 +50,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const COMMON_TRACTIONS = ['4x4', '4x2', 'FWD', 'AWD', 'RWD'] as const;
   const COMMON_STATUSES = [
     { value: 'disponible', label: 'Disponible', color: 'emerald', bg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' },
-    { value: 'reservado', label: 'Reservado', color: 'amber', bg: 'bg-amber-500/20 text-amber-300 border-amber-500/40' },
     { value: 'vendido', label: 'Vendido', color: 'blue', bg: 'bg-blue-500/20 text-blue-300 border-blue-500/40' },
+    { value: 'reservado', label: 'Reservado', color: 'amber', bg: 'bg-amber-500/20 text-amber-300 border-amber-500/40' },
     { value: 'en_revision', label: 'En Revisión', color: 'purple', bg: 'bg-purple-500/20 text-purple-300 border-purple-500/40' },
   ] as const;
 
@@ -176,6 +180,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       `🏷️ Paleta: ${item.palletNumber || 'S/P'}`,
       `🔍 VIN: ${item.vin || 'N/A'}`,
       `📊 Estado: ${(item.status || 'disponible').toUpperCase()}`,
+      item.status === 'vendido' && item.soldAt
+        ? `📅 Fecha de Venta: ${new Date(item.soldAt).toLocaleString('es-ES')}`
+        : null,
       item.notes ? `📝 Notas: ${item.notes}` : null,
     ].filter(Boolean).join('\n');
 
@@ -206,8 +213,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     const motors = items.filter((i) => (i.partType || '').toLowerCase().includes('motor')).length;
     const transmissions = items.filter((i) => (i.partType || '').toLowerCase().includes('transmi')).length;
     const available = items.filter((i) => (i.status || 'disponible').toLowerCase() === 'disponible').length;
+    const sold = items.filter((i) => (i.status || '').toLowerCase() === 'vendido').length;
     const uniquePallets = new Set(items.map((i) => i.palletNumber).filter(Boolean)).size;
-    return { total, motors, transmissions, available, uniquePallets };
+    return { total, motors, transmissions, available, sold, uniquePallets };
   }, [items]);
 
   // Filtered items
@@ -330,6 +338,46 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     }
   };
 
+  // Mark as Sold Handler
+  const handleConfirmMarkAsSold = async () => {
+    if (!soldConfirmItem) return;
+    try {
+      setIsMarkingSold(true);
+      const nowIso = new Date().toISOString();
+      const updated = await inventoryApi.update(soldConfirmItem.id, {
+        status: 'vendido',
+        soldAt: nowIso,
+      });
+      setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+      if (selectedDetailItem && selectedDetailItem.id === updated.id) {
+        setSelectedDetailItem(updated);
+      }
+      showToast(`Pieza #${soldConfirmItem.id} (${soldConfirmItem.brand} ${soldConfirmItem.model || ''}) marcada como VENDIDA.`);
+      setSoldConfirmItem(null);
+    } catch (err: any) {
+      alert(err.message || 'No se pudo marcar la pieza como vendida.');
+    } finally {
+      setIsMarkingSold(false);
+    }
+  };
+
+  // Reactivate to Available Handler
+  const handleReactivateToAvailable = async (item: InventoryPart) => {
+    try {
+      const updated = await inventoryApi.update(item.id, {
+        status: 'disponible',
+        soldAt: null,
+      });
+      setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+      if (selectedDetailItem && selectedDetailItem.id === updated.id) {
+        setSelectedDetailItem(updated);
+      }
+      showToast(`Pieza #${item.id} reactivada a DISPONIBLE.`);
+    } catch (err: any) {
+      alert(err.message || 'No se pudo reactivar la pieza.');
+    }
+  };
+
   // Convert to Order (Prefill new order modal)
   const handleConvertToOrder = (item: InventoryPart) => {
     if (!onOpenNewOrderWithPart) {
@@ -424,8 +472,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           </div>
         </div>
 
-        {/* 4 Metric Chips */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
+        {/* 5 Metric Chips */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-5">
           <div className="rounded-2xl bg-[#040814]/80 border border-slate-800 p-3 flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
               <span className="material-symbols-outlined text-[18px]">inventory_2</span>
@@ -438,11 +486,21 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
           <div className="rounded-2xl bg-[#040814]/80 border border-emerald-500/30 p-3 flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
-              <span className="material-symbols-outlined text-[18px]">settings</span>
+              <span className="material-symbols-outlined text-[18px]">check_circle</span>
             </div>
             <div>
-              <div className="text-[10px] font-mono text-emerald-400 uppercase font-bold">Motores</div>
-              <div className="text-lg font-black text-emerald-300 font-mono">{stats.motors}</div>
+              <div className="text-[10px] font-mono text-emerald-400 uppercase font-bold">Disponibles</div>
+              <div className="text-lg font-black text-emerald-300 font-mono">{stats.available}</div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl bg-[#040814]/80 border border-blue-500/30 p-3 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
+              <span className="material-symbols-outlined text-[18px]">sell</span>
+            </div>
+            <div>
+              <div className="text-[10px] font-mono text-blue-400 uppercase font-bold">Vendidos</div>
+              <div className="text-lg font-black text-blue-300 font-mono">{stats.sold}</div>
             </div>
           </div>
 
@@ -451,12 +509,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               <span className="material-symbols-outlined text-[18px]">swap_driving_apps</span>
             </div>
             <div>
-              <div className="text-[10px] font-mono text-amber-400 uppercase font-bold">Transmisiones</div>
-              <div className="text-lg font-black text-amber-300 font-mono">{stats.transmissions}</div>
+              <div className="text-[10px] font-mono text-amber-400 uppercase font-bold">Motores / Trans.</div>
+              <div className="text-sm font-black text-amber-300 font-mono mt-0.5">
+                {stats.motors} M / {stats.transmissions} T
+              </div>
             </div>
           </div>
 
-          <div className="rounded-2xl bg-[#040814]/80 border border-blue-500/30 p-3 flex items-center gap-3">
+          <div className="rounded-2xl bg-[#040814]/80 border border-blue-500/30 p-3 flex items-center gap-3 col-span-2 sm:col-span-1">
             <div className="w-9 h-9 rounded-xl bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
               <span className="material-symbols-outlined text-[18px]">pallet</span>
             </div>
@@ -526,10 +586,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           <div className="flex items-center gap-1 bg-[#03060f] p-1 rounded-xl border border-slate-800">
             {(
               [
-                { id: 'all', label: 'Todos' },
-                { id: 'disponible', label: 'Disponibles' },
+                { id: 'disponible', label: `🟢 Disponibles (${stats.available})` },
+                { id: 'vendido', label: `🏷️ Vendidos (${stats.sold})` },
+                { id: 'all', label: `Todos (${stats.total})` },
                 { id: 'reservado', label: 'Reservados' },
-                { id: 'vendido', label: 'Vendidos' },
               ] as const
             ).map((filter) => {
               const isActive = statusFilter === filter.id;
@@ -708,21 +768,58 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
                       {/* Status */}
                       <td className="py-3 px-4">
-                        {getStatusBadge(item.status)}
+                        <div className="flex flex-col items-start gap-1">
+                          {getStatusBadge(item.status)}
+                          {item.status === 'vendido' && item.soldAt && (
+                            <span
+                              className="text-[9px] font-mono text-blue-300/90 flex items-center gap-0.5"
+                              title={`Fecha de salida: ${new Date(item.soldAt).toLocaleString('es-ES')}`}
+                            >
+                              <span className="material-symbols-outlined text-[11px] text-blue-400">schedule</span>
+                              <span>
+                                {new Date(item.soldAt).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit' })}
+                              </span>
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Actions */}
                       <td className="py-3 px-4 text-center">
                         <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            onClick={() => handleConvertToOrder(item)}
-                            className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white text-[11px] font-bold flex items-center gap-1 transition-transform cursor-pointer shadow-[0_0_10px_rgba(6,182,212,0.3)]"
-                            title="Crear Orden con esta pieza"
-                          >
-                            <span className="material-symbols-outlined text-[14px]">shopping_cart</span>
-                            <span className="hidden sm:inline">Crear Orden</span>
-                          </button>
+                          {item.status !== 'vendido' ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleConvertToOrder(item)}
+                                className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white text-[11px] font-bold flex items-center gap-1 transition-transform cursor-pointer shadow-[0_0_10px_rgba(6,182,212,0.3)]"
+                                title="Crear Orden con esta pieza"
+                              >
+                                <span className="material-symbols-outlined text-[14px]">shopping_cart</span>
+                                <span className="hidden sm:inline">Crear Orden</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setSoldConfirmItem(item)}
+                                className="px-2.5 py-1.5 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 hover:text-blue-200 border border-blue-500/40 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer hover:scale-105"
+                                title="Marcar como vendida y registrar fecha de salida"
+                              >
+                                <span className="material-symbols-outlined text-[14px]">sell</span>
+                                <span className="hidden sm:inline">Vendida</span>
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleReactivateToAvailable(item)}
+                              className="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 hover:text-emerald-200 border border-emerald-500/40 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer hover:scale-105"
+                              title="Reactivar pieza a Disponible"
+                            >
+                              <span className="material-symbols-outlined text-[14px]">restart_alt</span>
+                              <span className="hidden sm:inline">Reactivar</span>
+                            </button>
+                          )}
 
                           <button
                             type="button"
@@ -1301,6 +1398,38 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
             {/* Modal Body / Scrollable Info Cards */}
             <div className="p-5 sm:p-6 space-y-3.5 overflow-y-auto font-mono text-xs">
+              {/* Sold Status Banner */}
+              {selectedDetailItem.status === 'vendido' && (
+                <div className="rounded-2xl bg-gradient-to-r from-blue-950/90 via-[#0a1835] to-indigo-950/90 border border-blue-500/50 p-4 shadow-[0_0_20px_rgba(59,130,246,0.25)] flex items-center justify-between gap-3 flex-wrap animate-fade-in">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400 shrink-0 shadow-[0_0_15px_rgba(59,130,246,0.3)]">
+                      <span className="material-symbols-outlined text-[24px]">sell</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-blue-300 font-bold uppercase tracking-wider block">
+                        Pieza Vendida / Fuera de Disponibles
+                      </span>
+                      <span className="text-xs font-black text-white">
+                        {selectedDetailItem.soldAt ? (
+                          `Salida registrada el ${new Date(selectedDetailItem.soldAt).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+                        ) : (
+                          'Registrada como Vendida'
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleReactivateToAvailable(selectedDetailItem)}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105"
+                    title="Reactivar pieza a Disponible"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">restart_alt</span>
+                    <span>Reactivar a Disponible</span>
+                  </button>
+                </div>
+              )}
+
               {/* Card 1: Vehículo & Compatibilidad */}
               <div className="rounded-2xl bg-[#050914] border border-cyan-500/25 p-4 space-y-3 shadow-inner">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-2">
@@ -1488,6 +1617,31 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               </button>
 
               <div className="flex items-center gap-2">
+                {selectedDetailItem.status !== 'vendido' ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const itemToMark = selectedDetailItem;
+                      setSoldConfirmItem(itemToMark);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 hover:text-blue-200 border border-blue-500/40 text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105"
+                    title="Marcar como vendida y registrar fecha de salida"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">sell</span>
+                    <span>Marcar Vendida</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleReactivateToAvailable(selectedDetailItem)}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 hover:text-emerald-200 border border-emerald-500/40 text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105"
+                    title="Reactivar pieza a Disponible"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">restart_alt</span>
+                    <span>Reactivar</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {
@@ -1516,6 +1670,83 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   <span>Crear Orden</span>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sold Confirmation Modal */}
+      {soldConfirmItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
+          <div className="relative w-full max-w-md rounded-3xl bg-[#080d1a] border border-blue-500/50 p-6 text-center space-y-4 shadow-[0_20px_60px_rgba(0,0,0,0.9)] font-mono">
+            <div className="w-14 h-14 rounded-2xl bg-blue-500/20 border border-blue-500/40 mx-auto flex items-center justify-center text-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.3)]">
+              <span className="material-symbols-outlined text-[32px]">sell</span>
+            </div>
+            
+            <div>
+              <h3 className="text-base font-black text-white uppercase tracking-wide">¿Confirmar Venta de Pieza?</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                La pieza saldrá del inventario de disponibles y quedará archivada en el registro de vendidos con su fecha exacta de salida.
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-[#040814] border border-slate-800 text-left space-y-2 text-xs">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
+                <span className="text-slate-400">Pieza:</span>
+                <span className="font-bold text-white">
+                  {soldConfirmItem.year} {soldConfirmItem.brand} {soldConfirmItem.model || ''}
+                </span>
+              </div>
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
+                <span className="text-slate-400">Tipo:</span>
+                <span className="font-bold text-emerald-300">
+                  {soldConfirmItem.partType} {soldConfirmItem.engineSpecs ? `(${soldConfirmItem.engineSpecs})` : ''}
+                </span>
+              </div>
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
+                <span className="text-slate-400">Paleta / VIN:</span>
+                <span className="font-mono text-cyan-300">
+                  {soldConfirmItem.palletNumber ? `Paleta: ${soldConfirmItem.palletNumber}` : 'S/P'} | {soldConfirmItem.vin || 'Sin VIN'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between pt-0.5">
+                <span className="text-blue-400 font-bold flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[14px]">event_available</span>
+                  <span>Fecha de Salida:</span>
+                </span>
+                <span className="font-black text-blue-300">
+                  {new Date().toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setSoldConfirmItem(null)}
+                disabled={isMarkingSold}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmMarkAsSold}
+                disabled={isMarkingSold}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white text-xs font-black uppercase tracking-wider cursor-pointer shadow-[0_0_20px_rgba(59,130,246,0.4)] flex items-center gap-2 hover:scale-105 active:scale-95 transition-all"
+              >
+                {isMarkingSold ? (
+                  <>
+                    <div className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                    <span>Guardando...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                    <span>Confirmar Venta</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

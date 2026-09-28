@@ -291,5 +291,6 @@ export interface InventoryPart {
   isExactYearOnly?: boolean; // Solo compatible con el año de fabricación
   createdAt?: string;
   updatedAt?: string;
+  soldAt?: string | null; // Fecha y hora en que la pieza fue vendida / salió de disponibles
 }
 

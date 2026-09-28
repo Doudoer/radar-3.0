@@ -239,6 +239,18 @@ describe('server input schemas', () => {
     expect(partWithoutModel.model).toBe('');
     expect(partWithoutModel.engineSpecs).toBe('1.6L');
 
+    // Sold item with soldAt timestamp
+    const soldPart = inventoryPartSchema.parse({
+      year: '2016',
+      brand: 'Honda',
+      model: 'Civic',
+      partType: 'Motor',
+      status: 'vendido',
+      soldAt: '2026-09-28T19:15:00.000Z',
+    });
+    expect(soldPart.status).toBe('vendido');
+    expect(soldPart.soldAt).toBe('2026-09-28T19:15:00.000Z');
+
     expect(() => inventoryPartSchema.parse({ year: '', brand: 'Chevrolet' })).toThrow();
     expect(() => inventoryPartSchema.parse({ year: '2019', brand: '' })).toThrow();
   });

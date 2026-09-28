@@ -16,6 +16,7 @@ interface RestoreResult {
   restoredTables?: string[];
   clearedTables?: string[];
   preservedUsersCount?: number;
+  preservedInventoryCount?: number;
   safetySnapshot?: string;
   durationMs?: number;
   timestamp?: string;
@@ -229,17 +230,17 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
         }
         if (prev < 50) {
           setRestoreStepIndex(2);
-          setRestoreStepName('Resguardando usuarios y accesos autorizados...');
+          setRestoreStepName('Resguardando usuarios, accesos e inventario de piezas...');
           return prev + 2;
         }
         if (prev < 75) {
           setRestoreStepIndex(3);
-          setRestoreStepName('Vaciando base de datos a cero (dejando tablas en blanco)...');
+          setRestoreStepName('Vaciando tablas operativas (conservando usuarios e inventario)...');
           return prev + 1.5;
         }
         if (prev < 94) {
           setRestoreStepIndex(4);
-          setRestoreStepName('Cargando y ejecutando registros del archivo SQL...');
+          setRestoreStepName('Cargando archivo SQL y restaurando inventario y usuarios...');
           return prev + 0.8;
         }
         return prev;
@@ -644,7 +645,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                     <div className="grid grid-cols-4 gap-1.5 pt-1.5 border-t border-cyan-500/15">
                       {[
                         { label: 'Snapshot', icon: 'shield' },
-                        { label: 'Usuarios', icon: 'group' },
+                        { label: 'Resguardo', icon: 'shield_person' },
                         { label: 'Vaciado', icon: 'delete_sweep' },
                         { label: 'Carga SQL', icon: 'database' },
                       ].map((step, idx) => {
@@ -684,7 +685,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                       ¡ADVERTENCIA DE SOBREESCRITURA!
                     </p>
                     <p className="text-[10px] text-slate-300">
-                      Se vaciarán todas las tablas operativas a cero, <strong className="text-emerald-300">conservando usuarios y claves</strong>, y luego se importará:
+                      Se vaciarán las tablas operativas a cero, <strong className="text-emerald-300">conservando usuarios, claves e inventario de piezas</strong>, y luego se importará:
                     </p>
                     <div className="p-1.5 bg-[#040814] rounded-lg border border-red-500/20 font-mono text-cyan-300 text-[9.5px] flex justify-between items-center mt-0.5">
                       <span className="truncate">{restoreTarget.label}</span>
@@ -747,6 +748,11 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                       {typeof restoreResult.preservedUsersCount === 'number' && (
                         <p>
                           Usuarios conservados: <strong className="text-emerald-300">{restoreResult.preservedUsersCount}</strong>
+                        </p>
+                      )}
+                      {typeof restoreResult.preservedInventoryCount === 'number' && (
+                        <p>
+                          Inventario conservado: <strong className="text-emerald-300">{restoreResult.preservedInventoryCount} piezas</strong>
                         </p>
                       )}
                       {restoreResult.safetySnapshot && (

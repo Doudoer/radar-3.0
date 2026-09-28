@@ -210,10 +210,13 @@ export interface RestoreResult {
   restoredTables: string[];
   clearedTables: string[];
   preservedUsersCount: number;
+  preservedInventoryCount: number;
   safetySnapshot?: string;
   durationMs: number;
   timestamp: string;
 }
+
+const PRESERVED_TABLES = new Set(['users', 'inventory_parts']);
 
 /**
  * Reads all rows currently in the `users` table.
@@ -230,7 +233,27 @@ export const fetchCurrentUsers = async (
 };
 
 /**
- * Wipes/clears all tables in the database except for `users`.
+ * Reads all rows currently in the `inventory_parts` table.
+ */
+export const fetchCurrentInventoryParts = async (
+  connection: { query: (sql: string) => Promise<unknown> }
+): Promise<RowDataPacket[]> => {
+  try {
+    const [tableCheck] = (await connection.query(
+      "SHOW TABLES LIKE 'inventory_parts'"
+    )) as [RowDataPacket[], unknown];
+    if (tableCheck.length === 0) {
+      return [];
+    }
+    const [rows] = (await connection.query('SELECT * FROM `inventory_parts`')) as [RowDataPacket[], unknown];
+    return rows || [];
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Wipes/clears all tables in the database except for preserved tables (`users` and `inventory_parts`).
  */
 export const clearDatabaseExceptUsers = async (
   connection: { query: (sql: string) => Promise<unknown> }
@@ -243,8 +266,8 @@ export const clearDatabaseExceptUsers = async (
 
   for (const tableRow of tableRows) {
     const tableName = getTableName(tableRow);
-    if (tableName.toLowerCase() === 'users') {
-      continue; // Preserve users table!
+    if (PRESERVED_TABLES.has(tableName.toLowerCase())) {
+      continue; // Preserve users and inventory_parts tables!
     }
 
     const identifier = escapeIdentifier(tableName);
@@ -258,6 +281,81 @@ export const clearDatabaseExceptUsers = async (
   }
 
   return clearedTables;
+};
+
+export const clearDatabaseExceptPreserved = clearDatabaseExceptUsers;
+
+/**
+ * Ensures the `inventory_parts` table structure and schema exist.
+ */
+export const ensureInventoryPartsTable = async (
+  connection: { query: (sql: string) => Promise<unknown> }
+): Promise<void> => {
+  try {
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS \`inventory_parts\` (
+        \`id\` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        \`year\` VARCHAR(50) NOT NULL,
+        \`year_from\` VARCHAR(50) NULL,
+        \`year_to\` VARCHAR(50) NULL,
+        \`is_exact_year_only\` TINYINT(1) NOT NULL DEFAULT 0,
+        \`brand\` VARCHAR(100) NOT NULL,
+        \`model\` VARCHAR(100) NOT NULL,
+        \`part_type\` VARCHAR(50) NOT NULL DEFAULT 'Motor',
+        \`vin\` VARCHAR(50) NULL,
+        \`pallet_number\` VARCHAR(50) NULL,
+        \`tag_code\` VARCHAR(80) NULL,
+        \`engine_specs\` VARCHAR(150) NULL,
+        \`held_for\` VARCHAR(200) NULL,
+        \`held_by\` VARCHAR(150) NULL,
+        \`hold_until\` DATE NULL,
+        \`tag_date\` VARCHAR(50) NULL,
+        \`status\` VARCHAR(40) NOT NULL DEFAULT 'disponible',
+        \`price\` DECIMAL(12,2) NOT NULL DEFAULT 0,
+        \`cost\` DECIMAL(12,2) NOT NULL DEFAULT 0,
+        \`location\` VARCHAR(150) NULL,
+        \`photo_url\` TEXT NULL,
+        \`notes\` TEXT NULL,
+        \`created_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updated_at\` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        \`sold_at\` TIMESTAMP NULL DEFAULT NULL,
+        \`deleted_at\` TIMESTAMP NULL DEFAULT NULL,
+        INDEX inventory_parts_status (\`status\`),
+        INDEX inventory_parts_brand_model (\`brand\`, \`model\`),
+        INDEX inventory_parts_vin (\`vin\`),
+        INDEX inventory_parts_pallet (\`pallet_number\`),
+        INDEX inventory_parts_deleted (\`deleted_at\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    try {
+      const [cols] = (await connection.query('SHOW COLUMNS FROM `inventory_parts` LIKE "year_from"')) as [
+        RowDataPacket[],
+        unknown
+      ];
+      if (cols.length === 0) {
+        await connection.query('ALTER TABLE `inventory_parts` ADD COLUMN `year_from` VARCHAR(50) NULL AFTER `year`');
+        await connection.query('ALTER TABLE `inventory_parts` ADD COLUMN `year_to` VARCHAR(50) NULL AFTER `year_from`');
+        await connection.query('ALTER TABLE `inventory_parts` ADD COLUMN `is_exact_year_only` TINYINT(1) NOT NULL DEFAULT 0 AFTER `year_to`');
+      }
+    } catch {
+      // Table may have already been created with columns
+    }
+
+    try {
+      const [soldCols] = (await connection.query('SHOW COLUMNS FROM `inventory_parts` LIKE "sold_at"')) as [
+        RowDataPacket[],
+        unknown
+      ];
+      if (soldCols.length === 0) {
+        await connection.query('ALTER TABLE `inventory_parts` ADD COLUMN `sold_at` TIMESTAMP NULL DEFAULT NULL AFTER `updated_at`');
+      }
+    } catch {
+      // Table may have already been created with columns
+    }
+  } catch (error) {
+    console.warn('[Backup Restore] Advertencia al verificar/crear tabla inventory_parts:', error);
+  }
 };
 
 /**
@@ -301,6 +399,48 @@ export const restorePreservedUsers = async (
   return restoredCount;
 };
 
+/**
+ * Re-inserts or merges preserved inventory parts into the `inventory_parts` table after restoring SQL statements.
+ * This guarantees that existing inventory is never lost even if the SQL backup dropped the table or did not have inventory data.
+ */
+export const restorePreservedInventoryParts = async (
+  connection: { query: (sql: string) => Promise<unknown> },
+  preservedParts: RowDataPacket[]
+): Promise<number> => {
+  if (!preservedParts || preservedParts.length === 0) return 0;
+
+  await ensureInventoryPartsTable(connection);
+
+  const [tableCheck] = (await connection.query("SHOW TABLES LIKE 'inventory_parts'")) as [RowDataPacket[], unknown];
+  if (tableCheck.length === 0) {
+    return 0;
+  }
+
+  let restoredCount = 0;
+  for (const part of preservedParts) {
+    const columns = Object.keys(part);
+    const columnList = columns.map(escapeIdentifier).join(', ');
+    const updateClauses = columns
+      .filter((c) => c !== 'id')
+      .map((c) => `${escapeIdentifier(c)} = VALUES(${escapeIdentifier(c)})`)
+      .join(', ');
+
+    const values = columns.map((col) => escapeValue(part[col])).join(', ');
+    const query = updateClauses
+      ? `INSERT INTO \`inventory_parts\` (${columnList}) VALUES (${values}) ON DUPLICATE KEY UPDATE ${updateClauses};`
+      : `INSERT IGNORE INTO \`inventory_parts\` (${columnList}) VALUES (${values});`;
+
+    try {
+      await connection.query(query);
+      restoredCount++;
+    } catch (err) {
+      console.warn(`[Backup Restore] Advertencia al re-insertar pieza de inventario #${part.id}:`, err);
+    }
+  }
+
+  return restoredCount;
+};
+
 export const restoreDatabaseBackup = async (
   sqlContent: string,
   options: { createSafetySnapshot?: boolean; sourceName?: string } = {}
@@ -337,11 +477,14 @@ export const restoreDatabaseBackup = async (
     await connection.query('SET FOREIGN_KEY_CHECKS = 0;');
     await connection.query('SET UNIQUE_CHECKS = 0;');
 
-    // 3. Preserve current users in memory
+    // 3. Preserve current users and inventory in memory before restoring
     const preservedUsers = await fetchCurrentUsers(connection);
     const preservedUsersCount = preservedUsers.length;
 
-    // 4. Wipe / clear all tables in the database except `users`
+    const preservedInventoryParts = await fetchCurrentInventoryParts(connection);
+    const preservedInventoryCount = preservedInventoryParts.length;
+
+    // 4. Wipe / clear all tables in the database except `users` and `inventory_parts`
     const clearedTables = await clearDatabaseExceptUsers(connection);
 
     // 5. Execute new SQL backup statements into the blank database
@@ -350,6 +493,13 @@ export const restoreDatabaseBackup = async (
     // 6. Guarantee that preserved users exist and are active
     if (preservedUsersCount > 0) {
       await restorePreservedUsers(connection, preservedUsers);
+    }
+
+    // 7. Guarantee that preserved inventory parts exist and are restored
+    if (preservedInventoryCount > 0) {
+      await restorePreservedInventoryParts(connection, preservedInventoryParts);
+    } else {
+      await ensureInventoryPartsTable(connection);
     }
 
     await connection.query('SET FOREIGN_KEY_CHECKS = 1;');
@@ -365,10 +515,11 @@ export const restoreDatabaseBackup = async (
 
     return {
       ok: true,
-      message: `Base de datos vaciada (${clearedTables.length} tablas) y restaurada exitosamente (${restoredTables.length} tablas activas, ${preservedUsersCount} usuarios conservados)`,
+      message: `Base de datos restaurada exitosamente (${clearedTables.length} tablas operativas vaciadas, ${restoredTables.length} tablas activas, ${preservedUsersCount} usuarios conservados, ${preservedInventoryCount} piezas de inventario conservadas)`,
       restoredTables,
       clearedTables,
       preservedUsersCount,
+      preservedInventoryCount,
       safetySnapshot: safetySnapshotName,
       durationMs,
       timestamp: new Date().toISOString(),
