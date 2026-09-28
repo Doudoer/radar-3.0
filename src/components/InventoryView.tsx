@@ -38,6 +38,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   // Delete Confirmation State
   const [deleteConfirmItem, setDeleteConfirmItem] = useState<InventoryPart | null>(null);
 
+  // Detail Card Modal State
+  const [selectedDetailItem, setSelectedDetailItem] = useState<InventoryPart | null>(null);
+  const [copiedDetailField, setCopiedDetailField] = useState<string | null>(null);
+
   // Quick suggestion constants
   const COMMON_TRACTIONS = ['4x4', '4x2', 'FWD', 'AWD', 'RWD'] as const;
   const COMMON_STATUSES = [
@@ -145,6 +149,38 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const handleCopyDetail = (text: string, fieldName: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedDetailField(fieldName);
+    showToast(`Copiado: ${fieldName}`);
+    setTimeout(() => setCopiedDetailField(null), 2500);
+  };
+
+  const handleCopyFullItemSummary = (item: InventoryPart) => {
+    const compat = item.isExactYearOnly
+      ? `Solo ${item.year}`
+      : item.yearFrom && item.yearTo
+      ? `${item.yearFrom} - ${item.yearTo}`
+      : item.yearFrom
+      ? `Desde ${item.yearFrom}`
+      : item.yearTo
+      ? `Hasta ${item.yearTo}`
+      : 'No especificado';
+    const summary = [
+      `📦 PIEZA DE INVENTARIO #${item.id}`,
+      `🚗 Vehículo: ${item.year} ${item.brand} ${item.model || ''}`.trim(),
+      `⚙️ Tipo: ${item.partType} ${item.engineSpecs ? `(${item.engineSpecs})` : ''}`,
+      `📅 Compatibilidad: ${compat}`,
+      `🏷️ Paleta: ${item.palletNumber || 'S/P'}`,
+      `🔍 VIN: ${item.vin || 'N/A'}`,
+      `📊 Estado: ${(item.status || 'disponible').toUpperCase()}`,
+      item.notes ? `📝 Notas: ${item.notes}` : null,
+    ].filter(Boolean).join('\n');
+
+    navigator.clipboard.writeText(summary);
+    showToast('Ficha de la pieza copiada al portapapeles.');
   };
 
   const fetchInventory = async () => {
@@ -576,9 +612,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   return (
                     <tr
                       key={item.id}
+                      onClick={() => setSelectedDetailItem(item)}
                       onDoubleClick={() => handleOpenEdit(item)}
-                      className="hover:bg-cyan-500/5 transition-colors cursor-pointer"
-                      title="Doble clic para editar esta pieza"
+                      className="hover:bg-cyan-500/10 transition-colors cursor-pointer group"
+                      title="Clic para ver ficha completa | Doble clic para editar"
                     >
                       {/* Pallet # */}
                       <td className="py-3 px-4">
@@ -1201,6 +1238,285 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Detail Card Modal */}
+      {selectedDetailItem && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in"
+          onClick={() => setSelectedDetailItem(null)}
+        >
+          <div 
+            className="relative w-full max-w-xl rounded-3xl bg-[#080d1a] border border-cyan-500/40 shadow-[0_20px_70px_rgba(0,0,0,0.95)] overflow-hidden text-slate-100 max-h-[92vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Top Glowing Gradient Accent */}
+            <div className="h-1.5 w-full bg-gradient-to-r from-cyan-500 via-emerald-500 to-blue-500" />
+
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 pb-4 border-b border-cyan-500/20 bg-gradient-to-b from-[#0b1426] to-[#080d1a]">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3.5">
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg border shrink-0 ${
+                    (selectedDetailItem.partType || '').toLowerCase().includes('motor')
+                      ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.3)]'
+                      : 'bg-amber-500/20 border-amber-500/40 text-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.3)]'
+                  }`}>
+                    <span className="material-symbols-outlined text-[28px]">
+                      {(selectedDetailItem.partType || '').toLowerCase().includes('motor') ? 'settings' : 'swap_driving_apps'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-300 border border-blue-500/40 text-xs font-mono font-black">
+                        #{selectedDetailItem.id}
+                      </span>
+                      {selectedDetailItem.palletNumber && (
+                        <span className="px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold">
+                          PALETA {selectedDetailItem.palletNumber}
+                        </span>
+                      )}
+                      {getStatusBadge(selectedDetailItem.status)}
+                    </div>
+                    
+                    <h2 className="text-base sm:text-lg font-black text-white uppercase tracking-wide mt-1">
+                      {selectedDetailItem.year} {selectedDetailItem.brand} {selectedDetailItem.model || ''}
+                    </h2>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedDetailItem(null)}
+                  className="p-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer shrink-0"
+                  title="Cerrar tarjeta"
+                >
+                  <span className="material-symbols-outlined text-[20px]">close</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body / Scrollable Info Cards */}
+            <div className="p-5 sm:p-6 space-y-3.5 overflow-y-auto font-mono text-xs">
+              {/* Card 1: Vehículo & Compatibilidad */}
+              <div className="rounded-2xl bg-[#050914] border border-cyan-500/25 p-4 space-y-3 shadow-inner">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <div className="flex items-center gap-2 text-cyan-400 font-bold text-xs uppercase tracking-wider">
+                    <span className="material-symbols-outlined text-[18px]">directions_car</span>
+                    <span>Información del Vehículo</span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 font-normal">Datos automotrices</span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                  <div className="rounded-xl bg-[#080f20] p-2.5 border border-slate-800">
+                    <span className="text-[10px] text-slate-400 block mb-0.5 uppercase">Año Fabricación</span>
+                    <span className="text-sm font-black text-amber-300">{selectedDetailItem.year}</span>
+                  </div>
+
+                  <div className="rounded-xl bg-[#080f20] p-2.5 border border-slate-800">
+                    <span className="text-[10px] text-slate-400 block mb-0.5 uppercase">Marca</span>
+                    <span className="text-sm font-black text-white">{selectedDetailItem.brand}</span>
+                  </div>
+
+                  <div className="rounded-xl bg-[#080f20] p-2.5 border border-slate-800 col-span-2 sm:col-span-1">
+                    <span className="text-[10px] text-slate-400 block mb-0.5 uppercase">Modelo</span>
+                    <span className="text-sm font-black text-slate-200">
+                      {selectedDetailItem.model || <span className="text-slate-500 italic font-normal">Sin modelo</span>}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Compatibilidad de Años */}
+                <div className="rounded-xl bg-[#080f20] p-3 border border-slate-800/80 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[18px] text-amber-400">event_repeat</span>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase">Compatibilidad de Años</span>
+                      <div className="text-xs font-bold mt-0.5">
+                        {selectedDetailItem.isExactYearOnly ? (
+                          <span className="text-amber-300 font-bold flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[13px]">lock</span>
+                            Solo compatible con año {selectedDetailItem.year} (Fabricación exacta)
+                          </span>
+                        ) : selectedDetailItem.yearFrom || selectedDetailItem.yearTo ? (
+                          <span className="text-cyan-300 font-bold">
+                            {selectedDetailItem.yearFrom && selectedDetailItem.yearTo
+                              ? `Compatible desde ${selectedDetailItem.yearFrom} hasta ${selectedDetailItem.yearTo}`
+                              : selectedDetailItem.yearFrom
+                              ? `Compatible desde ${selectedDetailItem.yearFrom} en adelante`
+                              : `Compatible hasta el año ${selectedDetailItem.yearTo}`}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic">No especificada (General)</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {selectedDetailItem.yearFrom && selectedDetailItem.yearTo && !selectedDetailItem.isExactYearOnly && (
+                    <span className="px-2.5 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-[11px] font-black">
+                      {selectedDetailItem.yearFrom} – {selectedDetailItem.yearTo}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Card 2: Especificaciones Técnicas & Mecánicas */}
+              <div className="rounded-2xl bg-[#050914] border border-cyan-500/25 p-4 space-y-3 shadow-inner">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
+                    <span className="material-symbols-outlined text-[18px]">build</span>
+                    <span>Especificaciones Técnicas</span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 font-normal">Componente mecánico</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className="rounded-xl bg-[#080f20] p-2.5 border border-slate-800 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block mb-0.5 uppercase">Tipo de Pieza</span>
+                      <span className="text-xs font-black text-white">{selectedDetailItem.partType}</span>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
+                      (selectedDetailItem.partType || '').toLowerCase().includes('motor')
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                        : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    }`}>
+                      {selectedDetailItem.partType}
+                    </span>
+                  </div>
+
+                  <div className="rounded-xl bg-[#080f20] p-2.5 border border-slate-800 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block mb-0.5 uppercase">
+                        {(selectedDetailItem.partType || '').toLowerCase().includes('transmi') ? 'Tracción' : 'Litraje / Motor'}
+                      </span>
+                      <span className="text-xs font-black text-cyan-300">
+                        {selectedDetailItem.engineSpecs || <span className="text-slate-500 italic font-normal">No especificado</span>}
+                      </span>
+                    </div>
+                    {selectedDetailItem.engineSpecs && (
+                      <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-xs font-black">
+                        {selectedDetailItem.engineSpecs}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* VIN Card with Copy Button */}
+                <div className="rounded-xl bg-[#080f20] p-2.5 border border-slate-800 flex items-center justify-between gap-3">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block mb-0.5 uppercase">VIN (Chasis)</span>
+                    <span className="text-xs font-mono font-black text-cyan-300 tracking-wider">
+                      {selectedDetailItem.vin || <span className="text-slate-500 italic font-normal">Sin VIN</span>}
+                    </span>
+                  </div>
+
+                  {selectedDetailItem.vin && (
+                    <button
+                      type="button"
+                      onClick={() => handleCopyDetail(selectedDetailItem.vin!, 'VIN')}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                      title="Copiar VIN"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">
+                        {copiedDetailField === 'VIN' ? 'check' : 'content_copy'}
+                      </span>
+                      <span>{copiedDetailField === 'VIN' ? 'Copiado' : 'Copiar'}</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Pallet Card */}
+                <div className="rounded-xl bg-[#080f20] p-2.5 border border-slate-800 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block mb-0.5 uppercase">Ubicación / Paleta</span>
+                    <span className="text-xs font-bold text-blue-300">
+                      {selectedDetailItem.palletNumber ? `Paleta: ${selectedDetailItem.palletNumber}` : 'Sin paleta asignada'}
+                    </span>
+                  </div>
+                  {selectedDetailItem.palletNumber && (
+                    <span className="px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-300 border border-blue-500/40 text-xs font-black shadow-[0_0_10px_rgba(59,130,246,0.2)]">
+                      {selectedDetailItem.palletNumber}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Card 3: Observaciones & Notas */}
+              {selectedDetailItem.notes && (
+                <div className="rounded-2xl bg-[#050914] border border-cyan-500/25 p-4 space-y-2 shadow-inner">
+                  <div className="flex items-center gap-2 text-slate-300 font-bold text-xs uppercase tracking-wider">
+                    <span className="material-symbols-outlined text-[16px] text-cyan-400">notes</span>
+                    <span>Notas & Observaciones</span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[#080f20] border border-slate-800 text-slate-300 text-xs leading-relaxed">
+                    {selectedDetailItem.notes}
+                  </div>
+                </div>
+              )}
+
+              {/* Audit Info (Dates) */}
+              {(selectedDetailItem.createdAt || selectedDetailItem.updatedAt) && (
+                <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 px-1">
+                  <span>
+                    Registrado: {selectedDetailItem.createdAt ? new Date(selectedDetailItem.createdAt).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                  </span>
+                  {selectedDetailItem.updatedAt && (
+                    <span>
+                      Modificado: {new Date(selectedDetailItem.updatedAt).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer Actions */}
+            <div className="p-4 sm:p-5 border-t border-cyan-500/20 bg-[#070c18] flex items-center justify-between gap-2.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => handleCopyFullItemSummary(selectedDetailItem)}
+                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer transition-colors"
+                title="Copiar resumen para WhatsApp o correo"
+              >
+                <span className="material-symbols-outlined text-[16px]">content_copy</span>
+                <span>Copiar Ficha</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const itemToEdit = selectedDetailItem;
+                    setSelectedDetailItem(null);
+                    handleOpenEdit(itemToEdit);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105"
+                  title="Editar datos de esta pieza"
+                >
+                  <span className="material-symbols-outlined text-[16px]">edit</span>
+                  <span>Editar</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const itemToOrder = selectedDetailItem;
+                    setSelectedDetailItem(null);
+                    handleConvertToOrder(itemToOrder);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-black text-xs font-mono uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-[0_0_20px_rgba(6,182,212,0.4)] hover:scale-105 transition-transform"
+                  title="Crear orden de venta o taller con esta pieza"
+                >
+                  <span className="material-symbols-outlined text-[16px]">shopping_cart</span>
+                  <span>Crear Orden</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
