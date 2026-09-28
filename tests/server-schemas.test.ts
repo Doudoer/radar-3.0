@@ -187,7 +187,7 @@ describe('server input schemas', () => {
     expect(() => wasenderDispatchSchema.parse({ phone: '', message: '' })).toThrow();
   });
 
-  it('validates inventory part schema (year, brand, model, partType, vin, palletNumber, engineSpecs, notes)', () => {
+  it('validates inventory part schema (year, brand, model, partType, vin, palletNumber, engineSpecs, notes, compatible years)', () => {
     const part = inventoryPartSchema.parse({
       year: '2017',
       brand: 'Chevrolet',
@@ -197,6 +197,9 @@ describe('server input schemas', () => {
       palletNumber: 'PAL-104',
       engineSpecs: '1.5L Turbo',
       notes: 'Probado con alternador y compresor',
+      yearFrom: '2015',
+      yearTo: '2020',
+      isExactYearOnly: false,
     });
     expect(part.year).toBe('2017');
     expect(part.brand).toBe('Chevrolet');
@@ -206,6 +209,23 @@ describe('server input schemas', () => {
     expect(part.palletNumber).toBe('PAL-104');
     expect(part.engineSpecs).toBe('1.5L Turbo');
     expect(part.notes).toBe('Probado con alternador y compresor');
+    expect(part.yearFrom).toBe('2015');
+    expect(part.yearTo).toBe('2020');
+    expect(part.isExactYearOnly).toBe(false);
+
+    // Exact year flag
+    const exactPart = inventoryPartSchema.parse({
+      year: '2018',
+      brand: 'Ford',
+      model: 'F-150',
+      partType: 'Transmisión',
+      isExactYearOnly: true,
+      yearFrom: '2018',
+      yearTo: '2018',
+    });
+    expect(exactPart.isExactYearOnly).toBe(true);
+    expect(exactPart.yearFrom).toBe('2018');
+    expect(exactPart.yearTo).toBe('2018');
 
     // Model is optional (often only year and brand are known)
     const partWithoutModel = inventoryPartSchema.parse({

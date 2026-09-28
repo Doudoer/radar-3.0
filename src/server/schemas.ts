@@ -191,6 +191,9 @@ export const inventoryPartSchema = z.object({
   engineSpecs: z.string().trim().max(150).optional().nullable(),
   status: z.string().max(40).optional().default('disponible'),
   notes: z.string().max(5000).optional().nullable(),
+  yearFrom: z.string().trim().max(50).optional().nullable().default(''),
+  yearTo: z.string().trim().max(50).optional().nullable().default(''),
+  isExactYearOnly: z.boolean().optional().default(false),
 });
 
 export const inventoryPartUpdateSchema = inventoryPartSchema.partial();

@@ -14,7 +14,9 @@ export type NavScreen =
   | 'finanzas'
   | 'configuracion'
   | 'ayuda'
-  | 'directorio';
+  | 'directorio'
+  | 'piezas'
+  | 'hold';
 
 // Catálogo Exhaustivo de Estatus en RADAR (13 Estatus)
 export type OrderStatus = 
@@ -284,6 +286,9 @@ export interface InventoryPart {
   engineSpecs?: string; // Litraje para Motor (ej: "1.5L", "5.3L V8") o Tracción para Transmisión (ej: "4x4", "4x2", "FWD", "AWD", "RWD")
   status?: string;
   notes?: string;
+  yearFrom?: string; // Rango compatible desde (opcional)
+  yearTo?: string;   // Rango compatible hasta (opcional)
+  isExactYearOnly?: boolean; // Solo compatible con el año de fabricación
   createdAt?: string;
   updatedAt?: string;
 }

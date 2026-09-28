@@ -19,8 +19,8 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
   const [showVin, setShowVin] = useState(true);
 
   // Available unique brands
-  const allBrands = useMemo(() => {
-    const brands = Array.from(new Set(items.map((i) => i.brand?.trim()).filter(Boolean)));
+  const allBrands = useMemo<string[]>(() => {
+    const brands = Array.from(new Set<string>(items.map((i) => i.brand?.trim() || '').filter(Boolean)));
     return brands.sort((a, b) => a.localeCompare(b));
   }, [items]);
 
@@ -351,10 +351,15 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
                       .map((item) => {
                         const isMotor = (item.partType || '').toLowerCase().includes('motor');
                         const statusClass = `status-${(item.status || 'disponible').toLowerCase()}`;
+                        const compatText = item.isExactYearOnly
+                          ? ` <span style="font-size:9px;color:#d97706;font-weight:bold;">(Solo ${item.year})</span>`
+                          : (item.yearFrom || item.yearTo)
+                          ? ` <span style="font-size:9px;color:#0284c7;">(${item.yearFrom && item.yearTo ? `${item.yearFrom}-${item.yearTo}` : item.yearFrom ? `Desde ${item.yearFrom}` : `Hasta ${item.yearTo}`})</span>`
+                          : '';
                         return `
                           <tr>
                             <td><span class="pallet-badge">${item.palletNumber || 'S/P'}</span></td>
-                            <td><strong>${item.year}</strong></td>
+                            <td><strong>${item.year}</strong>${compatText}</td>
                             <td><strong>${item.model || '—'}</strong></td>
                             <td>
                               <span class="type-badge ${isMotor ? 'type-motor' : 'type-trans'}">
@@ -401,13 +406,22 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
   };
 
   const handleExportCsv = () => {
-    const headers = 'Marca,Modelo,Año,Tipo de Pieza,Litraje/Tracción,Paleta,VIN,Estado,Notas\n';
+    const headers = 'Marca,Modelo,Año Fabricación,Años Compatibles,Tipo de Pieza,Litraje/Tracción,Paleta,VIN,Estado,Notas\n';
     const rows: string[] = [];
 
     groupedByBrand.forEach(([brand, brandItems]) => {
       brandItems.forEach((item) => {
+        const compat = item.isExactYearOnly
+          ? `Solo ${item.year}`
+          : item.yearFrom && item.yearTo
+          ? `${item.yearFrom} - ${item.yearTo}`
+          : item.yearFrom
+          ? `Desde ${item.yearFrom}`
+          : item.yearTo
+          ? `Hasta ${item.yearTo}`
+          : '';
         rows.push(
-          `"${brand}","${item.model}","${item.year}","${item.partType}","${item.engineSpecs || ''}","${item.palletNumber || ''}","${item.vin || ''}","${item.status || 'disponible'}","${(item.notes || '').replace(/"/g, '""')}"`
+          `"${brand}","${item.model}","${item.year}","${compat}","${item.partType}","${item.engineSpecs || ''}","${item.palletNumber || ''}","${item.vin || ''}","${item.status || 'disponible'}","${(item.notes || '').replace(/"/g, '""')}"`
         );
       });
     });
@@ -588,7 +602,18 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
                                 {item.palletNumber || 'S/P'}
                               </span>
                             </td>
-                            <td className="py-2 px-3 font-bold text-amber-300">{item.year}</td>
+                            <td className="py-2 px-3 font-bold text-amber-300">
+                              <div className="flex flex-col gap-0.5">
+                                <span>{item.year}</span>
+                                {item.isExactYearOnly ? (
+                                  <span className="text-[9px] text-amber-400 font-mono font-normal">Solo {item.year}</span>
+                                ) : (item.yearFrom || item.yearTo) ? (
+                                  <span className="text-[9px] text-cyan-400 font-mono font-normal">
+                                    {item.yearFrom && item.yearTo ? `${item.yearFrom}-${item.yearTo}` : item.yearFrom ? `≥${item.yearFrom}` : `≤${item.yearTo}`}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </td>
                             <td className="py-2 px-3 font-bold text-white">
                               {item.model || <span className="text-slate-500 font-normal italic">Sin modelo</span>}
                             </td>

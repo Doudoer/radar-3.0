@@ -68,7 +68,18 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     setEditingItem((prev) => ({
       ...prev,
       year: yearVal,
+      yearFrom: prev.isExactYearOnly ? yearVal : prev.yearFrom,
+      yearTo: prev.isExactYearOnly ? yearVal : prev.yearTo,
       ...(editorMode === 'create' ? { brand: '', model: '' } : {}),
+    }));
+  };
+
+  const handleExactYearToggle = (checked: boolean) => {
+    setEditingItem((prev) => ({
+      ...prev,
+      isExactYearOnly: checked,
+      yearFrom: checked ? prev.year || '' : prev.yearFrom,
+      yearTo: checked ? prev.year || '' : prev.yearTo,
     }));
   };
 
@@ -172,7 +183,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         const query = searchQuery.toLowerCase();
         const matchBrand = item.brand?.toLowerCase().includes(query);
         const matchModel = item.model?.toLowerCase().includes(query);
-        const matchYear = String(item.year || '').toLowerCase().includes(query);
+        const matchYear =
+          String(item.year || '').toLowerCase().includes(query) ||
+          String(item.yearFrom || '').toLowerCase().includes(query) ||
+          String(item.yearTo || '').toLowerCase().includes(query);
         const matchType = item.partType?.toLowerCase().includes(query);
         const matchVin = item.vin?.toLowerCase().includes(query);
         const matchPallet = item.palletNumber?.toLowerCase().includes(query);
@@ -203,6 +217,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     setManualVehicleInput(false);
     setEditingItem({
       year: '',
+      yearFrom: '',
+      yearTo: '',
+      isExactYearOnly: false,
       brand: '',
       model: '',
       partType: 'Motor',
@@ -227,6 +244,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     setManualVehicleInput(isCustom);
     setEditingItem({
       ...item,
+      yearFrom: item.yearFrom || '',
+      yearTo: item.yearTo || '',
+      isExactYearOnly: Boolean(item.isExactYearOnly),
       status: (item.status || 'disponible').toLowerCase(),
     });
     setVinDecodeStatus('idle');
@@ -567,8 +587,35 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                         </span>
                       </td>
 
-                      {/* Year */}
-                      <td className="py-3 px-4 font-bold text-amber-300">{item.year}</td>
+                      {/* Year & Compatibility */}
+                      <td className="py-3 px-4">
+                        <div className="flex flex-col gap-1 items-start">
+                          <span className="font-bold text-amber-300 text-xs">{item.year}</span>
+                          {item.isExactYearOnly ? (
+                            <span
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[9px] font-mono font-semibold"
+                              title="Compatible únicamente con el año de fabricación"
+                            >
+                              <span className="material-symbols-outlined text-[10px]">lock</span>
+                              <span>Solo {item.year}</span>
+                            </span>
+                          ) : (item.yearFrom || item.yearTo) ? (
+                            <span
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 text-[9px] font-mono font-semibold"
+                              title="Rango de compatibilidad de años"
+                            >
+                              <span className="material-symbols-outlined text-[10px]">event_repeat</span>
+                              <span>
+                                {item.yearFrom && item.yearTo
+                                  ? `${item.yearFrom} - ${item.yearTo}`
+                                  : item.yearFrom
+                                  ? `Desde ${item.yearFrom}`
+                                  : `Hasta ${item.yearTo}`}
+                              </span>
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
 
                       {/* Brand */}
                       <td className="py-3 px-4 font-black text-white">{item.brand}</td>
@@ -732,7 +779,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 {/* 1. Año */}
                 <div>
                   <label className="text-[11px] text-slate-300 font-bold block mb-1">
-                    Año <span className="text-red-400">*</span>
+                    Año de Fabricación <span className="text-red-400">*</span>
                   </label>
                   <select
                     required
@@ -836,6 +883,128 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                     <option value="Motor">⚙️ Motor</option>
                     <option value="Transmisión">🔄 Transmisión</option>
                   </select>
+                </div>
+
+                {/* Compatibilidad de Años (Desde / Hasta & Checkbox Solo año de fabricación) */}
+                <div className="sm:col-span-2 rounded-2xl bg-[#040814]/90 border border-cyan-500/30 p-3.5 space-y-3 shadow-inner">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[18px] text-cyan-400">calendar_month</span>
+                      <span className="text-xs font-bold text-white tracking-wide uppercase">Años Compatibles</span>
+                      <span className="text-[10px] text-slate-400 font-normal font-mono">(Opcional)</span>
+                    </div>
+
+                    {/* Checkbox: Solo compatible con el año de fabricación */}
+                    <label className="flex items-center gap-2 cursor-pointer select-none group bg-[#070e1c] px-2.5 py-1.5 rounded-xl border border-slate-700/80 hover:border-amber-500/50 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(editingItem.isExactYearOnly)}
+                        onChange={(e) => handleExactYearToggle(e.target.checked)}
+                        className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400 bg-slate-900 border-slate-600 cursor-pointer accent-amber-500"
+                      />
+                      <span className="text-[11px] font-bold text-amber-300 group-hover:text-amber-200 flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[13px]">
+                          {editingItem.isExactYearOnly ? 'lock' : 'lock_open'}
+                        </span>
+                        <span>Solo compatible con año de fabricación ({editingItem.year || '—'})</span>
+                      </span>
+                    </label>
+                  </div>
+
+                  {/* Inputs Desde / Hasta */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Año Desde */}
+                    <div>
+                      <label className="text-[10px] text-slate-300 font-bold block mb-1 flex items-center justify-between">
+                        <span>Compatible Desde (Año Inicial)</span>
+                        {editingItem.isExactYearOnly && (
+                          <span className="text-[9px] text-amber-400 font-mono flex items-center gap-0.5">
+                            <span className="material-symbols-outlined text-[10px]">lock</span> Bloqueado al año {editingItem.year || ''}
+                          </span>
+                        )}
+                      </label>
+                      <select
+                        disabled={Boolean(editingItem.isExactYearOnly)}
+                        value={editingItem.yearFrom || ''}
+                        onChange={(e) => setEditingItem({ ...editingItem, yearFrom: e.target.value })}
+                        className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 disabled:opacity-50 disabled:bg-slate-900/80 cursor-pointer"
+                      >
+                        <option value="">(Opcional) Selecciona año desde</option>
+                        {yearOptions.map((y) => (
+                          <option key={`from-${y}`} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Año Hasta */}
+                    <div>
+                      <label className="text-[10px] text-slate-300 font-bold block mb-1 flex items-center justify-between">
+                        <span>Compatible Hasta (Año Final)</span>
+                        {editingItem.isExactYearOnly && (
+                          <span className="text-[9px] text-amber-400 font-mono flex items-center gap-0.5">
+                            <span className="material-symbols-outlined text-[10px]">lock</span> Bloqueado al año {editingItem.year || ''}
+                          </span>
+                        )}
+                      </label>
+                      <select
+                        disabled={Boolean(editingItem.isExactYearOnly)}
+                        value={editingItem.yearTo || ''}
+                        onChange={(e) => setEditingItem({ ...editingItem, yearTo: e.target.value })}
+                        className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 disabled:opacity-50 disabled:bg-slate-900/80 cursor-pointer"
+                      >
+                        <option value="">(Opcional) Selecciona año hasta</option>
+                        {yearOptions.map((y) => (
+                          <option key={`to-${y}`} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Shortcuts & Helpers when not exact year locked */}
+                  {!editingItem.isExactYearOnly && editingItem.year && (
+                    <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                      <span className="text-[10px] text-slate-400">Atajos de rango:</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const yr = editingItem.year || '';
+                          setEditingItem({ ...editingItem, yearFrom: yr, yearTo: yr });
+                        }}
+                        className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-mono cursor-pointer transition-colors border border-slate-700"
+                      >
+                        Mismo año ({editingItem.year})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const base = parseInt(editingItem.year || '2020', 10);
+                          setEditingItem({ ...editingItem, yearFrom: String(base - 1), yearTo: String(base + 1) });
+                        }}
+                        className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-mono cursor-pointer transition-colors border border-slate-700"
+                      >
+                        ±1 Año ({parseInt(editingItem.year || '2020', 10) - 1} - {parseInt(editingItem.year || '2020', 10) + 1})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const base = parseInt(editingItem.year || '2020', 10);
+                          setEditingItem({ ...editingItem, yearFrom: String(base - 2), yearTo: String(base + 2) });
+                        }}
+                        className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-mono cursor-pointer transition-colors border border-slate-700"
+                      >
+                        ±2 Años ({parseInt(editingItem.year || '2020', 10) - 2} - {parseInt(editingItem.year || '2020', 10) + 2})
+                      </button>
+                      {(editingItem.yearFrom || editingItem.yearTo) && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingItem({ ...editingItem, yearFrom: '', yearTo: '' })}
+                          className="px-2 py-0.5 rounded bg-red-950/40 hover:bg-red-900/60 text-red-300 text-[10px] font-mono cursor-pointer transition-colors border border-red-500/30"
+                        >
+                          Limpiar rango
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* 5. Dynamic Litraje (para Motor) o Tracción (para Transmisión) */}

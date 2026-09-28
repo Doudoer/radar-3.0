@@ -82,6 +82,9 @@ const mapInventoryPartRow = (row: RowDataPacket) => {
   return {
     id: String(row.id),
     year: String(row.year || ''),
+    yearFrom: row.year_from ? String(row.year_from) : '',
+    yearTo: row.year_to ? String(row.year_to) : '',
+    isExactYearOnly: Boolean(row.is_exact_year_only),
     brand: row.brand || '',
     model: row.model || '',
     partType: row.part_type || 'Motor',
@@ -777,10 +780,13 @@ const server = createServer(async (request, response) => {
       
       const [result] = await pool.execute<ResultSetHeader>(`
         INSERT INTO inventory_parts (
-          year, brand, model, part_type, vin, pallet_number, engine_specs, status, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          year, year_from, year_to, is_exact_year_only, brand, model, part_type, vin, pallet_number, engine_specs, status, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         payload.year,
+        payload.yearFrom || null,
+        payload.yearTo || null,
+        payload.isExactYearOnly ? 1 : 0,
         payload.brand,
         payload.model || '',
         payload.partType || 'Motor',
@@ -811,6 +817,9 @@ const server = createServer(async (request, response) => {
       const values: any[] = [];
       
       if (payload.year !== undefined) { updates.push('year = ?'); values.push(payload.year); }
+      if (payload.yearFrom !== undefined) { updates.push('year_from = ?'); values.push(payload.yearFrom || null); }
+      if (payload.yearTo !== undefined) { updates.push('year_to = ?'); values.push(payload.yearTo || null); }
+      if (payload.isExactYearOnly !== undefined) { updates.push('is_exact_year_only = ?'); values.push(payload.isExactYearOnly ? 1 : 0); }
       if (payload.brand !== undefined) { updates.push('brand = ?'); values.push(payload.brand); }
       if (payload.model !== undefined) { updates.push('model = ?'); values.push(payload.model); }
       if (payload.partType !== undefined) { updates.push('part_type = ?'); values.push(payload.partType); }
@@ -983,6 +992,9 @@ const ensureDatabaseTables = async () => {
       CREATE TABLE IF NOT EXISTS inventory_parts (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
         year VARCHAR(50) NOT NULL,
+        year_from VARCHAR(50) NULL,
+        year_to VARCHAR(50) NULL,
+        is_exact_year_only TINYINT(1) NOT NULL DEFAULT 0,
         brand VARCHAR(100) NOT NULL,
         model VARCHAR(100) NOT NULL,
         part_type VARCHAR(50) NOT NULL DEFAULT 'Motor',
@@ -1010,6 +1022,18 @@ const ensureDatabaseTables = async () => {
         INDEX inventory_parts_deleted (deleted_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    // Auto-migration for existing database instances: check if columns exist
+    try {
+      const [cols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM inventory_parts LIKE "year_from"');
+      if (cols.length === 0) {
+        await pool.query('ALTER TABLE inventory_parts ADD COLUMN year_from VARCHAR(50) NULL AFTER year');
+        await pool.query('ALTER TABLE inventory_parts ADD COLUMN year_to VARCHAR(50) NULL AFTER year_from');
+        await pool.query('ALTER TABLE inventory_parts ADD COLUMN is_exact_year_only TINYINT(1) NOT NULL DEFAULT 0 AFTER year_to');
+      }
+    } catch {
+      // Table may have just been created with columns above
+    }
   } catch (error) {
     console.error('Error al verificar/inicializar tablas de base de datos:', error);
   }
