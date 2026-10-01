@@ -28,6 +28,15 @@ export const statusFromDatabase = (value: string) => {
   return aliases[normalized] || normalized || 'cotizacion';
 };
 
+export const normalizeTransmissionType = (value?: string | null): 'AT' | 'MT' | null => {
+  if (!value) return null;
+  const str = String(value).trim().toUpperCase();
+  if (str === 'AT' || str === 'MT') return str;
+  if (/MANUAL|MT|ESTANDAR|ESTÁNDAR|MECANICA|MECÁNICA/.test(str)) return 'MT';
+  if (/AUTO|AT|AUTOMATICA|AUTOMÁTICA|CVT|DCT|SPEED/.test(str)) return 'AT';
+  return null;
+};
+
 export const mapOrder = (row: RowDataPacket) => {
   const customerName = [row.first_name, row.last_name].filter(Boolean).join(' ') || 'Cliente sin nombre';
   const price = Number(row.price || 0);

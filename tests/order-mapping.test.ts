@@ -1,11 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { mapOrder, statusFromDatabase, toMysqlDateTime } from '../src/server/orders';
+import { mapOrder, normalizeTransmissionType, statusFromDatabase, toMysqlDateTime } from '../src/server/orders';
 
 describe('database order mapping', () => {
   it('normalizes database status labels', () => {
     expect(statusFromDatabase('En Espera Confirmación')).toBe('espera_confirmacion');
     expect(statusFromDatabase('Listo para Despacho')).toBe('listo_despacho');
     expect(statusFromDatabase('Reembolsado')).toBe('reembolsado');
+  });
+
+  it('normalizes transmission types for ENUM column', () => {
+    expect(normalizeTransmissionType('Automatic')).toBe('AT');
+    expect(normalizeTransmissionType('Automática')).toBe('AT');
+    expect(normalizeTransmissionType('6-Speed Automatic')).toBe('AT');
+    expect(normalizeTransmissionType('CVT')).toBe('AT');
+    expect(normalizeTransmissionType('AT')).toBe('AT');
+    expect(normalizeTransmissionType('Manual')).toBe('MT');
+    expect(normalizeTransmissionType('Mecánica')).toBe('MT');
+    expect(normalizeTransmissionType('MT')).toBe('MT');
+    expect(normalizeTransmissionType('')).toBeNull();
+    expect(normalizeTransmissionType(null)).toBeNull();
   });
 
   it('maps financial totals and delivery fields', () => {

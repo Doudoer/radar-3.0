@@ -454,7 +454,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       warrantyDays: warrantyDays,
       saleNotified: status === 'pagado',
       customer: {
-        id: selectedCustomerId || `CUST-${Math.floor(100 + Math.random() * 900)}`,
+        id: selectedCustomerId || undefined,
         name: customerName.trim(),
         company: selectedCustomerObj?.company || (customerType === 'Empresa' || customerType === 'Flota Mantenimiento' || customerType === 'Taller Mecánico' ? customerName.trim() : undefined),
         type: customerType,

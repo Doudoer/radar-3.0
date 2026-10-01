@@ -31,7 +31,7 @@ import {
   inventoryPartUpdateSchema,
 } from './src/server/schemas';
 import { readBody, sendJson, serveFrontend } from './src/server/http';
-import { getOrders, mapOrder, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
+import { getOrders, mapOrder, normalizeTransmissionType, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
 import { getClaims } from './src/server/claims';
 import {
   createDatabaseBackup,
@@ -317,26 +317,108 @@ const server = createServer(async (request, response) => {
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
-        let customerId: number | string = order.customer.id || '';
+
+        // 1. Resolve Customer ID safely (existing numeric ID or create new customer)
+        let customerId: number | null = null;
+        const rawCustomerId = String(order.customer.id || '').trim();
+        const parsedCustomerId = Number(rawCustomerId);
+
+        if (rawCustomerId && !Number.isNaN(parsedCustomerId) && Number.isInteger(parsedCustomerId) && parsedCustomerId > 0 && !rawCustomerId.startsWith('CUST-')) {
+          const [existing] = await connection.query<RowDataPacket[]>('SELECT id FROM customers WHERE id = ? AND deleted_at IS NULL LIMIT 1', [parsedCustomerId]);
+          if (existing.length > 0) {
+            customerId = existing[0].id;
+          }
+        }
+
         if (!customerId) {
           const customerNameParts = String(order.customer.name || '').trim().split(/\s+/);
           const [customerResult] = await connection.execute<ResultSetHeader>(
             'INSERT INTO customers (first_name, last_name, phone, whatsapp, email, address_shipping, zip_code) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [customerNameParts[0] || 'Cliente', customerNameParts.slice(1).join(' '), order.customer.phone || null, order.customer.phone || null, order.customer.email || null, order.customer.shippingAddress || null, order.customer.zip_code || null]
+            [
+              customerNameParts[0] || 'Cliente',
+              customerNameParts.slice(1).join(' ') || null,
+              order.customer.phone || null,
+              order.customer.phone || null,
+              order.customer.email || null,
+              order.customer.shippingAddress || null,
+              order.customer.zip_code || null,
+            ]
           );
           customerId = customerResult.insertId;
         }
 
+        // 2. Resolve User ID (Advisor) safely
+        let assignedUserId: number | null = null;
+        if (order.userId && Number.isInteger(Number(order.userId)) && Number(order.userId) > 0) {
+          const [userRows] = await connection.query<RowDataPacket[]>('SELECT id FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1', [order.userId]);
+          if (userRows.length > 0) assignedUserId = userRows[0].id;
+        }
+        if (!assignedUserId && authenticatedClaims?.sub) {
+          const authSubNum = Number(authenticatedClaims.sub);
+          if (Number.isInteger(authSubNum) && authSubNum > 0) {
+            const [userRows] = await connection.query<RowDataPacket[]>('SELECT id FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1', [authSubNum]);
+            if (userRows.length > 0) assignedUserId = userRows[0].id;
+          }
+        }
+        if (!assignedUserId && order.advisor && order.advisor !== 'Sin asignar') {
+          const [userRows] = await connection.query<RowDataPacket[]>('SELECT id FROM users WHERE name = ? AND deleted_at IS NULL LIMIT 1', [order.advisor]);
+          if (userRows.length > 0) assignedUserId = userRows[0].id;
+        }
+        if (!assignedUserId) {
+          const [firstUser] = await connection.query<RowDataPacket[]>('SELECT id FROM users WHERE deleted_at IS NULL ORDER BY id ASC LIMIT 1');
+          if (firstUser.length > 0) assignedUserId = firstUser[0].id;
+        }
+
+        // 3. Resolve unique Order Code (VARCHAR(20))
+        let orderCode = (order.code || '').trim().slice(0, 20);
+        if (!orderCode) {
+          orderCode = `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
+        }
+        const [existingCode] = await connection.query<RowDataPacket[]>('SELECT id FROM orders WHERE order_code = ? LIMIT 1', [orderCode]);
+        if (existingCode.length > 0) {
+          orderCode = `ORD-${Date.now().toString().slice(-6)}`;
+        }
+
+        // 4. Normalize Transmission Type for ENUM('AT','MT') / VARCHAR
+        const transmissionType = normalizeTransmissionType(order.vehicle.transmission);
+
+        // 5. Insert Order
         const [orderResult] = await connection.execute<ResultSetHeader>(
           `INSERT INTO orders (order_code, vin_nr, brand, model, sub_model, year, color, product_type, transmission_type, product_specs, stock_nr, customer_id, user_id, price, core_fee, down_payment, shipping_toggle, shipping_address, shipping_cost, warranty_days, status, workflow_step, description)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [order.code, order.vehicle.vin || null, order.vehicle.make || null, order.vehicle.model || null, order.vehicle.trim || null, order.vehicle.year || null, order.vehicle.color || null, order.mainPart, order.vehicle.transmission || null, order.productSpecs || null, order.stockNumber || null, customerId, order.userId || authenticatedClaims?.sub || null, order.financials.partPrice || 0, order.financials.coreFee || 0, order.financials.downPayment || 0, order.deliveryType === 'envio_domicilio', order.customer.shippingAddress || null, order.financials.deliveryFee || 0, order.warrantyDays || 60, statusToDatabase[order.status || 'cotizacion'] || order.status || 'Cotización', order.workflowStep || 1, order.notes || null]
+          [
+            orderCode,
+            order.vehicle.vin || null,
+            order.vehicle.make || null,
+            order.vehicle.model || null,
+            order.vehicle.trim || null,
+            order.vehicle.year || null,
+            order.vehicle.color || null,
+            order.mainPart,
+            transmissionType,
+            order.productSpecs || null,
+            order.stockNumber || null,
+            customerId,
+            assignedUserId,
+            order.financials.partPrice || 0,
+            order.financials.coreFee || 0,
+            order.financials.downPayment || 0,
+            order.deliveryType === 'envio_domicilio',
+            order.customer.shippingAddress || null,
+            order.financials.deliveryFee || 0,
+            order.warrantyDays || 60,
+            statusToDatabase[order.status || 'cotizacion'] || order.status || 'Cotización',
+            order.workflowStep || 1,
+            order.notes || null,
+          ]
         );
-        const currentUserId = Number(authenticatedClaims?.sub) || 1;
+
+        const statusUserId = assignedUserId || Number(authenticatedClaims?.sub) || 1;
         await connection.execute(
           'INSERT INTO status_orders (order_id, status, description, user_id) VALUES (?, ?, ?, ?)',
-          [orderResult.insertId, statusToDatabase[order.status || 'cotizacion'] || order.status || 'Cotización', 'Orden creada desde RADAR 3.0', currentUserId]
+          [orderResult.insertId, statusToDatabase[order.status || 'cotizacion'] || order.status || 'Cotización', 'Orden creada desde RADAR 3.0', statusUserId]
         );
+
         await connection.commit();
         const [rows] = await connection.query<RowDataPacket[]>('SELECT o.*, c.first_name, c.last_name, c.phone, c.email, c.address_shipping, c.zip_code, u.name AS advisor FROM orders o LEFT JOIN customers c ON c.id = o.customer_id LEFT JOIN users u ON u.id = o.user_id WHERE o.id = ?', [orderResult.insertId]);
         return sendJson(response, 201, mapOrder(rows[0]));
@@ -356,10 +438,12 @@ const server = createServer(async (request, response) => {
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
-        if (order.customer?.id) {
+        const rawCustId = String(order.customer?.id || '').trim();
+        const parsedCustId = Number(rawCustId);
+        if (rawCustId && !Number.isNaN(parsedCustId) && Number.isInteger(parsedCustId) && parsedCustId > 0 && !rawCustId.startsWith('CUST-')) {
           await connection.execute(
             `UPDATE customers SET first_name = ?, last_name = ?, phone = ?, whatsapp = ?, email = ?, address_shipping = ?, zip_code = ? WHERE id = ?`,
-            [customerName[0] || 'Cliente', customerName.slice(1).join(' '), order.customer.phone || null, order.customer.phone || null, order.customer.email || null, order.customer.shippingAddress || null, order.customer.zip_code || null, order.customer.id]
+            [customerName[0] || 'Cliente', customerName.slice(1).join(' ') || null, order.customer?.phone || null, order.customer?.phone || null, order.customer?.email || null, order.customer?.shippingAddress || null, order.customer?.zip_code || null, parsedCustId]
           );
         }
 
@@ -369,15 +453,17 @@ const server = createServer(async (request, response) => {
           if (userRows[0]) assignedUserId = userRows[0].id;
         }
 
+        const transmissionType = normalizeTransmissionType(order.vehicle?.transmission);
+
         await connection.execute(
           `UPDATE orders SET vin_nr = ?, brand = ?, model = ?, sub_model = ?, year = ?, color = ?, product_type = ?, transmission_type = ?, product_specs = ?, stock_nr = ?, price = ?, core_fee = ?, down_payment = ?, shipping_toggle = ?, shipping_address = ?, shipping_cost = ?, warranty_days = ?, status = ?, workflow_step = ?, scheduled_pickup_at = ?, delivered_at = ?, warranty_started = ?, description = ?, claim_reason = ? ${assignedUserId !== undefined ? ', user_id = ?' : ''} WHERE id = ?`,
           [
-            order.vehicle?.vin || null, order.vehicle?.make || null, order.vehicle?.model || null, order.vehicle?.trim || null, order.vehicle?.year || null, order.vehicle?.color || null, order.mainPart || null, order.vehicle?.transmission || null, order.productSpecs || null, order.stockNumber || null, order.financials?.partPrice || 0, order.financials?.coreFee || 0, order.financials?.downPayment || 0, order.deliveryType === 'envio_domicilio', order.customer?.shippingAddress || null, order.financials?.deliveryFee || 0, order.warrantyDays || 60, statusToDatabase[order.status || ''] || order.status || '', order.workflowStep || 1, toMysqlDateTime(order.scheduledPickupAt), toMysqlDateTime(order.deliveredAt), Boolean(order.warrantyStarted), order.notes || null, order.claimReason || null,
+            order.vehicle?.vin || null, order.vehicle?.make || null, order.vehicle?.model || null, order.vehicle?.trim || null, order.vehicle?.year || null, order.vehicle?.color || null, order.mainPart || null, transmissionType, order.productSpecs || null, order.stockNumber || null, order.financials?.partPrice || 0, order.financials?.coreFee || 0, order.financials?.downPayment || 0, order.deliveryType === 'envio_domicilio', order.customer?.shippingAddress || null, order.financials?.deliveryFee || 0, order.warrantyDays || 60, statusToDatabase[order.status || ''] || order.status || '', order.workflowStep || 1, toMysqlDateTime(order.scheduledPickupAt), toMysqlDateTime(order.deliveredAt), Boolean(order.warrantyStarted), order.notes || null, order.claimReason || null,
             ...(assignedUserId !== undefined ? [assignedUserId] : []),
             orderId,
           ]
         );
-        const currentUserId = Number(authenticatedClaims?.sub) || 1;
+        const currentUserId = (assignedUserId !== undefined && assignedUserId !== null) ? assignedUserId : (Number(authenticatedClaims?.sub) || 1);
         await connection.execute(
           'INSERT INTO status_orders (order_id, status, description, user_id) VALUES (?, ?, ?, ?)',
           [orderId, statusToDatabase[order.status || ''] || order.status || 'Actualizada', 'Orden actualizada desde RADAR 3.0', currentUserId]
