@@ -1,15 +1,17 @@
-import React from 'react';
-import { Claim, Order } from '../types';
+import React, { useState } from 'react';
+import { Claim, ClaimCall, Order } from '../types';
+import { ClaimCallsModal } from './ClaimCallsModal';
 
 interface ClaimDetailViewProps {
   claim: Claim;
   order?: Order;
   onBack: () => void;
-  onOpenCalls: () => void;
+  onCallAdded: (call: ClaimCall) => void;
   onResolve: () => void;
 }
 
-export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({ claim, order, onBack, onOpenCalls, onResolve }) => {
+export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({ claim, order, onBack, onCallAdded, onResolve }) => {
+  const [isCallsOpen, setIsCallsOpen] = useState(false);
   const orderTotal = order?.financials?.total ?? 0;
   const orderBalance = order?.financials?.balanceDue ?? Math.max(0, orderTotal - (order?.financials?.downPayment ?? 0));
 
@@ -58,7 +60,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({ claim, order, 
           <div className="flex flex-wrap gap-2.5 pl-12 sm:pl-0">
             <button
               type="button"
-              onClick={onOpenCalls}
+              onClick={() => setIsCallsOpen(true)}
               className="cyber-btn-secondary px-4 py-2.5 text-xs font-bold flex items-center gap-1.5"
             >
               <span className="material-symbols-outlined text-[17px]">phone_in_talk</span>
@@ -180,6 +182,12 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({ claim, order, 
           </div>
         </section>
       </div>
+      <ClaimCallsModal
+        claim={claim}
+        isOpen={isCallsOpen}
+        onClose={() => setIsCallsOpen(false)}
+        onCallAdded={onCallAdded}
+      />
     </div>
   );
 };

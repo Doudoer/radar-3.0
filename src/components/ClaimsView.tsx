@@ -482,10 +482,12 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
         claim={selectedClaimDetail}
         order={detailOrder}
         onBack={() => setSelectedClaimDetail(null)}
-        onOpenCalls={() => {
-          setSelectedClaimForCalls(selectedClaimDetail);
-          setCallerName(selectedClaimDetail.customerName);
-          setCallerPhone(selectedClaimDetail.customerPhone);
+        onCallAdded={(newCall) => {
+          const updateClaim = (claim: Claim) => claim.id === selectedClaimDetail.id
+            ? { ...claim, callCount: (claim.callCount || 0) + 1, calls: [newCall, ...(claim.calls || [])] }
+            : claim;
+          setClaims((currentClaims) => currentClaims.map(updateClaim));
+          setSelectedClaimDetail((currentClaim) => currentClaim ? updateClaim(currentClaim) : currentClaim);
         }}
         onResolve={() => void handleResolveClaim(selectedClaimDetail)}
       />
