@@ -1,0 +1,57 @@
+# Session: 2026-10-01
+
+**Started:** 2026-10-01 13:00
+**Last Updated:** 2026-10-01 14:50
+**Project:** Radar 3.0 (/Users/user/Desktop/Radar V3/radar-3.0)
+**Topic:** Order Creation Database Fix, Orders Pagination (10/20/30/50/100), Claims Call Log Review
+
+---
+
+## What We Built / Accomplished
+
+1. **Corrección de Creación de Órdenes en DB (MySQL):**
+   - Corregido el fallo al intentar crear órdenes que lanzaba `"no se pudo guardar la orden en la db"`.
+   - Ajustada la normalización de `transmission_type` para cumplir la restricción ENUM (`'AT'`, `'MT'`, `NULL`).
+   - Eliminados IDs simulados `CUST-` en `NewOrderModal.tsx`, vinculando los clientes de forma limpia a `customers.id`.
+   - Preservadas las protecciones de respaldo/restauración de base de datos (`src/server/backup.ts`).
+
+2. **Paginación en la Tabla de Órdenes (`OrdersTableView.tsx`):**
+   - Selector configurable para mostrar 10, 20, 30, 50 o 100 órdenes por página.
+   - Valor por defecto: 10 órdenes.
+   - Reseteo automático a la página 1 en búsquedas y cambio de pestañas/vistas.
+   - Controles de navegación completos (primera, anterior, páginas dinámicas, siguiente, última).
+
+3. **Revisión de la Bitácora de Reclamos (`ClaimsView.tsx` / `ClaimDetailView.tsx`):**
+   - Diagnosticada la razón por la cual el botón "Ver Bitácora de Llamadas" no abría el modal dentro de `ClaimDetailView`.
+   - Verificada la tabla `call_register` y el endpoint `POST /api/claims/:id/calls`.
+
+---
+
+## What WORKED (with evidence)
+
+- **Unit tests:** 27/27 tests passing (`npm test`).
+- **TypeScript build:** `npx tsc --noEmit` exit code 0 (zero errors).
+- **Git status:** Commit `20b12a8` pushed to `origin/main`.
+- **Database:** MySQL container `radar-mysql` corriendo en puerto 3306.
+
+---
+
+## Current State of Files
+
+| File | Status | Notes |
+| --- | --- | --- |
+| `src/components/OrdersTableView.tsx` | Complete | Paginación con selector 10/20/30/50/100 |
+| `src/components/NewOrderModal.tsx` | Complete | Creación limpia de cliente y orden |
+| `src/server/orders.ts` | Complete | Normalización de transmisión y queries |
+| `src/server/claims.ts` | Complete | Mapeo de reclamos y llamadas |
+| `server.ts` | Complete | Endpoints REST actualizados |
+| `CHECKPOINT.md` | Complete | Resumen para handover a VS Code |
+
+---
+
+## Instructions to Resume After Restart
+
+1. Iniciar Docker si no está corriendo: `docker start radar-mysql`
+2. Iniciar el backend: `npm run api` (puerto 3001)
+3. Iniciar el frontend: `npm run dev` (puerto 3000)
+4. Todo el código y la base de datos están 100% operativos.
