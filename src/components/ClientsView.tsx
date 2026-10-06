@@ -341,7 +341,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   };
 
   return (
-    <div className="radar-view select-none pb-8">
+    <div className="radar-view pb-8">
       {/* Toast Feedback */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-[#041a14]/95 text-white font-medium text-xs py-3.5 px-5 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8),0_0_30px_rgba(16,185,129,0.35)] flex items-center gap-2.5 animate-bounce border-2 border-emerald-500/60 backdrop-blur-2xl">
@@ -758,8 +758,8 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       ) : (
         /* TABLE VIEW */
         <div className="bg-[#0f172a]/90 border border-[#1e293b] rounded-2xl overflow-hidden shadow-lg">
-          <div className="overflow-x-auto custom-scrollbar">
-            <table className="w-full text-left text-xs border-collapse">
+          <div className="table-responsive-wrapper custom-scrollbar">
+            <table className="w-full text-left text-xs border-collapse min-w-[880px]">
               <thead className="bg-[#111827] text-[#94a3b8] uppercase font-bold text-[10px] border-b border-[#1e293b]">
                 <tr>
                   <th className="p-3.5 pl-4">Cliente / Contacto</th>
@@ -914,10 +914,10 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       {/* 2-STEP CUSTOMER WIZARD MODAL (PERFIL & CONTACTO/ENVÍO)    */}
       {/* ========================================================== */}
       {isWizardOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-4 animate-fade-in">
+          <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[min(94vh,700px)]">
             {/* Modal Header */}
-            <div className="bg-[#111827] border-b border-[#1e293b] p-5 flex items-center justify-between">
+            <div className="bg-[#111827] border-b border-[#1e293b] p-4 sm:p-5 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-[#388bfd]/15 border border-[#388bfd]/40 flex items-center justify-center text-[#58a6ff]">
                   <span className="material-symbols-outlined text-[22px]">

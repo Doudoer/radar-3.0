@@ -383,7 +383,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
     const isCodeComplete = digits.every((d) => d !== '');
 
     return (
-      <div className="flex items-center justify-center min-h-[82vh] p-4 sm:p-6 animate-fade-in select-none relative overflow-hidden">
+      <div className="flex items-center justify-center min-h-[75vh] p-3 sm:p-6 animate-fade-in relative overflow-hidden">
         {/* Floating WhatsApp Simulation Toast */}
         {toastMessage && (
           <div className="fixed top-6 sm:top-8 right-6 z-50 max-w-md w-full sm:w-auto bg-[#041a14]/95 text-white font-medium text-xs py-3.5 px-5 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8),0_0_30px_rgba(16,185,129,0.35)] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-bounce border-2 border-emerald-500/60 backdrop-blur-2xl">
@@ -419,12 +419,12 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
         )}
 
         {/* Ambient Neon Backlight Orbs */}
-        <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-cyan-500/12 rounded-full blur-[140px] pointer-events-none" />
-        <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-96 h-96 bg-emerald-500/12 rounded-full blur-[140px] pointer-events-none" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[32rem] h-[32rem] bg-blue-600/10 rounded-full blur-[150px] pointer-events-none" />
+        <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-cyan-500/12 rounded-full blur-[60px] pointer-events-none" />
+        <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-96 h-96 bg-emerald-500/12 rounded-full blur-[60px] pointer-events-none" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[32rem] h-[32rem] bg-blue-600/10 rounded-full blur-[60px] pointer-events-none" />
 
         {/* Main Cyber Glassmorphic 2FA Card */}
-        <div className="relative max-w-lg w-full rounded-[30px] bg-[#070c18]/92 backdrop-blur-3xl border border-cyan-500/35 p-7 sm:p-10 shadow-[0_25px_70px_rgba(0,0,0,0.85),0_0_60px_rgba(6,182,212,0.18),inset_0_1px_2px_rgba(255,255,255,0.15)] flex flex-col items-center text-center overflow-hidden">
+        <div className="relative max-w-lg w-full rounded-[24px] sm:rounded-[30px] bg-[#070c18]/92 backdrop-blur-2xl border border-cyan-500/35 p-5 sm:p-8 max-h-[min(94vh,680px)] overflow-y-auto custom-scrollbar shadow-[0_25px_70px_rgba(0,0,0,0.85),0_0_60px_rgba(6,182,212,0.18),inset_0_1px_2px_rgba(255,255,255,0.15)] flex flex-col items-center text-center">
           {/* Top Laser Edge Light Line */}
           <div className="absolute top-0 inset-x-0 h-[2.5px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_18px_#22d3ee]" />
 
@@ -609,7 +609,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
   // 4. RENDER FULL FINANCIAL DASHBOARD (UNLOCKED)
   // =========================================================================
   return (
-    <div className="radar-view select-none pb-12">
+    <div className="radar-view pb-12">
       {/* Toast Feedback */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-[#10b981] text-[#042f2e] font-bold text-xs py-3 px-5 rounded-xl shadow-[0_10px_25px_rgba(16,185,129,0.4)] flex items-center gap-2.5 animate-bounce print:hidden">
@@ -877,8 +877,8 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
               </button>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+            <div className="table-responsive-wrapper custom-scrollbar">
+              <table className="w-full text-left text-xs min-w-[780px]">
                 <thead className="bg-[#0b1329] text-[#94a3b8] uppercase text-[10px] tracking-wider border-b border-[#1e293b]">
                   <tr>
                     <th className="py-3 px-4">Código / Recibo</th>
@@ -942,8 +942,8 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
             </span>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="table-responsive-wrapper custom-scrollbar">
+            <table className="w-full text-left text-xs min-w-[880px]">
               <thead className="bg-[#0b1329] text-[#94a3b8] uppercase text-[10px] tracking-wider border-b border-[#1e293b]">
                 <tr>
                   <th className="py-3 px-4">Orden</th>
@@ -1007,8 +1007,8 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
             </span>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="table-responsive-wrapper custom-scrollbar">
+            <table className="w-full text-left text-xs min-w-[880px]">
               <thead className="bg-[#0b1329] text-[#94a3b8] uppercase text-[10px] tracking-wider border-b border-[#1e293b]">
                 <tr>
                   <th className="py-3 px-4">Orden</th>
@@ -1078,9 +1078,9 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
       {/* MODAL: REGISTRAR GASTO OPERATIVO                                      */}
       {/* ===================================================================== */}
       {isNewExpenseModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col">
-            <div className="bg-[#111827] border-b border-[#1e293b] p-4 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl w-full max-w-lg max-h-[min(94vh,650px)] shadow-2xl overflow-hidden flex flex-col">
+            <div className="bg-[#111827] border-b border-[#1e293b] p-4 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
                 <span className="material-symbols-outlined text-[#f59e0b] text-[22px]">add_circle</span>
                 <h3 className="font-bold text-sm text-white">Registrar Gasto Operativo</h3>
@@ -1093,7 +1093,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleAddExpenseSubmit} className="p-5 space-y-4 text-xs">
+            <form onSubmit={handleAddExpenseSubmit} className="p-5 space-y-4 text-xs flex-1 min-h-0 overflow-y-auto custom-scrollbar">
               <div>
                 <label className="block font-bold text-[#cbd5e1] mb-1">
                   Descripción del Egresos / Concepto <span className="text-[#ef4444]">*</span>

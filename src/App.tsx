@@ -138,13 +138,13 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#050811] text-[#dfe2ef] antialiased select-none font-sans relative cyber-grid-bg">
+    <div className="flex h-screen h-[100dvh] w-full overflow-hidden bg-[#050811] text-[#dfe2ef] antialiased font-sans relative cyber-grid-bg">
       <LoadingOverlay visible={dataLoading || viewLoading} />
 
-      {/* Ambient Neon Backlight Orbs */}
-      <div className="absolute top-0 left-1/4 w-[36rem] h-[36rem] bg-cyan-500/8 rounded-full blur-[160px] pointer-events-none" />
-      <div className="absolute bottom-0 right-1/4 w-[36rem] h-[36rem] bg-emerald-500/8 rounded-full blur-[160px] pointer-events-none" />
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[45rem] h-[45rem] bg-blue-600/6 rounded-full blur-[180px] pointer-events-none" />
+      {/* Ambient Neon Backlight Orbs - Lightweight GPU footprint */}
+      <div className="absolute top-0 left-1/4 w-[28rem] h-[28rem] bg-cyan-500/6 rounded-full blur-[80px] pointer-events-none" />
+      <div className="absolute bottom-0 right-1/4 w-[28rem] h-[28rem] bg-emerald-500/6 rounded-full blur-[80px] pointer-events-none" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[36rem] h-[36rem] bg-blue-600/5 rounded-full blur-[100px] pointer-events-none" />
 
       {/* Left Sidebar */}
       <Sidebar
@@ -159,7 +159,7 @@ export default function App() {
         userRole={userRole}
       />
       {/* Main Content Column */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#070c18]/80 backdrop-blur-3xl z-10">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#070c18]/85 backdrop-blur-2xl z-10">
         {/* Sticky Top Header */}
         <TopHeader
           currentScreen={currentScreen}
@@ -177,14 +177,14 @@ export default function App() {
         />
 
         {databaseMessage && (
-          <div className="mx-3 mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-300 md:mx-6 shadow-[0_0_15px_rgba(245,158,11,0.2)] flex items-center gap-2">
-            <span className="material-symbols-outlined text-[18px]">info</span>
+          <div className="mx-3 mt-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2 text-xs text-amber-300 md:mx-5 shadow-[0_0_12px_rgba(245,158,11,0.2)] flex items-center gap-2">
+            <span className="material-symbols-outlined text-[17px]">info</span>
             <span>{databaseMessage}</span>
           </div>
         )}
 
         {/* Scrollable Main Screen Container */}
-        <main className="flex-1 min-w-0 overflow-y-auto p-3 sm:p-4 md:p-6 lg:p-7 custom-scrollbar">
+        <main className="flex-1 min-w-0 overflow-y-auto p-3 sm:p-4 md:p-5 lg:p-6 custom-scrollbar">
           {currentScreen === 'dashboard' && (
             <DashboardView
               orders={orders}

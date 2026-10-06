@@ -508,27 +508,27 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
-      <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-3xl max-h-[92vh] overflow-y-auto shadow-[0_20px_60px_rgba(0,0,0,0.85)] flex flex-col custom-scrollbar relative overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+      <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-3xl max-h-[min(94vh,740px)] shadow-[0_20px_60px_rgba(0,0,0,0.85)] flex flex-col relative overflow-hidden">
         {/* Laser Hairline */}
         <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-30" />
 
         {/* Header con Título y Botón Cerrar */}
-        <div className="p-4 sm:p-5 border-b border-cyan-500/20 flex justify-between items-center bg-[#0a1022]/90 backdrop-blur-md sticky top-0 z-20">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-cyan-500/15 text-cyan-400 flex items-center justify-center border border-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.25)] shrink-0">
-              <span className="material-symbols-outlined text-[20px]">add_shopping_cart</span>
+        <div className="p-3 sm:p-4 border-b border-cyan-500/20 flex justify-between items-center bg-[#0a1022]/90 backdrop-blur-md shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-cyan-500/15 text-cyan-400 flex items-center justify-center border border-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.25)] shrink-0">
+              <span className="material-symbols-outlined text-[18px] sm:text-[20px]">add_shopping_cart</span>
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-base sm:text-lg text-slate-100 tracking-tight">
+                <h3 className="font-bold text-sm sm:text-base text-slate-100 tracking-tight">
                   {editingOrder ? 'Editar Orden de Trabajo' : 'Crear Nueva Orden de Trabajo'}
                 </h3>
-                <span className="text-[10px] bg-cyan-950/50 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full font-mono font-bold">
+                <span className="text-[9px] sm:text-[10px] bg-cyan-950/50 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full font-mono font-bold">
                   Paso {currentStep} de 3
                 </span>
               </div>
-              <p className="text-xs text-slate-400">
+              <p className="text-[11px] text-slate-400 hidden xs:block">
                 Asistente guiado: 1. Vehículo y Pieza → 2. Cliente → 3. Finanzas y Envío
               </p>
             </div>
@@ -543,8 +543,8 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
         </div>
 
         {/* STEPPER NAVIGATION BAR */}
-        <div className="bg-[#050914]/90 border-b border-cyan-500/20 px-4 py-3 sm:px-6">
-          <div className="grid grid-cols-3 gap-2 relative">
+        <div className="bg-[#050914]/90 border-b border-cyan-500/20 px-3 py-2 sm:px-5 sm:py-2.5 shrink-0">
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-2 relative">
             {stepsConfig.map((s) => {
               const isCompleted = s.num < currentStep;
               const isCurrent = s.num === currentStep;
@@ -559,7 +559,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       setCurrentStep(s.num);
                     }
                   }}
-                  className={`flex flex-col sm:flex-row items-center sm:items-start gap-2.5 p-2.5 rounded-xl transition-all text-left ${
+                  className={`flex flex-col sm:flex-row items-center sm:items-start gap-2 p-2 sm:p-2.5 rounded-xl transition-all text-left ${
                     isCurrent
                       ? 'bg-cyan-950/40 border border-cyan-500/60 shadow-[0_0_15px_rgba(6,182,212,0.15)]'
                       : isCompleted
@@ -568,7 +568,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   }`}
                 >
                   <div
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-xs font-bold font-mono transition-all ${
+                    className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center shrink-0 text-xs font-bold font-mono transition-all ${
                       isCurrent
                         ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 shadow-[0_0_10px_rgba(6,182,212,0.5)]'
                         : isCompleted
@@ -577,7 +577,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                     }`}
                   >
                     {isCompleted ? (
-                      <span className="material-symbols-outlined text-[16px]">check</span>
+                      <span className="material-symbols-outlined text-[15px]">check</span>
                     ) : (
                       <span>{s.num}</span>
                     )}
@@ -587,7 +587,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                     <div className={`text-xs font-bold truncate ${isCurrent ? 'text-cyan-300' : isCompleted ? 'text-emerald-300' : 'text-slate-400'}`}>
                       {s.label}
                     </div>
-                    <div className="text-[10px] text-slate-500 truncate">{s.desc}</div>
+                    <div className="text-[9.5px] text-slate-500 truncate">{s.desc}</div>
                   </div>
                 </button>
               );
@@ -595,7 +595,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           </div>
 
           {/* Progress Line */}
-          <div className="w-full bg-slate-900 h-1.5 rounded-full mt-3 overflow-hidden">
+          <div className="w-full bg-slate-900 h-1 rounded-full mt-2 overflow-hidden">
             <div
               className="bg-gradient-to-r from-cyan-400 via-blue-500 to-emerald-400 h-full transition-all duration-300 rounded-full"
               style={{ width: `${(currentStep / 3) * 100}%` }}
@@ -605,7 +605,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
 
         {/* Error Alert if any */}
         {stepError && (
-          <div className="mx-5 sm:mx-6 mt-4 p-3 bg-rose-950/30 border border-rose-500/30 rounded-xl flex items-center gap-2.5 text-xs text-rose-300 animate-shake">
+          <div className="mx-4 mt-3 p-2.5 bg-rose-950/30 border border-rose-500/30 rounded-xl flex items-center gap-2.5 text-xs text-rose-300 animate-shake shrink-0">
             <span className="material-symbols-outlined text-[18px] text-rose-400">error</span>
             <span>{stepError}</span>
           </div>
@@ -613,15 +613,15 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
 
         {/* Car-Part Auto-Import Alert Banner (Si existe prefill) */}
         {initialPrefillData && currentStep === 1 && (
-          <div className="mx-5 sm:mx-6 mt-4 bg-emerald-950/30 border border-emerald-500/30 rounded-xl p-3 flex items-start gap-3 shadow-lg animate-fade-in">
-            <span className="material-symbols-outlined text-emerald-400 text-[20px] shrink-0 mt-0.5">
+          <div className="mx-4 mt-3 bg-emerald-950/30 border border-emerald-500/30 rounded-xl p-2.5 flex items-start gap-2.5 shadow-lg animate-fade-in shrink-0">
+            <span className="material-symbols-outlined text-emerald-400 text-[18px] shrink-0 mt-0.5">
               bolt
             </span>
             <div className="flex-1 text-xs">
-              <strong className="text-emerald-300 font-bold block">
+              <strong className="text-emerald-300 font-bold block text-[11px]">
                 Datos Pre-cargados desde Car-Part / Registro
               </strong>
-              <p className="text-[11px] text-slate-300 mt-0.5">
+              <p className="text-[10.5px] text-slate-300 mt-0.5">
                 Vehículo ({vehicleMake} {vehicleModel} {vehicleYear}), pieza cotizada (${partPrice}), VIN y stock #{stockNumber || 'STK'}.
               </p>
             </div>
@@ -629,7 +629,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
         )}
 
         {/* Form Body */}
-        <form onSubmit={handleFormSubmit} className="p-5 sm:p-6 flex flex-col gap-6 text-xs text-slate-300">
+        <form onSubmit={handleFormSubmit} className="p-3.5 sm:p-5 flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col gap-4 sm:gap-5 text-xs text-slate-300">
           {/* ========================================================================= */}
           {/* ========================================================================= */}
           {/* PASO 1: SOLICITUD DE DATOS DEL VEHÍCULO Y PIEZA */}
@@ -1457,30 +1457,30 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           )}
 
           {/* STEPPER FOOTER CONTROLS */}
-          <div className="pt-3.5 border-t border-cyan-500/20 flex items-center justify-between gap-3 bg-[#0a1022]/90 backdrop-blur-md -mx-5 -mb-5 sm:-mx-6 sm:-mb-6 p-4.5 rounded-b-3xl sticky bottom-0 z-20">
+          <div className="pt-3 border-t border-cyan-500/20 flex items-center justify-between gap-2.5 bg-[#0a1022]/95 backdrop-blur-md -mx-3.5 -mb-3.5 sm:-mx-5 sm:-mb-5 p-3 sm:p-3.5 rounded-b-3xl sticky bottom-0 z-20 shrink-0">
             <div>
               {currentStep > 1 ? (
                 <button
                   type="button"
                   onClick={handlePrev}
-                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 border border-slate-700"
+                  className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 border border-slate-700"
                 >
-                  <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+                  <span className="material-symbols-outlined text-[15px]">arrow_back</span>
                   <span>Anterior</span>
                 </button>
               ) : (
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer text-xs font-semibold"
+                  className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer text-xs font-semibold"
                 >
                   Cancelar
                 </button>
               )}
             </div>
 
-            <div className="flex items-center gap-2.5">
-              <span className="text-[11px] text-slate-500 hidden sm:inline font-mono">
+            <div className="flex items-center gap-2">
+              <span className="text-[10.5px] text-slate-500 hidden sm:inline font-mono">
                 Paso {currentStep} de 3
               </span>
 
@@ -1488,19 +1488,19 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 <button
                   type="button"
                   onClick={validateAndNext}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black transition-all shadow-[0_0_15px_rgba(6,182,212,0.35)] cursor-pointer active:scale-95 flex items-center gap-1.5 text-xs"
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black transition-all shadow-[0_0_15px_rgba(6,182,212,0.35)] cursor-pointer active:scale-95 flex items-center gap-1.5 text-xs"
                 >
                   <span>Siguiente Paso</span>
-                  <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                  <span className="material-symbols-outlined text-[15px]">arrow_forward</span>
                 </button>
               ) : (
                 <button
                   type="button"
                   onClick={handleSubmit}
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black transition-all shadow-[0_0_20px_rgba(16,185,129,0.4)] cursor-pointer active:scale-95 flex items-center gap-2 text-xs"
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black transition-all shadow-[0_0_20px_rgba(16,185,129,0.4)] cursor-pointer active:scale-95 flex items-center gap-1.5 text-xs"
                 >
-                  <span className="material-symbols-outlined text-[18px]">check_circle</span>
-                  <span>{editingOrder ? 'Guardar Cambios' : 'Guardar y Aperturar Orden'}</span>
+                  <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                  <span>{editingOrder ? 'Guardar Cambios' : 'Guardar y Aperturar'}</span>
                 </button>
               )}
             </div>

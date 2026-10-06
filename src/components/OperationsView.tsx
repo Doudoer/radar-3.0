@@ -544,8 +544,8 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
         {/* Tab 1: Ventas de la Semana */}
         {activeTab === 'semana' && (
           <div className="flex flex-col">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
+            <div className="table-responsive-wrapper custom-scrollbar">
+              <table className="w-full text-left text-xs border-collapse min-w-[940px]">
                 <thead className="bg-[#090d16] text-[#94a3b8] uppercase text-[10px] tracking-wider border-b border-[#1e293b]">
                   <tr>
                     <th className="py-3 px-4">Código Orden</th>
@@ -665,8 +665,8 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
         {/* Tab 2: Ventas del Mes */}
         {activeTab === 'mes' && (
           <div className="flex flex-col">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
+            <div className="table-responsive-wrapper custom-scrollbar">
+              <table className="w-full text-left text-xs border-collapse min-w-[880px]">
                 <thead className="bg-[#090d16] text-[#94a3b8] uppercase text-[10px] tracking-wider border-b border-[#1e293b]">
                   <tr>
                     <th className="py-3 px-4">Código Orden</th>
@@ -934,10 +934,10 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
 
       {/* MODAL 1: FLIGHT / SALES TRANSFER WITH OTP (WhatsApp / Wasender) */}
       {isTransferModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-          <div className="bg-[#111827] border border-[#2b3a58] rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden max-h-[90vh]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="bg-[#111827] border border-[#2b3a58] rounded-2xl w-full max-w-2xl max-h-[min(94vh,700px)] shadow-2xl flex flex-col overflow-hidden">
             {/* Modal Header */}
-            <div className="p-5 bg-[#182338] border-b border-[#2b3a58] flex justify-between items-center">
+            <div className="p-4 sm:p-5 bg-[#182338] border-b border-[#2b3a58] flex justify-between items-center shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-[#388bfd]/20 text-[#58a6ff] flex items-center justify-center border border-[#388bfd]/40">
                   <span className="material-symbols-outlined text-[22px]">swap_horiz</span>
@@ -966,7 +966,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
 
             {/* Modal Body: STEP 1 (Select Order from other operators) */}
             {transferStep === 'select' && (
-              <div className="p-6 flex flex-col gap-4 overflow-y-auto custom-scrollbar">
+              <div className="p-5 sm:p-6 flex flex-col gap-4 flex-1 min-h-0 overflow-y-auto custom-scrollbar">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-xs font-bold text-[#58a6ff] uppercase tracking-wider">
                     Paso 1: Selecciona la orden a traspasar
@@ -1043,7 +1043,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
 
             {/* Modal Body: STEP 2 (OTP WhatsApp Validation) */}
             {transferStep === 'otp' && transferSelectedOrder && (
-              <form onSubmit={handleConfirmTransfer} className="p-6 flex flex-col gap-5">
+              <form onSubmit={handleConfirmTransfer} className="p-5 sm:p-6 flex flex-col gap-5 flex-1 min-h-0 overflow-y-auto custom-scrollbar">
                 {/* Wasender Live Simulation Banner */}
                 <div className="bg-[#10b981]/10 border border-[#10b981]/40 rounded-xl p-4 flex flex-col gap-2">
                   <div className="flex items-center justify-between text-xs">
@@ -1130,10 +1130,10 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
 
       {/* MODAL 2: OFFICIAL PERFORMANCE & COMMISSION REPORT (Printable / PDF) */}
       {isPrintModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-          <div className="bg-white text-[#0f172a] rounded-2xl w-full max-w-4xl shadow-2xl flex flex-col overflow-hidden max-h-[92vh]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in">
+          <div className="bg-white text-[#0f172a] rounded-2xl w-full max-w-4xl max-h-[min(94vh,740px)] shadow-2xl flex flex-col overflow-hidden">
             {/* Modal Controls Bar (Hidden during print) */}
-            <div className="p-4 bg-[#0f172a] text-white flex justify-between items-center print:hidden">
+            <div className="p-4 bg-[#0f172a] text-white flex justify-between items-center shrink-0 print:hidden">
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-[#388bfd]">print</span>
                 <span className="text-sm font-bold">Vista Previa de Reporte Formal de Operaciones</span>
@@ -1158,7 +1158,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
             </div>
 
             {/* Printable Document Body */}
-            <div className="p-8 overflow-y-auto bg-white flex flex-col gap-6 font-sans">
+            <div className="p-6 sm:p-8 flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white flex flex-col gap-6 font-sans">
               {/* Official Header */}
               <div className="border-b-2 border-[#0f172a] pb-4 flex justify-between items-start">
                 <div>

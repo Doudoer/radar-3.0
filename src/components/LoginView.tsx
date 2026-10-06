@@ -33,55 +33,55 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#050811] px-4 text-[#dfe2ef] relative overflow-hidden select-none cyber-grid-bg">
-      {/* Ambient Neon Backlight Orbs */}
-      <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-cyan-500/12 rounded-full blur-[140px] pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-96 h-96 bg-emerald-500/12 rounded-full blur-[140px] pointer-events-none" />
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[34rem] h-[34rem] bg-blue-600/10 rounded-full blur-[160px] pointer-events-none" />
+    <main className="flex min-h-screen min-h-[100dvh] items-center justify-center bg-[#050811] px-4 py-6 sm:py-8 text-[#dfe2ef] relative overflow-y-auto custom-scrollbar cyber-grid-bg">
+      {/* Ambient Neon Backlight Orbs - Lightweight */}
+      <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-cyan-500/10 rounded-full blur-[80px] pointer-events-none" />
+      <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-80 h-80 bg-emerald-500/10 rounded-full blur-[80px] pointer-events-none" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-blue-600/8 rounded-full blur-[90px] pointer-events-none" />
 
       {/* Main Glassmorphic Login Card */}
-      <div className="relative max-w-md w-full rounded-[30px] bg-[#070c18]/92 backdrop-blur-3xl border border-cyan-500/35 p-8 sm:p-10 shadow-[0_25px_70px_rgba(0,0,0,0.85),0_0_60px_rgba(6,182,212,0.18),inset_0_1px_2px_rgba(255,255,255,0.15)] flex flex-col items-center text-center overflow-hidden">
+      <div className="relative max-w-md w-full rounded-3xl bg-[#070c18]/94 backdrop-blur-2xl border border-cyan-500/35 p-6 sm:p-8 shadow-[0_20px_60px_rgba(0,0,0,0.85),0_0_40px_rgba(6,182,212,0.15)] flex flex-col items-center text-center overflow-hidden my-auto">
         {/* Top Laser Edge Light Line */}
-        <div className="absolute top-0 inset-x-0 h-[2.5px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_18px_#22d3ee]" />
+        <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_14px_#22d3ee]" />
 
         {/* Holographic Radar Scanner Emblem */}
-        <div className="relative mb-5 flex items-center justify-center">
+        <div className="relative mb-4 flex items-center justify-center">
           {/* Outer Orbit Ring */}
-          <div className="absolute -inset-4 rounded-full border border-dashed border-cyan-500/30 animate-cyber-orbit pointer-events-none" />
+          <div className="absolute -inset-3 rounded-full border border-dashed border-cyan-500/30 animate-cyber-orbit pointer-events-none" />
           {/* Counter Orbit Ring */}
-          <div className="absolute -inset-7 rounded-full border border-dotted border-emerald-400/25 animate-cyber-orbit-reverse pointer-events-none" />
+          <div className="absolute -inset-5 rounded-full border border-dotted border-emerald-400/25 animate-cyber-orbit-reverse pointer-events-none" />
           {/* Glow Aura */}
-          <div className="absolute inset-0 rounded-3xl bg-cyan-500/20 blur-xl animate-pulse" />
+          <div className="absolute inset-0 rounded-2xl bg-cyan-500/20 blur-lg animate-pulse" />
 
           {/* Core Shield Pod */}
-          <div className="relative w-20 h-20 rounded-3xl bg-gradient-to-br from-[#0c1a30] via-[#060c18] to-[#040812] border-2 border-cyan-400/60 flex items-center justify-center text-cyan-400 shadow-[0_0_35px_rgba(6,182,212,0.4),inset_0_0_20px_rgba(6,182,212,0.25)] overflow-hidden">
+          <div className="relative w-16 h-16 sm:w-18 sm:h-18 rounded-2xl bg-gradient-to-br from-[#0c1a30] via-[#060c18] to-[#040812] border-2 border-cyan-400/60 flex items-center justify-center text-cyan-400 shadow-[0_0_25px_rgba(6,182,212,0.4),inset_0_0_15px_rgba(6,182,212,0.25)] overflow-hidden">
             {/* Laser Scanline Beam */}
             <div className="absolute inset-x-0 h-[2px] bg-cyan-400 shadow-[0_0_10px_#22d3ee] animate-cyber-scan pointer-events-none" />
-            <span className="material-symbols-outlined text-[38px] drop-shadow-[0_0_12px_rgba(34,211,238,0.8)]">
+            <span className="material-symbols-outlined text-[32px] sm:text-[36px] drop-shadow-[0_0_10px_rgba(34,211,238,0.8)]">
               radar
             </span>
           </div>
         </div>
 
         {/* Security Badge */}
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#040b17]/90 border border-cyan-400/40 text-[10.5px] font-mono font-bold tracking-[0.22em] text-cyan-300 uppercase mb-3 shadow-[0_0_15px_rgba(6,182,212,0.25)]">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-ping" />
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#040b17]/90 border border-cyan-400/40 text-[9.5px] sm:text-[10px] font-mono font-bold tracking-[0.2em] text-cyan-300 uppercase mb-2.5 shadow-[0_0_12px_rgba(6,182,212,0.2)]">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-ping" />
           <span>RADAR SENTINEL • ACCESO SEGURO</span>
         </div>
 
         {/* Title */}
-        <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)]">
+        <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)]">
           Iniciar Sesión
         </h1>
-        <p className="text-xs text-slate-400 mt-1.5 leading-relaxed max-w-xs">
+        <p className="text-[11.5px] sm:text-xs text-slate-400 mt-1 leading-relaxed max-w-xs">
           Ingresa tus credenciales autorizadas para acceder a la plataforma central de Radar 3.0.
         </p>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="w-full mt-6 text-left">
+        <form onSubmit={handleSubmit} className="w-full mt-5 text-left">
           {/* Email field */}
-          <div className="mb-4">
-            <label className="block text-[11px] font-mono uppercase tracking-wider text-cyan-300/90 font-bold mb-1.5">
+          <div className="mb-3.5">
+            <label className="block text-[10.5px] font-mono uppercase tracking-wider text-cyan-300/90 font-bold mb-1">
               Correo Electrónico
             </label>
             <div className="relative">

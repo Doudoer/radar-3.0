@@ -806,8 +806,8 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
         </div>
 
         {/* Claims Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
+        <div className="table-responsive-wrapper custom-scrollbar">
+          <table className="w-full text-left text-xs border-collapse min-w-[940px]">
             <thead className="bg-[#040814] text-cyan-400/80 uppercase text-[10px] tracking-wider border-b border-cyan-500/20 font-mono">
               <tr>
                 <th className="py-3 px-4">Ticket / Orden</th>

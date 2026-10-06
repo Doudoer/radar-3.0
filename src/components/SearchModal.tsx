@@ -60,13 +60,13 @@ export const SearchModal: React.FC<SearchModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
-      <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-2xl shadow-[0_20px_60px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col relative">
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-6 sm:pt-12 p-3 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+      <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-2xl max-h-[min(88vh,620px)] shadow-[0_20px_60px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col relative">
         {/* Laser Hairline */}
         <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-20" />
 
         {/* Search Bar Input */}
-        <div className="p-4.5 border-b border-cyan-500/20 flex items-center gap-3 bg-[#0a1022]/80 backdrop-blur-md">
+        <div className="p-3.5 sm:p-4 border-b border-cyan-500/20 flex items-center gap-3 bg-[#0a1022]/80 backdrop-blur-md shrink-0">
           <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
             <span className="material-symbols-outlined text-[20px]">search</span>
           </div>
@@ -76,7 +76,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Buscar órdenes, clientes, piezas, VIN o módulos... (Cmd+K)"
-            className="w-full bg-transparent text-slate-100 text-sm focus:outline-none placeholder:text-slate-500 font-medium"
+            className="w-full bg-transparent text-slate-100 text-xs sm:text-sm focus:outline-none placeholder:text-slate-500 font-medium"
           />
           <kbd className="font-mono text-[10px] border border-cyan-500/30 rounded-md px-2 py-0.5 bg-cyan-950/40 text-cyan-300 font-bold shadow-inner">
             ESC
@@ -84,7 +84,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
         </div>
 
         {/* Results */}
-        <div className="p-4.5 max-h-[60vh] overflow-y-auto custom-scrollbar flex flex-col gap-4 text-xs">
+        <div className="p-3.5 sm:p-4 flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col gap-3.5 text-xs">
           {/* Orders Section */}
           <div>
             <div className="flex items-center justify-between mb-2">

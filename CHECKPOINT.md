@@ -27,13 +27,23 @@
 - **Diagnóstico:** El botón *"Ver Bitácora de Llamadas"* en el detalle individual (`ClaimDetailView`) no abría el modal porque `ClaimsView.tsx` retornaba antes de montar el componente del modal.
 - **Estado pendiente:** Integrar el modal y/o panel de bitácora directamente en `ClaimDetailView.tsx`.
 
+### D. Optimización Integral para Chromebooks / ChromeOS & Google Chrome
+- **Problema corregido:** En Chromebooks (resoluciones 1366x768, 1280x800 o 1080p con escalado al 125%/150%), la barra de ChromeOS y la barra del navegador dejaban un viewport vertical muy reducido (~550px - 650px), provocando que los modales cortaran los botones de acción inferiores, las tablas se comprimieran sin scroll horizontal y el texto de datos clave no fuera seleccionable.
+- **Solución implementada:**
+  1. **Contenedores de Modales Flexibles:** Todos los modales ahora implementan `max-h-[min(94vh, 600px-740px)] flex flex-col overflow-hidden` con cabeceras fijas (`shrink-0`), cuerpos con scroll suave (`flex-1 min-h-0 overflow-y-auto custom-scrollbar`) y barras de botones de acción fijadas (`shrink-0`).
+  2. **Tablas Responsivas con Scroll Horizontal:** Envoltura con `.table-responsive-wrapper.custom-scrollbar` y anchos mínimos (`min-w-[700px]` - `min-w-[960px]`) en `OrdersTableView`, `ClientsView`, `ClaimsView`, `InventoryView`, `WeeklyRelationView`, `OperationsView`, `UsersManagementView` y `DashboardView`.
+  3. **Sidebar y TopHeader Adaptativos:** Ajuste de paddings y espaciado vertical para que los 9 enlaces de navegación y la insignia Sentinel quepan completos en 768px de alto sin scroll forzado.
+  4. **Aceleración GPU & Rendimiento:** Reducción de filtros de desenfoque excesivos (`blur-[140px]/[150px]` a `blur-[60px]`), adición de `transform: translateZ(0)` y `@media (max-height: 800px)` en CSS global.
+  5. **Habilitación de Selección de Texto:** Remoción de `select-none` global en vistas de datos para permitir copiar VINs, códigos de orden, teléfonos y montos sin trabas.
+
 ---
 
 ## 🧪 2. Estado de Pruebas y Tipos
 
-- **Unit Tests:** `27 / 27 passing` (`npm test`)
+- **Unit Tests:** `29 / 29 passing` (`npm test`)
 - **TypeScript:** `0 errors` (`npx tsc --noEmit`)
 - **Base de Datos:** MySQL `radar-mysql` activa en `127.0.0.1:3306`
+- **Servidores Locales:** Backend API en `:3001` y Vite Frontend en `:3000` activos
 
 ---
 

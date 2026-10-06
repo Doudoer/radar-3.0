@@ -542,7 +542,7 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
         </div>
 
         {/* Live Preview List */}
-        <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4 font-mono text-xs">
+        <div className="p-4 sm:p-5 overflow-y-auto custom-scrollbar flex-1 min-h-0 space-y-4 font-mono text-xs">
           {/* Summary Badge bar */}
           <div className="flex items-center justify-between bg-[#040814] border border-slate-800 p-3 rounded-2xl flex-wrap gap-2">
             <div className="flex items-center gap-3 text-xs flex-wrap">

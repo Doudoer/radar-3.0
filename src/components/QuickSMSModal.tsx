@@ -85,15 +85,15 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
   const summaryText = `${spanishMessage}\n\n${englishMessage}`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/85 backdrop-blur-xl animate-fade-in">
-      <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-3xl max-h-[92vh] shadow-[0_20px_60px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col text-xs text-slate-300 relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+      <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-3xl max-h-[min(94vh,700px)] shadow-[0_20px_60px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col text-xs text-slate-300 relative">
         {/* Laser Hairline */}
         <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-20" />
 
         {/* Header */}
-        <div className="px-5 py-4 border-b border-cyan-500/20 bg-[#0a1022]/80 backdrop-blur-md flex items-center justify-between">
+        <div className="px-4 sm:px-5 py-3.5 border-b border-cyan-500/20 bg-[#0a1022]/80 backdrop-blur-md flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+            <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
               <span className="material-symbols-outlined text-[18px]">share</span>
             </div>
             <div>
@@ -115,21 +115,21 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
           </button>
         </div>
 
-        <div className="p-5 overflow-y-auto custom-scrollbar flex flex-col gap-4">
-          <section className="rounded-2xl border border-cyan-500/30 bg-[#091024]/70 p-4 shadow-sm">
-            <div className="flex items-center justify-between gap-3 mb-3.5">
+        <div className="p-3.5 sm:p-5 overflow-y-auto custom-scrollbar flex-1 min-h-0 flex flex-col gap-3.5">
+          <section className="rounded-2xl border border-cyan-500/30 bg-[#091024]/70 p-3.5 shadow-sm">
+            <div className="flex items-center justify-between gap-3 mb-3">
               <div className="flex items-center gap-2 text-cyan-300 font-bold text-xs uppercase tracking-wider">
                 <span className="material-symbols-outlined text-[18px] text-cyan-400">local_shipping</span>
                 <span>Formato de Despacho & Mensaje Rápido</span>
               </div>
-              <span className="rounded-full border border-purple-500/40 bg-purple-950/40 px-2.5 py-1 text-[10px] text-purple-300 font-mono font-bold">
+              <span className="rounded-full border border-purple-500/40 bg-purple-950/40 px-2.5 py-0.5 text-[10px] text-purple-300 font-mono font-bold">
                 {deliveryMode}{!deliveryAddress && !isHomeDelivery ? ' (sin dirección)' : ''}
               </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {/* English Version */}
-              <div className="rounded-xl bg-[#060b17] p-3.5 border border-cyan-500/20">
+              <div className="rounded-xl bg-[#060b17] p-3 border border-cyan-500/20">
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-bold text-[11px] text-cyan-400 font-mono">Formato (English)</span>
                   <div className="flex gap-1.5">
@@ -149,11 +149,11 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
                     </button>
                   </div>
                 </div>
-                <pre className="whitespace-pre-wrap rounded-lg bg-[#040812] p-2.5 text-[11px] leading-relaxed text-slate-200 font-mono min-h-40 border border-slate-800/80">{englishMessage}</pre>
+                <pre className="whitespace-pre-wrap rounded-lg bg-[#040812] p-2 text-[11px] leading-relaxed text-slate-200 font-mono min-h-24 sm:min-h-28 border border-slate-800/80">{englishMessage}</pre>
               </div>
 
               {/* Spanish Version */}
-              <div className="rounded-xl bg-[#060b17] p-3.5 border border-amber-500/20">
+              <div className="rounded-xl bg-[#060b17] p-3 border border-amber-500/20">
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-bold text-[11px] text-amber-400 font-mono">Formato (Español)</span>
                   <div className="flex gap-1.5">
@@ -173,7 +173,7 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
                     </button>
                   </div>
                 </div>
-                <pre className="whitespace-pre-wrap rounded-lg bg-[#040812] p-2.5 text-[11px] leading-relaxed text-slate-200 font-mono min-h-40 border border-slate-800/80">{spanishMessage}</pre>
+                <pre className="whitespace-pre-wrap rounded-lg bg-[#040812] p-2 text-[11px] leading-relaxed text-slate-200 font-mono min-h-24 sm:min-h-28 border border-slate-800/80">{spanishMessage}</pre>
               </div>
             </div>
           </section>

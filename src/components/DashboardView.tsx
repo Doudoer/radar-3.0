@@ -99,7 +99,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   };
 
   return (
-    <div className="radar-view select-none pb-8">
+    <div className="radar-view pb-8">
       {/* Page Header with Cyber HUD Badge */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
@@ -358,8 +358,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </span>
           </div>
 
-          <div className="overflow-x-auto mt-2">
-            <table className="w-full text-left border-collapse">
+          <div className="table-responsive-wrapper custom-scrollbar mt-2">
+            <table className="w-full text-left border-collapse min-w-[340px]">
               <thead>
                 <tr className="font-mono text-[10px] text-cyan-400/80 uppercase tracking-wider border-b border-cyan-500/20">
                   <th className="py-2.5 px-3 font-bold">Métrica</th>

@@ -593,7 +593,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   }
 
   return (
-    <div className="radar-view text-[#dfe2ef] pb-10 select-none space-y-6">
+    <div className="radar-view text-[#dfe2ef] pb-10 space-y-6">
       {/* 1. TOP HEADER & BREADCRUMB ROW (CYBER HUD CARD) */}
       <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">
         <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_14px_#22d3ee]" />
@@ -1750,8 +1750,8 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
       {/* Extension Modal */}
       {showExtensionModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
-          <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-md p-6 shadow-2xl flex flex-col gap-4 text-slate-100 relative overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+          <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-md max-h-[min(94vh,580px)] p-5 sm:p-6 shadow-2xl flex flex-col gap-4 text-slate-100 relative overflow-y-auto custom-scrollbar">
             <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-20" />
             <h3 className="font-bold text-base text-white flex items-center gap-2">
               <span className="material-symbols-outlined text-amber-400">more_time</span>
@@ -1786,8 +1786,8 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
       {/* Claim Creation Modal */}
       {claimModal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
-          <form onSubmit={handleSubmitClaim} className="bg-[#070c18]/95 backdrop-blur-2xl border border-red-500/40 rounded-3xl w-full max-w-lg p-6 shadow-2xl flex flex-col gap-4 text-slate-100 relative overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+          <form onSubmit={handleSubmitClaim} className="bg-[#070c18]/95 backdrop-blur-2xl border border-red-500/40 rounded-3xl w-full max-w-lg max-h-[min(94vh,680px)] p-5 sm:p-6 shadow-2xl flex flex-col gap-4 text-slate-100 relative overflow-y-auto custom-scrollbar">
             <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-red-500 to-transparent shadow-[0_0_12px_#ef4444]" />
 
             <div className="flex items-start justify-between gap-3">
@@ -1855,8 +1855,8 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
       {/* Call Register Modal */}
       {isCallModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
-          <form onSubmit={handleRegisterCall} className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/40 rounded-3xl w-full max-w-lg p-6 shadow-2xl flex flex-col gap-4 text-slate-100 relative overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+          <form onSubmit={handleRegisterCall} className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/40 rounded-3xl w-full max-w-lg max-h-[min(94vh,680px)] p-5 sm:p-6 shadow-2xl flex flex-col gap-4 text-slate-100 relative overflow-y-auto custom-scrollbar">
             <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_#22d3ee]" />
 
             <div className="flex items-start justify-between gap-3">
@@ -1974,8 +1974,8 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
       {/* Resolve Claim Modal */}
       {isResolveModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
-          <form onSubmit={handleResolveClaimFromDetail} className="bg-[#070c18]/95 backdrop-blur-2xl border border-emerald-500/40 rounded-3xl w-full max-w-lg p-6 shadow-2xl flex flex-col gap-4 text-slate-100 relative overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+          <form onSubmit={handleResolveClaimFromDetail} className="bg-[#070c18]/95 backdrop-blur-2xl border border-emerald-500/40 rounded-3xl w-full max-w-lg max-h-[min(94vh,680px)] p-5 sm:p-6 shadow-2xl flex flex-col gap-4 text-slate-100 relative overflow-y-auto custom-scrollbar">
             <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_12px_#34d399]" />
 
             <div className="flex items-start justify-between gap-3">

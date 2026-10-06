@@ -219,8 +219,8 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
       <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 overflow-hidden shadow-[0_10px_30px_rgba(0,0,0,0.6)]">
         <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_8px_#22d3ee]" />
         
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+        <div className="table-responsive-wrapper custom-scrollbar">
+          <table className="w-full text-left text-xs min-w-[720px]">
             <thead className="bg-[#040814] text-cyan-400/80 uppercase text-[10px] tracking-wider border-b border-cyan-500/20 font-mono">
               <tr>
                 <th className="py-3.5 px-4">Usuario</th>
@@ -297,11 +297,11 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
 
       {/* Modal: Editar Usuario / Permisos */}
       {selectedUser && modalMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-md animate-fade-in">
-          <form onSubmit={saveUser} className="relative w-full max-w-lg rounded-3xl border border-cyan-500/30 bg-[#070c18]/95 backdrop-blur-2xl p-6 shadow-[0_20px_60px_rgba(0,0,0,0.8)] overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-4 backdrop-blur-md animate-fade-in">
+          <form onSubmit={saveUser} className="relative w-full max-w-lg max-h-[min(94vh,680px)] flex flex-col rounded-3xl border border-cyan-500/30 bg-[#070c18]/95 backdrop-blur-2xl p-5 sm:p-6 shadow-[0_20px_60px_rgba(0,0,0,0.8)] overflow-hidden">
             <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-indigo-500 shadow-[0_0_12px_#22d3ee]" />
             
-            <div className="mb-5 flex items-start justify-between gap-4">
+            <div className="mb-4 flex items-start justify-between gap-4 shrink-0">
               <div>
                 <p className="text-[10px] font-bold uppercase font-mono tracking-[0.18em] text-cyan-400">{modalMode === 'edit' ? 'Editar cuenta' : 'Editar permisos'}</p>
                 <h2 className="mt-1 text-lg font-bold text-white">{selectedUser.name}</h2>
@@ -311,6 +311,8 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
 
             {modalMode === 'edit' && (
               <div className="grid gap-3.5">
@@ -344,8 +346,10 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
               </div>
             )}
 
-            {error && <p className="mt-4 rounded-xl border border-red-500/40 bg-red-950/20 px-3.5 py-2 text-xs text-red-300">{error}</p>}
-            <div className="mt-6 flex justify-end gap-2.5">
+            </div>
+
+            {error && <p className="mt-4 rounded-xl border border-red-500/40 bg-red-950/20 px-3.5 py-2 text-xs text-red-300 shrink-0">{error}</p>}
+            <div className="mt-4 pt-3 border-t border-cyan-500/20 flex justify-end gap-2.5 shrink-0">
               <button type="button" onClick={closeEditor} className="cyber-btn-secondary px-4 py-2 text-xs font-bold">Cancelar</button>
               <button type="submit" disabled={saving} className="cyber-btn-primary px-4 py-2 text-xs font-black disabled:cursor-not-allowed disabled:opacity-50">{saving ? 'Guardando...' : 'Guardar cambios'}</button>
             </div>
@@ -355,11 +359,11 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
 
       {/* Modal: Crear Nuevo Colaborador */}
       {isNewUserModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-md animate-fade-in">
-          <form onSubmit={handleCreateNewUser} className="relative w-full max-w-lg rounded-3xl border border-cyan-500/30 bg-[#070c18]/95 backdrop-blur-2xl p-6 shadow-[0_20px_60px_rgba(0,0,0,0.8)] overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-4 backdrop-blur-md animate-fade-in">
+          <form onSubmit={handleCreateNewUser} className="relative w-full max-w-lg max-h-[min(94vh,700px)] flex flex-col rounded-3xl border border-cyan-500/30 bg-[#070c18]/95 backdrop-blur-2xl p-5 sm:p-6 shadow-[0_20px_60px_rgba(0,0,0,0.8)] overflow-hidden">
             <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee]" />
             
-            <div className="mb-5 flex items-start justify-between gap-4">
+            <div className="mb-4 flex items-start justify-between gap-4 shrink-0">
               <div>
                 <p className="text-[10px] font-bold uppercase font-mono tracking-[0.18em] text-cyan-400">Nuevo Colaborador</p>
                 <h2 className="mt-1 text-lg font-bold text-white">Registrar cuenta de personal</h2>
@@ -370,7 +374,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
               </button>
             </div>
 
-            <div className="grid gap-3.5">
+            <div className="grid gap-3.5 flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1">
               <label className="text-xs text-slate-300 font-mono uppercase text-[10px]">
                 Nombre Completo
                 <input
@@ -452,8 +456,8 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
               </div>
             </div>
 
-            {error && <p className="mt-4 rounded-xl border border-red-500/40 bg-red-950/20 px-3.5 py-2 text-xs text-red-300">{error}</p>}
-            <div className="mt-6 flex justify-end gap-2.5">
+            {error && <p className="mt-4 rounded-xl border border-red-500/40 bg-red-950/20 px-3.5 py-2 text-xs text-red-300 shrink-0">{error}</p>}
+            <div className="mt-4 pt-3 border-t border-cyan-500/20 flex justify-end gap-2.5 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsNewUserModalOpen(false)}

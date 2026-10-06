@@ -411,21 +411,21 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
       </div>
 
       {/* Main Glassmorphic Data Table */}
-      <div className="relative rounded-3xl bg-[#070c18]/92 backdrop-blur-3xl border border-cyan-500/25 shadow-[0_25px_70px_rgba(0,0,0,0.75)] overflow-hidden flex flex-col">
+      <div className="relative rounded-3xl bg-[#070c18]/94 backdrop-blur-2xl border border-cyan-500/25 shadow-[0_20px_50px_rgba(0,0,0,0.75)] overflow-hidden flex flex-col">
         <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee]" />
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left whitespace-nowrap border-collapse">
-            <thead className="bg-[#040814]/90 border-b border-cyan-500/20">
-              <tr className="font-mono text-[10.5px] text-cyan-400/80 uppercase tracking-wider">
-                <th className="px-5 py-3.5 font-bold">Código & Fecha</th>
-                <th className="px-5 py-3.5 font-bold">Cliente</th>
-                <th className="px-5 py-3.5 font-bold">Vehículo & VIN</th>
-                <th className="px-5 py-3.5 font-bold">Refacción Solicitada</th>
-                <th className="px-5 py-3.5 font-bold">Tipo Entrega</th>
-                <th className="px-5 py-3.5 font-bold">Estatus</th>
-                <th className="px-5 py-3.5 font-bold text-right">Balance Financiero</th>
-                <th className="px-5 py-3.5 font-bold text-center w-16">Acciones</th>
+        <div className="table-responsive-wrapper custom-scrollbar">
+          <table className="w-full text-left whitespace-nowrap border-collapse min-w-[920px]">
+            <thead className="bg-[#040814]/95 border-b border-cyan-500/20 sticky top-0 z-10">
+              <tr className="font-mono text-[10px] sm:text-[10.5px] text-cyan-400/80 uppercase tracking-wider">
+                <th className="px-4 py-3 font-bold">Código & Fecha</th>
+                <th className="px-4 py-3 font-bold">Cliente</th>
+                <th className="px-4 py-3 font-bold">Vehículo & VIN</th>
+                <th className="px-4 py-3 font-bold">Refacción Solicitada</th>
+                <th className="px-4 py-3 font-bold">Tipo Entrega</th>
+                <th className="px-4 py-3 font-bold">Estatus</th>
+                <th className="px-4 py-3 font-bold text-right">Balance Financiero</th>
+                <th className="px-4 py-3 font-bold text-center w-14">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-cyan-500/10 text-xs">
@@ -444,28 +444,28 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
                     onClick={() => onSelectOrder(order.id)}
                   >
                     {/* Código & Fecha */}
-                    <td className="px-5 py-4">
+                    <td className="px-4 py-3 sm:px-5 sm:py-3.5">
                       <div className="flex flex-col">
-                        <span className="font-mono font-black text-sm text-cyan-300 group-hover:text-cyan-200 group-hover:underline drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">
+                        <span className="font-mono font-black text-xs sm:text-sm text-cyan-300 group-hover:text-cyan-200 group-hover:underline drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">
                           {order.code}
                         </span>
-                        <span className="text-[11px] text-slate-400 font-mono mt-0.5">
+                        <span className="text-[10.5px] text-slate-400 font-mono mt-0.5">
                           {order.createdAt}
                         </span>
                       </div>
                     </td>
 
                     {/* Cliente */}
-                    <td className="px-5 py-4">
+                    <td className="px-4 py-3 sm:px-5 sm:py-3.5">
                       <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-xl bg-[#0b162b] flex items-center justify-center text-cyan-300 font-bold text-xs border border-cyan-400/30 shrink-0 shadow-[0_0_8px_rgba(6,182,212,0.2)]">
+                        <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-[#0b162b] flex items-center justify-center text-cyan-300 font-bold text-[11px] sm:text-xs border border-cyan-400/30 shrink-0 shadow-[0_0_8px_rgba(6,182,212,0.2)]">
                           {order.customer.initials}
                         </div>
-                        <div className="flex flex-col">
-                          <span className="text-white font-bold leading-tight group-hover:text-cyan-200">
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-white font-bold leading-tight group-hover:text-cyan-200 truncate">
                             {order.customer.name}
                           </span>
-                          <span className="text-slate-400 text-[11px] font-mono">
+                          <span className="text-slate-400 text-[10.5px] font-mono truncate">
                             {order.customer.phone}
                           </span>
                         </div>
@@ -473,23 +473,23 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
                     </td>
 
                     {/* Vehículo & VIN */}
-                    <td className="px-5 py-4">
+                    <td className="px-4 py-3 sm:px-5 sm:py-3.5">
                       <div className="flex flex-col">
                         <span className="text-slate-200 font-medium leading-tight">
                           {order.vehicle.year} {order.vehicle.make} {order.vehicle.model}
                         </span>
-                        <span className="font-mono text-[11px] text-slate-400 truncate max-w-[170px]">
+                        <span className="font-mono text-[10.5px] text-slate-400 truncate max-w-[170px]">
                           VIN: {order.vehicle.vin}
                         </span>
                       </div>
                     </td>
 
                     {/* Refacción */}
-                    <td className="px-5 py-4">
+                    <td className="px-4 py-3 sm:px-5 sm:py-3.5">
                       <div className="flex flex-col">
                         <span className="text-slate-100 font-semibold">{order.mainPart}</span>
                         {order.stockNumber && (
-                          <span className="font-mono text-[10px] text-emerald-400 font-bold">
+                          <span className="font-mono text-[9.5px] text-emerald-400 font-bold">
                             Stock: {order.stockNumber}
                           </span>
                         )}
@@ -497,38 +497,38 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
                     </td>
 
                     {/* Tipo Entrega */}
-                    <td className="px-5 py-4">
+                    <td className="px-4 py-3 sm:px-5 sm:py-3.5">
                       <div className="flex items-center gap-1.5">
                         <span
-                          className={`w-2 h-2 rounded-full ${
+                          className={`w-2 h-2 rounded-full shrink-0 ${
                             order.deliveryType === 'envio_domicilio'
                               ? 'bg-cyan-400 shadow-[0_0_6px_#22d3ee]'
                               : 'bg-emerald-400 shadow-[0_0_6px_#34d399]'
                           }`}
                         />
-                        <span className="text-xs font-mono text-slate-300">
+                        <span className="text-[11.5px] font-mono text-slate-300">
                           {order.deliveryType === 'envio_domicilio' ? 'Envío Domicilio' : 'Retiro Tienda'}
                         </span>
                       </div>
                     </td>
 
                     {/* Estatus */}
-                    <td className="px-5 py-4">
+                    <td className="px-4 py-3 sm:px-5 sm:py-3.5">
                       {renderStatusBadge(order.status)}
                     </td>
 
                     {/* Finanzas */}
-                    <td className="px-5 py-4 text-right">
+                    <td className="px-4 py-3 sm:px-5 sm:py-3.5 text-right">
                       <div className="flex flex-col items-end">
-                        <span className="font-mono text-sm font-black text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.3)]">
+                        <span className="font-mono text-xs sm:text-sm font-black text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.3)]">
                           ${totalPayable.toFixed(2)}
                         </span>
                         {downPayment > 0 ? (
-                          <span className="font-mono text-[11px] text-emerald-400 font-semibold">
+                          <span className="font-mono text-[10.5px] text-emerald-400 font-semibold">
                             Abono: ${downPayment.toFixed(2)}
                           </span>
                         ) : (
-                          <span className="font-mono text-[11px] text-red-400">
+                          <span className="font-mono text-[10.5px] text-red-400">
                             Sin Abono ($0.00)
                           </span>
                         )}
@@ -536,7 +536,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
                     </td>
 
                     {/* Acciones */}
-                    <td className="px-5 py-4 text-center relative" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-3 py-3 sm:px-4 sm:py-3.5 text-center relative" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => setActiveActionMenu(activeActionMenu === order.id ? null : order.id)}
                         className="text-slate-400 hover:text-cyan-300 p-1.5 rounded-xl hover:bg-slate-800 transition cursor-pointer"

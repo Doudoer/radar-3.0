@@ -114,10 +114,10 @@ export const PersonalNotesWidget: React.FC = () => {
 
       {open && (
         <div className="fixed inset-0 z-[80] pointer-events-none">
-          <div className="pointer-events-auto absolute bottom-5 right-5 flex h-[min(620px,calc(100vh-2.5rem))] w-[min(430px,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl border border-cyan-500/30 bg-[#070c18]/95 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.85)] relative">
+          <div className="pointer-events-auto absolute bottom-4 right-4 flex h-[min(520px,calc(100vh-4rem))] w-[min(400px,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl border border-cyan-500/30 bg-[#070c18]/95 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.85)] relative">
             <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-20" />
             
-            <div className="flex items-start justify-between border-b border-cyan-500/20 bg-[#0a1022]/80 backdrop-blur-md px-4 py-3">
+            <div className="flex items-start justify-between border-b border-cyan-500/20 bg-[#0a1022]/80 backdrop-blur-md px-3.5 py-2.5 shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
                   <span className="material-symbols-outlined text-[19px]">edit_note</span>

@@ -652,8 +652,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       {/* Table of Inventory Items */}
       {!loading && filteredItems.length > 0 && (
         <div className="rounded-2xl bg-[#060b17] border border-cyan-500/25 overflow-hidden shadow-xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono border-collapse">
+          <div className="table-responsive-wrapper custom-scrollbar">
+            <table className="w-full text-left text-xs font-mono border-collapse min-w-[880px]">
               <thead>
                 <tr className="bg-[#03060f] border-b border-slate-800 text-slate-400 uppercase text-[10px]">
                   <th className="py-3 px-4">Paleta #</th>
@@ -851,13 +851,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       )}
 
       {/* Editor Modal (Create or Edit) */}
+      {/* Editor Modal */}
       {isEditorOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-          <div className="relative w-full max-w-lg rounded-3xl bg-[#070c18] border border-cyan-500/40 shadow-[0_20px_60px_rgba(0,0,0,0.9)] p-5 sm:p-6 text-slate-100 max-h-[92vh] overflow-y-auto">
+          <div className="relative w-full max-w-lg rounded-3xl bg-[#070c18] border border-cyan-500/40 shadow-[0_20px_60px_rgba(0,0,0,0.9)] text-slate-100 max-h-[min(94vh,700px)] flex flex-col overflow-hidden">
             {/* Modal Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-cyan-500/20">
+            <div className="p-4 sm:p-5 border-b border-cyan-500/20 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-slate-950 font-black shadow-[0_0_15px_rgba(6,182,212,0.4)] ${
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-slate-950 font-black shadow-[0_0_15px_rgba(6,182,212,0.4)] shrink-0 ${
                   editorMode === 'create'
                     ? 'bg-gradient-to-br from-cyan-500 to-emerald-500'
                     : 'bg-gradient-to-br from-amber-400 to-amber-600'
@@ -894,7 +895,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             </div>
 
             {/* Form */}
-            <form onSubmit={handleSaveItem} className="space-y-4 mt-4 font-mono text-xs">
+            <form onSubmit={handleSaveItem} className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              <div className="p-4 sm:p-5 space-y-4 overflow-y-auto custom-scrollbar flex-1 font-mono text-xs">
               {/* Toggle manual vs catalog */}
               <div className="flex items-center justify-end">
                 <button
@@ -1304,14 +1306,15 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   />
                 </div>
               </div>
+              </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+              <div className="flex items-center justify-end gap-3 p-4 border-t border-cyan-500/20 bg-[#060b17] shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsEditorOpen(false)}
                   disabled={isSaving}
-                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition-colors cursor-pointer text-xs"
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition-colors cursor-pointer text-xs"
                 >
                   Cancelar
                 </button>
@@ -1319,7 +1322,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 font-black uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] cursor-pointer flex items-center gap-2 text-xs hover:scale-[1.02] active:scale-[0.98]"
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 font-black uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] cursor-pointer flex items-center gap-2 text-xs hover:scale-[1.02] active:scale-[0.98]"
                 >
                   {isSaving ? (
                     <>
@@ -1397,7 +1400,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             </div>
 
             {/* Modal Body / Scrollable Info Cards */}
-            <div className="p-5 sm:p-6 space-y-3.5 overflow-y-auto font-mono text-xs">
+            <div className="p-4 sm:p-6 space-y-3.5 flex-1 min-h-0 overflow-y-auto custom-scrollbar font-mono text-xs">
               {/* Sold Status Banner */}
               {selectedDetailItem.status === 'vendido' && (
                 <div className="rounded-2xl bg-gradient-to-r from-blue-950/90 via-[#0a1835] to-indigo-950/90 border border-blue-500/50 p-4 shadow-[0_0_20px_rgba(59,130,246,0.25)] flex items-center justify-between gap-3 flex-wrap animate-fade-in">

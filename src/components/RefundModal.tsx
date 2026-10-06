@@ -119,14 +119,14 @@ export const RefundModal: React.FC<RefundModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
-      <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-amber-500/30 rounded-3xl w-full max-w-xl shadow-[0_20px_60px_rgba(245,158,11,0.25)] flex flex-col text-slate-100 relative overflow-hidden max-h-[92vh]">
+      <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-amber-500/30 rounded-3xl w-full max-w-xl shadow-[0_20px_60px_rgba(245,158,11,0.25)] flex flex-col text-slate-100 relative overflow-hidden max-h-[min(94vh,720px)]">
         {/* Amber Glow Hairline */}
         <div className="absolute top-0 inset-x-0 h-[2.5px] bg-gradient-to-r from-amber-500 via-orange-400 to-amber-300 shadow-[0_0_15px_#f59e0b] z-20" />
 
         {/* Modal Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-amber-500/20 bg-[#0a1022]/80 backdrop-blur-md shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.3)]">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.3)] shrink-0">
               <span className="material-symbols-outlined text-[22px]">account_balance_wallet</span>
             </div>
             <div>
@@ -154,7 +154,8 @@ export const RefundModal: React.FC<RefundModalProps> = ({
         </div>
 
         {/* Modal Body / Form */}
-        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto custom-scrollbar space-y-4">
+        <form onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <div className="p-4 sm:p-5 overflow-y-auto custom-scrollbar flex-1 space-y-4">
           {error && (
             <div className="p-3 rounded-2xl bg-red-950/70 border border-red-500/40 text-red-300 text-xs flex items-center gap-2">
               <span className="material-symbols-outlined text-[18px] text-red-400">error</span>
@@ -320,9 +321,10 @@ export const RefundModal: React.FC<RefundModalProps> = ({
               />
             )}
           </div>
+          </div>
 
           {/* Modal Footer Actions */}
-          <div className="flex items-center justify-end gap-2.5 border-t border-amber-500/20 pt-4 shrink-0">
+          <div className="flex items-center justify-end gap-2.5 border-t border-amber-500/20 bg-[#0a1022]/90 backdrop-blur-md p-4 shrink-0">
             <button
               type="button"
               onClick={onClose}

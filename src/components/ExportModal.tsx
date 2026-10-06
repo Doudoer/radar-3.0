@@ -53,13 +53,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
-      <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-md shadow-[0_20px_60px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+      <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-md max-h-[min(94vh,560px)] shadow-[0_20px_60px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col relative">
         {/* Laser Hairline */}
         <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-20" />
 
         {/* Header */}
-        <div className="p-4.5 border-b border-cyan-500/20 flex justify-between items-center bg-[#0a1022]/80 backdrop-blur-md">
+        <div className="p-4 sm:p-4.5 border-b border-cyan-500/20 flex justify-between items-center bg-[#0a1022]/80 backdrop-blur-md shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
               <span className="material-symbols-outlined text-[20px]">download</span>
@@ -79,7 +79,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           </button>
         </div>
 
-        <div className="p-5 flex flex-col gap-4 text-xs text-slate-300">
+        <div className="p-5 flex flex-col gap-4 text-xs text-slate-300 flex-1 min-h-0 overflow-y-auto custom-scrollbar">
           <p className="text-slate-400 leading-relaxed">
             Se generará un archivo consolidado con las <strong className="text-cyan-400 font-mono">{orders.length}</strong> órdenes activas del taller, despacho y CRM.
           </p>
