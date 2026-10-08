@@ -117,6 +117,7 @@ export interface Order {
   createdAt: string;
   createdAtIso?: string;
   advisor: string;
+  userId?: number;
   status: OrderStatus;
   mainPart: string;
   productSpecs?: string;

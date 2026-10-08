@@ -251,6 +251,7 @@ export default function App() {
               onSelectOrder={handleSelectOrder}
               onUpdateOrder={handleUpdateOrder}
               userRole={userRole}
+              currentUser={authUser}
             />
           )}
 
@@ -322,6 +323,7 @@ export default function App() {
         editingOrder={editingOrder}
         initialPrefillData={prefillOrderData || undefined}
         existingCustomers={customers}
+        currentUser={authUser}
       />
 
       <QuickSMSModal

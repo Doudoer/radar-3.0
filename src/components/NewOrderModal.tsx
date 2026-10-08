@@ -10,6 +10,8 @@ interface NewOrderModalProps {
   editingOrder?: Order | null;
   initialPrefillData?: PrefillOrderData | null;
   existingCustomers?: Customer[];
+  currentUser?: { id?: number; name?: string; email?: string; role?: string } | null;
+  currentUserName?: string;
 }
 
 export const NewOrderModal: React.FC<NewOrderModalProps> = ({
@@ -20,7 +22,10 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   editingOrder,
   initialPrefillData,
   existingCustomers = [],
+  currentUser,
+  currentUserName,
 }) => {
+  const defaultAdvisor = currentUserName || currentUser?.name || 'Operador';
   // Stepper State (1: Vehículo & Pieza, 2: Datos del Cliente, 3: Finanzas & Envío)
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [stepError, setStepError] = useState<string | null>(null);
@@ -66,7 +71,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   // 5. Warranty & Workflow
   const [warrantyDays, setWarrantyDays] = useState(30);
   const [status, setStatus] = useState<OrderStatus>('cotizacion');
-  const [advisor, setAdvisor] = useState('Carlos Mendoza (Ventas)');
+  const [advisor, setAdvisor] = useState(defaultAdvisor);
 
   const yearOptions = useMemo(
     () => Array.from({ length: 37 }, (_, index) => 2026 - index),
@@ -220,7 +225,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       setDeliveryType(editingOrder.deliveryType || 'retiro_tienda');
       setWarrantyDays(editingOrder.warrantyDays || 60);
       setStatus(editingOrder.status);
-      setAdvisor(editingOrder.advisor || '');
+      setAdvisor(editingOrder.advisor || defaultAdvisor);
       setStepError(null);
     } else if (initialPrefillData && isOpen) {
       if (initialPrefillData.make) setVehicleMake(initialPrefillData.make);
@@ -284,8 +289,9 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       setDeliveryType('retiro_tienda');
       setWarrantyDays(30);
       setStatus('cotizacion');
+      setAdvisor(defaultAdvisor);
     }
-  }, [editingOrder, initialPrefillData, isOpen, existingCustomers]);
+  }, [editingOrder, initialPrefillData, isOpen, existingCustomers, defaultAdvisor]);
 
   // Real-time financial calculations
   const numPart = Math.max(0, parseFloat(partPrice) || 0);
@@ -445,7 +451,8 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       id: editingOrder?.id || code,
       code: code,
       createdAt: editingOrder?.createdAt || 'Hoy, ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      advisor: advisor,
+      advisor: editingOrder?.advisor || currentUser?.name || currentUserName || advisor || 'Operador',
+      userId: currentUser?.id,
       status: status,
       mainPart: mainPart.trim(),
       productSpecs: productSpecs.trim(),
@@ -1412,27 +1419,23 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                 </div>
               </div>
 
-              {/* Asesor y Estatus Inicial */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#050914] p-4.5 rounded-2xl border border-cyan-500/20 shadow-sm">
-                <div>
-                  <label className="block mb-1 text-slate-400 text-xs font-semibold">Asesor Comercial Asignado</label>
-                  <select
-                    value={advisor}
-                    onChange={(e) => setAdvisor(e.target.value)}
-                    className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 cursor-pointer"
-                  >
-                    <option value="Carlos Mendoza (Ventas)">Carlos Mendoza (Ventas)</option>
-                    <option value="Alejandro Morales (Ventas)">Alejandro Morales (Ventas)</option>
-                    <option value="Laura Méndez (Call Center)">Laura Méndez (Call Center)</option>
-                    <option value="Douglas Villalobos (Admin)">Douglas Villalobos (Admin)</option>
-                  </select>
-                </div>
-
+              {/* Estatus Inicial y Operador Asignado */}
+              <div className="bg-[#050914] p-4 sm:p-4.5 rounded-2xl border border-cyan-500/20 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <label className="block mb-1 text-slate-400 text-xs font-semibold">Estatus Inicial de Apertura</label>
-                  <div className="rounded-xl border border-cyan-500/40 bg-cyan-950/40 px-3.5 py-2.5 text-xs font-bold text-cyan-300 font-mono flex items-center gap-2">
+                  <div className="rounded-xl border border-cyan-500/40 bg-cyan-950/40 px-3.5 py-2 text-xs font-bold text-cyan-300 font-mono inline-flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                     <span>Cotización</span>
+                  </div>
+                </div>
+
+                <div className="sm:text-right border-t sm:border-t-0 pt-2 sm:pt-0 border-cyan-500/10">
+                  <span className="block text-[10.5px] text-slate-400 font-mono uppercase tracking-wider mb-1">
+                    Operador / Asesor Registrado
+                  </span>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#070e1c] border border-cyan-500/30 text-emerald-400 font-mono font-bold text-xs shadow-[0_0_10px_rgba(16,185,129,0.15)]">
+                    <span className="material-symbols-outlined text-[15px] text-cyan-400">badge</span>
+                    <span>{advisor || defaultAdvisor}</span>
                   </div>
                 </div>
               </div>

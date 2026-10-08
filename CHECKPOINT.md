@@ -1,14 +1,35 @@
 # 📍 CHECKPOINT RADAR 3.0 — 2026-10-08
 
-**Fecha y Hora:** 8 de Octubre, 2026 — 13:10 UTC-4  
+**Fecha y Hora:** 8 de Octubre, 2026 — 13:55 UTC-4  
 **Rama:** `main`  
-**Estado:** Probado y compilado con 100% de tests pasando (35/35)
+**Estado:** Probado y compilado con 100% de tests pasando (39/39 en 7 suites)
 
 ---
 
 ## 🚀 1. Resumen de lo Realizado en esta Sesión
 
-### A. Bloc de Notas Dinámico y Libremente Arrastrable (`PersonalNotesWidget.tsx`)
+### A. Módulo de Estadísticas y Operaciones Reorganizado (`OperationsView.tsx`)
+- **Filtro Semanal de Lunes a Domingo:**
+  - Motor de cálculo de semanas estrictas de **Lunes (00:00:00) a Domingo (23:59:59)**.
+  - Navegador temporal con botones de semana anterior, semana actual y semana siguiente.
+  - Histograma visual de barras diarias (Lun, Mar, Mié, Jue, Vie, Sáb, Dom) con monto acumulado y conteo de ventas.
+- **Filtro Mensual:**
+  - Selector y visor de ventas del mes en curso o meses históricos (del 1 al último día del mes).
+  - Desglose semanal del mes (Sem 1 a Sem 5).
+- **Atribución y Privacidad por Operador:**
+  - **Operador Regular:** El operador activo únicamente visualiza sus propias ventas, cotizaciones, métricas y reclamos generados bajo su cuenta.
+  - **Super Admin:** Posee un selector desplegable exclusivo para auditar las ventas y estadísticas de cada operador individualmente o ver el consolidado general (`Todos los Operadores`).
+- **HUD de 6 Indicadores Clave (KPIs):**
+  1. *Facturación Total Ventas ($ USD)*
+  2. *Ticket Promedio por Venta ($ USD)*
+  3. *Anticipos Cobrados en Mano ($ USD)*
+  4. *Saldo Pendiente por Cobrar ($ USD)*
+  5. *Cotizaciones & Tasa de Conversión (%)*
+  6. *Órdenes Activas en Taller / Despacho*
+- **Desglose de Logística:** Distribución entre Retiro en Mostrador/Patio ($ y %) y Envíos a Domicilio/Flete.
+- **Suite de Pruebas Automatizadas:** Incorporado [`tests/operations-analytics.test.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/tests/operations-analytics.test.ts) con 4 tests unitarios de cálculo de semanas, meses y parseo de fechas.
+
+### B. Bloc de Notas Dinámico y Libremente Arrastrable (`PersonalNotesWidget.tsx`)
 - **Posición por Defecto:** Al abrirse, se sitúa automáticamente en la **esquina inferior derecha** (`bottom-right`) con separación ergonómica.
 - **Movimiento Libre (Drag & Drop):** El operador puede hacer clic sostenido o tocar la cabecera superior (`drag_indicator`) y mover la ventana flotante a cualquier parte de la pantalla con aceleración por hardware (`translate3d`).
 - **Límites de Pantalla (Clamping):** Restringe automáticamente los bordes para evitar que la ventana se pierda fuera de la vista en pantallas pequeñas o al redimensionar la ventana.
@@ -17,32 +38,37 @@
   - **Reanclar:** Botón de un clic para devolver la ventana a la esquina inferior derecha.
   - **Cierre y Autoguardado:** Conserva el autoguardado con debounce de 700ms al servidor.
 
-### B. Actualización de Marca en Login y Protocolos
+### C. Asignación Automática de Asesor Comercial al Usuario Logeado (`NewOrderModal.tsx`)
+- **Eliminación del Selector Manual:** Se removió el menú desplegable `<select>` de "Asesor Comercial Asignado" en el Paso 3 (Finanzas y Envío).
+- **Atribución Automática:** El asesor comercial se asigna de manera 100% automática con el nombre (`authUser.name`) y código de usuario (`authUser.id`) de la cuenta con sesión activa.
+- **Guardado y Auditoría:** Las órdenes quedan guardadas bajo el nombre y cuenta del operador logeado, mostrando un indicador visual con badge de operador y estado inicial `Cotización`.
+
+### D. Actualización de Marca en Login y Protocolos
 - **Píldora Superior:** Cambiado de `RADAR SENTINEL • ACCESO SEGURO` a `RADAR V3 • ACCESO SEGURO`.
 - **Pie de Seguridad:** Cambiado de `PROTOCOLO SENTINEL LOCAL` a `PROTOCOLO RADAR V3`.
 - **Derechos Reservados:** Incorporado enlace de copyright `Derechos reservados para soviwebs.com` con estilo ciberpunk de alto contraste.
 
-### C. Logo y Pantalla de Carga Fluida (Eliminación de Flash / FOUT)
+### E. Logo y Pantalla de Carga Fluida (Eliminación de Flash / FOUT)
 - **Preloader Nativo en [`index.html`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/index.html):** Se incluyó un preloader HTML/CSS instantáneo con el emblema holográfico de Radar V3 y pulso orbital.
 - **Detección de Fuentes en [`LoginView.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/LoginView.tsx):** Compuerta `document.fonts.ready` con SVG vectorial puro para prevenir parpadeo de fuentes o ligaduras.
 - **Superposición Global ([`LoadingOverlay.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/LoadingOverlay.tsx)):** Estandarizado a `CARGANDO RADAR V3`.
 
-### C. Corrección de VIN en Creación de Órdenes Manuales
+### F. Corrección de VIN en Creación de Órdenes Manuales
 - Al seleccionar y rellenar los datos del vehículo manualmente sin escribir un VIN, el sistema no autogenera VINs falsos.
 - Si no se escribe un VIN, la orden se guarda sin VIN asignado (`''` / `NULL` en base de datos).
 - En todas las vistas (`OrdersTableView`, `OrderDetailView`, `OperationsView`, `InvoiceModal`, `InvoiceView`, `DispatchLabelModal`, `DispatchLabelView`) se muestra `Sin VIN` o `VIN: N/A` de manera limpia.
 
-### D. Formato de Mensaje de Entrega / Despacho SMS & WhatsApp (`QuickSMSModal.tsx`)
+### G. Formato de Mensaje de Entrega / Despacho SMS & WhatsApp (`QuickSMSModal.tsx`)
 - Plantilla de 8 líneas optimizada para WhatsApp y SMS con botones de copia rápida y redirección directa a chat.
 
-### E. Modo Claro (Light Mode) Global de Alto Contraste y Detalle Compacto
+### H. Modo Claro (Light Mode) Global de Alto Contraste y Detalle Compacto
 - Motor universal en [`src/index.css`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/index.css) con soporte de alto contraste y vista ergonómica de dos columnas en [`OrderDetailView.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/OrderDetailView.tsx).
 
 ---
 
 ## 🧪 2. Estado de Pruebas, Compilación y Seguridad
 
-- **Unit Tests:** `35 / 35 passing` (100% pasando en 6 suites) (`npm test`)
+- **Unit Tests:** `39 / 39 passing` (100% pasando en 7 suites) (`npm test`)
 - **TypeScript:** `0 errors` (`npx tsc --noEmit`)
 - **Production Build:** `npm run build` ejecutado y validado con 0 errores (frontend Vite + backend esbuild `dist/server.js`).
 - **Seguridad de la Base de Datos:** Los despliegues y subidas a producción **no tocan, alteran ni borran ningún dato existente**. Solo se ejecutan consultas parametrizadas y sentencias `CREATE TABLE IF NOT EXISTS`.
