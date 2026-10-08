@@ -598,7 +598,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
           {/* Footer Security Matrix */}
           <div className="mt-6 pt-4 border-t border-cyan-500/15 w-full flex items-center justify-center gap-2 text-[10px] font-mono text-cyan-400/60 uppercase tracking-widest">
             <span className="material-symbols-outlined text-[14px] text-emerald-400">lock</span>
-            <span>SHA-256 E2EE • PROTOCOLO SENTINEL 2FA</span>
+            <span>SHA-256 E2EE • PROTOCOLO RADAR V3 2FA</span>
           </div>
         </div>
       </div>

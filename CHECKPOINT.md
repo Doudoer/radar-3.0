@@ -1,42 +1,42 @@
 # 📍 CHECKPOINT RADAR 3.0 — 2026-10-08
 
-**Fecha y Hora:** 8 de Octubre, 2026 — 09:32 UTC-4  
+**Fecha y Hora:** 8 de Octubre, 2026 — 13:10 UTC-4  
 **Rama:** `main`  
-**Último Commit:** `0036172` (`fix(orders): do not generate random VIN when creating order without VIN`)  
-**Estado del Repositorio:** 100% Sincronizado con `origin/main`, directorio de trabajo limpio  
+**Estado:** Probado y compilado con 100% de tests pasando (35/35)
 
 ---
 
 ## 🚀 1. Resumen de lo Realizado en esta Sesión
 
-### A. Corrección de VIN en Creación de Órdenes Manuales
-- **Problema corregido:** Al seleccionar y rellenar los datos del vehículo manualmente sin escribir un VIN, el sistema autogeneraba un VIN aleatorio falso (`1FTEW...`).
-- **Solución implementada:**
-  - En [`NewOrderModal.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/NewOrderModal.tsx), se eliminó la generación automática de VIN aleatorio.
-  - Si no se escribe un VIN, la orden se guarda sin VIN asignado (`''` / `NULL` en base de datos).
-  - Solo se almacena VIN si el usuario lo ingresa manualmente o si viene decodificado por NHTSA / prellenado.
-  - En todas las vistas (`OrdersTableView`, `OrderDetailView`, `OperationsView`, `InvoiceModal`, `InvoiceView`, `DispatchLabelModal`, `DispatchLabelView`) se muestra `Sin VIN` o `VIN: N/A` de manera limpia sin botones de copia vacíos.
+### A. Bloc de Notas Dinámico y Libremente Arrastrable (`PersonalNotesWidget.tsx`)
+- **Posición por Defecto:** Al abrirse, se sitúa automáticamente en la **esquina inferior derecha** (`bottom-right`) con separación ergonómica.
+- **Movimiento Libre (Drag & Drop):** El operador puede hacer clic sostenido o tocar la cabecera superior (`drag_indicator`) y mover la ventana flotante a cualquier parte de la pantalla con aceleración por hardware (`translate3d`).
+- **Límites de Pantalla (Clamping):** Restringe automáticamente los bordes para evitar que la ventana se pierda fuera de la vista en pantallas pequeñas o al redimensionar la ventana.
+- **Controles de Ventana:**
+  - **Minimizar / Expandir:** Botón para colapsar la ventana en una barra compacta flotante sin perder su posición en pantalla.
+  - **Reanclar:** Botón de un clic para devolver la ventana a la esquina inferior derecha.
+  - **Cierre y Autoguardado:** Conserva el autoguardado con debounce de 700ms al servidor.
 
-### B. Formato de Mensaje de Entrega / Despacho SMS & WhatsApp (`QuickSMSModal.tsx`)
-- **Implementación idéntica a la referencia visual:**
-  - Estructura de 8 líneas con negritas de WhatsApp:
-    1. `*{Nombre del Cliente}*`
-    2. `*Phone:* {Teléfono}` / `*Teléfono:* {Teléfono}`
-    3. `{Marca} {Modelo} {Año}` (ej. `NISSAN Altima 2008`)
-    4. `*{TIPO DE PIEZA}* {Cilindrada/Motor}` (ej. `*ENGINE* 2.5`)
-    5. `{Especificaciones del producto}`
-    6. `Address: {Dirección}` / `Dirección: {Dirección}` (si es envío a domicilio)
-    7. `Remaining Balance: *${Monto}*` / `Balance Pendiente: *${Monto}*`
-    8. `*Note:* {Instrucción de core fee / notas}` / `*Nota:* {Instrucción de core fee / notas}`
-  - Interfaz con cabecera `Formato para Mensaje de Entrega / Delivery`, badge en píldora púrpura, botones blancos de `Copiar` y verdes de `WhatsApp` directo.
-  - Ficha técnica consolidada en la parte inferior.
+### B. Actualización de Marca en Login y Protocolos
+- **Píldora Superior:** Cambiado de `RADAR SENTINEL • ACCESO SEGURO` a `RADAR V3 • ACCESO SEGURO`.
+- **Pie de Seguridad:** Cambiado de `PROTOCOLO SENTINEL LOCAL` a `PROTOCOLO RADAR V3`.
+- **Derechos Reservados:** Incorporado enlace de copyright `Derechos reservados para soviwebs.com` con estilo ciberpunk de alto contraste.
 
-### C. Modo Claro (Light Mode) Global de Alto Contraste
-- Motor universal en [`src/index.css`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/index.css) con mapeo completo de utilidades Tailwind y variables CSS (`html.light`).
-- Botón toggle de tema en cabecera principal ([`TopHeader.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/TopHeader.tsx)), pantalla de login ([`LoginView.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/LoginView.tsx)) y ajustes del sistema ([`SystemSettingsView.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/SystemSettingsView.tsx)).
+### C. Logo y Pantalla de Carga Fluida (Eliminación de Flash / FOUT)
+- **Preloader Nativo en [`index.html`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/index.html):** Se incluyó un preloader HTML/CSS instantáneo con el emblema holográfico de Radar V3 y pulso orbital.
+- **Detección de Fuentes en [`LoginView.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/LoginView.tsx):** Compuerta `document.fonts.ready` con SVG vectorial puro para prevenir parpadeo de fuentes o ligaduras.
+- **Superposición Global ([`LoadingOverlay.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/LoadingOverlay.tsx)):** Estandarizado a `CARGANDO RADAR V3`.
 
-### D. Vista Compacta de Detalle de Orden (`OrderDetailView.tsx`)
-- Diseño ergonómico de 2 columnas donde toda la información clave cabe en pantallas de 650–750px sin necesidad de scroll forzado.
+### C. Corrección de VIN en Creación de Órdenes Manuales
+- Al seleccionar y rellenar los datos del vehículo manualmente sin escribir un VIN, el sistema no autogenera VINs falsos.
+- Si no se escribe un VIN, la orden se guarda sin VIN asignado (`''` / `NULL` en base de datos).
+- En todas las vistas (`OrdersTableView`, `OrderDetailView`, `OperationsView`, `InvoiceModal`, `InvoiceView`, `DispatchLabelModal`, `DispatchLabelView`) se muestra `Sin VIN` o `VIN: N/A` de manera limpia.
+
+### D. Formato de Mensaje de Entrega / Despacho SMS & WhatsApp (`QuickSMSModal.tsx`)
+- Plantilla de 8 líneas optimizada para WhatsApp y SMS con botones de copia rápida y redirección directa a chat.
+
+### E. Modo Claro (Light Mode) Global de Alto Contraste y Detalle Compacto
+- Motor universal en [`src/index.css`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/index.css) con soporte de alto contraste y vista ergonómica de dos columnas en [`OrderDetailView.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/OrderDetailView.tsx).
 
 ---
 

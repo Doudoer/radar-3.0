@@ -1,4 +1,4 @@
-import React, { FormEvent, useState } from 'react';
+import React, { FormEvent, useEffect, useState } from 'react';
 import { apiFetch } from '../services/apiFetch';
 import { useTheme } from '../hooks/useTheme';
 
@@ -13,6 +13,25 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    // Wait for web fonts and icons to be ready to avoid Flash of Unstyled Text / Ligatures
+    if (typeof document !== 'undefined' && 'fonts' in document) {
+      document.fonts.ready
+        .then(() => {
+          setIsReady(true);
+        })
+        .catch(() => {
+          setIsReady(true);
+        });
+      // Safety timer so loading state never blocks the user
+      const timer = setTimeout(() => setIsReady(true), 350);
+      return () => clearTimeout(timer);
+    } else {
+      setIsReady(true);
+    }
+  }, []);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -34,8 +53,57 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
     }
   };
 
+  if (!isReady) {
+    return (
+      <main className="flex min-h-screen min-h-[100dvh] items-center justify-center bg-[#050811] px-4 py-8 text-[#dfe2ef] relative overflow-hidden cyber-grid-bg">
+        {/* Ambient Neon Backlight Orbs */}
+        <div className="absolute top-1/3 left-1/3 -translate-x-1/2 -translate-y-1/2 w-72 h-72 bg-cyan-500/15 rounded-full blur-[80px] pointer-events-none" />
+        <div className="absolute bottom-1/3 right-1/3 translate-x-1/2 translate-y-1/2 w-72 h-72 bg-emerald-500/15 rounded-full blur-[80px] pointer-events-none" />
+
+        <div className="relative flex flex-col items-center justify-center text-center z-10 animate-pulse">
+          {/* Holographic Radar Scanner Emblem */}
+          <div className="relative mb-5 flex items-center justify-center">
+            {/* Outer Orbit Ring */}
+            <div className="absolute -inset-4 rounded-full border border-dashed border-cyan-500/40 animate-cyber-orbit pointer-events-none" />
+            {/* Counter Orbit Ring */}
+            <div className="absolute -inset-7 rounded-full border border-dotted border-emerald-400/30 animate-cyber-orbit-reverse pointer-events-none" />
+            {/* Glow Aura */}
+            <div className="absolute inset-0 rounded-2xl bg-cyan-500/25 blur-xl" />
+
+            {/* Core Shield Pod with SVG Radar (zero font loading dependency) */}
+            <div className="relative w-18 h-18 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-[#0c1a30] via-[#060c18] to-[#040812] border-2 border-cyan-400/70 flex items-center justify-center text-cyan-400 shadow-[0_0_30px_rgba(6,182,212,0.5),inset_0_0_15px_rgba(6,182,212,0.3)] overflow-hidden">
+              <div className="absolute inset-x-0 h-[2px] bg-cyan-400 shadow-[0_0_10px_#22d3ee] animate-cyber-scan pointer-events-none" />
+              <svg
+                className="w-10 h-10 text-cyan-400 animate-spin"
+                style={{ animationDuration: '4s' }}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="12" r="10" strokeOpacity="0.35" />
+                <path d="M12 2a10 10 0 0 1 10 10" />
+                <circle cx="12" cy="12" r="6" strokeOpacity="0.55" />
+                <path d="M12 6a6 6 0 0 1 6 6" />
+                <circle cx="12" cy="12" r="2" fill="currentColor" />
+              </svg>
+            </div>
+          </div>
+
+          {/* Pill Badge */}
+          <div className="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-full bg-[#040b17]/95 border border-cyan-400/40 text-[10.5px] font-mono font-bold tracking-[0.2em] text-cyan-300 uppercase shadow-[0_0_16px_rgba(6,182,212,0.25)]">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-ping" />
+            <span>CARGANDO RADAR V3...</span>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <main className="flex min-h-screen min-h-[100dvh] items-center justify-center bg-[#050811] px-4 py-6 sm:py-8 text-[#dfe2ef] relative overflow-y-auto custom-scrollbar cyber-grid-bg">
+    <main className="flex min-h-screen min-h-[100dvh] items-center justify-center bg-[#050811] px-4 py-6 sm:py-8 text-[#dfe2ef] relative overflow-y-auto custom-scrollbar cyber-grid-bg transition-opacity duration-300">
       {/* Top right theme toggle */}
       <button
         type="button"
@@ -79,7 +147,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
         {/* Security Badge */}
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#040b17]/90 border border-cyan-400/40 text-[9.5px] sm:text-[10px] font-mono font-bold tracking-[0.2em] text-cyan-300 uppercase mb-2.5 shadow-[0_0_12px_rgba(6,182,212,0.2)]">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-ping" />
-          <span>RADAR SENTINEL • ACCESO SEGURO</span>
+          <span>RADAR V3 • ACCESO SEGURO</span>
         </div>
 
         {/* Title */}
@@ -173,9 +241,22 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
         </form>
 
         {/* Footer Security Matrix */}
-        <div className="mt-6 pt-4 border-t border-cyan-500/15 w-full flex items-center justify-center gap-2 text-[10px] font-mono text-cyan-400/60 uppercase tracking-widest">
+        <div className="mt-6 pt-4 border-t border-cyan-500/15 w-full flex items-center justify-center gap-2 text-[10px] font-mono text-cyan-400/70 uppercase tracking-widest">
           <span className="material-symbols-outlined text-[14px] text-emerald-400">verified_user</span>
-          <span>SHA-256 E2EE • PROTOCOLO SENTINEL LOCAL</span>
+          <span>SHA-256 E2EE • PROTOCOLO RADAR V3</span>
+        </div>
+
+        {/* Copyright Notice */}
+        <div className="mt-3 text-[10.5px] font-mono text-slate-400/90 tracking-wider">
+          Derechos reservados para{' '}
+          <a
+            href="https://soviwebs.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-cyan-400 hover:text-cyan-300 font-bold underline underline-offset-2 transition-colors"
+          >
+            soviwebs.com
+          </a>
         </div>
       </div>
     </main>
