@@ -44,6 +44,7 @@ export const orderPayloadSchema = z.object({
     year: z.coerce.number().int().min(1886).max(2200).optional().nullable(),
     color: z.string().max(80).optional().nullable(),
     transmission: z.string().max(100).optional().nullable(),
+    mileage: z.string().max(60).optional().nullable(),
   }).optional(),
   financials: z.object({
     partPrice: z.coerce.number().finite().min(0).max(10_000_000).optional(),

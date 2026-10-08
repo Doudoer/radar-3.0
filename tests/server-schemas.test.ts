@@ -41,13 +41,14 @@ describe('server input schemas', () => {
       workflowStep: '2',
       warrantyDays: '60',
       customer: { name: 'Cliente Prueba', email: '' },
-      vehicle: { year: '2018', make: 'Jeep', model: 'Compass' },
+      vehicle: { year: '2018', make: 'Jeep', model: 'Compass', mileage: '85000' },
       financials: { partPrice: '1200', downPayment: '300' },
       deliveryType: 'retiro_tienda',
     });
 
     expect(order.workflowStep).toBe(2);
     expect(order.vehicle?.year).toBe(2018);
+    expect(order.vehicle?.mileage).toBe('85000');
     expect(order.financials?.partPrice).toBe(1200);
   });
 

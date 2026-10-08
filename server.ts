@@ -384,8 +384,8 @@ const server = createServer(async (request, response) => {
 
         // 5. Insert Order
         const [orderResult] = await connection.execute<ResultSetHeader>(
-          `INSERT INTO orders (order_code, vin_nr, brand, model, sub_model, year, color, product_type, transmission_type, product_specs, stock_nr, customer_id, user_id, price, core_fee, down_payment, shipping_toggle, shipping_address, shipping_cost, warranty_days, status, workflow_step, description)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO orders (order_code, vin_nr, brand, model, sub_model, year, color, mileage, product_type, transmission_type, product_specs, stock_nr, customer_id, user_id, price, core_fee, down_payment, shipping_toggle, shipping_address, shipping_cost, warranty_days, status, workflow_step, description)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             orderCode,
             order.vehicle.vin || null,
@@ -394,6 +394,7 @@ const server = createServer(async (request, response) => {
             order.vehicle.trim || null,
             order.vehicle.year || null,
             order.vehicle.color || null,
+            order.vehicle.mileage || null,
             order.mainPart,
             transmissionType,
             order.productSpecs || null,
@@ -456,9 +457,9 @@ const server = createServer(async (request, response) => {
         const transmissionType = normalizeTransmissionType(order.vehicle?.transmission);
 
         await connection.execute(
-          `UPDATE orders SET vin_nr = ?, brand = ?, model = ?, sub_model = ?, year = ?, color = ?, product_type = ?, transmission_type = ?, product_specs = ?, stock_nr = ?, price = ?, core_fee = ?, down_payment = ?, shipping_toggle = ?, shipping_address = ?, shipping_cost = ?, warranty_days = ?, status = ?, workflow_step = ?, scheduled_pickup_at = ?, delivered_at = ?, warranty_started = ?, description = ?, claim_reason = ? ${assignedUserId !== undefined ? ', user_id = ?' : ''} WHERE id = ?`,
+          `UPDATE orders SET vin_nr = ?, brand = ?, model = ?, sub_model = ?, year = ?, color = ?, mileage = ?, product_type = ?, transmission_type = ?, product_specs = ?, stock_nr = ?, price = ?, core_fee = ?, down_payment = ?, shipping_toggle = ?, shipping_address = ?, shipping_cost = ?, warranty_days = ?, status = ?, workflow_step = ?, scheduled_pickup_at = ?, delivered_at = ?, warranty_started = ?, description = ?, claim_reason = ? ${assignedUserId !== undefined ? ', user_id = ?' : ''} WHERE id = ?`,
           [
-            order.vehicle?.vin || null, order.vehicle?.make || null, order.vehicle?.model || null, order.vehicle?.trim || null, order.vehicle?.year || null, order.vehicle?.color || null, order.mainPart || null, transmissionType, order.productSpecs || null, order.stockNumber || null, order.financials?.partPrice || 0, order.financials?.coreFee || 0, order.financials?.downPayment || 0, order.deliveryType === 'envio_domicilio', order.customer?.shippingAddress || null, order.financials?.deliveryFee || 0, order.warrantyDays || 60, statusToDatabase[order.status || ''] || order.status || '', order.workflowStep || 1, toMysqlDateTime(order.scheduledPickupAt), toMysqlDateTime(order.deliveredAt), Boolean(order.warrantyStarted), order.notes || null, order.claimReason || null,
+            order.vehicle?.vin || null, order.vehicle?.make || null, order.vehicle?.model || null, order.vehicle?.trim || null, order.vehicle?.year || null, order.vehicle?.color || null, order.vehicle?.mileage || null, order.mainPart || null, transmissionType, order.productSpecs || null, order.stockNumber || null, order.financials?.partPrice || 0, order.financials?.coreFee || 0, order.financials?.downPayment || 0, order.deliveryType === 'envio_domicilio', order.customer?.shippingAddress || null, order.financials?.deliveryFee || 0, order.warrantyDays || 60, statusToDatabase[order.status || ''] || order.status || '', order.workflowStep || 1, toMysqlDateTime(order.scheduledPickupAt), toMysqlDateTime(order.deliveredAt), Boolean(order.warrantyStarted), order.notes || null, order.claimReason || null,
             ...(assignedUserId !== undefined ? [assignedUserId] : []),
             orderId,
           ]
@@ -1145,6 +1146,15 @@ const ensureDatabaseTables = async () => {
       }
     } catch {
       // Table may have just been created with columns above
+    }
+
+    try {
+      const [mileageCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM orders LIKE "mileage"');
+      if (mileageCols.length === 0) {
+        await pool.query('ALTER TABLE orders ADD COLUMN mileage VARCHAR(60) NULL AFTER color');
+      }
+    } catch {
+      // orders table check handled safely
     }
   } catch (error) {
     console.error('Error al verificar/inicializar tablas de base de datos:', error);

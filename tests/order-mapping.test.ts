@@ -66,6 +66,22 @@ describe('database order mapping', () => {
     expect(orderWithVin.vehicle.make).toBe('Nissan');
   });
 
+  it('maps vehicle mileage correctly when present in database row', () => {
+    const orderWithMileage = mapOrder({
+      id: 10,
+      order_code: 'ORD-10',
+      created_at: new Date('2026-09-18T12:00:00Z'),
+      status: 'Pagado',
+      product_type: 'Motor',
+      mileage: '125400',
+      brand: 'Toyota',
+      model: 'Tacoma',
+      year: 2020,
+    } as never);
+
+    expect(orderWithMileage.vehicle.mileage).toBe('125400');
+  });
+
   it('returns null for empty or invalid SQL dates', () => {
     expect(toMysqlDateTime()).toBeNull();
     expect(toMysqlDateTime('not-a-date')).toBeNull();

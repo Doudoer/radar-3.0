@@ -1,14 +1,25 @@
 # 📍 CHECKPOINT RADAR 3.0 — 2026-10-08
 
-**Fecha y Hora:** 8 de Octubre, 2026 — 13:55 UTC-4  
+**Fecha y Hora:** 8 de Octubre, 2026 — 14:15 UTC-4  
 **Rama:** `main`  
-**Estado:** Probado y compilado con 100% de tests pasando (39/39 en 7 suites)
+**Estado:** Probado y compilado con 100% de tests pasando (40/40 en 7 suites)
 
 ---
 
 ## 🚀 1. Resumen de lo Realizado en esta Sesión
 
-### A. Módulo de Estadísticas y Operaciones Reorganizado (`OperationsView.tsx`)
+### A. Persistencia y Mantenimiento del Millaje Original al Editar Órdenes (`NewOrderModal.tsx`, `orders.ts`, `server.ts`)
+- **Problema Solucionado:** Al abrir una orden existente para editarla, el millaje del vehículo se reseteaba automáticamente a `0` porque la tabla `orders` carecía de columna `mileage` en MySQL y el modal tenía un fallback `|| '0'`.
+- **Migración de Base de Datos:**
+  - Creada columna `mileage VARCHAR(60) NULL AFTER color` en la tabla `orders` de la base de datos MySQL `radar_v3`.
+  - Añadido script de migración [`migrations/008_orders_mileage.sql`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/migrations/008_orders_mileage.sql) y verificación automática idempotente en `ensureDatabaseTables()` (`server.ts`).
+- **Mapeo de Datos:** Actualizado `mapOrder` en [`src/server/orders.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/server/orders.ts) para extraer y retornar `order.vehicle.mileage` de forma fidedigna.
+- **Endpoints de Backend:** Actualizados `POST /api/orders` y `PUT /api/orders/:id` para guardar y actualizar `vehicle.mileage`.
+- **Modal de Edición:** En [`src/components/NewOrderModal.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/NewOrderModal.tsx), el campo `Millaje Reportado` se pre-rellena con el valor original exacto reportado por el operador.
+- **Visualización en Detalle:** En [`src/components/OrderDetailView.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/OrderDetailView.tsx), se muestra el millaje formateado (ej. `125,400 mi`) en la cabecera técnica del vehículo.
+- **Pruebas Automatizadas:** 40 tests unitarios pasando en Vitest cubriendo esquemas y mapeo de millaje.
+
+### B. Módulo de Estadísticas y Operaciones Reorganizado (`OperationsView.tsx`)
 - **Filtro Semanal de Lunes a Domingo:**
   - Motor de cálculo de semanas estrictas de **Lunes (00:00:00) a Domingo (23:59:59)**.
   - Navegador temporal con botones de semana anterior, semana actual y semana siguiente.

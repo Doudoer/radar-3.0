@@ -52,7 +52,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   const [vehicleVIN, setVehicleVIN] = useState('');
   const [vinDecodeStatus, setVinDecodeStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [vinDecodeMessage, setVinDecodeMessage] = useState('');
-  const [vehicleMileage, setVehicleMileage] = useState('0');
+  const [vehicleMileage, setVehicleMileage] = useState('');
   const [vehicleColor, setVehicleColor] = useState('Gris Grafito');
 
   // 3. Part & Yard Dimensions
@@ -212,7 +212,10 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       setVehicleYear(editingOrder.vehicle.year || 2023);
       setVehicleTransmission(editingOrder.vehicle.transmission || '');
       setVehicleVIN(editingOrder.vehicle.vin || '');
-      setVehicleMileage(editingOrder.vehicle.mileage || '0');
+      const reportedMileage = editingOrder.vehicle?.mileage !== undefined && editingOrder.vehicle?.mileage !== null
+        ? String(editingOrder.vehicle.mileage)
+        : '';
+      setVehicleMileage(reportedMileage);
       setVehicleColor(editingOrder.vehicle.color || '');
       setMainPart(normalizePartType(editingOrder.mainPart));
       setProductSpecs(editingOrder.productSpecs || '');
@@ -277,7 +280,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       setVehicleVIN('');
       setVinDecodeStatus('idle');
       setVinDecodeMessage('');
-      setVehicleMileage('0');
+      setVehicleMileage('');
       setMainPart('');
       setProductSpecs('');
       setStockNumber('');
@@ -329,7 +332,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
         setStepError('Por favor selecciona el modelo del vehículo.');
         return;
       }
-      if (Number(vehicleMileage) <= 0) {
+      if (!vehicleMileage.trim() || isNaN(Number(vehicleMileage)) || Number(vehicleMileage) <= 0) {
         setStepError('El millaje reportado debe ser mayor a 0.');
         return;
       }
@@ -339,10 +342,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       }
       if (!stockNumber.trim()) {
         setStepError('Por favor ingresa el stock de la yarda o proveedor.');
-        return;
-      }
-      if (!vehicleMileage.trim()) {
-        setStepError('Por favor ingresa el millaje reportado por el operador.');
         return;
       }
       setCurrentStep(2);
@@ -385,7 +384,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       setStepError('El modelo del vehículo es obligatorio.');
       return;
     }
-    if (Number(vehicleMileage) <= 0) {
+    if (!vehicleMileage.trim() || isNaN(Number(vehicleMileage)) || Number(vehicleMileage) <= 0) {
       setCurrentStep(1);
       setStepError('El millaje reportado debe ser mayor a 0.');
       return;
@@ -398,11 +397,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     if (!stockNumber.trim()) {
       setCurrentStep(1);
       setStepError('El stock de la yarda o proveedor es obligatorio.');
-      return;
-    }
-    if (!vehicleMileage.trim()) {
-      setCurrentStep(1);
-      setStepError('El millaje reportado por el operador es obligatorio.');
       return;
     }
     if (!customerName.trim()) {

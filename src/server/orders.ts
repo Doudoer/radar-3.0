@@ -75,7 +75,7 @@ export const mapOrder = (row: RowDataPacket) => {
       year: row.year || new Date().getFullYear(),
       trim: row.sub_model || '',
       transmission: row.transmission_type || '',
-      mileage: '',
+      mileage: row.mileage !== undefined && row.mileage !== null ? String(row.mileage) : '',
       color: row.color || '',
     },
     financials: {

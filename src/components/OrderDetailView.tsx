@@ -88,7 +88,12 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   });
 
   const vehicleName = `${order.vehicle.make} ${order.vehicle.model}`;
-  const vehicleDetails = `${order.vehicle.year} • ${order.vehicle.trim || order.productSpecs || '2.4L Engine'}`;
+  const vehicleMileageText = order.vehicle.mileage ? `${Number(order.vehicle.mileage).toLocaleString()} mi` : null;
+  const vehicleDetails = [
+    order.vehicle.year,
+    vehicleMileageText,
+    order.vehicle.trim || order.productSpecs || '2.4L Engine'
+  ].filter(Boolean).join(' • ');
   const partType = order.mainPart || 'Engine (Motor 2.4L)';
   const isHomeDelivery = order.deliveryType === 'envio_domicilio' && Boolean(order.customer.shippingAddress?.trim());
   const partPrice = order.financials.partPrice ?? order.financials.baseMSRP ?? 1000.0;
