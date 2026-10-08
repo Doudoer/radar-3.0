@@ -91,7 +91,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
               <p className="font-bold text-slate-900 text-sm">
                 {order.vehicle.year} {order.vehicle.make} {order.vehicle.model}
               </p>
-              <p className="font-mono text-slate-700">VIN: {order.vehicle.vin}</p>
+              <p className="font-mono text-slate-700">VIN: {order.vehicle.vin || 'N/A'}</p>
               <p className="text-slate-600">Placa: {order.vehicle.plate} • Trim: {order.vehicle.trim || 'N/A'}</p>
               <p className="text-slate-600 font-semibold mt-1">
                 Tipo de Entrega: {order.deliveryType === 'envio_domicilio' ? '🚚 Envío a Domicilio' : '🏪 Retiro en Tienda'}

@@ -106,7 +106,7 @@ export const DispatchLabelView: React.FC<DispatchLabelViewProps> = ({ order, onB
             <p className="text-[11px] text-slate-700 font-medium">
               Vehículo: {order.vehicle.year} {order.vehicle.make} {order.vehicle.model}
             </p>
-            <p className="font-mono text-[10px] text-slate-600">VIN: {order.vehicle.vin}</p>
+            <p className="font-mono text-[10px] text-slate-600">VIN: {order.vehicle.vin || 'N/A'}</p>
           </div>
 
           {/* Bottom Status & Core Notice */}

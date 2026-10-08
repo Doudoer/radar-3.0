@@ -588,7 +588,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                               {order.vehicle.year} {order.vehicle.make} {order.vehicle.model}
                             </div>
                             <div className="text-[10px] font-mono text-[#64748b]">
-                              VIN: {order.vehicle.vin?.slice(0, 10)}...
+                              {order.vehicle.vin ? `VIN: ${order.vehicle.vin.slice(0, 10)}...` : 'Sin VIN'}
                             </div>
                           </td>
                           <td className="py-3.5 px-4">

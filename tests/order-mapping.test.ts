@@ -43,8 +43,27 @@ describe('database order mapping', () => {
     expect(order.customer.name).toBe('Ana Torres');
     expect(order.status).toBe('pagado');
     expect(order.deliveryType).toBe('envio_domicilio');
+    expect(order.vehicle.vin).toBe('');
     expect(order.financials.total).toBe(1175);
     expect(order.financials.balanceDue).toBe(875);
+  });
+
+  it('maps real vehicle VIN when provided in database', () => {
+    const orderWithVin = mapOrder({
+      id: 9,
+      order_code: 'ORD-9',
+      created_at: new Date('2026-09-18T12:00:00Z'),
+      status: 'Pagado',
+      product_type: 'Motor',
+      vin_nr: '1N4AL21E88C111111',
+      brand: 'Nissan',
+      model: 'Altima',
+      year: 2008,
+      subtotal: '700.00',
+    } as never);
+
+    expect(orderWithVin.vehicle.vin).toBe('1N4AL21E88C111111');
+    expect(orderWithVin.vehicle.make).toBe('Nissan');
   });
 
   it('returns null for empty or invalid SQL dates', () => {

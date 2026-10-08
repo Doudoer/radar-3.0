@@ -130,7 +130,7 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({ order, onBack }) => {
               <span className="font-bold text-slate-900">
                 {order.vehicle.year} {order.vehicle.make} {order.vehicle.model} {order.vehicle.trim || ''}
               </span>
-              <span className="text-slate-600 font-mono">VIN: {order.vehicle.vin}</span>
+              <span className="text-slate-600 font-mono">VIN: {order.vehicle.vin || 'N/A'}</span>
               <span className="text-slate-600 font-mono">Placas: {order.vehicle.plate || 'N/A'}</span>
             </div>
           </div>

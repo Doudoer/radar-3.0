@@ -479,7 +479,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
                           {order.vehicle.year} {order.vehicle.make} {order.vehicle.model}
                         </span>
                         <span className="font-mono text-[10.5px] text-slate-400 truncate max-w-[170px]">
-                          VIN: {order.vehicle.vin}
+                          {order.vehicle.vin ? `VIN: ${order.vehicle.vin}` : 'Sin VIN'}
                         </span>
                       </div>
                     </td>

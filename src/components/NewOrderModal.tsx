@@ -467,7 +467,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
         initials: initials,
       },
       vehicle: {
-        vin: vehicleVIN.trim() || `1FTEW${Math.random().toString(36).substring(2, 8).toUpperCase()}123`,
+        vin: vehicleVIN.trim().toUpperCase() || '',
         plate: editingOrder?.vehicle.plate || '',
         make: vehicleMake.trim(),
         model: vehicleModel.trim(),

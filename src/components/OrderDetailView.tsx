@@ -967,15 +967,17 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 <div className="p-2 rounded-xl bg-[var(--bg-card-subtle)] border border-cyan-500/15">
                   <span className="text-[9.5px] font-bold text-[var(--text-secondary)] uppercase block">VIN</span>
                   <div className="flex items-center justify-between gap-1 mt-0.5">
-                    <span className="font-bold text-[var(--text-heading)] truncate text-[11px]">{order.vehicle.vin}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(order.vehicle.vin, 'VIN')}
-                      className="text-cyan-400 hover:text-cyan-200 cursor-pointer p-0.5"
-                      title="Copiar VIN"
-                    >
-                      <span className="material-symbols-outlined text-[13px]">content_copy</span>
-                    </button>
+                    <span className="font-bold text-[var(--text-heading)] truncate text-[11px]">{order.vehicle.vin || 'Sin VIN'}</span>
+                    {order.vehicle.vin ? (
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(order.vehicle.vin, 'VIN')}
+                        className="text-cyan-400 hover:text-cyan-200 cursor-pointer p-0.5"
+                        title="Copiar VIN"
+                      >
+                        <span className="material-symbols-outlined text-[13px]">content_copy</span>
+                      </button>
+                    ) : null}
                   </div>
                 </div>
 
