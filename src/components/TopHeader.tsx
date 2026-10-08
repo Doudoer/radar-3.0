@@ -1,5 +1,6 @@
 import React from 'react';
 import { NavScreen } from '../types';
+import { useTheme } from '../hooks/useTheme';
 
 interface TopHeaderProps {
   currentScreen: NavScreen;
@@ -25,6 +26,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onOpenNewOrder,
   userName = 'Usuario Administrador',
 }) => {
+  const { theme, toggleTheme, isDark } = useTheme();
+
   return (
     <header className="sticky top-0 z-30 shrink-0 w-full h-14 lg:h-16 bg-[#060a16]/95 border-b border-cyan-500/25 backdrop-blur-2xl flex justify-between items-center px-3.5 sm:px-4 md:px-5 lg:px-6 transition-all duration-200 relative shadow-[0_4px_25px_rgba(0,0,0,0.6)]">
       {/* Bottom Laser Line */}
@@ -77,6 +80,22 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
 
       {/* Right Side: Actions & Profile */}
       <div className="flex items-center gap-2 sm:gap-3">
+        {/* Theme Toggle Button (Light/Dark Mode) */}
+        <button
+          type="button"
+          onClick={toggleTheme}
+          title={isDark ? 'Cambiar a Modo Claro' : 'Cambiar a Modo Oscuro'}
+          className="p-1.5 lg:p-2 rounded-xl border border-cyan-500/30 bg-[#040814]/90 hover:bg-cyan-500/15 text-cyan-300 hover:text-cyan-100 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-[0_0_10px_rgba(6,182,212,0.15)] active:scale-95 group"
+          aria-label={isDark ? 'Activar modo claro' : 'Activar modo oscuro'}
+        >
+          <span className="material-symbols-outlined text-[19px] transition-transform duration-300 group-hover:rotate-45">
+            {isDark ? 'light_mode' : 'dark_mode'}
+          </span>
+          <span className="hidden xl:inline text-[11px] font-mono font-bold tracking-wider">
+            {isDark ? 'CLARO' : 'OSCURO'}
+          </span>
+        </button>
+
         {/* New Order CTA */}
         {onOpenNewOrder && (
           <button

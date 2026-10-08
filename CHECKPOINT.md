@@ -1,63 +1,54 @@
-# 📍 CHECKPOINT RADAR 3.0 — 2026-10-01
+# 📍 CHECKPOINT RADAR 3.0 — 2026-10-07
 
-**Fecha y Hora:** 1 de Octubre, 2026 — 14:50 UTC-4  
+**Fecha y Hora:** 7 de Octubre, 2026 — 19:48 UTC-4  
 **Rama:** `main`  
-**Último Commit:** `20b12a8` (`feat(orders): add pagination with 10/20/30/50/100 page size selector`)  
-**Estado del Repositorio:** Limpio, sincronizado con `origin/main`  
+**Estado del Repositorio:** Activo, validado y funcional  
 
 ---
 
 ## 🚀 1. Resumen de lo Realizado en esta Sesión
 
-### A. Corrección en la Creación de Órdenes (MySQL DB)
-- **Problema corregido:** Error `"no se pudo guardar la orden en la db"` al crear órdenes.
-- **Causa raíz:** Incompatibilidad con el campo `transmission_type` en MySQL (requería `'AT'`, `'MT'` o `NULL`) y manejo de IDs de cliente simulados (`CUST-`).
-- **Solución implementada:**
-  - Normalización segura de tipo de transmisión (`mapTransmissionType`) en `server.ts` y `src/server/orders.ts`.
-  - Creación y resolución automática de clientes reales en la tabla `customers` sin mock IDs.
-  - Protección de respaldo y restauración automática intacta (`src/server/backup.ts`).
+### A. Formato de Mensaje de Entrega / Despacho SMS & WhatsApp (`QuickSMSModal.tsx`)
+- **Implementación exacta según referencia visual:**
+  - **Estructura del Mensaje (Inglés / Español):**
+    1. `*{Nombre del Cliente}*`
+    2. `*Phone:* {Teléfono}` / `*Teléfono:* {Teléfono}` (con dígitos limpios)
+    3. `{Marca} {Modelo} {Año}` (ej. `NISSAN Altima 2008`)
+    4. `*{TIPO DE PIEZA}* {Cilindrada/Motor}` (ej. `*ENGINE* 2.5` / `*TRANSMISSION*`)
+    5. `{Especificaciones del producto}` (ej. `2.5L, w/o hybrid; (VIN A, 4th digit, QR25DE), Federal emissions`)
+    6. `Address: {Dirección}` / `Dirección: {Dirección}` (únicamente cuando aplica envío a domicilio)
+    7. `Remaining Balance: *${Monto}*` / `Balance Pendiente: *${Monto}*` (formato con `$` dentro de los asteriscos, sin decimales redundantes para enteros ej. `*$700*`)
+    8. `*Note:* {Nota o instrucción de core fee}` / `*Nota:* {Nota o instrucción de core fee}`
+- **Interfaz UI Fidelizada:**
+  - Cabecera: `Formato para Mensaje de Entrega / Delivery` con icono azul `local_shipping`.
+  - Badge de modalidad: `🏬 Retiro en Tienda (Entrega sin dirección)` o `🚚 Envío a Domicilio` con estilo píldora púrpura.
+  - Tarjetas de idioma: `🇺🇸 Format (English)` y `🇪🇸 Formato (Español)` con botones blancos de `[ 📋 Copiar ]` y verdes de `[ 📞 WA ]`.
+  - Sección inferior: Ficha Técnica Consolidada con acceso rápido a Vehículo & Pieza, Datos del Cliente, Estado de Cuenta y botón `Copiar Resumen Completo`.
 
-### B. Paginación en la Lista de Órdenes (`OrdersTableView.tsx`)
-- **Funcionalidad:** Paginación completa con selector de tamaño.
-- **Opciones de selector:** `10`, `20`, `30`, `50`, `100` órdenes por página.
-- **Por defecto:** `10` órdenes.
-- **Comportamiento:** Reseteo a la página 1 al cambiar de vista/pestaña o al buscar. Controles de primera, anterior, números dinámicos con brillo, siguiente y última página.
+### B. Modo Claro (Light Mode) Global de Alto Contraste
+- Motor universal en [src/index.css](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/index.css) con mapeo completo de utilidades Tailwind y tokens CSS:
+  - Fondos `#ffffff`, `#f8fafc`, bordes `#cbd5e1`, textos `#0f172a` y `#334155`.
+  - Badges con fondos pasteles suaves y textos de alto contraste.
+  - Soporte completo en todas las vistas: Login, Dashboard, Órdenes, Detalle de Orden, Reclamos, Inventario, Clientes, Operaciones, Finanzas, Usuarios y Modales.
 
-### C. Diagnóstico de la Bitácora de Reclamos (`ClaimsView.tsx` / `ClaimDetailView.tsx`)
-- **Diagnóstico:** El botón *"Ver Bitácora de Llamadas"* en el detalle individual (`ClaimDetailView`) no abría el modal porque `ClaimsView.tsx` retornaba antes de montar el componente del modal.
-- **Estado pendiente:** Integrar el modal y/o panel de bitácora directamente en `ClaimDetailView.tsx`.
-
-### D. Optimización Integral para Chromebooks / ChromeOS & Google Chrome
-- **Problema corregido:** En Chromebooks (resoluciones 1366x768, 1280x800 o 1080p con escalado al 125%/150%), la barra de ChromeOS y la barra del navegador dejaban un viewport vertical muy reducido (~550px - 650px), provocando que los modales cortaran los botones de acción inferiores, las tablas se comprimieran sin scroll horizontal y el texto de datos clave no fuera seleccionable.
-- **Solución implementada:**
-  1. **Contenedores de Modales Flexibles:** Todos los modales ahora implementan `max-h-[min(94vh, 600px-740px)] flex flex-col overflow-hidden` con cabeceras fijas (`shrink-0`), cuerpos con scroll suave (`flex-1 min-h-0 overflow-y-auto custom-scrollbar`) y barras de botones de acción fijadas (`shrink-0`).
-  2. **Tablas Responsivas con Scroll Horizontal:** Envoltura con `.table-responsive-wrapper.custom-scrollbar` y anchos mínimos (`min-w-[700px]` - `min-w-[960px]`) en `OrdersTableView`, `ClientsView`, `ClaimsView`, `InventoryView`, `WeeklyRelationView`, `OperationsView`, `UsersManagementView` y `DashboardView`.
-  3. **Sidebar y TopHeader Adaptativos:** Ajuste de paddings y espaciado vertical para que los 9 enlaces de navegación y la insignia Sentinel quepan completos en 768px de alto sin scroll forzado.
-  4. **Aceleración GPU & Rendimiento:** Reducción de filtros de desenfoque excesivos (`blur-[140px]/[150px]` a `blur-[60px]`), adición de `transform: translateZ(0)` y `@media (max-height: 800px)` en CSS global.
-  5. **Habilitación de Selección de Texto:** Remoción de `select-none` global en vistas de datos para permitir copiar VINs, códigos de orden, teléfonos y montos sin trabas.
+### C. Vista Compacta de Detalle de Orden (`OrderDetailView.tsx`)
+- Optimización de layout a dos columnas ergonómicas para visualizar toda la orden clave en pantallas estándar y portátiles (650–750px) sin necesidad de scroll forzado.
 
 ---
 
 ## 🧪 2. Estado de Pruebas y Tipos
 
-- **Unit Tests:** `29 / 29 passing` (`npm test`)
+- **Unit Tests:** `34 / 34 passing` (100%) (`npm test`)
 - **TypeScript:** `0 errors` (`npx tsc --noEmit`)
-- **Base de Datos:** MySQL `radar-mysql` activa en `127.0.0.1:3306`
-- **Servidores Locales:** Backend API en `:3001` y Vite Frontend en `:3000` activos
+- **Servidores Locales:**
+  - Vite Frontend: `http://localhost:3000`
+  - Backend API: `http://127.0.0.1:3001`
+  - MySQL Database: `127.0.0.1:3306` (contenedor `radar-mysql`)
 
 ---
 
-## 🛠️ 3. Guía Rápida para Continuar en Visual Studio Code
+## 🛠️ 3. Guía Rápida para Iniciar Servicios Locales
 
-### Iniciar Servicios Locales
-
-1. **Docker / Base de datos:**
-   ```bash
-   docker start radar-mysql
-   ```
-
-2. **Backend API (Puerto 3001):**
-   ```bash
    npm run api
    ```
 

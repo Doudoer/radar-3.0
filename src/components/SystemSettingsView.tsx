@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { apiFetch } from '../services/apiFetch';
+import { useTheme } from '../hooks/useTheme';
 
 interface BackupItem {
   filename: string;
@@ -31,6 +32,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   userRole = 'admin',
   onOpenChangePassword,
 }) => {
+  const { theme, setTheme } = useTheme();
   const isSuperAdmin = userRole === 'admin';
 
   // Backups state
@@ -889,6 +891,73 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                 </button>
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Appearance & Theme Selector */}
+        <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col gap-4 md:col-span-2">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_8px_#22d3ee]" />
+
+          <h3 className="font-bold text-sm text-white flex items-center gap-2 font-mono uppercase tracking-wider">
+            <span className="material-symbols-outlined text-cyan-400 text-[18px]">palette</span>
+            <span>Apariencia y Tema Visual del Sistema</span>
+          </h3>
+          <p className="text-xs text-slate-400">
+            Personaliza el modo de visualización de la plataforma. La selección se guarda automáticamente en tu navegador.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 mt-1">
+            {/* Dark Mode Card */}
+            <button
+              type="button"
+              onClick={() => setTheme('dark')}
+              className={`p-4 rounded-2xl border flex items-center gap-3 transition-all cursor-pointer text-left ${
+                theme === 'dark'
+                  ? 'bg-cyan-950/40 border-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.25)]'
+                  : 'bg-[var(--bg-card-subtle)] border-cyan-500/20 hover:border-cyan-500/40'
+              }`}
+            >
+              <div className="w-10 h-10 rounded-xl bg-slate-900 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shrink-0 shadow-inner">
+                <span className="material-symbols-outlined text-[22px]">dark_mode</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <strong className="text-xs font-bold text-white block font-mono">Modo Cyberpunk Oscuro</strong>
+                  {theme === 'dark' && (
+                    <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_#22d3ee] animate-pulse" />
+                  )}
+                </div>
+                <span className="text-[11px] text-slate-400 block mt-0.5">
+                  Fondo obsidian con rejilla holográfica y acentos cian neón.
+                </span>
+              </div>
+            </button>
+
+            {/* Light Mode Card */}
+            <button
+              type="button"
+              onClick={() => setTheme('light')}
+              className={`p-4 rounded-2xl border flex items-center gap-3 transition-all cursor-pointer text-left ${
+                theme === 'light'
+                  ? 'bg-cyan-500/15 border-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.25)]'
+                  : 'bg-[var(--bg-card-subtle)] border-cyan-500/20 hover:border-cyan-500/40'
+              }`}
+            >
+              <div className="w-10 h-10 rounded-xl bg-white border border-cyan-500/40 flex items-center justify-center text-cyan-600 shrink-0 shadow-sm">
+                <span className="material-symbols-outlined text-[22px]">light_mode</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <strong className="text-xs font-bold text-white block font-mono">Modo Claro Optimizado</strong>
+                  {theme === 'light' && (
+                    <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_#22d3ee] animate-pulse" />
+                  )}
+                </div>
+                <span className="text-[11px] text-slate-400 block mt-0.5">
+                  Fondo claro de alto contraste, tipografía nítida y legibilidad diurna.
+                </span>
+              </div>
+            </button>
           </div>
         </div>
 

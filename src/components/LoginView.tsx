@@ -1,11 +1,13 @@
 import React, { FormEvent, useState } from 'react';
 import { apiFetch } from '../services/apiFetch';
+import { useTheme } from '../hooks/useTheme';
 
 interface LoginViewProps {
   onAuthenticated: (user: { role: string }) => void;
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
+  const { isDark, toggleTheme } = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -34,6 +36,17 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
 
   return (
     <main className="flex min-h-screen min-h-[100dvh] items-center justify-center bg-[#050811] px-4 py-6 sm:py-8 text-[#dfe2ef] relative overflow-y-auto custom-scrollbar cyber-grid-bg">
+      {/* Top right theme toggle */}
+      <button
+        type="button"
+        onClick={toggleTheme}
+        className="fixed top-4 right-4 z-50 p-2 rounded-xl border border-cyan-500/30 bg-[#070c18]/90 hover:bg-cyan-500/20 text-cyan-300 transition-all cursor-pointer flex items-center gap-1.5 shadow-md font-mono text-xs"
+        title={isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+      >
+        <span className="material-symbols-outlined text-[18px]">{isDark ? 'light_mode' : 'dark_mode'}</span>
+        <span className="hidden sm:inline font-bold">{isDark ? 'CLARO' : 'OSCURO'}</span>
+      </button>
+
       {/* Ambient Neon Backlight Orbs - Lightweight */}
       <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-cyan-500/10 rounded-full blur-[80px] pointer-events-none" />
       <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-80 h-80 bg-emerald-500/10 rounded-full blur-[80px] pointer-events-none" />

@@ -31,8 +31,10 @@ import { useAuthSession } from './hooks/useAuthSession';
 import { useRadarData } from './hooks/useRadarData';
 import { useOrderActions } from './hooks/useOrderActions';
 import { useViewLoading } from './hooks/useViewLoading';
+import { useTheme } from './hooks/useTheme';
 
 export default function App() {
+  useTheme(); // Initialize theme on mount
   const [currentScreen, setCurrentScreen] = useState<NavScreen>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { authenticated, checking: authChecking, user: authUser, role: userRole, login, logout } = useAuthSession();
@@ -138,7 +140,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen h-[100dvh] w-full overflow-hidden bg-[#050811] text-[#dfe2ef] antialiased font-sans relative cyber-grid-bg">
+    <div className="flex h-screen h-[100dvh] w-full overflow-hidden bg-[var(--bg-primary)] text-[var(--text-primary)] antialiased font-sans relative cyber-grid-bg">
       <LoadingOverlay visible={dataLoading || viewLoading} />
 
       {/* Ambient Neon Backlight Orbs - Lightweight GPU footprint */}
@@ -159,7 +161,7 @@ export default function App() {
         userRole={userRole}
       />
       {/* Main Content Column */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#070c18]/85 backdrop-blur-2xl z-10">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[var(--bg-surface)] backdrop-blur-2xl z-10">
         {/* Sticky Top Header */}
         <TopHeader
           currentScreen={currentScreen}
