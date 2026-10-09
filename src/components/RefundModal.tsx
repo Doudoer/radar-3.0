@@ -17,22 +17,22 @@ export const RefundModal: React.FC<RefundModalProps> = ({
   onUpdateOrder,
   onSuccessToast,
 }) => {
-  if (!isOpen) return null;
-
-  const partPrice = order.financials.partPrice ?? order.financials.baseMSRP ?? 0;
-  const deliveryFee = order.financials.deliveryFee ?? 0;
-  const coreFee = order.financials.coreFee ?? 0;
-  const downPayment = order.financials.downPayment ?? order.financials.advancePayment ?? 0;
+  const partPrice = order?.financials?.partPrice ?? order?.financials?.baseMSRP ?? 0;
+  const deliveryFee = order?.financials?.deliveryFee ?? 0;
+  const coreFee = order?.financials?.coreFee ?? 0;
+  const downPayment = order?.financials?.downPayment ?? order?.financials?.advancePayment ?? 0;
   const grossSubtotal = partPrice + deliveryFee + coreFee;
 
   const [amountType, setAmountType] = useState<'downpayment' | 'total' | 'custom'>('downpayment');
   const [customAmount, setCustomAmount] = useState<string>(downPayment > 0 ? String(downPayment) : String(grossSubtotal));
   const [paymentMethod, setPaymentMethod] = useState<'Zelle' | 'CashApp' | 'Efectivo' | 'Transferencia' | 'Tarjeta'>('Zelle');
-  const [paymentDetails, setPaymentDetails] = useState<string>(order.customer.email || order.customer.phone || '');
+  const [paymentDetails, setPaymentDetails] = useState<string>(order?.customer?.email || order?.customer?.phone || '');
   const [reason, setReason] = useState<string>('Pieza descontinuada / Sin stock de reemplazo');
   const [customReason, setCustomReason] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
+
+  if (!isOpen) return null;
 
   const calculateEffectiveAmount = (): number => {
     if (amountType === 'downpayment') return downPayment;

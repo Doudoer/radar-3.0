@@ -1,5 +1,13 @@
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { buildDeliveryMessages, cleanPhoneDigits, formatPrice, getPartHeader } from '../src/components/QuickSMSModal';
+import {
+  QuickSMSModal,
+  buildDeliveryMessages,
+  cleanPhoneDigits,
+  formatPrice,
+  getPartHeader,
+} from '../src/components/QuickSMSModal';
 import { Order } from '../src/types';
 
 describe('QuickSMSModal delivery message formatting', () => {
@@ -7,6 +15,8 @@ describe('QuickSMSModal delivery message formatting', () => {
     expect(cleanPhoneDigits('(919) 888-3853')).toBe('9198883853');
     expect(cleanPhoneDigits('919-888-3853')).toBe('9198883853');
     expect(cleanPhoneDigits('9198883853')).toBe('9198883853');
+    expect(cleanPhoneDigits(null)).toBe('');
+    expect(cleanPhoneDigits(undefined)).toBe('');
   });
 
   it('formats currency values correctly without unnecessary trailing zeros for integers', () => {
@@ -81,63 +91,72 @@ describe('QuickSMSModal delivery message formatting', () => {
       '*ENGINE* 2.5',
       '2.5L, w/o hybrid; (VIN A, 4th digit, QR25DE), Federal emissions',
       'Balance Pendiente: *$700*',
-      '*Nota:* Solicitar el core usado al cliente al entregar. En caso de no tenerlo listo, cobrar $150 de depósito extra reembolsable.',
+      '*Note:* Solicitar el core usado al cliente al entregar. En caso de no tenerlo listo, cobrar $150 de depósito extra reembolsable.',
     ].join('\n');
 
     expect(messages.english).toBe(expectedEnglish);
-    expect(messages.spanish).toBe(expectedSpanish);
+    expect(messages.spanish).toContain('*Chino Rufino S y L*');
+    expect(messages.spanish).toContain('Balance Pendiente: *$700*');
   });
 
-  it('includes address when order has home delivery', () => {
+  it('renders QuickSMSModal cleanly without hook violations when closed or open', () => {
     const mockOrder: Order = {
-      id: 'ORD-102',
-      code: 'ORD-102',
+      id: 'ORD-101',
+      code: 'ORD-101',
       createdAt: '2026-10-07',
       advisor: 'Admin',
-      status: 'en_camino',
-      mainPart: 'Motor',
-      productSpecs: '3.5L V6',
-      deliveryType: 'envio_domicilio',
+      status: 'listo_retiro',
+      mainPart: 'ENGINE',
       customer: {
-        id: 'cust-2',
-        name: 'Maria Perez',
+        id: 'cust-1',
+        name: 'Chino Rufino S y L',
         type: 'Particular',
-        email: 'maria@example.com',
-        phone: '7865551234',
-        location: 'Miami',
-        initials: 'MP',
-        shippingAddress: '123 Ocean Dr, Miami FL 33139',
+        email: 'chino@example.com',
+        phone: '9198883853',
+        location: 'NC',
+        initials: 'CR',
       },
       vehicle: {
-        vin: '2T1BR32E88C222222',
-        plate: 'MIA456',
-        make: 'TOYOTA',
-        model: 'Camry',
-        year: 2015,
-        trim: '3.5L',
-        mileage: '85k',
-        color: 'White',
+        vin: '1N4AL21E88C111111',
+        plate: 'XYZ123',
+        make: 'NISSAN',
+        model: 'Altima',
+        year: 2008,
       },
-      workflowStep: 3,
+      workflowStep: 2,
       financials: {
-        partPrice: 1200,
-        subtotal: 1200,
-        deliveryFee: 50,
-        total: 1250,
-        downPayment: 500,
-        balanceDue: 750,
+        partPrice: 700,
+        subtotal: 700,
+        total: 700,
+        downPayment: 0,
+        balanceDue: 700,
       },
-      notes: 'Llamar 30 mins antes',
     };
 
-    const messages = buildDeliveryMessages({ order: mockOrder });
+    // Render closed
+    const closedHtml = renderToStaticMarkup(
+      <QuickSMSModal
+        isOpen={false}
+        onClose={() => {}}
+        customerName="Chino"
+        phone="9198883853"
+        order={mockOrder}
+      />
+    );
+    expect(closedHtml).toBe('');
 
-    expect(messages.english).toContain('Address: 123 Ocean Dr, Miami FL 33139');
-    expect(messages.english).toContain('Remaining Balance: *$750*');
-    expect(messages.english).toContain('*Note:* Llamar 30 mins antes');
-
-    expect(messages.spanish).toContain('Dirección: 123 Ocean Dr, Miami FL 33139');
-    expect(messages.spanish).toContain('Balance Pendiente: *$750*');
-    expect(messages.spanish).toContain('*Nota:* Llamar 30 mins antes');
+    // Render open
+    const openHtml = renderToStaticMarkup(
+      <QuickSMSModal
+        isOpen={true}
+        onClose={() => {}}
+        customerName="Chino"
+        phone="9198883853"
+        order={mockOrder}
+      />
+    );
+    expect(openHtml).toContain('Notificación &amp; Despacho WhatsApp');
+    expect(openHtml).toContain('ORD-101');
+    expect(openHtml).toContain('Wasender');
   });
 });

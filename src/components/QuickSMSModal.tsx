@@ -17,7 +17,8 @@ export const formatPrice = (amount: number): string => {
   return `$${amount.toFixed(2)}`;
 };
 
-export const cleanPhoneDigits = (phoneStr: string): string => {
+export const cleanPhoneDigits = (phoneStr?: string | null): string => {
+  if (!phoneStr || typeof phoneStr !== 'string') return '';
   const digits = phoneStr.replace(/\D/g, '');
   return digits.length >= 7 ? digits : phoneStr.trim();
 };
@@ -145,6 +146,9 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
   order,
 }) => {
   const [copied, setCopied] = useState<string | null>(null);
+  const [sendingWasender, setSendingWasender] = useState<string | null>(null);
+  const [wasenderSuccess, setWasenderSuccess] = useState<string | null>(null);
+  const [wasenderError, setWasenderError] = useState<string | null>(null);
 
   const orderCode = order?.code || 'ORDEN';
   const vehicle = order?.vehicle;
@@ -157,12 +161,12 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
   const balanceDue = financials?.balanceDue ?? Math.max(0, total - downPayment);
   
   const isHomeDelivery = order?.deliveryType === 'envio_domicilio';
-  const deliveryAddress = order?.customer.shippingAddress?.trim();
+  const deliveryAddress = order?.customer?.shippingAddress?.trim();
   const deliveryModeBadge = isHomeDelivery
     ? '🚚 Envío a Domicilio'
     : '🏬 Retiro en Tienda (Entrega sin dirección)';
 
-  const activePhone = cleanPhoneDigits(order?.customer.phone || phone || '');
+  const activePhone = cleanPhoneDigits(order?.customer?.phone || phone || '');
 
   const { english: englishMessage, spanish: spanishMessage } = useMemo(() => {
     return buildDeliveryMessages({
@@ -173,10 +177,6 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
   }, [customerName, order, phone]);
 
   if (!isOpen) return null;
-
-  const [sendingWasender, setSendingWasender] = useState<string | null>(null);
-  const [wasenderSuccess, setWasenderSuccess] = useState<string | null>(null);
-  const [wasenderError, setWasenderError] = useState<string | null>(null);
 
   const copyText = async (label: string, text: string) => {
     await navigator.clipboard.writeText(text);
@@ -460,8 +460,8 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
                   <span className="text-xs">Datos del Cliente</span>
                 </div>
                 <div className="space-y-1 text-[11px]">
-                  <p><strong className="text-[var(--text-secondary)]">Nombre:</strong> <span className="text-[var(--text-primary)] font-semibold">{order?.customer.name || customerName}</span></p>
-                  <p><strong className="text-[var(--text-secondary)]">Teléfono:</strong> <span className="font-mono text-emerald-400 font-bold">{order?.customer.phone || phone}</span></p>
+                  <p><strong className="text-[var(--text-secondary)]">Nombre:</strong> <span className="text-[var(--text-primary)] font-semibold">{order?.customer?.name || customerName}</span></p>
+                  <p><strong className="text-[var(--text-secondary)]">Teléfono:</strong> <span className="font-mono text-emerald-400 font-bold">{order?.customer?.phone || phone}</span></p>
                   {deliveryAddress && <p><strong className="text-[var(--text-secondary)]">Dirección:</strong> <span className="text-[var(--text-primary)]">{deliveryAddress}</span></p>}
                 </div>
               </div>

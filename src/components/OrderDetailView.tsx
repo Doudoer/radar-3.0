@@ -637,7 +637,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
             {/* Quick SMS/WhatsApp Button */}
             <button
               type="button"
-              onClick={() => onOpenSMS(order.customer.name, order.customer.phone, order)}
+              onClick={() => onOpenSMS(order.customer?.name || '', order.customer?.phone || '', order)}
               className="cyber-btn-primary px-2.5 py-1 text-[11px] font-black font-mono shadow-sm flex items-center gap-1"
               title="Enviar WhatsApp o SMS al cliente"
             >
@@ -1131,7 +1131,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
             <div className="pt-2 border-t border-cyan-500/15">
               <button
                 type="button"
-                onClick={() => onOpenSMS(order.customer.name, order.customer.phone, order)}
+                onClick={() => onOpenSMS(order.customer?.name || '', order.customer?.phone || '', order)}
                 className="cyber-btn-primary w-full py-2 px-3 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <span className="material-symbols-outlined text-[16px]">chat</span>
