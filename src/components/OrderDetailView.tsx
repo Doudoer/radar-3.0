@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Order, OrderStatus, Claim, ClaimCall, ClaimStatus, AuctionLink, AuctionHouse } from '../types';
 import { SecurityOtpModal } from './SecurityOtpModal';
+import { DeliveryDateOtpModal } from './DeliveryDateOtpModal';
 import { InvoiceView } from './InvoiceView';
 import { DispatchLabelView } from './DispatchLabelView';
 import { RefundRequestView } from './RefundRequestView';
@@ -13,6 +14,8 @@ interface OrderDetailViewProps {
   onOpenSMS: (customerName: string, phone: string, order?: Order) => void;
   onUpdateOrder?: (updatedOrder: Order) => void;
   onCreateClaim?: (orderId: string, reason: string) => Promise<void>;
+  currentUser?: { id?: number; name?: string; email?: string; role?: string } | null;
+  userRole?: 'admin' | 'operador';
 }
 
 export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
@@ -21,6 +24,8 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   onOpenSMS,
   onUpdateOrder,
   onCreateClaim,
+  currentUser,
+  userRole,
 }) => {
   const [activeTab, setActiveTab] = useState<'resumen' | 'workflow' | 'historial'>('resumen');
   const [subView, setSubView] = useState<'detail' | 'refund' | 'invoice' | 'dispatch'>('detail');
@@ -75,6 +80,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
   // Modals state
   const [claimModal, setClaimModal] = useState({ isOpen: false, reason: '', isSaving: false, error: '' });
+  const [isDeliveryDateModalOpen, setIsDeliveryDateModalOpen] = useState<boolean>(false);
   const [securityModal, setSecurityModal] = useState<{
     isOpen: boolean;
     targetStatus: OrderStatus;
@@ -86,6 +92,16 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     actionTitle: '',
     actionDescription: '',
   });
+
+  const isSuperAdmin = userRole === 'admin' || currentUser?.role?.toLowerCase() === 'admin' || (typeof window !== 'undefined' && sessionStorage.getItem('radar_authenticated') === 'true');
+
+  const handleDeliveryDateSuccess = (newDeliveredAt: string) => {
+    const updated = { ...order, deliveredAt: newDeliveredAt };
+    if (onUpdateOrder) {
+      onUpdateOrder(updated);
+    }
+    handleToast('✅ Fecha de entrega física actualizada con 2FA');
+  };
 
   const vehicleName = `${order.vehicle.make} ${order.vehicle.model}`;
   const vehicleMileageText = order.vehicle.mileage ? `${Number(order.vehicle.mileage).toLocaleString()} mi` : null;
@@ -657,6 +673,19 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               <span className="hidden sm:inline">Reembolso</span>
             </button>
 
+            {/* Quick Delivery Date 2FA Modification for Super Admin on Delivered Orders */}
+            {order.status === 'entregado' && isSuperAdmin && (
+              <button
+                type="button"
+                onClick={() => setIsDeliveryDateModalOpen(true)}
+                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(245,158,11,0.25)] active:scale-95"
+                title="Modificar fecha de entrega con autorización 2FA WhatsApp (Super Admin)"
+              >
+                <span className="material-symbols-outlined text-[15px] text-amber-400">edit_calendar</span>
+                <span>Modificar Fecha (2FA)</span>
+              </button>
+            )}
+
             {/* Segmented View Tabs */}
             <div className="flex items-center bg-[var(--bg-card-subtle)] border border-cyan-500/30 p-0.5 rounded-lg shadow-inner ml-1">
               <button
@@ -986,12 +1015,27 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
                 {/* TIPO ENTREGA */}
                 <div className="p-2 rounded-xl bg-[var(--bg-card-subtle)] border border-cyan-500/15">
-                  <span className="text-[9.5px] font-bold text-[var(--text-secondary)] uppercase block">ENTREGA</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9.5px] font-bold text-[var(--text-secondary)] uppercase block">ENTREGA</span>
+                    {isSuperAdmin && order.status === 'entregado' && (
+                      <button
+                        type="button"
+                        onClick={() => setIsDeliveryDateModalOpen(true)}
+                        className="text-[9.5px] font-mono text-amber-400 hover:text-amber-300 underline font-bold cursor-pointer"
+                        title="Modificar fecha de entrega con 2FA WhatsApp"
+                      >
+                        Editar (2FA)
+                      </button>
+                    )}
+                  </div>
                   <span className="inline-flex items-center gap-1 font-bold text-[var(--text-heading)] text-[11px] mt-0.5">
                     <span className="material-symbols-outlined text-[13px] text-cyan-400">
                       {isHomeDelivery ? 'local_shipping' : 'storefront'}
                     </span>
-                    <span>{isHomeDelivery ? 'Envío Domicilio' : 'Retiro Tienda'}</span>
+                    <span>
+                      {isHomeDelivery ? 'Envío Domicilio' : 'Retiro Tienda'}
+                      {order.deliveredAt && ` (${new Date(order.deliveredAt).toLocaleDateString('es-ES')})`}
+                    </span>
                   </span>
                 </div>
 
@@ -1251,7 +1295,20 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                   <span className="w-2 h-2 rounded-full bg-cyan-400" />
                   <span className="text-[var(--text-primary)]">Entrega física confirmada e inicio de garantía</span>
                 </div>
-                <span className="text-[var(--text-secondary)]">{new Date(order.deliveredAt).toLocaleDateString('es-ES')}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[var(--text-secondary)]">{new Date(order.deliveredAt).toLocaleDateString('es-ES')}</span>
+                  {isSuperAdmin && order.status === 'entregado' && (
+                    <button
+                      type="button"
+                      onClick={() => setIsDeliveryDateModalOpen(true)}
+                      className="px-2 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[10px] font-mono font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                      title="Modificar fecha de entrega con 2FA WhatsApp"
+                    >
+                      <span className="material-symbols-outlined text-[12px]">edit</span>
+                      <span>Modificar (2FA)</span>
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -1460,6 +1517,14 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
         onSuccess={handleSecuritySuccess}
         actionTitle={securityModal.actionTitle}
         actionDescription={securityModal.actionDescription}
+      />
+
+      {/* Modal: Modificación 2FA de Fecha de Entrega */}
+      <DeliveryDateOtpModal
+        isOpen={isDeliveryDateModalOpen}
+        onClose={() => setIsDeliveryDateModalOpen(false)}
+        order={order}
+        onSuccess={handleDeliveryDateSuccess}
       />
     </div>
   );

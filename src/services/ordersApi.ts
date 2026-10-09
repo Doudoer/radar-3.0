@@ -12,4 +12,14 @@ export const ordersApi = {
   list: () => request<Order[]>('/orders'),
   create: (order: Order) => request<Order>('/orders', { method: 'POST', body: JSON.stringify(order) }),
   update: (order: Order) => request<Order>(`/orders/${order.id}`, { method: 'PUT', body: JSON.stringify(order) }),
+  requestDeliveryDateOtp: (orderId: string | number) =>
+    request<{ ok: boolean; dispatched: boolean; message: string; targetPhoneMasked?: string; warning?: string }>(
+      `/orders/${orderId}/delivery-date/request-otp`,
+      { method: 'POST' }
+    ),
+  updateDeliveryDate: (orderId: string | number, payload: { deliveredAt: string; otpCode: string; reason?: string }) =>
+    request<{ ok: boolean; deliveredAt: string; message: string }>(
+      `/orders/${orderId}/delivery-date`,
+      { method: 'PUT', body: JSON.stringify(payload) }
+    ),
 };

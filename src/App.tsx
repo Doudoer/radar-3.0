@@ -306,6 +306,8 @@ export default function App() {
               }
               onUpdateOrder={handleUpdateOrder}
               onCreateClaim={createOrderClaim}
+              currentUser={authUser}
+              userRole={userRole}
             />
           )}
         </main>

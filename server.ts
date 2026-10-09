@@ -35,6 +35,7 @@ import {
   externalContactUpdateSchema,
   notificationTestDispatchSchema,
   verifyOtpSchema,
+  updateDeliveryDateSchema,
 } from './src/server/schemas';
 import { readBody, sendJson, serveFrontend } from './src/server/http';
 import { getOrders, mapOrder, normalizeTransmissionType, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
@@ -89,6 +90,16 @@ interface Financial2FAState {
 }
 let activeFinancial2FA: Financial2FAState | null = null;
 const twoFactorFailures = new Map<string, number>();
+
+// In-memory 2FA OTP state for Delivery Date modifications (5 minute expiration)
+interface DeliveryDate2FAState {
+  code: string;
+  expiresAt: number;
+  orderId: number;
+  requestedByUserId: number;
+  targetPhone: string;
+}
+const activeDeliveryDateOtps = new Map<string, DeliveryDate2FAState>();
 
 const MIME_EXTENSION_MAP: Record<string, string[]> = {
   'image/jpeg': ['.jpg', '.jpeg'],
@@ -930,6 +941,160 @@ const server = createServer(async (request, response) => {
       } finally {
         connection.release();
       }
+    }
+
+    // ==========================================
+    // DELIVERY DATE 2FA FOR DELIVERED ORDERS
+    // ==========================================
+    const deliveryDateOtpMatch = pathname.match(/^\/api\/orders\/(\d+)\/delivery-date\/request-otp$/);
+    if (request.method === 'POST' && deliveryDateOtpMatch) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const targetOrderId = Number(deliveryDateOtpMatch[1]);
+      const [orderRows] = await pool.query<RowDataPacket[]>(
+        'SELECT id, order_code, status, delivered_at FROM orders WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        [targetOrderId]
+      );
+      if (!orderRows[0]) {
+        return sendJson(response, 404, { ok: false, message: 'Orden no encontrada' });
+      }
+      const orderRow = orderRows[0];
+      const isDelivered = orderRow.status === 'Entregado' || orderRow.status === 'entregado';
+      if (!isDelivered) {
+        return sendJson(response, 400, {
+          ok: false,
+          message: 'La modificación de fecha de entrega solo está permitida para órdenes con estatus Entregado',
+        });
+      }
+
+      const otpCode = crypto.randomInt(100000, 1000000).toString();
+      const now = Date.now();
+      const [adminRows] = await pool.query<RowDataPacket[]>(
+        "SELECT id, name, phone FROM users WHERE role = 'admin' AND active = 1 AND deleted_at IS NULL ORDER BY id ASC LIMIT 1"
+      );
+      const adminUser = adminRows[0];
+      const targetPhone = adminUser?.phone ? formatWasenderPhone(adminUser.phone) : (wasender.designatedTestPhone || '+584127307933');
+
+      activeDeliveryDateOtps.set(String(targetOrderId), {
+        code: otpCode,
+        expiresAt: now + 5 * 60 * 1000, // 5 minutes
+        orderId: targetOrderId,
+        requestedByUserId: Number(authenticatedClaims.sub),
+        targetPhone,
+      });
+
+      const textMessage = `🛡️ *RADAR V3 • Autorización de Fecha de Entrega*\n\nSe ha solicitado modificar la fecha de entrega física de la Orden *#${orderRow.order_code || targetOrderId}* (Estatus: Entregado).\n\nTu código PIN de verificación es:\n👉 *${otpCode}*\n\n⏰ *Válido por:* 5 minutos\n_(Transmitido vía WasenderAPI)_`;
+
+      let dispatched = false;
+      let warning: string | undefined;
+      if (wasender.configured) {
+        try {
+          await wasender.sendText({ to: targetPhone, text: textMessage });
+          dispatched = true;
+        } catch (err) {
+          warning = err instanceof Error ? err.message : 'Error al despachar mensaje WhatsApp';
+          console.error('[Delivery Date OTP] Error enviando WhatsApp:', err);
+        }
+      }
+
+      console.log(`[Delivery Date OTP] PIN transmitido al Super Admin (${targetPhone}) para Orden #${targetOrderId}: ${otpCode}`);
+
+      void recordAuditLog(pool, {
+        userId: Number(authenticatedClaims.sub),
+        username: authenticatedClaims.email,
+        action: '2FA_REQUESTED',
+        resourceType: 'order',
+        resourceId: targetOrderId,
+        details: { purpose: 'ORDER_DELIVERY_DATE', orderId: targetOrderId, orderCode: orderRow.order_code },
+        ipAddress: request.socket.remoteAddress || 'unknown',
+        userAgent: request.headers['user-agent'] || null,
+      });
+
+      return sendJson(response, 200, {
+        ok: true,
+        dispatched,
+        message: 'Código de verificación transmitido por WhatsApp al Super Admin',
+        targetPhoneMasked: targetPhone.replace(/(\+\d{2})(\d{3})(\d{3})(\d{4})/, '$1 $2-***$4'),
+        warning,
+      });
+    }
+
+    const deliveryDateUpdateMatch = pathname.match(/^\/api\/orders\/(\d+)\/delivery-date$/);
+    if (request.method === 'PUT' && deliveryDateUpdateMatch) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const targetOrderId = Number(deliveryDateUpdateMatch[1]);
+      const data = updateDeliveryDateSchema.parse(await readBody(request));
+
+      const [orderRows] = await pool.query<RowDataPacket[]>(
+        'SELECT id, order_code, status, delivered_at FROM orders WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        [targetOrderId]
+      );
+      if (!orderRows[0]) {
+        return sendJson(response, 404, { ok: false, message: 'Orden no encontrada' });
+      }
+      const orderRow = orderRows[0];
+      const isDelivered = orderRow.status === 'Entregado' || orderRow.status === 'entregado';
+      if (!isDelivered) {
+        return sendJson(response, 400, {
+          ok: false,
+          message: 'La modificación de fecha de entrega solo está permitida para órdenes con estatus Entregado',
+        });
+      }
+
+      const activeOtp = activeDeliveryDateOtps.get(String(targetOrderId));
+      const now = Date.now();
+      const cleanCode = data.otpCode.trim();
+
+      const isValidOtp = activeOtp && activeOtp.code === cleanCode && now < activeOtp.expiresAt;
+      if (!isValidOtp) {
+        void recordAuditLog(pool, {
+          userId: Number(authenticatedClaims.sub),
+          username: authenticatedClaims.email,
+          action: '2FA_FAILED',
+          resourceType: 'order',
+          resourceId: targetOrderId,
+          details: { purpose: 'ORDER_DELIVERY_DATE', attemptedCode: cleanCode },
+          ipAddress: request.socket.remoteAddress || 'unknown',
+          userAgent: request.headers['user-agent'] || null,
+        });
+        return sendJson(response, 400, {
+          ok: false,
+          message: 'Código OTP inválido o expirado. Solicita un nuevo código por WhatsApp.',
+        });
+      }
+
+      // Consume OTP
+      activeDeliveryDateOtps.delete(String(targetOrderId));
+
+      const previousDeliveredAt = orderRow.delivered_at;
+      const newDeliveredMysql = toMysqlDateTime(data.deliveredAt);
+
+      await pool.execute(
+        'UPDATE orders SET delivered_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL',
+        [newDeliveredMysql, targetOrderId]
+      );
+
+      void recordAuditLog(pool, {
+        userId: Number(authenticatedClaims.sub),
+        username: authenticatedClaims.email,
+        action: 'ORDER_DELIVERY_DATE_UPDATED',
+        resourceType: 'order',
+        resourceId: targetOrderId,
+        details: {
+          orderId: targetOrderId,
+          orderCode: orderRow.order_code,
+          previousDeliveredAt: previousDeliveredAt ? new Date(previousDeliveredAt).toISOString() : null,
+          newDeliveredAt: data.deliveredAt,
+          reason: data.reason || 'Modificación de fecha autorizada por Super Admin',
+        },
+        ipAddress: request.socket.remoteAddress || 'unknown',
+        userAgent: request.headers['user-agent'] || null,
+      });
+
+      return sendJson(response, 200, {
+        ok: true,
+        deliveredAt: data.deliveredAt,
+        message: 'Fecha de entrega física modificada y validada con éxito',
+      });
     }
 
     const orderId = pathname.match(/^\/api\/orders\/(\d+)$/)?.[1];

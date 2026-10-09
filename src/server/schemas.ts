@@ -275,4 +275,11 @@ export const verifyOtpSchema = z.object({
   code: z.string().trim().min(6, 'El código debe tener 6 dígitos').max(6, 'El código debe tener 6 dígitos'),
 });
 
+export const updateDeliveryDateSchema = z.object({
+  deliveredAt: z.string().min(1, 'La fecha de entrega es obligatoria'),
+  otpCode: z.string().trim().min(6, 'El código OTP debe tener 6 dígitos').max(6, 'El código OTP debe tener 6 dígitos'),
+  reason: z.string().max(255).optional(),
+});
+
+
 

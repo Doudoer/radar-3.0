@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Order, OrderStatus, PrefillOrderData, Customer } from '../types';
 import { MAKE_MODEL_MAP } from '../data/vehicleData';
+import { DeliveryDateOtpModal } from './DeliveryDateOtpModal';
 
 interface NewOrderModalProps {
   isOpen: boolean;
@@ -26,6 +27,9 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   currentUserName,
 }) => {
   const defaultAdvisor = currentUserName || currentUser?.name || 'Operador';
+  const isSuperAdmin = currentUser?.role?.toLowerCase() === 'admin' || (typeof window !== 'undefined' && sessionStorage.getItem('radar_authenticated') === 'true' && currentUser?.role?.toLowerCase() === 'admin');
+  const [isDeliveryDateOtpModalOpen, setIsDeliveryDateOtpModalOpen] = useState<boolean>(false);
+  const [deliveredAtDate, setDeliveredAtDate] = useState<string | undefined>(editingOrder?.deliveredAt);
   // Stepper State (1: Vehículo & Pieza, 2: Datos del Cliente, 3: Finanzas & Envío)
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [stepError, setStepError] = useState<string | null>(null);
@@ -228,6 +232,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       setDeliveryType(editingOrder.deliveryType || 'retiro_tienda');
       setWarrantyDays(editingOrder.warrantyDays || 60);
       setStatus(editingOrder.status);
+      setDeliveredAtDate(editingOrder.deliveredAt);
       setAdvisor(editingOrder.advisor || defaultAdvisor);
       setStepError(null);
     } else if (initialPrefillData && isOpen) {
@@ -1416,10 +1421,12 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
               {/* Estatus Inicial y Operador Asignado */}
               <div className="bg-[#050914] p-4 sm:p-4.5 rounded-2xl border border-cyan-500/20 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <label className="block mb-1 text-slate-400 text-xs font-semibold">Estatus Inicial de Apertura</label>
+                  <label className="block mb-1 text-slate-400 text-xs font-semibold">
+                    {editingOrder ? 'Estatus de la Orden' : 'Estatus Inicial de Apertura'}
+                  </label>
                   <div className="rounded-xl border border-cyan-500/40 bg-cyan-950/40 px-3.5 py-2 text-xs font-bold text-cyan-300 font-mono inline-flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-                    <span>Cotización</span>
+                    <span className="capitalize">{status}</span>
                   </div>
                 </div>
 
@@ -1433,6 +1440,41 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Fecha de Entrega Física (Solo Órdenes Entregadas) */}
+              {editingOrder && (editingOrder.status === 'entregado' || status === 'entregado') && (
+                <div className="bg-[#050914] p-4 rounded-2xl border border-amber-500/30 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-1.5 text-amber-400 font-mono text-[11px] font-bold uppercase tracking-wider mb-1">
+                      <span className="material-symbols-outlined text-[16px]">local_shipping</span>
+                      <span>Fecha de Entrega Física Registrada</span>
+                    </div>
+                    <div className="text-xs font-mono text-slate-200">
+                      {deliveredAtDate || editingOrder.deliveredAt
+                        ? new Date(deliveredAtDate || editingOrder.deliveredAt!).toLocaleString('es-ES')
+                        : 'No asignada'}
+                    </div>
+                  </div>
+
+                  <div>
+                    {isSuperAdmin ? (
+                      <button
+                        type="button"
+                        onClick={() => setIsDeliveryDateOtpModalOpen(true)}
+                        className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-[0_0_12px_rgba(245,158,11,0.2)] active:scale-95"
+                      >
+                        <span className="material-symbols-outlined text-[15px]">verified</span>
+                        <span>Modificar con 2FA WhatsApp</span>
+                      </button>
+                    ) : (
+                      <span className="text-[11px] font-mono text-slate-400 bg-slate-800/40 px-2.5 py-1 rounded-lg border border-slate-700/40 flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[13px]">lock</span>
+                        <span>Modificación restringida a Super Admin</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Resumen Final de la Orden */}
               <div className="bg-[#070e1c] border border-cyan-500/30 rounded-2xl p-4 flex items-center justify-between text-xs shadow-inner">
@@ -1504,6 +1546,20 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           </div>
         </form>
       </div>
+
+      {editingOrder && (
+        <DeliveryDateOtpModal
+          isOpen={isDeliveryDateOtpModalOpen}
+          onClose={() => setIsDeliveryDateOtpModalOpen(false)}
+          order={editingOrder}
+          onSuccess={(newDeliveredAt) => {
+            setDeliveredAtDate(newDeliveredAt);
+            if (editingOrder) {
+              editingOrder.deliveredAt = newDeliveredAt;
+            }
+          }}
+        />
+      )}
     </div>
   );
 };
