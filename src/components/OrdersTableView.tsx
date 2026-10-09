@@ -9,6 +9,9 @@ interface OrdersTableViewProps {
   onExport: () => void;
   onStatusRequest: () => void;
   onUpdateStatus?: (orderId: string, newStatus: OrderStatus) => void;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
+  lastSyncedAt?: Date | null;
 }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 30, 50, 100] as const;
@@ -21,6 +24,9 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
   onExport,
   onStatusRequest,
   onUpdateStatus,
+  onRefresh,
+  isRefreshing = false,
+  lastSyncedAt,
 }) => {
   const [segmentView, setSegmentView] = useState<OrderSegmentView>('active');
   const [isArchivedView, setIsArchivedView] = useState(false);
@@ -421,12 +427,19 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
             <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_#22d3ee] animate-pulse" />
             <span>MATRIZ DE SEGUIMIENTO OPERATIVO</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)]">
-              Órdenes & Taller
+              Lista de Órdenes
             </h2>
             <span className="inline-flex items-center justify-center bg-emerald-500/15 border border-emerald-400/40 rounded-full px-3 py-0.5 font-mono text-emerald-300 text-xs font-black shadow-[0_0_10px_rgba(16,185,129,0.25)]">
               {counts.active} Activas
+            </span>
+            <span
+              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-cyan-950/50 border border-cyan-500/30 text-[10px] font-mono text-cyan-300 font-semibold shadow-sm"
+              title="Sincronización automática de órdenes activa cada 5 minutos"
+            >
+              <span className={`w-1.5 h-1.5 rounded-full bg-cyan-400 ${isRefreshing ? 'animate-ping' : 'animate-pulse'}`} />
+              <span>{isRefreshing ? 'Sincronizando...' : 'Auto-sync 5 min'}</span>
             </span>
           </div>
           <p className="text-xs text-slate-400 font-mono mt-1">
@@ -435,7 +448,22 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              title="Sincronizar y actualizar lista de órdenes ahora"
+              className="px-3 py-2 rounded-2xl bg-[#060e1d]/90 border border-cyan-500/30 text-xs font-mono font-bold text-slate-200 hover:border-cyan-400 hover:bg-[#09152b] transition-all flex items-center gap-1.5 cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.15)] disabled:opacity-50 active:scale-95"
+            >
+              <span className={`material-symbols-outlined text-[16px] text-cyan-400 ${isRefreshing ? 'animate-spin' : ''}`}>
+                refresh
+              </span>
+              <span className="hidden sm:inline">Actualizar</span>
+            </button>
+          )}
+
           <button
             onClick={onExport}
             className="px-3.5 py-2 rounded-2xl bg-[#060e1d]/90 border border-cyan-500/30 text-xs font-mono font-bold text-slate-200 hover:border-cyan-400 hover:bg-[#09152b] transition-all flex items-center gap-1.5 cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.15)]"

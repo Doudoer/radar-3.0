@@ -121,6 +121,8 @@ describe('OrdersTableView Search & Filter UI', () => {
       />
     );
 
+    expect(html).toContain('Lista de Órdenes');
+    expect(html).toContain('Auto-sync 5 min');
     expect(html).toContain('Ver Archivadas');
     expect(html).toContain('Buscar por nombre, teléfono, marca, modelo, año o tipo de pieza...');
     expect(html).toContain('Filtros');

@@ -47,11 +47,14 @@ export default function App() {
     activities,
     customers,
     loading: dataLoading,
+    isRefreshing,
+    lastSyncedAt,
     databaseMessage,
     setDatabaseMessage,
     replaceOrder,
     prependOrder,
     refreshCustomers,
+    fetchAllData,
   } = useRadarData(authenticated && !authChecking);
   const { createOrder, updateOrder, updateOrderStatus, createOrderClaim } = useOrderActions({
     orders,
@@ -217,6 +220,9 @@ export default function App() {
               onExport={() => setIsExportModalOpen(true)}
               onStatusRequest={() => setIsStatusRequestOpen(true)}
               onUpdateStatus={updateOrderStatus}
+              onRefresh={() => fetchAllData({ silent: false })}
+              isRefreshing={isRefreshing}
+              lastSyncedAt={lastSyncedAt}
             />
           )}
 

@@ -52,7 +52,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
 
   const quickNavs: { id: NavScreen; label: string; icon: string }[] = [
     { id: 'dashboard', label: 'Panorama General (Dashboard)', icon: 'dashboard' },
-    { id: 'taller', label: 'Mesa Central de Gestión de Órdenes', icon: 'build' },
+    { id: 'taller', label: 'Lista de Órdenes', icon: 'inventory_2' },
     { id: 'crm', label: 'CRM Ventas & Clientes VIP', icon: 'person_search' },
     ...(isSuperAdmin
       ? [{ id: 'finanzas' as NavScreen, label: 'Finanzas & Relación Semanal', icon: 'payments' }]
