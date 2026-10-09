@@ -466,11 +466,11 @@ export async function resolveRecipientsForEvent(
     }
     if (contactIds.length > 0) {
       const [contacts] = await pool.query<RowDataPacket[]>(
-        'SELECT id, name, phone, department FROM whatsapp_external_contacts WHERE id IN (?) AND is_active = 1',
+        'SELECT id, name, phone, label FROM whatsapp_external_contacts WHERE id IN (?) AND is_active = 1',
         [contactIds]
       );
       for (const c of contacts) {
-        if (c.phone) addRecipient(c.phone, c.name, c.department || 'Contacto Externo', 'external_contact');
+        if (c.phone) addRecipient(c.phone, c.name, c.label || 'Contacto Externo', 'external_contact');
       }
     }
 
