@@ -1,6 +1,46 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { existsSync, readFileSync } from 'node:fs';
 import { createPool } from 'mysql2/promise';
+
+// Native or fallback .env loader for production environments
+try {
+  if (typeof (process as any).loadEnvFile === 'function') {
+    (process as any).loadEnvFile();
+  }
+} catch {
+  // If native loader fails (e.g. older node or cwd differences), load manually
+  try {
+    const candidatePaths = [
+      path.resolve(process.cwd(), '.env'),
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.env'),
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env'),
+    ];
+    for (const envPath of candidatePaths) {
+      if (existsSync(envPath)) {
+        const content = readFileSync(envPath, 'utf-8');
+        for (const line of content.split('\n')) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith('#')) continue;
+          const eqIdx = trimmed.indexOf('=');
+          if (eqIdx > 0) {
+            const k = trimmed.slice(0, eqIdx).trim();
+            let v = trimmed.slice(eqIdx + 1).trim();
+            if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+              v = v.slice(1, -1);
+            }
+            if (!process.env[k]) {
+              process.env[k] = v;
+            }
+          }
+        }
+        break;
+      }
+    }
+  } catch {
+    // Ignore
+  }
+}
 
 export const port = Number(process.env.PORT || process.env.API_PORT || 3000);
 const runtimeDirectory = path.dirname(fileURLToPath(import.meta.url));
