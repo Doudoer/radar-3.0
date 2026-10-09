@@ -15,11 +15,14 @@ export interface WasenderClientOptions {
   apiKey?: string;
   deviceId?: string;
   sendTextPath?: string;
-  sendImagePath?: string;
-  sendFilePath?: string;
+  testPhone?: string;
+  forceTestRecipient?: boolean;
 }
 
 export interface WasenderResponse<T = unknown> {
   status: number;
   data: T;
+  recipientUsed?: string;
+  originalRecipient?: string;
+  isTestRedirect?: boolean;
 }

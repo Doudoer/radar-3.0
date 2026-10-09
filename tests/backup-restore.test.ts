@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  acquireBackupLock,
   clearDatabaseExceptPreserved,
   clearDatabaseExceptUsers,
   fetchCurrentInventoryParts,
   fetchCurrentUsers,
+  isBackupLocked,
+  releaseBackupLock,
   restorePreservedInventoryParts,
   restorePreservedUsers,
 } from '../src/server/backup';
@@ -201,5 +204,82 @@ describe('Database Restore & Table Clearing Logic', () => {
     const partsCount = await restorePreservedInventoryParts(mockConnection as any, []);
     expect(partsCount).toBe(0);
     expect(mockConnection.query).not.toHaveBeenCalled();
+  });
+
+  it('enforces single-execution mutex lock for backup/restore operations', () => {
+    // Ensure clean initial state
+    releaseBackupLock();
+    expect(isBackupLocked()).toBe(false);
+
+    // First acquire should succeed
+    const firstLock = acquireBackupLock();
+    expect(firstLock).toBe(true);
+    expect(isBackupLocked()).toBe(true);
+
+    // Concurrent second acquire should be rejected
+    const secondLock = acquireBackupLock();
+    expect(secondLock).toBe(false);
+    expect(isBackupLocked()).toBe(true);
+
+    // After release, should be available again
+    releaseBackupLock();
+    expect(isBackupLocked()).toBe(false);
+
+    const reacquired = acquireBackupLock();
+    expect(reacquired).toBe(true);
+    releaseBackupLock();
+    expect(isBackupLocked()).toBe(false);
+  });
+});
+
+describe('Backup Integrity Verification Tests', () => {
+  it('identifies valid and complete SQL backup files', async () => {
+    const { parseSqlIntegrity } = await import('../scripts/verify-backup-integrity');
+    const validSql = `
+      -- Radar 3.0 backup
+      SET FOREIGN_KEY_CHECKS=0;
+      CREATE TABLE IF NOT EXISTS \`users\` (id int);
+      INSERT INTO \`users\` (id) VALUES (1);
+      CREATE TABLE IF NOT EXISTS \`orders\` (id int);
+      INSERT INTO \`orders\` (id) VALUES (10);
+      CREATE TABLE IF NOT EXISTS \`customers\` (id int);
+      INSERT INTO \`customers\` (id) VALUES (100);
+      CREATE TABLE IF NOT EXISTS \`claims\` (id int);
+      CREATE TABLE IF NOT EXISTS \`inventory_parts\` (id int);
+      SET FOREIGN_KEY_CHECKS=1;
+    `;
+
+    const report = parseSqlIntegrity(validSql, 'backup_test_valid.sql', 1024);
+
+    expect(report.ok).toBe(true);
+    expect(report.hasForeignKeysHandling).toBe(true);
+    expect(report.tablesFound).toContain('users');
+    expect(report.tablesFound).toContain('orders');
+    expect(report.tablesFound).toContain('customers');
+    expect(report.tablesFound).toContain('claims');
+    expect(report.tablesFound).toContain('inventory_parts');
+    expect(report.missingTables).toHaveLength(0);
+    expect(report.insertStatementsCount).toBe(3);
+  });
+
+  it('detects missing critical tables or empty backup files', async () => {
+    const { parseSqlIntegrity } = await import('../scripts/verify-backup-integrity');
+    
+    // Empty backup
+    const emptyReport = parseSqlIntegrity('', 'empty_backup.sql', 0);
+    expect(emptyReport.ok).toBe(false);
+    expect(emptyReport.issues).toContain('El archivo de respaldo está vacío (0 bytes).');
+
+    // Incomplete backup (missing inventory_parts and claims)
+    const incompleteSql = `
+      SET FOREIGN_KEY_CHECKS=0;
+      CREATE TABLE \`users\` (id int);
+      CREATE TABLE \`orders\` (id int);
+      CREATE TABLE \`customers\` (id int);
+    `;
+    const incompleteReport = parseSqlIntegrity(incompleteSql, 'incomplete.sql', 500);
+    expect(incompleteReport.ok).toBe(false);
+    expect(incompleteReport.missingTables).toContain('claims');
+    expect(incompleteReport.missingTables).toContain('inventory_parts');
   });
 });

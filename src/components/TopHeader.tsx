@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavScreen } from '../types';
 import { useTheme } from '../hooks/useTheme';
+import { DEFAULT_AVATAR } from './UserProfileModal';
 
 interface TopHeaderProps {
   currentScreen: NavScreen;
@@ -9,9 +10,12 @@ interface TopHeaderProps {
   onOpenSearch: () => void;
   onLogout: () => void;
   onToggleMobileMenu: () => void;
+  onOpenProfile?: () => void;
   onOpenChangePassword?: () => void;
   onOpenNewOrder?: () => void;
   userName?: string;
+  userAvatar?: string;
+  userRole?: string;
   unreadCount?: number;
 }
 
@@ -22,11 +26,22 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onOpenSearch,
   onLogout,
   onToggleMobileMenu,
+  onOpenProfile,
   onOpenChangePassword,
   onOpenNewOrder,
   userName = 'Usuario Administrador',
+  userAvatar,
+  userRole,
 }) => {
   const { theme, toggleTheme, isDark } = useTheme();
+
+  const handleProfileClick = () => {
+    if (onOpenProfile) {
+      onOpenProfile();
+    } else if (onOpenChangePassword) {
+      onOpenChangePassword();
+    }
+  };
 
   return (
     <header className="sticky top-0 z-30 shrink-0 w-full h-14 lg:h-16 bg-[#060a16]/95 border-b border-cyan-500/25 backdrop-blur-2xl flex justify-between items-center px-3.5 sm:px-4 md:px-5 lg:px-6 transition-all duration-200 relative shadow-[0_4px_25px_rgba(0,0,0,0.6)]">
@@ -121,22 +136,32 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         <div className="flex items-center gap-2 pl-2 border-l border-cyan-500/20">
           <button
             type="button"
-            onClick={onOpenChangePassword}
-            title="Cambiar contraseña y perfil de seguridad"
+            onClick={handleProfileClick}
+            title="Mi Perfil y Seguridad (Click para editar)"
             className="flex items-center gap-2 pl-1.5 pr-2.5 py-1 bg-[#050c18]/90 border border-cyan-500/30 rounded-xl hover:border-cyan-400 hover:bg-[#09152b] transition-all cursor-pointer group shadow-[0_0_12px_rgba(6,182,212,0.12)]"
           >
-            <div className="w-6 h-6 lg:w-7 lg:h-7 rounded-lg overflow-hidden border border-cyan-400/50 shadow-[0_0_8px_rgba(34,211,238,0.4)] shrink-0 bg-slate-800">
+            <div className="relative w-6 h-6 lg:w-7 lg:h-7 rounded-lg overflow-hidden border border-cyan-400/50 shadow-[0_0_8px_rgba(34,211,238,0.4)] shrink-0 bg-slate-800">
               <img
-                src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"
-                alt="Usuario"
+                src={userAvatar || DEFAULT_AVATAR}
+                alt={userName}
                 className="w-full h-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = DEFAULT_AVATAR;
+                }}
               />
             </div>
-            <span className="hidden xl:inline-block text-xs text-slate-200 font-semibold group-hover:text-cyan-300">
-              {userName}
-            </span>
+            <div className="hidden xl:flex flex-col text-left">
+              <span className="text-xs text-slate-200 font-semibold group-hover:text-cyan-300 leading-tight">
+                {userName}
+              </span>
+              {userRole && (
+                <span className="text-[9.5px] font-mono font-bold text-cyan-400/80 uppercase">
+                  {userRole === 'admin' ? 'Super Admin' : 'Operador'}
+                </span>
+              )}
+            </div>
             <span className="material-symbols-outlined text-[15px] text-cyan-400/70 group-hover:text-cyan-300">
-              key
+              settings
             </span>
           </button>
 

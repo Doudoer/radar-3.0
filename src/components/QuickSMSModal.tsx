@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Order } from '../types';
+import { apiFetch } from '../services/apiFetch';
 
 interface QuickSMSModalProps {
   isOpen: boolean;
@@ -173,6 +174,10 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
 
   if (!isOpen) return null;
 
+  const [sendingWasender, setSendingWasender] = useState<string | null>(null);
+  const [wasenderSuccess, setWasenderSuccess] = useState<string | null>(null);
+  const [wasenderError, setWasenderError] = useState<string | null>(null);
+
   const copyText = async (label: string, text: string) => {
     await navigator.clipboard.writeText(text);
     setCopied(label);
@@ -182,6 +187,38 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
   const openWhatsApp = (text: string) => {
     const cleanNum = activePhone.replace(/[^0-9]/g, '');
     window.open(`https://wa.me/${cleanNum}?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  const sendDirectWasender = async (text: string, label: string) => {
+    setSendingWasender(label);
+    setWasenderSuccess(null);
+    setWasenderError(null);
+
+    try {
+      const res = await apiFetch('/wasender/send', {
+        method: 'POST',
+        body: JSON.stringify({
+          phone: activePhone,
+          message: text,
+          orderId: order?.id,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (data.dispatched) {
+        const dest = data.recipientUsed || '+58 412 730 7933';
+        const redirectNote = data.isTestRedirect ? ` (Modo Pruebas • Original: ${data.originalRecipient})` : '';
+        setWasenderSuccess(`¡Mensaje (${label}) transmitido exitosamente por Wasender a ${dest}${redirectNote}!`);
+      } else if (data.warning) {
+        setWasenderError(`Wasender: ${data.warning}`);
+      } else {
+        setWasenderError(data.error || 'No se pudo enviar el mensaje por Wasender.');
+      }
+    } catch (err) {
+      setWasenderError(err instanceof Error ? err.message : 'Error de comunicación al contactar Wasender.');
+    } finally {
+      setSendingWasender(null);
+    }
   };
 
   const summaryText = `${spanishMessage}\n\n---\n\n${englishMessage}`;
@@ -195,17 +232,21 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
         {/* Header */}
         <div className="px-4 sm:px-5 py-3.5 border-b border-cyan-500/20 bg-[var(--bg-card-subtle)] flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
-              <span className="material-symbols-outlined text-[18px]">share</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
+              <span className="material-symbols-outlined text-[18px]">send</span>
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-[var(--text-heading)] text-sm">Vista Rápida Compartible</h3>
+                <h3 className="font-bold text-[var(--text-heading)] text-sm">Notificación & Despacho WhatsApp</h3>
                 <span className="font-mono text-[10px] text-cyan-400 bg-cyan-950/40 dark:bg-cyan-950/60 border border-cyan-500/30 px-2 py-0.5 rounded-full font-bold">
                   {orderCode}
                 </span>
+                <span className="font-mono text-[9px] text-emerald-400 bg-emerald-950/50 border border-emerald-500/40 px-2 py-0.5 rounded-full flex items-center gap-1 font-bold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Wasender Activo
+                </span>
               </div>
-              <p className="text-[11px] text-[var(--text-secondary)] mt-0.5">Resumen de entrega y despacho en formato WhatsApp / SMS</p>
+              <p className="text-[11px] text-[var(--text-secondary)] mt-0.5">Envío directo mediante WasenderAPI o enlace rápido WhatsApp / SMS</p>
             </div>
           </div>
           <button
@@ -217,7 +258,33 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
           </button>
         </div>
 
+        {/* Test Sandbox Banner */}
+        <div className="bg-emerald-950/30 border-b border-emerald-500/20 px-4 py-2 flex items-center justify-between text-[11px] text-emerald-300">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-[15px] text-emerald-400">shield</span>
+            <span><strong>Modo de Pruebas Wasender:</strong> Los envíos se transmiten de forma segura al número de pruebas: <strong className="font-mono text-emerald-200">+58 412-730-7933</strong></span>
+          </div>
+          <span className="text-[10px] font-mono text-emerald-400/80 bg-emerald-900/40 px-2 py-0.5 rounded border border-emerald-500/30">
+            Sesión: Douglas Movistar
+          </span>
+        </div>
+
         <div className="p-3.5 sm:p-5 overflow-y-auto custom-scrollbar flex-1 min-h-0 flex flex-col gap-4">
+          {/* Status Alerts */}
+          {wasenderSuccess && (
+            <div className="rounded-xl border border-emerald-500/40 bg-emerald-950/60 p-3 text-emerald-300 flex items-center gap-2.5 animate-fade-in shadow-[0_0_15px_rgba(16,185,129,0.2)]">
+              <span className="material-symbols-outlined text-emerald-400 text-[20px] shrink-0">check_circle</span>
+              <span className="font-semibold text-xs leading-tight">{wasenderSuccess}</span>
+            </div>
+          )}
+
+          {wasenderError && (
+            <div className="rounded-xl border border-rose-500/40 bg-rose-950/60 p-3 text-rose-300 flex items-center gap-2.5 animate-fade-in shadow-[0_0_15px_rgba(244,63,94,0.2)]">
+              <span className="material-symbols-outlined text-rose-400 text-[20px] shrink-0">error</span>
+              <span className="font-semibold text-xs leading-tight">{wasenderError}</span>
+            </div>
+          )}
+
           {/* Main Delivery Message Section matching user reference image */}
           <section className="rounded-2xl border border-sky-500/30 bg-sky-950/20 dark:bg-[#0c192c]/80 p-4 shadow-md">
             <div className="flex flex-wrap items-center justify-between gap-2.5 mb-3.5">
@@ -250,10 +317,30 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
                     <button
                       type="button"
                       onClick={() => openWhatsApp(englishMessage)}
-                      className="px-2.5 py-1 rounded-lg bg-[#22c55e] hover:bg-[#16a34a] text-[11px] font-bold text-white cursor-pointer transition-all active:scale-95 flex items-center gap-1 shadow-[0_0_8px_rgba(34,197,94,0.35)]"
+                      title="Abrir en WhatsApp Web"
+                      className="px-2.5 py-1 rounded-lg bg-[#22c55e]/20 hover:bg-[#22c55e]/30 text-[11px] font-bold text-emerald-400 border border-emerald-500/40 cursor-pointer transition-all active:scale-95 flex items-center gap-1"
                     >
-                      <span className="material-symbols-outlined text-[13px]">chat</span>
-                      <span>WA</span>
+                      <span className="material-symbols-outlined text-[13px]">open_in_new</span>
+                      <span>WA Web</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => sendDirectWasender(englishMessage, 'Inglés')}
+                      disabled={Boolean(sendingWasender)}
+                      title="Enviar directamente por Wasender"
+                      className="px-2.5 py-1 rounded-lg bg-[#22c55e] hover:bg-[#16a34a] text-[11px] font-bold text-white cursor-pointer transition-all active:scale-95 flex items-center gap-1 shadow-[0_0_10px_rgba(34,197,94,0.4)] disabled:opacity-50"
+                    >
+                      {sendingWasender === 'Inglés' ? (
+                        <>
+                          <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          <span>Enviando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="material-symbols-outlined text-[13px]">send</span>
+                          <span>Wasender</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -281,10 +368,30 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
                     <button
                       type="button"
                       onClick={() => openWhatsApp(spanishMessage)}
-                      className="px-2.5 py-1 rounded-lg bg-[#22c55e] hover:bg-[#16a34a] text-[11px] font-bold text-white cursor-pointer transition-all active:scale-95 flex items-center gap-1 shadow-[0_0_8px_rgba(34,197,94,0.35)]"
+                      title="Abrir en WhatsApp Web"
+                      className="px-2.5 py-1 rounded-lg bg-[#22c55e]/20 hover:bg-[#22c55e]/30 text-[11px] font-bold text-emerald-400 border border-emerald-500/40 cursor-pointer transition-all active:scale-95 flex items-center gap-1"
                     >
-                      <span className="material-symbols-outlined text-[13px]">chat</span>
-                      <span>WA</span>
+                      <span className="material-symbols-outlined text-[13px]">open_in_new</span>
+                      <span>WA Web</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => sendDirectWasender(spanishMessage, 'Español')}
+                      disabled={Boolean(sendingWasender)}
+                      title="Enviar directamente por Wasender"
+                      className="px-2.5 py-1 rounded-lg bg-[#22c55e] hover:bg-[#16a34a] text-[11px] font-bold text-white cursor-pointer transition-all active:scale-95 flex items-center gap-1 shadow-[0_0_10px_rgba(34,197,94,0.4)] disabled:opacity-50"
+                    >
+                      {sendingWasender === 'Español' ? (
+                        <>
+                          <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          <span>Enviando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="material-symbols-outlined text-[13px]">send</span>
+                          <span>Wasender</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -298,14 +405,34 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
           {/* Ficha Técnica Consolidada Section */}
           <div className="flex items-center justify-between gap-3 border-t border-cyan-500/20 pt-3">
             <span className="font-bold text-[var(--text-heading)] text-xs">Ficha Técnica Consolidada</span>
-            <button
-              type="button"
-              onClick={() => copyText('Resumen completo', summaryText)}
-              className="cyber-btn-secondary px-3 py-1.5 text-[11px] font-bold text-cyan-400 flex items-center gap-1.5"
-            >
-              <span className="material-symbols-outlined text-[15px]">content_copy</span>
-              <span>Copiar Resumen Completo</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => copyText('Resumen completo', summaryText)}
+                className="cyber-btn-secondary px-3 py-1.5 text-[11px] font-bold text-cyan-400 flex items-center gap-1.5"
+              >
+                <span className="material-symbols-outlined text-[15px]">content_copy</span>
+                <span>Copiar Resumen</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => sendDirectWasender(summaryText, 'Ficha Completa')}
+                disabled={Boolean(sendingWasender)}
+                className="px-3 py-1.5 rounded-xl bg-[#22c55e] hover:bg-[#16a34a] text-[11px] font-bold text-white flex items-center gap-1.5 shadow-[0_0_10px_rgba(34,197,94,0.4)] disabled:opacity-50"
+              >
+                {sendingWasender === 'Ficha Completa' ? (
+                  <>
+                    <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Enviando...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-[15px]">send</span>
+                    <span>Enviar Ficha por Wasender</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

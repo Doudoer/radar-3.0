@@ -117,6 +117,8 @@ export const passwordPolicySchema = z
 export const userCreateSchema = z.object({
   name: z.string().trim().min(1).max(200),
   email: z.string().trim().email().max(254),
+  phone: z.string().trim().max(50).optional().nullable(),
+  avatar_url: z.string().trim().max(500_000).optional().nullable(),
   password: passwordPolicySchema,
   role: z.enum(['admin', 'operator']).default('operator'),
   permissions: z.array(z.string().trim().min(1).max(80)).max(100).default([]),
@@ -126,10 +128,21 @@ export const userCreateSchema = z.object({
 export const userUpdateSchema = z.object({
   name: z.string().trim().min(1).max(200),
   email: z.string().trim().email().max(254),
+  phone: z.string().trim().max(50).optional().nullable(),
+  avatar_url: z.string().trim().max(500_000).optional().nullable(),
   password: passwordPolicySchema.optional(),
   role: z.string().trim().min(1).max(40),
   permissions: z.array(z.string().trim().min(1).max(80)).max(100),
   active: z.boolean(),
+});
+
+export const userProfileUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  email: z.string().trim().email().max(254),
+  phone: z.string().trim().max(50).optional().nullable(),
+  avatar_url: z.string().trim().max(500_000).optional().nullable(),
+  currentPassword: z.string().optional(),
+  newPassword: passwordPolicySchema.optional(),
 });
 
 export const changePasswordSchema = z.object({
@@ -199,3 +212,67 @@ export const inventoryPartSchema = z.object({
 });
 
 export const inventoryPartUpdateSchema = inventoryPartSchema.partial();
+
+export const notificationChannelUpdateSchema = z.object({
+  key: z.enum([
+    'NUEVA_VENTA',
+    'NUEVO_RECLAMO',
+    'SEGUIMIENTO_RECLAMO',
+    'SOLICITUD_REEMBOLSO',
+    'CAMBIO_ESTATUS',
+    'ORDEN_CANCELADA',
+    'RESPALDO_AUTOMATICO',
+    'BUSQUEDA_SUBASTAS',
+    'LISTA_RECLAMOS',
+  ]),
+  name: z.string().optional(),
+  category: z.string().optional(),
+  description: z.string().optional(),
+  targetType: z.enum(['superadmin_only', 'creator_dynamic', 'configurable_multicast']).optional(),
+  isEnabled: z.boolean(),
+  superadminEnabled: z.boolean().default(true),
+  operatorIds: z.array(z.number()).default([]),
+  externalContactIds: z.array(z.number()).default([]),
+  triggerNotes: z.string().optional(),
+  badgeLabel: z.string().optional(),
+  icon: z.string().optional(),
+});
+
+export const notificationConfigUpdateSchema = z.object({
+  channels: z.array(notificationChannelUpdateSchema),
+});
+
+export const externalContactSchema = z.object({
+  name: z.string().trim().min(2, 'El nombre debe tener al menos 2 caracteres'),
+  phone: z.string().trim().min(7, 'El teléfono debe tener al menos 7 dígitos'),
+  label: z.string().trim().optional().nullable(),
+  notes: z.string().trim().optional().nullable(),
+  isActive: z.boolean().default(true),
+  subscribedChannels: z.array(z.string()).default([]),
+});
+
+export const externalContactUpdateSchema = externalContactSchema.partial();
+
+export const notificationTestDispatchSchema = z.object({
+  channelKey: z.enum([
+    'NUEVA_VENTA',
+    'NUEVO_RECLAMO',
+    'SEGUIMIENTO_RECLAMO',
+    'SOLICITUD_REEMBOLSO',
+    'CAMBIO_ESTATUS',
+    'ORDEN_CANCELADA',
+    'RESPALDO_AUTOMATICO',
+    'BUSQUEDA_SUBASTAS',
+    'LISTA_RECLAMOS',
+  ]),
+  customMessage: z.string().optional(),
+  creatorUserId: z.number().optional(),
+  creatorPhone: z.string().optional(),
+  orderStatus: z.string().optional(),
+});
+
+export const verifyOtpSchema = z.object({
+  code: z.string().trim().min(6, 'El código debe tener 6 dígitos').max(6, 'El código debe tener 6 dígitos'),
+});
+
+

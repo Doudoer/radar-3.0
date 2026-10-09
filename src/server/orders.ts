@@ -107,14 +107,28 @@ export const toMysqlDateTime = (value?: string | null) => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 };
 
-export const getOrders = async () => {
+export const getOrders = async (options: { limit?: number; startDate?: string; endDate?: string } = {}) => {
+  const maxLimit = Math.min(Math.max(1, options.limit || 5000), 10000);
+  const conditions: string[] = ['o.deleted_at IS NULL'];
+  const params: (string | number)[] = [];
+
+  if (options.startDate) {
+    conditions.push('o.created_at >= ?');
+    params.push(options.startDate);
+  }
+  if (options.endDate) {
+    conditions.push('o.created_at <= ?');
+    params.push(options.endDate);
+  }
+
   const [rows] = await pool.query<RowDataPacket[]>(`
     SELECT o.*, c.first_name, c.last_name, c.phone, c.email, c.address_shipping, c.zip_code, u.name AS advisor
     FROM orders o
     LEFT JOIN customers c ON c.id = o.customer_id
     LEFT JOIN users u ON u.id = o.user_id
-    WHERE o.deleted_at IS NULL
+    WHERE ${conditions.join(' AND ')}
     ORDER BY o.created_at DESC
-  `);
+    LIMIT ?
+  `, [...params, maxLimit]);
   return rows.map(mapOrder);
 };

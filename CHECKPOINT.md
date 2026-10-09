@@ -1,12 +1,35 @@
 # 📍 CHECKPOINT RADAR 3.0 — 2026-10-08
 
-**Fecha y Hora:** 8 de Octubre, 2026 — 14:15 UTC-4  
+**Fecha y Hora:** 8 de Octubre, 2026 — 15:15 UTC-4  
 **Rama:** `main`  
-**Estado:** Probado y compilado con 100% de tests pasando (40/40 en 7 suites)
+**Estado:** Probado y compilado con 100% de tests pasando (42/42 en 7 suites)
 
 ---
 
 ## 🚀 1. Resumen de lo Realizado en esta Sesión
+
+### A. Perfiles de Usuario Completos: Teléfono, Correo, Avatar y Edición Dual (`UserProfileModal.tsx`, `UsersManagementView.tsx`, `TopHeader.tsx`, `server.ts`)
+- **Objetivo Cumplido:** Los usuarios ahora cuentan con perfiles completos que incluyen **Número de Teléfono (`phone`)**, **Correo Electrónico (`email`)**, y **Avatar de Perfil (`avatar_url`)**, editables tanto por el propio usuario desde su perfil como por el Super Admin desde la gestión de usuarios.
+- **Base de Datos & Migración:**
+  - Creada columna `avatar_url TEXT NULL AFTER phone` en la tabla `users` de MySQL (donde `phone VARCHAR(50)` ya existía).
+  - Creado script de migración [`migrations/009_users_phone_and_avatar.sql`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/migrations/009_users_phone_and_avatar.sql) y verificación automática en `ensureDatabaseTables()` (`server.ts`).
+- **Endpoints de Backend:**
+  - `PUT /api/auth/profile`: Permite a cualquier usuario autenticado actualizar su propio Nombre, Correo, Teléfono, Avatar y cambiar su Contraseña (con verificación de contraseña actual y validación de correo único).
+  - `GET /api/users`, `POST /api/users`, `PUT /api/users/:id`: Retornan, crean y actualizan `phone` y `avatar_url` para la administración por Super Admin.
+  - `/api/auth/login` y `/api/auth/me`: Retornan `phone` y `avatar_url` para alimentar la sesión global del usuario.
+- **Modal de Perfil de Usuario (`UserProfileModal.tsx`):**
+  - Accesible haciendo clic en el avatar/nombre en la barra superior (`TopHeader`).
+  - **Galería de 8 Avatares Preset:** Opciones con avatares de alta calidad temáticos.
+  - **Subida de Imagen Directa:** Carga imágenes locales desde el dispositivo (conversión a Base64 optimizada < 2MB).
+  - **URL Personalizada:** Permite pegar cualquier enlace web directo de imagen.
+  - **Edición de Datos de Contacto:** Modificación de Nombre completo, Correo electrónico y Teléfono.
+  - **Pestaña de Seguridad:** Permite cambiar la contraseña verificando la actual y validando los requisitos de seguridad.
+- **Gestión de Usuarios Super Admin (`UsersManagementView.tsx`):**
+  - La tabla de usuarios muestra el avatar circular con badge de rol, nombre, email y teléfono directo con enlace `tel:`.
+  - Los modales de Crear y Editar Usuario permiten seleccionar avatar de la galería o URL personalizada y registrar el teléfono del operador.
+- **Cabecera Superior (`TopHeader.tsx`):**
+  - Renderiza el avatar activo del usuario con fallback estilizado, badge de rol con brillo neón y abre el modal de perfil al hacer clic.
+- **Pruebas Automatizadas:** 42 tests unitarios pasando en Vitest (`tests/server-schemas.test.ts`), validación de TypeScript (`0 errors`) y compilación de producción exitosa.
 
 ### A. Persistencia y Mantenimiento del Millaje Original al Editar Órdenes (`NewOrderModal.tsx`, `orders.ts`, `server.ts`)
 - **Problema Solucionado:** Al abrir una orden existente para editarla, el millaje del vehículo se reseteaba automáticamente a `0` porque la tabla `orders` carecía de columna `mileage` en MySQL y el modal tenía un fallback `|| '0'`.
@@ -117,11 +140,48 @@ Cuando enciendas la laptop nuevamente, abre una terminal en la carpeta del proye
 | Archivo | Rol / Descripción |
 | --- | --- |
 | [`src/components/NewOrderModal.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/NewOrderModal.tsx) | Modal de creación de órdenes (VIN sin autogeneración falsa) |
-| [`src/components/QuickSMSModal.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/QuickSMSModal.tsx) | Modal de mensaje rápido de entrega para WhatsApp y SMS |
+| [`src/components/QuickSMSModal.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/QuickSMSModal.tsx) | Modal de mensaje rápido con botón directo de envío vía Wasender |
 | [`src/components/OrderDetailView.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/OrderDetailView.tsx) | Vista de detalle de orden compacta |
 | [`src/components/OrdersTableView.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/OrdersTableView.tsx) | Tabla de órdenes con paginación y manejo de Sin VIN |
+| [`src/components/SystemSettingsView.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/SystemSettingsView.tsx) | Panel de control y pruebas en vivo de la Pasarela Wasender |
+| [`src/components/WasenderNotificationsManager.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/WasenderNotificationsManager.tsx) | Gestor de canales de notificación, operadores y números externos |
+| [`src/components/SecurityOtpModal.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/SecurityOtpModal.tsx) | Envío real de código OTP a WhatsApp vía Wasender |
+| [`src/components/WeeklyRelationView.tsx`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/components/WeeklyRelationView.tsx) | Envío de token 2FA para liquidación semanal vía Wasender |
+| [`src/integrations/wasender/client.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/integrations/wasender/client.ts) | Cliente HTTP y normalización telefónica para WasenderAPI |
+| [`src/integrations/wasender/notificationTypes.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/integrations/wasender/notificationTypes.ts) | Tipos y contratos para los 8 canales de notificación |
+| [`src/integrations/wasender/notificationService.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/integrations/wasender/notificationService.ts) | Servicio de resolución de destinatarios, persistencia MySQL y multidestino |
 | [`src/index.css`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/index.css) | Motor de temas Claro / Oscuro con alto contraste |
 | [`src/hooks/useTheme.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/hooks/useTheme.ts) | Hook de gestión persistente de tema claro/oscuro |
-| [`tests/quick-sms-modal.test.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/tests/quick-sms-modal.test.ts) | Pruebas unitarias de generación de mensajes de entrega |
-| [`tests/order-mapping.test.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/tests/order-mapping.test.ts) | Pruebas unitarias de mapeo de órdenes y VIN |
+| [`tests/wasender-notification-routing.test.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/tests/wasender-notification-routing.test.ts) | Pruebas unitarias de enrutamiento y reglas de notificación |
+| [`tests/server-schemas.test.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/tests/server-schemas.test.ts) | Pruebas de esquemas y validaciones de entrada |
 
+---
+
+## 📡 Integración Pasarela WhatsApp (WasenderAPI) & Matriz de Notificaciones
+
+- **Servicio:** `https://wasenderapi.com`
+- **Sesión Conectada:** `Douglas Movistar` (+584145380654) - *Control Rodriguez Salvage Yard*
+- **Número de Pruebas Obligatorio:** `584127307933` (`+584127307933`)
+- **Modo Sandbox / Redirección de Seguridad:** `WASENDER_FORCE_TEST_RECIPIENT="true"` (todos los envíos del sistema se dirigen de forma segura únicamente a `+584127307933` durante fase de pruebas).
+
+### 📋 Canales de Notificación y Reglas de Negocio Implementadas:
+1. 🛒 **Nueva Venta (`NUEVA_VENTA`)**: Multidestino configurable (Super Admin + Operadores seleccionados + Números externos registrados).
+2. ⚠️ **Nuevo Reclamo (`NUEVO_RECLAMO`)**: Multidestino configurable (Super Admin + Operadores de soporte + Números externos).
+3. 💸 **Solicitud de Reembolso (`SOLICITUD_REEMBOLSO`)**: Exclusivo Super Administrador (Control financiero estricto).
+4. 🔄 **Cambios de Status (`CAMBIO_ESTATUS`)**: Regla Dinámica -> Se envía al teléfono del **operador que creó la orden** exclusivamente cuando una pieza o repuesto pasa a estar en `"Listo para Retiro"` o `"Listo para Despacho"` / `"Listo para Envio"`.
+5. ❌ **Orden Cancelada (`ORDEN_CANCELADA`)**: Exclusivo Super Administrador.
+6. 💾 **Respaldo Automático (`RESPALDO_AUTOMATICO`)**: Exclusivo Super Administrador (envío de copia SQL con todos los datos).
+7. 🔍 **Búsquedas en Subastas (`BUSQUEDA_SUBASTAS`)**: Exclusivo Super Administrador.
+8. 📋 **Lista de Reclamos (`LISTA_RECLAMOS`)**: Multidestino configurable (Super Admin + Operadores + Números externos manuales).
+
+### 👥 Directorio de Números Externos:
+Permite registrar contactos adicionales (Gerencia, Socios, Proveedores, Despachadores) con Nombre, Teléfono, Etiqueta y selección de canales suscritos.
+
+### ⚡ Automatización en Backend (Disparadores Automáticos Conectados):
+- **`PUT /api/orders/:id`**: Al pasar el estatus de una orden a `"Listo para Retiro"`, `"Listo para Despacho"` o `"Listo para Envio"`, se activa y envía automáticamente la notificación [`CAMBIO_ESTATUS`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/integrations/wasender/notificationService.ts) al teléfono del operador asesor asignado a la orden.
+- **`PUT /api/orders/:id`**: Al anular o cancelar una orden (`"Cancelado"`), se dispara automáticamente el canal [`ORDEN_CANCELADA`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/integrations/wasender/notificationService.ts) hacia el Super Admin.
+- **`POST /api/orders`**: Al registrar una nueva venta, se dispara el canal [`NUEVA_VENTA`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/integrations/wasender/notificationService.ts) hacia el Super Admin y destinatarios suscritos.
+- **`POST /api/claims`**: Al radicar un reclamo, se dispara el canal [`NUEVO_RECLAMO`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/integrations/wasender/notificationService.ts).
+- **`POST /api/refunds`**: Al solicitar un reembolso, se dispara el canal [`SOLICITUD_REEMBOLSO`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/integrations/wasender/notificationService.ts).
+- **`POST /api/system/backup/create`**: Al generar un snapshot SQL, se dispara el canal [`RESPALDO_AUTOMATICO`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/integrations/wasender/notificationService.ts).
+- **Cola Serializada con Protección de Tasa (Rate Limiter):** En [`client.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/integrations/wasender/client.ts) se implementó una cola global (`enqueue`) que garantiza un intervalo de 5.3 segundos entre peticiones Wasender y reintento automático tras 5.5s si la API reporta límite de cuenta.

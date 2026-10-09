@@ -24,6 +24,7 @@ import { SearchModal } from './components/SearchModal';
 import { ExportModal } from './components/ExportModal';
 import { StatusRequestModal } from './components/StatusRequestModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { UserProfileModal } from './components/UserProfileModal';
 import { PersonalNotesWidget } from './components/PersonalNotesWidget';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { LoginView } from './components/LoginView';
@@ -37,7 +38,7 @@ export default function App() {
   useTheme(); // Initialize theme on mount
   const [currentScreen, setCurrentScreen] = useState<NavScreen>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const { authenticated, checking: authChecking, user: authUser, role: userRole, login, logout } = useAuthSession();
+  const { authenticated, checking: authChecking, user: authUser, role: userRole, login, updateUser, logout } = useAuthSession();
   const {
     orders,
     setOrders,
@@ -73,6 +74,7 @@ export default function App() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isStatusRequestOpen, setIsStatusRequestOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [smsModalData, setSmsModalData] = useState<{ isOpen: boolean; customerName: string; phone: string; order?: Order | null }>({
     isOpen: false,
     customerName: '',
@@ -169,8 +171,11 @@ export default function App() {
           onNavigate={handleNavigate}
           onOpenSearch={() => setIsSearchModalOpen(true)}
           onLogout={() => { void logout(); }}
+          onOpenProfile={() => setIsProfileModalOpen(true)}
           onOpenChangePassword={() => setIsChangePasswordOpen(true)}
           userName={authUser?.name || 'Usuario'}
+          userAvatar={authUser?.avatar_url}
+          userRole={userRole}
           onOpenNewOrder={() => {
             setPrefillOrderData(null);
             setIsNewOrderModalOpen(true);
@@ -350,6 +355,12 @@ export default function App() {
       />
       <StatusRequestModal isOpen={isStatusRequestOpen} orders={orders} onClose={() => setIsStatusRequestOpen(false)} />
       <ChangePasswordModal isOpen={isChangePasswordOpen} onClose={() => setIsChangePasswordOpen(false)} />
+      <UserProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        user={authUser}
+        onUserUpdated={(updated) => updateUser(updated)}
+      />
       <PersonalNotesWidget />
     </div>
   );

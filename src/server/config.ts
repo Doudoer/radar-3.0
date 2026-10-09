@@ -36,6 +36,9 @@ if (process.env.NODE_ENV === 'production') {
   for (const variable of ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'JWT_SECRET']) {
     if (!process.env[variable]) throw new Error(`${variable} es obligatorio en produccion`);
   }
+  if ((process.env.JWT_SECRET || '').length < 32) {
+    throw new Error('JWT_SECRET debe tener al menos 32 caracteres en producción');
+  }
 }
 
 export const jwtSecret = process.env.JWT_SECRET || '';

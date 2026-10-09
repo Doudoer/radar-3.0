@@ -35,7 +35,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
 
   useEffect(() => {
     fetchClaimsAndRefunds();
-  }, []);
+  }, [orders]);
 
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
@@ -86,6 +86,43 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
     }, 4000);
   };
 
+  // Merge orders in 'solicitud_reembolso' / 'reembolsado' that might not yet be in refundRequests
+  const allRefundRequests = useMemo(() => {
+    const existingOrderIds = new Set(refundRequests.map((r) => String(r.orderId)));
+    const existingOrderCodes = new Set(refundRequests.map((r) => r.orderCode));
+
+    const extraFromOrders: RefundRequest[] = (orders || [])
+      .filter(
+        (o) =>
+          (o.status === 'solicitud_reembolso' || o.status === 'reembolsado') &&
+          !existingOrderIds.has(String(o.id)) &&
+          !existingOrderCodes.has(o.code)
+      )
+      .map((o) => {
+        const partPrice = o.financials?.partPrice ?? o.financials?.baseMSRP ?? 0;
+        const downPayment = o.financials?.downPayment ?? o.financials?.advancePayment ?? 0;
+        const amt = downPayment > 0 ? downPayment : partPrice;
+        return {
+          id: `REF-ORD-${o.id}`,
+          orderId: String(o.id),
+          orderCode: o.code,
+          customerName: o.customer.name,
+          customerPhone: o.customer.phone,
+          vehicle: `${o.vehicle.year} ${o.vehicle.make} ${o.vehicle.model}`.trim(),
+          part: o.mainPart || 'Refacción',
+          reason: o.notes || 'Solicitud de Reembolso registrada',
+          amount: amt,
+          amountType: downPayment > 0 ? ('downpayment' as const) : ('total' as const),
+          paymentMethod: 'Zelle' as const,
+          paymentDetails: o.customer.phone || o.customer.email || 'Por verificar',
+          status: o.status === 'reembolsado' ? ('completed' as const) : ('pending' as const),
+          createdAt: o.createdAtIso || new Date().toISOString(),
+        };
+      });
+
+    return [...refundRequests, ...extraFromOrders];
+  }, [refundRequests, orders]);
+
   // KPI Computations
   const stats = useMemo(() => {
     const total = claims.length;
@@ -93,10 +130,10 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
     const inProcess = claims.filter((c) => c.status === 'In Process').length;
     const resolved = claims.filter((c) => c.status === 'Resolved').length;
     const denied = claims.filter((c) => c.status === 'Denied').length;
-    const pendingRefunds = refundRequests.filter((r) => r.status === 'pending').length;
+    const pendingRefunds = allRefundRequests.filter((r) => r.status === 'pending').length;
     const totalCalls = claims.reduce((acc, c) => acc + (c.callCount || 0), 0);
     return { total, pending, inProcess, resolved, denied, pendingRefunds, totalCalls };
-  }, [claims, refundRequests]);
+  }, [claims, allRefundRequests]);
 
   // Filtered Claims
   const filteredClaims = useMemo(() => {
@@ -352,30 +389,42 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
   // 6. REFUND WORKFLOW: Complete Refund Request
   const handleCompleteRefund = async (refund: RefundRequest) => {
     try {
-      const response = await apiFetch(`/refunds/${refund.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'completed' }),
-      });
+      if (refund.id.startsWith('REF-ORD-')) {
+        const createRes = await apiFetch('/refunds', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderId: parseInt(refund.orderId.replace(/\D/g, ''), 10) || 1,
+            amount: refund.amount,
+            amountType: refund.amountType,
+            paymentMethod: refund.paymentMethod,
+            paymentDetails: refund.paymentDetails || null,
+            reason: refund.reason,
+          }),
+        });
+        const createdData = createRes.ok ? await createRes.json().catch(() => null) : null;
+        const newRefId = createdData?.id ? createdData.id.replace(/^REF-/, '') : null;
+        if (newRefId) {
+          await apiFetch(`/refunds/${newRefId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'completed' }),
+          });
+        }
+      } else {
+        const response = await apiFetch(`/refunds/${refund.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'completed' }),
+        });
 
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.message || 'Error al procesar reembolso');
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          throw new Error(err.message || 'Error al procesar reembolso');
+        }
       }
 
-      const updatedRefunds = refundRequests.map((r) => {
-        if (r.id === refund.id) {
-          return {
-            ...r,
-            status: 'completed' as const,
-            completedAt: new Date().toISOString(),
-            completedBy: 'Administración RADAR',
-          };
-        }
-        return r;
-      });
-
-      setRefundRequests(updatedRefunds);
+      fetchClaimsAndRefunds();
 
       const targetOrder = orders.find((o) => o.id === refund.orderId || o.code === refund.orderCode);
       if (targetOrder && onUpdateOrder) {
@@ -385,7 +434,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
         });
       }
 
-      showToast(`💼 Reembolso ${refund.id} completado ($${refund.amount.toFixed(2)} vía ${refund.paymentMethod}). Orden ${refund.orderCode} pasó a 'Reembolsado'.`);
+      showToast(`💼 Reembolso completado ($${refund.amount.toFixed(2)} vía ${refund.paymentMethod}). Orden ${refund.orderCode} pasó a 'Reembolsado'.`);
     } catch (err: any) {
       showToast(`Error: ${err.message || 'No se pudo completar el reembolso'}`);
     }
@@ -625,7 +674,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
               <h2 className="font-mono font-bold text-sm text-white flex items-center gap-2">
                 <span>SOLICITUDES DE REEMBOLSO (REFUND REQUESTS)</span>
                 <span className="text-[10px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2.5 py-0.5 rounded-full font-bold">
-                  {refundRequests.filter((r) => r.status === 'pending').length} Pendientes
+                  {allRefundRequests.filter((r) => r.status === 'pending').length} Pendientes
                 </span>
               </h2>
               <p className="text-[11px] text-slate-400">
@@ -649,11 +698,11 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
 
         {showRefundsDrawer && (
           <div className="p-5 flex flex-col gap-3">
-            {refundRequests.length === 0 ? (
+            {allRefundRequests.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-4 font-mono">No hay solicitudes de reembolso en este momento.</p>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {refundRequests.map((refund) => (
+                {allRefundRequests.map((refund) => (
                   <div
                     key={refund.id}
                     className={`rounded-2xl p-4.5 border transition-all flex flex-col justify-between gap-3 ${
@@ -665,9 +714,14 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({
                     <div>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-xs text-cyan-300 bg-cyan-950/50 px-2.5 py-0.5 rounded-lg border border-cyan-500/30">
+                          <button
+                            type="button"
+                            onClick={() => onSelectOrder && onSelectOrder(refund.orderId)}
+                            className="font-mono font-bold text-xs text-cyan-300 bg-cyan-950/50 hover:bg-cyan-900/60 px-2.5 py-0.5 rounded-lg border border-cyan-500/30 cursor-pointer transition-colors"
+                            title="Ver detalles de la orden"
+                          >
                             {refund.orderCode}
-                          </span>
+                          </button>
                           <span className="text-xs font-bold text-white">{refund.customerName}</span>
                         </div>
 

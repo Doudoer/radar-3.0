@@ -10,10 +10,17 @@ import {
   refundCreateSchema,
   uploadPayloadSchema,
   userCreateSchema,
+  userUpdateSchema,
+  userProfileUpdateSchema,
   wasenderDispatchSchema,
   inventoryPartSchema,
   inventoryPartUpdateSchema,
+  notificationConfigUpdateSchema,
+  externalContactSchema,
+  notificationTestDispatchSchema,
+  verifyOtpSchema,
 } from '../src/server/schemas';
+
 
 describe('server input schemas', () => {
   it('normalizes valid login credentials', () => {
@@ -255,4 +262,119 @@ describe('server input schemas', () => {
     expect(() => inventoryPartSchema.parse({ year: '', brand: 'Chevrolet' })).toThrow();
     expect(() => inventoryPartSchema.parse({ year: '2019', brand: '' })).toThrow();
   });
+
+  it('validates userProfileUpdateSchema with name, email, phone, avatar_url, and password change', () => {
+    const validProfile = userProfileUpdateSchema.parse({
+      name: 'Carlos Mendoza',
+      email: 'carlos@radar.com',
+      phone: '+1 (305) 555-0199',
+      avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb',
+      currentPassword: 'Password123!',
+      newPassword: 'NewPassword123!',
+    });
+
+    expect(validProfile.name).toBe('Carlos Mendoza');
+    expect(validProfile.email).toBe('carlos@radar.com');
+    expect(validProfile.phone).toBe('+1 (305) 555-0199');
+    expect(validProfile.avatar_url).toContain('unsplash');
+    expect(validProfile.newPassword).toBe('NewPassword123!');
+
+    // Invalid email should fail
+    expect(() => userProfileUpdateSchema.parse({
+      name: 'Carlos',
+      email: 'not-an-email',
+    })).toThrow();
+
+    // Empty name should fail
+    expect(() => userProfileUpdateSchema.parse({
+      name: '   ',
+      email: 'valid@example.com',
+    })).toThrow();
+  });
+
+  it('validates userCreateSchema and userUpdateSchema with phone and avatar_url', () => {
+    const newUser = userCreateSchema.parse({
+      name: 'Elena Ramos',
+      email: 'elena@radar.com',
+      password: 'StrongPassword123!',
+      role: 'operator',
+      phone: '800-555-0123',
+      avatar_url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA',
+    });
+
+    expect(newUser.phone).toBe('800-555-0123');
+    expect(newUser.avatar_url).toContain('data:image/png');
+
+    const updatedUser = userUpdateSchema.parse({
+      name: 'Elena Ramos Edit',
+      email: 'elena.edit@radar.com',
+      role: 'admin',
+      permissions: ['ver_ordenes', 'crear_ordenes'],
+      active: false,
+      phone: '800-555-9999',
+      avatar_url: 'https://example.com/avatar.jpg',
+    });
+
+    expect(updatedUser.role).toBe('admin');
+    expect(updatedUser.phone).toBe('800-555-9999');
+    expect(updatedUser.avatar_url).toBe('https://example.com/avatar.jpg');
+    expect(updatedUser.active).toBe(false);
+  });
+
+  it('validates notificationConfigUpdateSchema, externalContactSchema, and notificationTestDispatchSchema', () => {
+    const validConfig = notificationConfigUpdateSchema.parse({
+      channels: [
+        {
+          key: 'NUEVA_VENTA',
+          isEnabled: true,
+          superadminEnabled: true,
+          operatorIds: [1, 2],
+          externalContactIds: [5],
+        },
+        {
+          key: 'SOLICITUD_REEMBOLSO',
+          isEnabled: true,
+          superadminEnabled: true,
+          operatorIds: [],
+          externalContactIds: [],
+        },
+      ],
+    });
+
+    expect(validConfig.channels.length).toBe(2);
+    expect(validConfig.channels[0].key).toBe('NUEVA_VENTA');
+    expect(validConfig.channels[0].operatorIds).toEqual([1, 2]);
+
+    const validContact = externalContactSchema.parse({
+      name: 'Lic. Roberto Mendoza',
+      phone: '+58 412-5551234',
+      label: 'Gerencia General',
+      notes: 'Notificar únicamente ventas mayores',
+      isActive: true,
+      subscribedChannels: ['NUEVA_VENTA', 'NUEVO_RECLAMO'],
+    });
+
+    expect(validContact.name).toBe('Lic. Roberto Mendoza');
+    expect(validContact.phone).toBe('+58 412-5551234');
+    expect(validContact.subscribedChannels).toEqual(['NUEVA_VENTA', 'NUEVO_RECLAMO']);
+
+    const validTest = notificationTestDispatchSchema.parse({
+      channelKey: 'CAMBIO_ESTATUS',
+      orderStatus: 'Listo para Retiro',
+      creatorPhone: '584145550000',
+    });
+
+    expect(validTest.channelKey).toBe('CAMBIO_ESTATUS');
+    expect(validTest.orderStatus).toBe('Listo para Retiro');
+  });
+
+  it('validates verifyOtpSchema for 6-digit security codes', () => {
+    expect(verifyOtpSchema.parse({ code: '123456' })).toEqual({ code: '123456' });
+    expect(verifyOtpSchema.parse({ code: ' 987654 ' })).toEqual({ code: '987654' });
+    expect(() => verifyOtpSchema.parse({ code: '12345' })).toThrow();
+    expect(() => verifyOtpSchema.parse({ code: '1234567' })).toThrow();
+    expect(() => verifyOtpSchema.parse({ code: '' })).toThrow();
+  });
 });
+
+

@@ -17,7 +17,10 @@
     "build": "vite build && npm run build:api",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "security:check": "tsx --env-file=.env scripts/security-check.ts",
+    "backup:now": "tsx --env-file=.env scripts/run-backup.ts manual",
+    "backup:verify": "tsx --env-file=.env scripts/verify-backup-integrity.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.4",

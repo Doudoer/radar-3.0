@@ -763,3 +763,114 @@ html.light ::-webkit-scrollbar-thumb:hover, html.light .custom-scrollbar::-webki
     scroll-behavior: auto !important;
   }
 }
+
+/* ========================================================================= */
+/* High-Precision Print Formatting for Weekly Relation PDF & Print           */
+/* ========================================================================= */
+@media print {
+  @page {
+    margin: 1.2cm 1.5cm;
+    size: letter portrait;
+  }
+
+  body, html {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 10.5pt !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Force hide all standard UI on print */
+  nav, header, aside, .print\:hidden, [role="navigation"], .no-print {
+    display: none !important;
+  }
+
+  .radar-view {
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .official-print-card {
+    background: #ffffff !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    color: #000000 !important;
+  }
+
+  .official-print-title {
+    color: #000000 !important;
+    font-size: 22pt !important;
+    font-weight: 900 !important;
+    text-align: center !important;
+    margin-bottom: 24px !important;
+    letter-spacing: -0.02em !important;
+  }
+
+  .official-print-table-box {
+    border: 1.5px solid #cbd5e1 !important;
+    border-radius: 16px !important;
+    overflow: hidden !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+
+  .official-print-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    color: #000000 !important;
+  }
+
+  .official-print-table thead tr {
+    border-bottom: 2px solid #0f172a !important;
+    background: #ffffff !important;
+  }
+
+  .official-print-table th {
+    color: #0f172a !important;
+    font-weight: 800 !important;
+    font-size: 9pt !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+    padding: 10px 14px !important;
+  }
+
+  .official-print-table td {
+    color: #000000 !important;
+    font-size: 9.5pt !important;
+    padding: 10px 14px !important;
+    border-top: 1px solid #e2e8f0 !important;
+  }
+
+  .official-print-subtotal-row {
+    border-top: 2px solid #0f172a !important;
+    background: #ffffff !important;
+    padding: 12px 20px !important;
+    color: #000000 !important;
+  }
+
+  .official-print-summary-box {
+    color: #000000 !important;
+    margin-top: 26px !important;
+  }
+
+  .official-print-summary-box span,
+  .official-print-summary-box div {
+    color: #000000 !important;
+  }
+
+  .official-print-divider {
+    border-top: 2px solid #cbd5e1 !important;
+    margin: 10px 0 !important;
+  }
+
+  .official-print-total-row {
+    color: #000000 !important;
+    font-weight: 900 !important;
+    font-size: 14pt !important;
+  }
+}

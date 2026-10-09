@@ -83,5 +83,6 @@ export const setSessionCookie = (response: ServerResponse, token: string) => {
 };
 
 export const clearSessionCookie = (response: ServerResponse) => {
-  response.setHeader('Set-Cookie', 'radar_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  response.setHeader('Set-Cookie', `radar_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
 };

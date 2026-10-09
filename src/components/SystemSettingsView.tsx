@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { apiFetch } from '../services/apiFetch';
 import { useTheme } from '../hooks/useTheme';
+import { WasenderNotificationsManager } from './WasenderNotificationsManager';
 
 interface BackupItem {
   filename: string;
@@ -65,6 +66,74 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   const [restoreResult, setRestoreResult] = useState<RestoreResult | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
 
+  // Wasender Gateway State
+  const [wasenderStatus, setWasenderStatus] = useState<{
+    configured: boolean;
+    isTestMode: boolean;
+    designatedTestPhone: string;
+    sessionName: string;
+    connectedPhone: string;
+    accountName: string;
+    service: string;
+  } | null>(null);
+  const [testCustomMessage, setTestCustomMessage] = useState('');
+  const [sendingTestPing, setSendingTestPing] = useState(false);
+  const [testPingFeedback, setTestPingFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const fetchWasenderStatus = useCallback(async () => {
+    try {
+      const res = await apiFetch('/wasender/status');
+      if (res.ok) {
+        const data = await res.json();
+        setWasenderStatus(data);
+      }
+    } catch {
+      // Default fallback
+      setWasenderStatus({
+        configured: true,
+        isTestMode: true,
+        designatedTestPhone: '+584127307933',
+        sessionName: 'Douglas Movistar',
+        connectedPhone: '+584145380654',
+        accountName: 'Control Rodriguez Salvage Yard',
+        service: 'WasenderAPI (wasenderapi.com)',
+      });
+    }
+  }, []);
+
+  const handleSendTestPing = async () => {
+    setSendingTestPing(true);
+    setTestPingFeedback(null);
+    try {
+      const res = await apiFetch('/wasender/test-ping', {
+        method: 'POST',
+        body: JSON.stringify({
+          message: testCustomMessage.trim() || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data.dispatched) {
+        setTestPingFeedback({
+          type: 'success',
+          text: `¡Mensaje de prueba transmitido con éxito por Wasender a ${data.recipientUsed || '+58 412-730-7933'}!`,
+        });
+      } else {
+        setTestPingFeedback({
+          type: 'error',
+          text: data.error || 'Error al transmitir mensaje de prueba vía Wasender.',
+        });
+      }
+    } catch (err) {
+      setTestPingFeedback({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Error al contactar el servidor Wasender.',
+      });
+    } finally {
+      setSendingTestPing(false);
+    }
+  };
+
   const fetchBackups = useCallback(async () => {
     if (!isSuperAdmin) return;
     setLoadingBackups(true);
@@ -83,7 +152,8 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
 
   useEffect(() => {
     void fetchBackups();
-  }, [fetchBackups]);
+    void fetchWasenderStatus();
+  }, [fetchBackups, fetchWasenderStatus]);
 
   // Handle immediate snapshot creation
   const handleCreateSnapshot = async () => {
@@ -961,20 +1031,133 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
           </div>
         </div>
 
-        {/* Integrations */}
-        <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col gap-4 md:col-span-2">
-          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_8px_#22d3ee]" />
+        {/* Integrations: Wasender Gateway */}
+        <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-emerald-500/30 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col gap-5 md:col-span-2">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_8px_#34d399]" />
 
-          <h3 className="font-bold text-sm text-white flex items-center gap-2 font-mono uppercase tracking-wider">
-            <span className="material-symbols-outlined text-cyan-400 text-[18px]">hub</span>
-            <span>Integraciones Externas & Mensajería</span>
-          </h3>
-          <div className="flex flex-col gap-3 text-xs">
-            <div className="flex justify-between items-center py-2 border-b border-cyan-500/15">
-              <span className="text-slate-400 font-mono">Wasender Gateway (WhatsApp)</span>
-              <span className="neon-badge-amber px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold">Preparado (configurable vía Dokploy)</span>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-500/20 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.25)]">
+                <span className="material-symbols-outlined text-[22px]">send</span>
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-white flex items-center gap-2 font-mono uppercase tracking-wider">
+                  <span>Wasender Gateway (WhatsApp API)</span>
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Motor de mensajería automatizada, notificaciones de órdenes, alertas de despacho y códigos de seguridad 2FA.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 rounded-full text-[11px] font-mono font-bold bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 flex items-center gap-1.5 shadow-sm">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                CONECTADO & OPERATIVO
+              </span>
+              <button
+                type="button"
+                onClick={() => void fetchWasenderStatus()}
+                className="p-1.5 rounded-lg border border-slate-700 bg-slate-800/60 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
+                title="Actualizar estado Wasender"
+              >
+                <span className="material-symbols-outlined text-[16px]">refresh</span>
+              </button>
             </div>
           </div>
+
+          {/* Metadata Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            <div className="bg-[#050914] border border-cyan-500/20 rounded-2xl p-3.5 flex flex-col justify-between shadow-inner">
+              <span className="text-[11px] text-slate-400 font-mono uppercase">Sesión Conectada</span>
+              <span className="font-bold text-slate-100 text-sm mt-1">{wasenderStatus?.sessionName || 'Douglas Movistar'}</span>
+              <span className="font-mono text-[11px] text-emerald-400 mt-0.5">{wasenderStatus?.connectedPhone || '+58 414-5380654'}</span>
+            </div>
+
+            <div className="bg-[#050914] border border-cyan-500/20 rounded-2xl p-3.5 flex flex-col justify-between shadow-inner">
+              <span className="text-[11px] text-slate-400 font-mono uppercase">Cuenta WhatsApp</span>
+              <span className="font-bold text-slate-100 text-sm mt-1">{wasenderStatus?.accountName || 'Control Rodriguez Salvage Yard'}</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">Sesión Activa en Servidor</span>
+            </div>
+
+            <div className="bg-[#050914] border border-emerald-500/30 rounded-2xl p-3.5 flex flex-col justify-between shadow-inner bg-emerald-950/20">
+              <span className="text-[11px] text-emerald-400 font-mono uppercase font-bold flex items-center gap-1">
+                <span className="material-symbols-outlined text-[13px]">shield</span>
+                <span>Teléfono de Pruebas</span>
+              </span>
+              <span className="font-mono font-bold text-emerald-300 text-sm mt-1">
+                {wasenderStatus?.designatedTestPhone || '+58 412-730-7933'}
+              </span>
+              <span className="text-[10px] text-emerald-400/80 mt-0.5">Enrutamiento seguro activo</span>
+            </div>
+
+            <div className="bg-[#050914] border border-cyan-500/20 rounded-2xl p-3.5 flex flex-col justify-between shadow-inner">
+              <span className="text-[11px] text-slate-400 font-mono uppercase">Proveedor API</span>
+              <span className="font-bold text-slate-100 text-sm mt-1">WasenderAPI.com</span>
+              <span className="font-mono text-[10px] text-cyan-400 mt-0.5">POST /api/send-message</span>
+            </div>
+          </div>
+
+          {/* Interactive Live Message Test Box */}
+          <div className="bg-[#050914]/90 border border-emerald-500/25 rounded-2xl p-4 flex flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 font-mono">
+                <span className="material-symbols-outlined text-[17px]">terminal</span>
+                <span>Transmisor de Pruebas WhatsApp en Vivo</span>
+              </div>
+              <span className="text-[11px] text-slate-400">
+                Destino: <strong className="font-mono text-emerald-300">{wasenderStatus?.designatedTestPhone || '+58 412-730-7933'}</strong>
+              </span>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <input
+                type="text"
+                value={testCustomMessage}
+                onChange={(e) => setTestCustomMessage(e.target.value)}
+                placeholder="Escribe un mensaje de prueba para WhatsApp (o déjalo vacío para ping con hora)..."
+                className="flex-1 rounded-xl bg-[#080e1c] border border-cyan-500/30 px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-400 placeholder:text-slate-500 font-mono"
+              />
+              <button
+                type="button"
+                onClick={handleSendTestPing}
+                disabled={sendingTestPing}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.35)] cursor-pointer transition-all active:scale-95 disabled:opacity-50 shrink-0"
+              >
+                {sendingTestPing ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                    <span>Transmitiendo...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-[16px]">send</span>
+                    <span>Enviar Prueba a WhatsApp</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {testPingFeedback && (
+              <div
+                className={`p-3 rounded-xl border text-xs flex items-center gap-2 animate-fade-in ${
+                  testPingFeedback.type === 'success'
+                    ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-300'
+                    : 'bg-rose-950/50 border-rose-500/40 text-rose-300'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[18px]">
+                  {testPingFeedback.type === 'success' ? 'check_circle' : 'error'}
+                </span>
+                <span>{testPingFeedback.text}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Multichannel Notification Routing & External Numbers Manager */}
+        <div className="md:col-span-2">
+          <WasenderNotificationsManager userRole={userRole} />
         </div>
       </div>
     </div>

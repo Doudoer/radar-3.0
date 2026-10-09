@@ -64,39 +64,63 @@ export const createDatabaseBackup = async (): Promise<string> => {
   return chunks.join('');
 };
 
+let isBackupOperationInProgress = false;
+
+export const acquireBackupLock = (): boolean => {
+  if (isBackupOperationInProgress) return false;
+  isBackupOperationInProgress = true;
+  return true;
+};
+
+export const releaseBackupLock = (): void => {
+  isBackupOperationInProgress = false;
+};
+
+export const isBackupLocked = (): boolean => isBackupOperationInProgress;
+
 export const saveBackupSnapshot = async (options: { tag?: string; customFilename?: string } = {}) => {
-  await ensureBackupsDirectory();
-  const sql = await createDatabaseBackup();
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const tagPart = options.tag ? `_${options.tag}` : '';
-  const filename = options.customFilename || `backup_${timestamp}${tagPart}.sql`;
-  const filePath = path.join(backupsDirectory, filename);
-
-  await fs.writeFile(filePath, sql, 'utf8');
-
-  // Rotate backups keeping the last 20 backups
-  try {
-    const files = await fs.readdir(backupsDirectory);
-    const sqlFiles = files.filter((f) => f.endsWith('.sql'));
-    if (sqlFiles.length > 20) {
-      const stats = await Promise.all(
-        sqlFiles.map(async (f) => ({
-          filename: f,
-          path: path.join(backupsDirectory, f),
-          mtime: (await fs.stat(path.join(backupsDirectory, f))).mtimeMs,
-        }))
-      );
-      stats.sort((a, b) => b.mtime - a.mtime);
-      const toDelete = stats.slice(20);
-      for (const item of toDelete) {
-        await fs.unlink(item.path).catch(() => {});
-      }
-    }
-  } catch {
-    // Ignore rotation error
+  const isNestedSnapshot = options.tag === 'pre_restore';
+  if (!isNestedSnapshot && !acquireBackupLock()) {
+    throw new Error('Una operación de respaldo o restauración ya se encuentra en ejecución');
   }
+  try {
+    await ensureBackupsDirectory();
+    const sql = await createDatabaseBackup();
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const tagPart = options.tag ? `_${options.tag}` : '';
+    const filename = options.customFilename || `backup_${timestamp}${tagPart}.sql`;
+    const filePath = path.join(backupsDirectory, filename);
 
-  return { filename, path: filePath, sizeBytes: Buffer.byteLength(sql, 'utf8') };
+    await fs.writeFile(filePath, sql, 'utf8');
+
+    // Rotate backups keeping the last 20 backups
+    try {
+      const files = await fs.readdir(backupsDirectory);
+      const sqlFiles = files.filter((f) => f.endsWith('.sql'));
+      if (sqlFiles.length > 20) {
+        const stats = await Promise.all(
+          sqlFiles.map(async (f) => ({
+            filename: f,
+            path: path.join(backupsDirectory, f),
+            mtime: (await fs.stat(path.join(backupsDirectory, f))).mtimeMs,
+          }))
+        );
+        stats.sort((a, b) => b.mtime - a.mtime);
+        const toDelete = stats.slice(20);
+        for (const item of toDelete) {
+          await fs.unlink(item.path).catch(() => {});
+        }
+      }
+    } catch {
+      // Ignore rotation error
+    }
+
+    return { filename, path: filePath, sizeBytes: Buffer.byteLength(sql, 'utf8') };
+  } finally {
+    if (!isNestedSnapshot) {
+      releaseBackupLock();
+    }
+  }
 };
 
 export interface BackupItem {
@@ -450,30 +474,35 @@ export const restoreDatabaseBackup = async (
     throw new Error('El contenido del archivo SQL está vacío');
   }
 
-  const startTime = Date.now();
-  let safetySnapshotName: string | undefined;
-
-  // 1. Create safety snapshot before restoring if requested
-  if (options.createSafetySnapshot !== false) {
-    try {
-      const snapshot = await saveBackupSnapshot({ tag: 'pre_restore' });
-      safetySnapshotName = snapshot.filename;
-    } catch (snapshotError) {
-      console.warn('Advertencia: No se pudo crear el respaldo previo de seguridad:', snapshotError);
-    }
+  if (!acquireBackupLock()) {
+    throw new Error('Una operación de respaldo o restauración ya se encuentra en ejecución');
   }
 
-  // 2. Dedicated connection with multipleStatements: true
-  const connection = await createConnection({
-    host: process.env.DB_HOST || '127.0.0.1',
-    port: Number(process.env.DB_PORT || 3306),
-    user: process.env.DB_USER || 'radar_app',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'radar_v3',
-    multipleStatements: true,
-  });
-
+  let connection: any = null;
   try {
+    const startTime = Date.now();
+    let safetySnapshotName: string | undefined;
+
+    // 1. Create safety snapshot before restoring if requested
+    if (options.createSafetySnapshot !== false) {
+      try {
+        const snapshot = await saveBackupSnapshot({ tag: 'pre_restore' });
+        safetySnapshotName = snapshot.filename;
+      } catch (snapshotError) {
+        console.warn('Advertencia: No se pudo crear el respaldo previo de seguridad:', snapshotError);
+      }
+    }
+
+    // 2. Dedicated connection with multipleStatements: true
+    connection = await createConnection({
+      host: process.env.DB_HOST || '127.0.0.1',
+      port: Number(process.env.DB_PORT || 3306),
+      user: process.env.DB_USER || 'radar_app',
+      password: process.env.DB_PASSWORD || '',
+      database: process.env.DB_NAME || 'radar_v3',
+      multipleStatements: true,
+    });
+
     await connection.query('SET FOREIGN_KEY_CHECKS = 0;');
     await connection.query('SET UNIQUE_CHECKS = 0;');
 
@@ -525,7 +554,10 @@ export const restoreDatabaseBackup = async (
       timestamp: new Date().toISOString(),
     };
   } finally {
-    await connection.end();
+    if (connection) {
+      await connection.end().catch(() => {});
+    }
+    releaseBackupLock();
   }
 };
 

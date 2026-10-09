@@ -629,27 +629,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               <span>WhatsApp / SMS</span>
             </button>
 
-            {/* Quick Factura Button */}
-            <button
-              type="button"
-              onClick={() => setSubView('invoice')}
-              className="cyber-btn-secondary px-2.5 py-1 text-[11px] font-bold font-mono flex items-center gap-1"
-              title="Ver o imprimir Factura"
-            >
-              <span className="material-symbols-outlined text-[15px] text-cyan-400">receipt</span>
-              <span>Factura</span>
-            </button>
 
-            {/* Quick Etiqueta 4x6 Button */}
-            <button
-              type="button"
-              onClick={() => setSubView('dispatch')}
-              className="cyber-btn-secondary px-2.5 py-1 text-[11px] font-bold font-mono flex items-center gap-1"
-              title="Imprimir etiqueta térmica 4x6"
-            >
-              <span className="material-symbols-outlined text-[15px] text-emerald-400">qr_code_2</span>
-              <span>Rótulo 4x6</span>
-            </button>
 
             {/* Quick Subasta Toggle Button */}
             <button

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { apiFetch } from '../services/apiFetch';
 
 interface SecurityOtpModalProps {
   isOpen: boolean;
@@ -22,17 +23,45 @@ export const SecurityOtpModal: React.FC<SecurityOtpModalProps> = ({
   const [otpCode, setOtpCode] = useState('');
   const [generatedOtp, setGeneratedOtp] = useState('739201');
   const [otpSent, setOtpSent] = useState(false);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [otpDispatchInfo, setOtpDispatchInfo] = useState<string | null>(null);
   const [isSuperAdminBypass, setIsSuperAdminBypass] = useState(false);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSendOtp = () => {
+  const handleSendOtp = async () => {
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     setGeneratedOtp(code);
-    setOtpSent(true);
+    setIsSendingOtp(true);
     setError('');
+    setOtpDispatchInfo(null);
+
+    const message = `🛡️ *RADAR V3 • Código de Autorización OTP*\n\nSe ha solicitado la siguiente acción protegida:\n*Acción:* ${actionTitle}\n*Orden:* #${orderCode}\n\nTu código PIN de verificación es:\n👉 *${code}*\n\n_(Válido por 10 minutos • Transmitido vía WasenderAPI)_`;
+
+    try {
+      const res = await apiFetch('/wasender/send', {
+        method: 'POST',
+        body: JSON.stringify({
+          phone: destinationPhone,
+          message,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      setOtpSent(true);
+      if (data.dispatched) {
+        setOtpDispatchInfo(`Código transmitido a WhatsApp (${data.recipientUsed || destinationPhone})`);
+      } else {
+        setOtpDispatchInfo(`Código generado localmente`);
+      }
+    } catch {
+      setOtpSent(true);
+      setOtpDispatchInfo(`Código generado`);
+    } finally {
+      setIsSendingOtp(false);
+    }
   };
 
   const handleVerify = () => {
@@ -131,25 +160,46 @@ export const SecurityOtpModal: React.FC<SecurityOtpModalProps> = ({
               <button
                 type="button"
                 onClick={handleSendOtp}
-                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.35)] active:scale-95"
+                disabled={isSendingOtp}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.35)] active:scale-95 disabled:opacity-60"
               >
-                <span className="material-symbols-outlined text-[16px]">send</span>
-                <span>Enviar Código OTP por Wasender</span>
+                {isSendingOtp ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                    <span>Transmitiendo vía Wasender...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-[16px]">send</span>
+                    <span>Enviar Código OTP por WhatsApp (Wasender)</span>
+                  </>
+                )}
               </button>
             ) : (
               <div className="flex flex-col gap-3">
-                <div className="bg-emerald-950/30 border border-emerald-500/30 p-3 rounded-xl flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2 text-emerald-400">
-                    <span className="material-symbols-outlined text-[16px]">mark_email_read</span>
-                    <span>Código simulado: <strong className="font-mono text-sm tracking-wider text-emerald-300 font-black">{generatedOtp}</strong></span>
+                <div className="bg-emerald-950/40 border border-emerald-500/40 p-3 rounded-xl flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2 text-emerald-300">
+                    <span className="material-symbols-outlined text-[16px] text-emerald-400">check_circle</span>
+                    <span>{otpDispatchInfo || 'Código transmitido a WhatsApp'}: <strong className="font-mono text-sm tracking-wider text-emerald-300 font-black">{generatedOtp}</strong></span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setOtpCode(generatedOtp)}
-                    className="text-[11px] text-cyan-400 hover:text-cyan-300 hover:underline font-bold cursor-pointer"
-                  >
-                    Autocompletar
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setOtpCode(generatedOtp)}
+                      className="text-[11px] text-cyan-400 hover:text-cyan-300 hover:underline font-bold cursor-pointer"
+                    >
+                      Autocompletar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSendOtp}
+                      disabled={isSendingOtp}
+                      title="Reenviar código"
+                      className="text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer"
+                    >
+                      Reenviar
+                    </button>
+                  </div>
                 </div>
 
                 <div>
