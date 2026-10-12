@@ -1,12 +1,27 @@
-# 📍 CHECKPOINT RADAR 3.0 — 2026-10-08
+# 📍 CHECKPOINT RADAR 3.0 — 2026-10-12
 
-**Fecha y Hora:** 8 de Octubre, 2026 — 15:15 UTC-4  
+**Fecha y Hora:** 12 de Octubre, 2026 — 10:05 UTC-4  
 **Rama:** `main`  
-**Estado:** Probado y compilado con 100% de tests pasando (42/42 en 7 suites)
+**Estado:** Probado y compilado con 100% de tests pasando (95/95 en 16 suites)
 
 ---
 
-## 🚀 1. Resumen de lo Realizado en esta Sesión
+## 🚀 Resumen de Actualización Reciente (12 de Octubre, 2026)
+
+### Corrección de Validación Zod en Canales de Notificación y Asignación Flexible de Operadores (`schemas.ts`, `WasenderNotificationsManager.tsx`, `notificationService.ts`)
+- **Problema Detectado:** Al intentar designar operadores (ej. Alejandro Palacio) en canales de notificación y guardar la configuración, el backend arrojaba `Payload inválido: channels.9.key: Invalid option: expected one of "NUEVA_VENTA"|...` debido a que la enumeración de Zod en el backend carecía del 10.º canal (`ALERTA_SEGURIDAD`).
+- **Corrección en Backend:**
+  - Incluido `'ALERTA_SEGURIDAD'` en `notificationChannelUpdateSchema` y `notificationTestDispatchSchema` en [`src/server/schemas.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/server/schemas.ts).
+  - En [`src/integrations/wasender/notificationService.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/integrations/wasender/notificationService.ts), se amplió la resolución de destinatarios en canales `superadmin_only` para despachar también a operadores y contactos externos designados manualmente por el administrador.
+- **Mejoras en Frontend (`WasenderNotificationsManager.tsx`):**
+  - Se habilitó la selección de operadores registrados en **todos** los canales activos (no solo los multicast), permitiendo asignar operadores adicionales fijos a `CAMBIO_ESTATUS` o canales administrativos.
+  - Indicador visual `(Sin tel)` en operadores sin teléfono registrado para recordar registrarlo en su perfil.
+  - Título de pestaña dinámico reflejando el número real de canales `(10 Tipos)`.
+- **Pruebas y Verificación:** 95 pruebas unitarias pasando en Vitest y 0 errores en TypeScript.
+
+---
+
+## 🚀 1. Resumen de lo Realizado en Sesiones Anteriores
 
 ### A. Perfiles de Usuario Completos: Teléfono, Correo, Avatar y Edición Dual (`UserProfileModal.tsx`, `UsersManagementView.tsx`, `TopHeader.tsx`, `server.ts`)
 - **Objetivo Cumplido:** Los usuarios ahora cuentan con perfiles completos que incluyen **Número de Teléfono (`phone`)**, **Correo Electrónico (`email`)**, y **Avatar de Perfil (`avatar_url`)**, editables tanto por el propio usuario desde su perfil como por el Super Admin desde la gestión de usuarios.

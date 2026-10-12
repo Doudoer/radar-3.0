@@ -122,6 +122,8 @@ describe('QuickSMSModal delivery message formatting', () => {
         make: 'NISSAN',
         model: 'Altima',
         year: 2008,
+        mileage: '120000',
+        color: 'Gris',
       },
       workflowStep: 2,
       financials: {

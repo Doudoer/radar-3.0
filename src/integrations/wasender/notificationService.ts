@@ -356,22 +356,63 @@ export async function resolveRecipientsForEvent(
     }
   };
 
-  // 1. SUPERADMIN ONLY CHANNELS (SOLICITUD_REEMBOLSO, ORDEN_CANCELADA, RESPALDO_AUTOMATICO, BUSQUEDA_SUBASTAS)
+  // 1. SUPERADMIN ONLY CHANNELS (SOLICITUD_REEMBOLSO, ORDEN_CANCELADA, RESPALDO_AUTOMATICO, BUSQUEDA_SUBASTAS, ALERTA_SEGURIDAD)
   if (channel.target_type === 'superadmin_only') {
-    const [admins] = await pool.query<RowDataPacket[]>(
-      "SELECT id, name, phone FROM users WHERE role = 'admin'"
-    );
-    for (const a of admins) {
-      if (a.phone) {
-        addRecipient(a.phone, a.name, 'Super Admin', 'superadmin');
+    if (channel.superadmin_enabled !== false) {
+      const [admins] = await pool.query<RowDataPacket[]>(
+        "SELECT id, name, phone FROM users WHERE role = 'admin'"
+      );
+      for (const a of admins) {
+        if (a.phone) {
+          addRecipient(a.phone, a.name, 'Super Admin', 'superadmin');
+        }
       }
     }
+
+    // Also notify operators manually designated by the administrator
+    let operatorIds: number[] = [];
+    try {
+      operatorIds = Array.isArray(channel.operator_ids)
+        ? channel.operator_ids
+        : JSON.parse(channel.operator_ids || '[]');
+    } catch {
+      operatorIds = [];
+    }
+    if (operatorIds.length > 0) {
+      const [ops] = await pool.query<RowDataPacket[]>(
+        'SELECT id, name, phone, role FROM users WHERE id IN (?)',
+        [operatorIds]
+      );
+      for (const op of ops) {
+        if (op.phone) addRecipient(op.phone, op.name, 'Operador Asignado', 'assigned_operator');
+      }
+    }
+
+    // Also notify external contacts manually designated
+    let contactIds: number[] = [];
+    try {
+      contactIds = Array.isArray(channel.external_contact_ids)
+        ? channel.external_contact_ids
+        : JSON.parse(channel.external_contact_ids || '[]');
+    } catch {
+      contactIds = [];
+    }
+    if (contactIds.length > 0) {
+      const [contacts] = await pool.query<RowDataPacket[]>(
+        'SELECT id, name, phone, label FROM whatsapp_external_contacts WHERE id IN (?) AND is_active = 1',
+        [contactIds]
+      );
+      for (const c of contacts) {
+        if (c.phone) addRecipient(c.phone, c.name, c.label || 'Contacto Externo', 'external_contact');
+      }
+    }
+
     return {
       allowed: recipients.length > 0,
       channelKey: eventKey,
       channelName: channel.channel_name,
       recipients,
-      skippedReason: recipients.length === 0 ? 'No hay administradores con teléfono registrado' : undefined,
+      skippedReason: recipients.length === 0 ? 'No hay destinatarios con teléfono registrado' : undefined,
     };
   }
 

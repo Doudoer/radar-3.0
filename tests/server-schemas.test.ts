@@ -338,12 +338,21 @@ describe('server input schemas', () => {
           operatorIds: [],
           externalContactIds: [],
         },
+        {
+          key: 'ALERTA_SEGURIDAD',
+          isEnabled: true,
+          superadminEnabled: true,
+          operatorIds: [3],
+          externalContactIds: [],
+        },
       ],
     });
 
-    expect(validConfig.channels.length).toBe(2);
+    expect(validConfig.channels.length).toBe(3);
     expect(validConfig.channels[0].key).toBe('NUEVA_VENTA');
     expect(validConfig.channels[0].operatorIds).toEqual([1, 2]);
+    expect(validConfig.channels[2].key).toBe('ALERTA_SEGURIDAD');
+    expect(validConfig.channels[2].operatorIds).toEqual([3]);
 
     const validContact = externalContactSchema.parse({
       name: 'Lic. Roberto Mendoza',
@@ -366,6 +375,12 @@ describe('server input schemas', () => {
 
     expect(validTest.channelKey).toBe('CAMBIO_ESTATUS');
     expect(validTest.orderStatus).toBe('Listo para Retiro');
+
+    const validSecurityTest = notificationTestDispatchSchema.parse({
+      channelKey: 'ALERTA_SEGURIDAD',
+      customMessage: 'Prueba de alerta crítica',
+    });
+    expect(validSecurityTest.channelKey).toBe('ALERTA_SEGURIDAD');
   });
 
   it('validates verifyOtpSchema for 6-digit security codes', () => {
