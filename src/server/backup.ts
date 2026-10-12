@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { RowDataPacket, createConnection } from 'mysql2/promise';
+import zlib from 'node:zlib';
+import { RowDataPacket, createConnection, Pool } from 'mysql2/promise';
 import { pool } from './config';
 
 const escapeIdentifier = (value: string) => `\`${value.replace(/`/g, '``')}\``;
@@ -27,9 +28,31 @@ const escapeValue = (value: unknown) => {
 const getTableName = (row: RowDataPacket) => String(row[Object.keys(row)[0]]);
 
 const backupsDirectory = path.resolve(process.cwd(), 'backups');
+const uploadsBackupsDirectory = path.resolve(process.cwd(), 'uploads', 'backups');
+
+export const ensureBackupRecordsTable = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS system_backup_records (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        filename VARCHAR(150) NOT NULL UNIQUE,
+        file_path VARCHAR(255) NOT NULL,
+        size_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        backup_type VARCHAR(40) NOT NULL DEFAULT 'manual',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        content_compressed LONGBLOB NULL,
+        INDEX system_backup_created_idx (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+  } catch (err) {
+    console.warn('[Backups] Advertencia al verificar/crear tabla system_backup_records:', err);
+  }
+};
 
 export const ensureBackupsDirectory = async () => {
   await fs.mkdir(backupsDirectory, { recursive: true });
+  await fs.mkdir(uploadsBackupsDirectory, { recursive: true });
+  await ensureBackupRecordsTable();
 };
 
 export const createDatabaseBackup = async (): Promise<string> => {
@@ -89,15 +112,45 @@ export const saveBackupSnapshot = async (options: { tag?: string; customFilename
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const tagPart = options.tag ? `_${options.tag}` : '';
     const filename = options.customFilename || `backup_${timestamp}${tagPart}.sql`;
-    const filePath = path.join(backupsDirectory, filename);
+    
+    const primaryPath = path.join(backupsDirectory, filename);
+    const uploadsPath = path.join(uploadsBackupsDirectory, filename);
+    const sizeBytes = Buffer.byteLength(sql, 'utf8');
+    const backupType = options.tag || 'manual';
 
-    await fs.writeFile(filePath, sql, 'utf8');
+    // 1. Dual disk write (both backups/ and uploads/backups/)
+    await fs.writeFile(primaryPath, sql, 'utf8');
+    try {
+      await fs.writeFile(uploadsPath, sql, 'utf8');
+    } catch {
+      // ignore
+    }
 
-    // Rotate backups keeping the last 20 backups
+    // 2. Compress with gzip and store in uploads/backups/
+    const gzippedBuffer = zlib.gzipSync(Buffer.from(sql, 'utf8'));
+    try {
+      await fs.writeFile(path.join(uploadsBackupsDirectory, `${filename}.gz`), gzippedBuffer);
+    } catch {
+      // ignore
+    }
+
+    // 3. Persist record and compressed blob in MySQL system_backup_records table
+    try {
+      await pool.query(
+        `INSERT INTO system_backup_records (filename, file_path, size_bytes, backup_type, created_at, content_compressed)
+         VALUES (?, ?, ?, ?, NOW(), ?)
+         ON DUPLICATE KEY UPDATE file_path=VALUES(file_path), size_bytes=VALUES(size_bytes), content_compressed=VALUES(content_compressed)`,
+        [filename, primaryPath, sizeBytes, backupType, gzippedBuffer]
+      );
+    } catch (dbErr) {
+      console.warn('⚠️ No se pudo registrar el respaldo en la tabla MySQL system_backup_records:', dbErr);
+    }
+
+    // 4. Rotate backups keeping the last 50 backups on disk
     try {
       const files = await fs.readdir(backupsDirectory);
       const sqlFiles = files.filter((f) => f.endsWith('.sql'));
-      if (sqlFiles.length > 20) {
+      if (sqlFiles.length > 50) {
         const stats = await Promise.all(
           sqlFiles.map(async (f) => ({
             filename: f,
@@ -106,7 +159,7 @@ export const saveBackupSnapshot = async (options: { tag?: string; customFilename
           }))
         );
         stats.sort((a, b) => b.mtime - a.mtime);
-        const toDelete = stats.slice(20);
+        const toDelete = stats.slice(50);
         for (const item of toDelete) {
           await fs.unlink(item.path).catch(() => {});
         }
@@ -115,7 +168,7 @@ export const saveBackupSnapshot = async (options: { tag?: string; customFilename
       // Ignore rotation error
     }
 
-    return { filename, path: filePath, sizeBytes: Buffer.byteLength(sql, 'utf8') };
+    return { filename, path: primaryPath, sizeBytes };
   } finally {
     if (!isNestedSnapshot) {
       releaseBackupLock();
@@ -140,16 +193,135 @@ const formatBytes = (bytes: number): string => {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 };
 
+const syncFileToDb = async (filename: string, fullPath: string, size: number, mtime: Date) => {
+  try {
+    let gzippedBuffer: Buffer | null = null;
+    if (filename.endsWith('.sql')) {
+      const content = await fs.readFile(fullPath, 'utf8');
+      gzippedBuffer = zlib.gzipSync(Buffer.from(content, 'utf8'));
+    } else if (filename.endsWith('.gz')) {
+      gzippedBuffer = await fs.readFile(fullPath);
+    }
+    await pool.query(
+      `INSERT IGNORE INTO system_backup_records (filename, file_path, size_bytes, backup_type, created_at, content_compressed)
+       VALUES (?, ?, ?, 'imported', ?, ?)`,
+      [filename, fullPath, size, mtime, gzippedBuffer]
+    );
+  } catch {
+    // ignore
+  }
+};
+
+export const ensureBackupFileOnDisk = async (filename: string): Promise<string | null> => {
+  const safeName = path.basename(filename);
+  const primaryPath = path.join(backupsDirectory, safeName);
+  const uploadsPath = path.join(uploadsBackupsDirectory, safeName);
+  const rootPath = path.join(process.cwd(), safeName);
+
+  for (const p of [primaryPath, uploadsPath, rootPath]) {
+    try {
+      await fs.access(p);
+      return p;
+    } catch {}
+  }
+
+  // Check in MySQL system_backup_records
+  try {
+    const baseLookup = safeName.replace(/\.gz$/, '');
+    const [blobRows] = await pool.query<RowDataPacket[]>(
+      'SELECT filename, content_compressed FROM system_backup_records WHERE filename = ? OR filename = ? LIMIT 1',
+      [safeName, baseLookup]
+    );
+    const row = blobRows[0];
+    if (row && row.content_compressed && Buffer.isBuffer(row.content_compressed)) {
+      await ensureBackupsDirectory();
+      if (safeName.endsWith('.gz')) {
+        await fs.writeFile(uploadsPath, row.content_compressed);
+        return uploadsPath;
+      } else {
+        const decompressed = zlib.gunzipSync(row.content_compressed).toString('utf8');
+        await fs.writeFile(primaryPath, decompressed, 'utf8');
+        await fs.writeFile(uploadsPath, decompressed, 'utf8');
+        return primaryPath;
+      }
+    }
+  } catch (err) {
+    console.warn(`[ensureBackupFileOnDisk] Error materializing backup from DB for ${safeName}:`, err);
+  }
+
+  return null;
+};
+
 export const listBackups = async (): Promise<BackupItem[]> => {
   await ensureBackupsDirectory();
   const items: BackupItem[] = [];
   const seenFiles = new Set<string>();
 
-  // 1. Scan backups/ folder
+  // 1. Query records from MySQL table system_backup_records
+  try {
+    const [dbRows] = await pool.query<RowDataPacket[]>(
+      'SELECT id, filename, file_path, size_bytes, backup_type, created_at, (content_compressed IS NOT NULL) AS has_blob FROM system_backup_records ORDER BY created_at DESC'
+    );
+
+    for (const row of dbRows) {
+      const filename = String(row.filename);
+      seenFiles.add(filename);
+
+      const primaryPath = path.join(backupsDirectory, filename);
+      const uploadsPath = path.join(uploadsBackupsDirectory, filename);
+      let fileExistsOnDisk = false;
+
+      try {
+        await fs.access(primaryPath);
+        fileExistsOnDisk = true;
+      } catch {
+        try {
+          await fs.access(uploadsPath);
+          fileExistsOnDisk = true;
+        } catch {
+          fileExistsOnDisk = false;
+        }
+      }
+
+      // If missing from disk (e.g. container was destroyed & restarted), re-materialize from DB blob!
+      if (!fileExistsOnDisk && row.has_blob) {
+        try {
+          const [blobRows] = await pool.query<RowDataPacket[]>(
+            'SELECT content_compressed FROM system_backup_records WHERE filename = ?',
+            [filename]
+          );
+          const compressed = blobRows[0]?.content_compressed as Buffer | undefined;
+          if (compressed && Buffer.isBuffer(compressed)) {
+            const decompressed = zlib.gunzipSync(compressed).toString('utf8');
+            await fs.writeFile(primaryPath, decompressed, 'utf8').catch(() => {});
+            await fs.writeFile(uploadsPath, decompressed, 'utf8').catch(() => {});
+            fileExistsOnDisk = true;
+          }
+        } catch (restoreErr) {
+          console.warn(`[Backups] No se pudo re-materializar archivo ${filename} desde DB:`, restoreErr);
+        }
+      }
+
+      const size = Number(row.size_bytes) || 0;
+      items.push({
+        filename,
+        sizeBytes: size,
+        formattedSize: formatBytes(size),
+        createdAt: new Date(row.created_at).toISOString(),
+        isSafetySnapshot: filename.includes('pre_restore') || filename.includes('snapshot'),
+        isRootFile: false,
+      });
+    }
+  } catch (err) {
+    console.warn('Advertencia al consultar system_backup_records:', err);
+  }
+
+  // 2. Scan backups/ folder
   try {
     const backupFiles = await fs.readdir(backupsDirectory);
     for (const file of backupFiles) {
-      if (!file.endsWith('.sql')) continue;
+      if (!file.endsWith('.sql') && !file.endsWith('.sql.gz')) continue;
+      if (seenFiles.has(file)) continue;
       const fullPath = path.join(backupsDirectory, file);
       const stat = await fs.stat(fullPath);
       seenFiles.add(file);
@@ -161,12 +333,38 @@ export const listBackups = async (): Promise<BackupItem[]> => {
         isSafetySnapshot: file.includes('pre_restore') || file.includes('snapshot'),
         isRootFile: false,
       });
+
+      syncFileToDb(file, fullPath, stat.size, stat.mtime).catch(() => {});
     }
   } catch {
     // Ignore error
   }
 
-  // 2. Scan project root for .sql backups (e.g. backup_*.sql or radar-*.sql)
+  // 3. Scan uploads/backups/ folder
+  try {
+    const uploadFiles = await fs.readdir(uploadsBackupsDirectory);
+    for (const file of uploadFiles) {
+      if (!file.endsWith('.sql') && !file.endsWith('.sql.gz')) continue;
+      if (seenFiles.has(file)) continue;
+      const fullPath = path.join(uploadsBackupsDirectory, file);
+      const stat = await fs.stat(fullPath);
+      seenFiles.add(file);
+      items.push({
+        filename: file,
+        sizeBytes: stat.size,
+        formattedSize: formatBytes(stat.size),
+        createdAt: stat.mtime.toISOString(),
+        isSafetySnapshot: file.includes('pre_restore') || file.includes('snapshot'),
+        isRootFile: false,
+      });
+
+      syncFileToDb(file, fullPath, stat.size, stat.mtime).catch(() => {});
+    }
+  } catch {
+    // Ignore error
+  }
+
+  // 4. Scan project root for .sql backups (e.g. backup_*.sql or radar-*.sql)
   try {
     const rootFiles = await fs.readdir(process.cwd());
     for (const file of rootFiles) {
@@ -174,6 +372,7 @@ export const listBackups = async (): Promise<BackupItem[]> => {
       const fullPath = path.join(process.cwd(), file);
       const stat = await fs.stat(fullPath);
       if (!stat.isFile()) continue;
+      seenFiles.add(file);
       items.push({
         filename: file,
         sizeBytes: stat.size,
@@ -182,6 +381,8 @@ export const listBackups = async (): Promise<BackupItem[]> => {
         isSafetySnapshot: file.includes('pre_restore') || file.includes('snapshot'),
         isRootFile: true,
       });
+
+      syncFileToDb(file, fullPath, stat.size, stat.mtime).catch(() => {});
     }
   } catch {
     // Ignore error
@@ -193,39 +394,36 @@ export const listBackups = async (): Promise<BackupItem[]> => {
 
 export const resolveBackupPath = (filename: string): string => {
   const safeName = path.basename(filename);
-  if (!safeName.endsWith('.sql')) {
-    throw new Error('Solo se permiten archivos con extensión .sql');
+  if (!safeName.endsWith('.sql') && !safeName.endsWith('.sql.gz')) {
+    throw new Error('Solo se permiten archivos con extensión .sql o .sql.gz');
   }
 
-  const backupDirFile = path.join(backupsDirectory, safeName);
-  const rootDirFile = path.join(process.cwd(), safeName);
+  const inBackups = path.join(backupsDirectory, safeName);
+  const inUploads = path.join(uploadsBackupsDirectory, safeName);
+  const inRoot = path.join(process.cwd(), safeName);
 
-  return path.resolve(backupDirFile);
+  return path.resolve(inBackups);
 };
 
 export const getBackupFileContent = async (filename: string): Promise<{ sql: string; resolvedPath: string }> => {
   const safeName = path.basename(filename);
-  if (!safeName.endsWith('.sql')) {
-    throw new Error('Solo se permiten archivos con extensión .sql');
+  if (!safeName.endsWith('.sql') && !safeName.endsWith('.sql.gz')) {
+    throw new Error('Solo se permiten archivos con extensión .sql o .sql.gz');
   }
 
-  const inBackupsDir = path.join(backupsDirectory, safeName);
-  const inRootDir = path.join(process.cwd(), safeName);
-
-  let targetPath = inBackupsDir;
-  try {
-    await fs.access(inBackupsDir);
-  } catch {
-    try {
-      await fs.access(inRootDir);
-      targetPath = inRootDir;
-    } catch {
-      throw new Error(`El archivo de respaldo "${safeName}" no existe`);
-    }
+  const diskPath = await ensureBackupFileOnDisk(safeName);
+  if (!diskPath) {
+    throw new Error(`El archivo de respaldo "${safeName}" no existe`);
   }
 
-  const sql = await fs.readFile(targetPath, 'utf8');
-  return { sql, resolvedPath: targetPath };
+  if (diskPath.endsWith('.gz')) {
+    const raw = await fs.readFile(diskPath);
+    const sql = zlib.gunzipSync(raw).toString('utf8');
+    return { sql, resolvedPath: diskPath };
+  }
+
+  const sql = await fs.readFile(diskPath, 'utf8');
+  return { sql, resolvedPath: diskPath };
 };
 
 export interface RestoreResult {
@@ -240,7 +438,7 @@ export interface RestoreResult {
   timestamp: string;
 }
 
-const PRESERVED_TABLES = new Set(['users', 'inventory_parts']);
+const PRESERVED_TABLES = new Set(['users', 'inventory_parts', 'system_backup_records']);
 
 /**
  * Reads all rows currently in the `users` table.
@@ -308,6 +506,49 @@ export const clearDatabaseExceptUsers = async (
 };
 
 export const clearDatabaseExceptPreserved = clearDatabaseExceptUsers;
+
+/**
+ * Reads all rows currently in the `system_backup_records` table.
+ */
+export const fetchCurrentBackupRecords = async (
+  connection: { query: (sql: string) => Promise<unknown> }
+): Promise<RowDataPacket[]> => {
+  try {
+    const [tableCheck] = (await connection.query(
+      "SHOW TABLES LIKE 'system_backup_records'"
+    )) as [RowDataPacket[], unknown];
+    if (tableCheck.length === 0) return [];
+    const [rows] = (await connection.query('SELECT * FROM `system_backup_records`')) as [RowDataPacket[], unknown];
+    return rows || [];
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Re-inserts or merges preserved backup records into `system_backup_records` table.
+ */
+export const restorePreservedBackupRecords = async (
+  connection: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+  records: RowDataPacket[]
+): Promise<number> => {
+  if (!records || records.length === 0) return 0;
+  let count = 0;
+  for (const r of records) {
+    try {
+      await connection.query(
+        `INSERT INTO \`system_backup_records\` (\`id\`, \`filename\`, \`file_path\`, \`size_bytes\`, \`backup_type\`, \`created_at\`, \`content_compressed\`)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE \`file_path\` = VALUES(\`file_path\`), \`size_bytes\` = VALUES(\`size_bytes\`), \`content_compressed\` = VALUES(\`content_compressed\`);`,
+        [r.id, r.filename, r.file_path, r.size_bytes, r.backup_type, r.created_at, r.content_compressed]
+      );
+      count++;
+    } catch {
+      // ignore
+    }
+  }
+  return count;
+};
 
 /**
  * Ensures the `inventory_parts` table structure and schema exist.
@@ -506,14 +747,16 @@ export const restoreDatabaseBackup = async (
     await connection.query('SET FOREIGN_KEY_CHECKS = 0;');
     await connection.query('SET UNIQUE_CHECKS = 0;');
 
-    // 3. Preserve current users and inventory in memory before restoring
+    // 3. Preserve current users, inventory and backup records in memory before restoring
     const preservedUsers = await fetchCurrentUsers(connection);
     const preservedUsersCount = preservedUsers.length;
 
     const preservedInventoryParts = await fetchCurrentInventoryParts(connection);
     const preservedInventoryCount = preservedInventoryParts.length;
 
-    // 4. Wipe / clear all tables in the database except `users` and `inventory_parts`
+    const preservedBackupRecords = await fetchCurrentBackupRecords(connection);
+
+    // 4. Wipe / clear all tables in the database except preserved tables (users, inventory_parts, system_backup_records)
     const clearedTables = await clearDatabaseExceptUsers(connection);
 
     // 5. Execute new SQL backup statements into the blank database
@@ -529,6 +772,13 @@ export const restoreDatabaseBackup = async (
       await restorePreservedInventoryParts(connection, preservedInventoryParts);
     } else {
       await ensureInventoryPartsTable(connection);
+    }
+
+    // 8. Guarantee that backup records exist and are restored
+    if (preservedBackupRecords.length > 0) {
+      await restorePreservedBackupRecords(connection, preservedBackupRecords);
+    } else {
+      await ensureBackupRecordsTable();
     }
 
     await connection.query('SET FOREIGN_KEY_CHECKS = 1;');
@@ -559,5 +809,68 @@ export const restoreDatabaseBackup = async (
     }
     releaseBackupLock();
   }
+};
+
+/**
+ * Starts a background scheduler checking every 30s to dispatch the Daily Automatic Database Backup at 03:00 AM (Eastern Time).
+ */
+export const startDailyBackupScheduler = (
+  poolInstance: Pool,
+  wasenderInstance: any
+): NodeJS.Timeout => {
+  let lastDispatchedDate = '';
+
+  const checkAndRun = async () => {
+    try {
+      const now = new Date();
+      // Format in America/New_York (North Carolina / Eastern Time)
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+      const parts = formatter.formatToParts(now);
+      const hour = parts.find((p) => p.type === 'hour')?.value;
+      const minute = parts.find((p) => p.type === 'minute')?.value;
+      const year = parts.find((p) => p.type === 'year')?.value;
+      const month = parts.find((p) => p.type === 'month')?.value;
+      const day = parts.find((p) => p.type === 'day')?.value;
+
+      const todayStr = `${year}-${month}-${day}`;
+
+      // Run daily at 03:00 AM (Eastern Time)
+      if (hour === '03' && minute === '00' && lastDispatchedDate !== todayStr) {
+        lastDispatchedDate = todayStr;
+        console.log(`[Daily Backup Scheduler] ⏰ Ejecutando respaldo automático diario (03:00 AM Eastern Time)...`);
+        const result = await saveBackupSnapshot({ tag: 'cron_daily' });
+        console.log(`[Daily Backup Scheduler] ✅ Respaldo generado: ${result.filename} (${result.sizeBytes} bytes)`);
+
+        const appBaseUrl = (process.env.APP_URL && !process.env.APP_URL.includes('radar-rsy.site') && !process.env.APP_URL.includes('localhost'))
+          ? process.env.APP_URL.replace(/\/+$/, '')
+          : 'https://radar-rsy.store';
+
+        const backupDownloadUrl = `${appBaseUrl}/api/uploads/backups/${result.filename}`;
+
+        try {
+          const { formatRespaldoAutomaticoMessage } = await import('../integrations/wasender/notificationTemplates');
+          const { dispatchSystemNotification } = await import('../integrations/wasender/notificationService');
+          const backupMsg = formatRespaldoAutomaticoMessage({ downloadUrl: backupDownloadUrl });
+          await dispatchSystemNotification(poolInstance, wasenderInstance, 'RESPALDO_AUTOMATICO', backupMsg);
+          console.log(`[Daily Backup Scheduler] 📱 Notificación de respaldo automático despachada a Super Admin.`);
+        } catch (notifErr) {
+          console.warn('[Daily Backup Scheduler] ⚠️ No se pudo enviar notificación de respaldo:', notifErr);
+        }
+      }
+    } catch (err) {
+      console.error('[Daily Backup Scheduler] Error al ejecutar respaldo programado:', err);
+    }
+  };
+
+  const interval = setInterval(checkAndRun, 30_000);
+  return interval;
 };
 

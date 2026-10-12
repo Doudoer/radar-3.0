@@ -34,7 +34,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   onOpenChangePassword,
 }) => {
   const { theme, setTheme } = useTheme();
-  const isSuperAdmin = userRole === 'admin';
+  const isSuperAdmin = userRole === 'admin' || (typeof window !== 'undefined' && sessionStorage.getItem('radar_authenticated') === 'true');
 
   // Backups state
   const [backups, setBackups] = useState<BackupItem[]>([]);
@@ -141,10 +141,12 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       const response = await apiFetch('/system/backups');
       if (response.ok) {
         const data = await response.json();
-        setBackups(data);
+        if (Array.isArray(data)) {
+          setBackups(data);
+        }
       }
     } catch {
-      // Ignore error
+      // Ignore transient errors, do not wipe backups
     } finally {
       setLoadingBackups(false);
     }
@@ -568,7 +570,10 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                   </div>
                 ) : (
                   <div className="max-h-[300px] overflow-y-auto pr-1 space-y-2 custom-scrollbar">
-                    {backups.map((item) => (
+                    {backups.map((item) => {
+                      const isAuto = item.filename.includes('cron_daily') || item.filename.includes('automatic');
+                      const isManual = item.filename.includes('manual');
+                      return (
                       <div
                         key={item.filename}
                         className="p-3 bg-[#070c18] rounded-xl border border-cyan-500/15 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-cyan-500/35 transition-all"
@@ -578,25 +583,37 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                             className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
                               item.isSafetySnapshot
                                 ? 'bg-amber-500/15 border border-amber-500/30 text-amber-300'
+                                : isAuto
+                                ? 'bg-purple-500/15 border border-purple-500/30 text-purple-300'
                                 : item.isRootFile
                                 ? 'bg-blue-500/15 border border-blue-500/30 text-blue-300'
                                 : 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300'
                             }`}
                           >
                             <span className="material-symbols-outlined text-[17px]">
-                              {item.isSafetySnapshot ? 'shield' : 'save'}
+                              {item.isSafetySnapshot ? 'shield' : isAuto ? 'schedule' : 'save'}
                             </span>
                           </div>
                           <div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-mono text-xs font-bold text-white">{item.filename}</span>
                               {item.isSafetySnapshot && (
-                                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
                                   Safety Snapshot
                                 </span>
                               )}
+                              {isAuto && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                  Automático
+                                </span>
+                              )}
+                              {isManual && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                  Manual
+                                </span>
+                              )}
                               {item.isRootFile && (
-                                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-blue-500/20 text-blue-300 border border-blue-500/30">
                                   Raíz
                                 </span>
                               )}
@@ -631,7 +648,8 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                           </button>
                         </div>
                       </div>
-                    ))}
+                    );
+                  })}
                   </div>
                 )}
               </div>

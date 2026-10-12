@@ -3,16 +3,18 @@ import {
   acquireBackupLock,
   clearDatabaseExceptPreserved,
   clearDatabaseExceptUsers,
+  fetchCurrentBackupRecords,
   fetchCurrentInventoryParts,
   fetchCurrentUsers,
   isBackupLocked,
   releaseBackupLock,
+  restorePreservedBackupRecords,
   restorePreservedInventoryParts,
   restorePreservedUsers,
 } from '../src/server/backup';
 
 describe('Database Restore & Table Clearing Logic', () => {
-  it('clears all database tables except users and inventory_parts', async () => {
+  it('clears all database tables except users, inventory_parts, and system_backup_records', async () => {
     const executedQueries: string[] = [];
 
     const mockConnection = {
@@ -23,6 +25,7 @@ describe('Database Restore & Table Clearing Logic', () => {
             [
               { Tables_in_radar_v3: 'users', Table_type: 'BASE TABLE' },
               { Tables_in_radar_v3: 'inventory_parts', Table_type: 'BASE TABLE' },
+              { Tables_in_radar_v3: 'system_backup_records', Table_type: 'BASE TABLE' },
               { Tables_in_radar_v3: 'orders', Table_type: 'BASE TABLE' },
               { Tables_in_radar_v3: 'customers', Table_type: 'BASE TABLE' },
               { Tables_in_radar_v3: 'claims', Table_type: 'BASE TABLE' },
@@ -37,12 +40,13 @@ describe('Database Restore & Table Clearing Logic', () => {
 
     const clearedTables = await clearDatabaseExceptUsers(mockConnection as any);
 
-    // Verify 'users' and 'inventory_parts' were NOT cleared
+    // Verify 'users', 'inventory_parts', and 'system_backup_records' were NOT cleared
     expect(clearedTables).toEqual(['orders', 'customers', 'claims', 'status_orders']);
     expect(clearedTables).not.toContain('users');
     expect(clearedTables).not.toContain('inventory_parts');
+    expect(clearedTables).not.toContain('system_backup_records');
 
-    // Verify TRUNCATE TABLE was called for other tables and NOT for users or inventory_parts
+    // Verify TRUNCATE TABLE was called for other tables and NOT for preserved tables
     expect(executedQueries).toContain('TRUNCATE TABLE `orders`');
     expect(executedQueries).toContain('TRUNCATE TABLE `customers`');
     expect(executedQueries).toContain('TRUNCATE TABLE `claims`');
@@ -51,6 +55,8 @@ describe('Database Restore & Table Clearing Logic', () => {
     expect(executedQueries).not.toContain('DELETE FROM `users`');
     expect(executedQueries).not.toContain('TRUNCATE TABLE `inventory_parts`');
     expect(executedQueries).not.toContain('DELETE FROM `inventory_parts`');
+    expect(executedQueries).not.toContain('TRUNCATE TABLE `system_backup_records`');
+    expect(executedQueries).not.toContain('DELETE FROM `system_backup_records`');
   });
 
   it('fetches current users safely', async () => {
@@ -204,6 +210,45 @@ describe('Database Restore & Table Clearing Logic', () => {
     const partsCount = await restorePreservedInventoryParts(mockConnection as any, []);
     expect(partsCount).toBe(0);
     expect(mockConnection.query).not.toHaveBeenCalled();
+  });
+
+  it('preserves and restores system backup records to survive database rollbacks', async () => {
+    const mockRecords: any[] = [
+      {
+        filename: 'backup_2026-10-12T16-43-40-755Z_manual.sql',
+        size_bytes: 2139095,
+        content_compressed: Buffer.from('mock_compressed_sql'),
+        checksum_sha256: 'abc123mock',
+        is_safety_snapshot: 0,
+        tag: 'manual',
+        created_at: '2026-10-12 16:43:40',
+      },
+    ];
+
+    const executedQueries: string[] = [];
+    const mockConnection = {
+      query: vi.fn(async (sql: string) => {
+        executedQueries.push(sql);
+        if (sql.includes("SHOW TABLES LIKE 'system_backup_records'")) {
+          return [[{ Tables_in_radar_v3: 'system_backup_records' }], null];
+        }
+        if (sql.includes('SELECT * FROM `system_backup_records`')) {
+          return [mockRecords, null];
+        }
+        return [{ affectedRows: 1 }, null];
+      }),
+    };
+
+    const fetched = await fetchCurrentBackupRecords(mockConnection as any);
+    expect(fetched).toHaveLength(1);
+    expect(fetched[0].filename).toBe('backup_2026-10-12T16-43-40-755Z_manual.sql');
+
+    const restoredCount = await restorePreservedBackupRecords(mockConnection as any, fetched);
+    expect(restoredCount).toBe(1);
+
+    const insertQuery = executedQueries.find((q) => q.startsWith('INSERT INTO `system_backup_records`'));
+    expect(insertQuery).toBeDefined();
+    expect(insertQuery).toContain('ON DUPLICATE KEY UPDATE');
   });
 
   it('enforces single-execution mutex lock for backup/restore operations', () => {

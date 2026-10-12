@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Order, OrderStatus, PrefillOrderData, Customer } from '../types';
 import { MAKE_MODEL_MAP } from '../data/vehicleData';
 import { DeliveryDateOtpModal } from './DeliveryDateOtpModal';
@@ -200,9 +200,85 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     }
   };
 
-  // Handle Prefill from Car-Part Scraper, Call Center or CRM
+  // Refs to track modal lifecycle and avoid resetting input values when switching tabs
+  const wasOpenRef = useRef(false);
+  const lastEditingOrderIdRef = useRef<string | null>(null);
+  const lastPrefillKeyRef = useRef<string | null>(null);
+  const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
+
+  const resetFormToEmpty = useCallback(() => {
+    setCurrentStep(1);
+    setStepError(null);
+    setSelectedCustomerId(null);
+    setCustomerName('');
+    setCustomerPhone('');
+    setCustomerEmail('');
+    setCustomerType('Particular');
+    setShippingAddress('');
+    setZipCode('27520');
+    setVehicleMake('');
+    setVehicleModel('');
+    setVehicleYear('');
+    setVehicleTransmission('');
+    setVehicleVIN('');
+    setVinDecodeStatus('idle');
+    setVinDecodeMessage('');
+    setVehicleMileage('');
+    setVehicleColor('Gris Grafito');
+    setMainPart('');
+    setProductSpecs('');
+    setStockNumber('');
+    setNotes('');
+    setPartPrice('');
+    setDownPayment('');
+    setDeliveryFee('');
+    setCoreFee('');
+    setDeliveryType('retiro_tienda');
+    setWarrantyDays(30);
+    setStatus('cotizacion');
+    setAdvisor(defaultAdvisor);
+    setDeliveredAtDate(undefined);
+  }, [defaultAdvisor]);
+
+  const handleDiscardDraft = () => {
+    try {
+      sessionStorage.removeItem('radar_new_order_draft');
+    } catch {
+      // ignore
+    }
+    setHasRestoredDraft(false);
+    resetFormToEmpty();
+  };
+
+  // Handle Prefill from Car-Part Scraper, Call Center or CRM & Draft recovery
   useEffect(() => {
-    if (editingOrder && isOpen) {
+    if (!isOpen) {
+      wasOpenRef.current = false;
+      return;
+    }
+
+    const currentEditingId = editingOrder?.id || null;
+    const currentPrefillKey = initialPrefillData
+      ? `${initialPrefillData.vin || ''}-${initialPrefillData.make || ''}-${initialPrefillData.model || ''}-${initialPrefillData.partPrice || ''}`
+      : null;
+
+    const justOpened = !wasOpenRef.current && isOpen;
+    const editingTargetChanged = currentEditingId !== lastEditingOrderIdRef.current;
+    const prefillTargetChanged = currentPrefillKey !== lastPrefillKeyRef.current;
+
+    wasOpenRef.current = true;
+    lastEditingOrderIdRef.current = currentEditingId;
+    lastPrefillKeyRef.current = currentPrefillKey;
+
+    // CRITICAL: If modal was already open and neither editing target nor prefill target changed,
+    // DO NOT TOUCH OR RESET ANY FIELD. This preserves all user-entered data when switching tabs,
+    // window blur/focus events, or background customer re-fetches!
+    if (!justOpened && !editingTargetChanged && !prefillTargetChanged) {
+      return;
+    }
+
+    if (editingOrder) {
+      setHasRestoredDraft(false);
       setCurrentStep(1);
       setSelectedCustomerId(editingOrder.customer.id || null);
       setCustomerName(editingOrder.customer.name);
@@ -235,7 +311,8 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       setDeliveredAtDate(editingOrder.deliveredAt);
       setAdvisor(editingOrder.advisor || defaultAdvisor);
       setStepError(null);
-    } else if (initialPrefillData && isOpen) {
+    } else if (initialPrefillData) {
+      setHasRestoredDraft(false);
       if (initialPrefillData.make) setVehicleMake(initialPrefillData.make);
       if (initialPrefillData.model) setVehicleModel(initialPrefillData.model);
       if (initialPrefillData.year) setVehicleYear(initialPrefillData.year);
@@ -251,10 +328,8 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
         setWarrantyDays(initialPrefillData.warrantyDays || autoDays);
       }
       
-      // Customer prefill if passed
       if (initialPrefillData.customerName) {
         setCustomerName(initialPrefillData.customerName);
-        // Try to match with existing customer
         const match = existingCustomers.find(
           (c) => c.name.toLowerCase() === initialPrefillData.customerName?.toLowerCase()
         );
@@ -273,33 +348,162 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
         : initialPrefillData.notes || '';
       if (supplierNotes) setNotes(supplierNotes);
 
-      // Si viene de car-part y ya tiene cliente, o datos de pieza, mantener en paso 1
       setCurrentStep(1);
-    } else if (isOpen) {
-      setCurrentStep(1);
-      setStepError(null);
-      setVehicleMake('');
-      setVehicleModel('');
-      setVehicleYear('');
-      setVehicleTransmission('');
-      setVehicleVIN('');
-      setVinDecodeStatus('idle');
-      setVinDecodeMessage('');
-      setVehicleMileage('');
-      setMainPart('');
-      setProductSpecs('');
-      setStockNumber('');
-      setNotes('');
-      setPartPrice('');
-      setDownPayment('');
-      setDeliveryFee('');
-      setCoreFee('');
-      setDeliveryType('retiro_tienda');
-      setWarrantyDays(30);
-      setStatus('cotizacion');
-      setAdvisor(defaultAdvisor);
+    } else {
+      // Check for saved in-progress draft in sessionStorage
+      let loadedFromDraft = false;
+      try {
+        const rawDraft = sessionStorage.getItem('radar_new_order_draft');
+        if (rawDraft) {
+          const draft = JSON.parse(rawDraft);
+          if (draft && typeof draft === 'object') {
+            if (draft.currentStep) setCurrentStep(draft.currentStep);
+            if (draft.clientMode) setClientMode(draft.clientMode);
+            if (draft.clientSearchQuery !== undefined) setClientSearchQuery(draft.clientSearchQuery);
+            if (draft.selectedCategoryFilter) setSelectedCategoryFilter(draft.selectedCategoryFilter);
+            if (draft.selectedCustomerId !== undefined) setSelectedCustomerId(draft.selectedCustomerId);
+            if (draft.customerName !== undefined) setCustomerName(draft.customerName);
+            if (draft.customerPhone !== undefined) setCustomerPhone(draft.customerPhone);
+            if (draft.customerEmail !== undefined) setCustomerEmail(draft.customerEmail);
+            if (draft.customerType) setCustomerType(draft.customerType);
+            if (draft.shippingAddress !== undefined) setShippingAddress(draft.shippingAddress);
+            if (draft.zipCode !== undefined) setZipCode(draft.zipCode);
+            if (draft.showAddressDetails !== undefined) setShowAddressDetails(draft.showAddressDetails);
+            if (draft.vehicleMake !== undefined) setVehicleMake(draft.vehicleMake);
+            if (draft.vehicleModel !== undefined) setVehicleModel(draft.vehicleModel);
+            if (draft.vehicleYear !== undefined) setVehicleYear(draft.vehicleYear);
+            if (draft.vehicleTransmission !== undefined) setVehicleTransmission(draft.vehicleTransmission);
+            if (draft.vehicleVIN !== undefined) setVehicleVIN(draft.vehicleVIN);
+            if (draft.vehicleMileage !== undefined) setVehicleMileage(draft.vehicleMileage);
+            if (draft.vehicleColor !== undefined) setVehicleColor(draft.vehicleColor);
+            if (draft.mainPart !== undefined) setMainPart(draft.mainPart);
+            if (draft.productSpecs !== undefined) setProductSpecs(draft.productSpecs);
+            if (draft.stockNumber !== undefined) setStockNumber(draft.stockNumber);
+            if (draft.notes !== undefined) setNotes(draft.notes);
+            if (draft.partPrice !== undefined) setPartPrice(draft.partPrice);
+            if (draft.downPayment !== undefined) setDownPayment(draft.downPayment);
+            if (draft.deliveryFee !== undefined) setDeliveryFee(draft.deliveryFee);
+            if (draft.coreFee !== undefined) setCoreFee(draft.coreFee);
+            if (draft.deliveryType !== undefined) setDeliveryType(draft.deliveryType);
+            if (draft.warrantyDays !== undefined) setWarrantyDays(draft.warrantyDays);
+            if (draft.status !== undefined) setStatus(draft.status);
+            if (draft.advisor !== undefined) setAdvisor(draft.advisor);
+            setStepError(null);
+            setHasRestoredDraft(true);
+            loadedFromDraft = true;
+          }
+        }
+      } catch {
+        loadedFromDraft = false;
+      }
+
+      if (!loadedFromDraft) {
+        setHasRestoredDraft(false);
+        resetFormToEmpty();
+      }
     }
-  }, [editingOrder, initialPrefillData, isOpen, existingCustomers, defaultAdvisor]);
+  }, [editingOrder, initialPrefillData, isOpen, resetFormToEmpty]);
+
+  // Real-time draft auto-save to sessionStorage so typed data is NEVER lost across tab changes
+  useEffect(() => {
+    if (!isOpen || editingOrder || initialPrefillData) return;
+
+    const hasData = Boolean(
+      vehicleMake ||
+      vehicleModel ||
+      vehicleYear ||
+      vehicleVIN ||
+      vehicleMileage ||
+      mainPart ||
+      productSpecs ||
+      stockNumber ||
+      notes ||
+      partPrice ||
+      downPayment ||
+      customerName ||
+      customerPhone ||
+      customerEmail ||
+      shippingAddress
+    );
+
+    if (!hasData) return;
+
+    const draft = {
+      currentStep,
+      clientMode,
+      clientSearchQuery,
+      selectedCategoryFilter,
+      selectedCustomerId,
+      customerName,
+      customerPhone,
+      customerEmail,
+      customerType,
+      shippingAddress,
+      zipCode,
+      showAddressDetails,
+      vehicleMake,
+      vehicleModel,
+      vehicleYear,
+      vehicleTransmission,
+      vehicleVIN,
+      vehicleMileage,
+      vehicleColor,
+      mainPart,
+      productSpecs,
+      stockNumber,
+      notes,
+      partPrice,
+      downPayment,
+      deliveryFee,
+      coreFee,
+      deliveryType,
+      warrantyDays,
+      status,
+      advisor,
+      savedAt: Date.now(),
+    };
+
+    try {
+      sessionStorage.setItem('radar_new_order_draft', JSON.stringify(draft));
+    } catch {
+      // ignore quota errors
+    }
+  }, [
+    isOpen,
+    editingOrder,
+    initialPrefillData,
+    currentStep,
+    clientMode,
+    clientSearchQuery,
+    selectedCategoryFilter,
+    selectedCustomerId,
+    customerName,
+    customerPhone,
+    customerEmail,
+    customerType,
+    shippingAddress,
+    zipCode,
+    showAddressDetails,
+    vehicleMake,
+    vehicleModel,
+    vehicleYear,
+    vehicleTransmission,
+    vehicleVIN,
+    vehicleMileage,
+    vehicleColor,
+    mainPart,
+    productSpecs,
+    stockNumber,
+    notes,
+    partPrice,
+    downPayment,
+    deliveryFee,
+    coreFee,
+    deliveryType,
+    warrantyDays,
+    status,
+    advisor,
+  ]);
 
   // Real-time financial calculations
   const numPart = Math.max(0, parseFloat(partPrice) || 0);
@@ -503,7 +707,13 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       onUpdateOrder(savedOrder);
     } else {
       onCreateOrder(savedOrder);
+      try {
+        sessionStorage.removeItem('radar_new_order_draft');
+      } catch {
+        // ignore
+      }
     }
+    setHasRestoredDraft(false);
     onClose();
   };
 
@@ -547,6 +757,23 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
             <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
+
+        {/* Banner de Borrador Restaurado */}
+        {hasRestoredDraft && !editingOrder && (
+          <div className="bg-amber-500/10 border-b border-amber-500/25 px-3 py-1.5 sm:px-4 sm:py-2 flex items-center justify-between text-xs text-amber-300 font-mono shrink-0">
+            <div className="flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-[16px]">edit_note</span>
+              <span className="text-[11px] sm:text-xs">Borrador en progreso recuperado automáticamente</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleDiscardDraft}
+              className="text-[11px] text-amber-400 hover:text-amber-200 underline font-semibold cursor-pointer ml-2"
+            >
+              Descartar borrador
+            </button>
+          </div>
+        )}
 
         {/* STEPPER NAVIGATION BAR */}
         <div className="bg-[#050914]/90 border-b border-cyan-500/20 px-3 py-2 sm:px-5 sm:py-2.5 shrink-0">

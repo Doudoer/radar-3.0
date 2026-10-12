@@ -46,6 +46,8 @@ import {
   saveBackupSnapshot,
   restoreDatabaseBackup,
   getBackupFileContent,
+  ensureBackupFileOnDisk,
+  startDailyBackupScheduler,
 } from './src/server/backup';
 import {
   ensureAuditTable,
@@ -2033,7 +2035,13 @@ const server = createServer(async (request, response) => {
       }
 
       if (!existsSync(filePath)) {
-        return sendJson(response, 404, { message: 'Archivo de respaldo no encontrado o expirado' });
+        // Si no está en disco (ej. contenedor Docker recreado), reconstruir desde la base de datos
+        const reconstructedPath = await ensureBackupFileOnDisk(filename);
+        if (reconstructedPath && existsSync(reconstructedPath)) {
+          filePath = reconstructedPath;
+        } else {
+          return sendJson(response, 404, { message: 'Archivo de respaldo no encontrado o expirado' });
+        }
       }
 
       const stat = statSync(filePath);
@@ -2540,5 +2548,6 @@ server.listen(port, '0.0.0.0', () => {
   console.log(`RADAR API disponible en http://0.0.0.0:${port}`);
   void ensureDatabaseTables().then(() => {
     startDailyClaimsReportScheduler(pool, wasender);
+    startDailyBackupScheduler(pool, wasender);
   });
 });
