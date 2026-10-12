@@ -95,12 +95,14 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
   };
 
   const handleToggleSuperadmin = (key: NotificationChannelKey) => {
+    if (key === 'RESPALDO_AUTOMATICO') return;
     setChannels((prev) =>
       prev.map((ch) => (ch.key === key ? { ...ch, superadminEnabled: !ch.superadminEnabled } : ch))
     );
   };
 
   const handleToggleOperator = (channelKey: NotificationChannelKey, operatorId: number) => {
+    if (channelKey === 'RESPALDO_AUTOMATICO') return;
     setChannels((prev) =>
       prev.map((ch) => {
         if (ch.key !== channelKey) return ch;
@@ -114,6 +116,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
   };
 
   const handleToggleExternalContact = (channelKey: NotificationChannelKey, contactId: number) => {
+    if (channelKey === 'RESPALDO_AUTOMATICO') return;
     setChannels((prev) =>
       prev.map((ch) => {
         if (ch.key !== channelKey) return ch;
@@ -492,90 +495,104 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
                   {/* Recipient Configuration Controls */}
                   {ch.isEnabled && (
                     <div className="pt-2 border-t border-cyan-500/15 space-y-2.5">
-                      {/* Super Admin toggle */}
-                      <label className="flex items-center justify-between text-xs text-slate-300 cursor-pointer bg-[#030610] p-2 rounded-lg border border-cyan-500/10">
-                        <div className="flex items-center gap-1.5">
-                          <span className="material-symbols-outlined text-amber-400 text-[15px]">shield_person</span>
-                          <span className="text-[11px] font-mono">
-                            {isExclusiveAdmin
-                              ? 'Enviar a Super Administrador (Recomendado)'
-                              : isDynamicCreator
-                              ? 'Enviar copia también a Super Administrador'
-                              : 'Enviar a Super Administrador'}
-                          </span>
-                        </div>
-                        <input
-                          type="checkbox"
-                          checked={ch.superadminEnabled}
-                          onChange={() => handleToggleSuperadmin(ch.key)}
-                          className="rounded border-cyan-500/40 bg-slate-900 text-cyan-500 focus:ring-cyan-400 w-3.5 h-3.5 cursor-pointer"
-                        />
-                      </label>
-
-                      {/* Selectable Operators */}
-                      <div>
-                        <span className="text-[10px] text-slate-400 font-mono block mb-1">
-                          {isDynamicCreator
-                            ? 'Operadores Adicionales Asignados (Además del Creador):'
-                            : isExclusiveAdmin
-                            ? 'Operadores Designados por el Administrador:'
-                            : 'Operadores Registrados con Acceso:'}
-                        </span>
-                        <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto custom-scrollbar p-1 bg-[#030610] rounded-lg border border-cyan-500/10">
-                          {operators.map((op) => {
-                            const isSelected = ch.operatorIds.includes(op.id);
-                            return (
-                              <button
-                                key={op.id}
-                                type="button"
-                                onClick={() => handleToggleOperator(ch.key, op.id)}
-                                className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all flex items-center gap-1 cursor-pointer ${
-                                  isSelected
-                                    ? 'bg-cyan-500/30 border border-cyan-400 text-white font-bold'
-                                    : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
-                                }`}
-                              >
-                                <span>{isSelected ? '✓' : '+'}</span>
-                                <span className="truncate max-w-[120px]">{op.name}</span>
-                                {op.phone ? (
-                                  <span className="text-[8.5px] opacity-75">({op.phone})</span>
-                                ) : (
-                                  <span className="text-[8.5px] text-amber-400/80">(Sin tel)</span>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Selectable External Contacts */}
-                      {externalContacts.length > 0 && (
-                        <div>
-                          <span className="text-[10px] text-slate-400 font-mono block mb-1">
-                            Números Externos Asignados:
-                          </span>
-                          <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto custom-scrollbar p-1 bg-[#030610] rounded-lg border border-cyan-500/10">
-                            {externalContacts.map((ext) => {
-                              const isSelected = ch.externalContactIds.includes(ext.id);
-                              return (
-                                <button
-                                  key={ext.id}
-                                  type="button"
-                                  onClick={() => handleToggleExternalContact(ch.key, ext.id)}
-                                  className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all flex items-center gap-1 cursor-pointer ${
-                                    isSelected
-                                      ? 'bg-emerald-500/30 border border-emerald-400 text-emerald-200 font-bold'
-                                      : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
-                                  }`}
-                                >
-                                  <span>{isSelected ? '✓' : '+'}</span>
-                                  <span className="truncate max-w-[120px]">{ext.name}</span>
-                                  <span className="text-[8.5px] opacity-75">({ext.phone})</span>
-                                </button>
-                              );
-                            })}
+                      {ch.key === 'RESPALDO_AUTOMATICO' ? (
+                        <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/40 space-y-1.5">
+                          <div className="flex items-center gap-1.5 text-amber-300 font-bold text-xs font-mono">
+                            <span className="material-symbols-outlined text-[16px]">lock</span>
+                            <span>Canal Protegido • Exclusivo Super Administrador</span>
                           </div>
+                          <p className="text-[10.5px] text-slate-300 font-sans leading-relaxed">
+                            Por estrictas políticas de privacidad e integridad de los datos, los archivos SQL de respaldo se envían <strong className="text-amber-200">única y exclusivamente al número del Super Administrador (+584127307933)</strong>. No permite asignación a otros operadores ni contactos externos.
+                          </p>
                         </div>
+                      ) : (
+                        <>
+                          {/* Super Admin toggle */}
+                          <label className="flex items-center justify-between text-xs text-slate-300 cursor-pointer bg-[#030610] p-2 rounded-lg border border-cyan-500/10">
+                            <div className="flex items-center gap-1.5">
+                              <span className="material-symbols-outlined text-amber-400 text-[15px]">shield_person</span>
+                              <span className="text-[11px] font-mono">
+                                {isExclusiveAdmin
+                                  ? 'Enviar a Super Administrador (Recomendado)'
+                                  : isDynamicCreator
+                                  ? 'Enviar copia también a Super Administrador'
+                                  : 'Enviar a Super Administrador'}
+                              </span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={ch.superadminEnabled}
+                              onChange={() => handleToggleSuperadmin(ch.key)}
+                              className="rounded border-cyan-500/40 bg-slate-900 text-cyan-500 focus:ring-cyan-400 w-3.5 h-3.5 cursor-pointer"
+                            />
+                          </label>
+
+                          {/* Selectable Operators */}
+                          <div>
+                            <span className="text-[10px] text-slate-400 font-mono block mb-1">
+                              {isDynamicCreator
+                                ? 'Operadores Adicionales Asignados (Además del Creador):'
+                                : isExclusiveAdmin
+                                ? 'Operadores Designados por el Administrador:'
+                                : 'Operadores Registrados con Acceso:'}
+                            </span>
+                            <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto custom-scrollbar p-1 bg-[#030610] rounded-lg border border-cyan-500/10">
+                              {operators.map((op) => {
+                                const isSelected = ch.operatorIds.includes(op.id);
+                                return (
+                                  <button
+                                    key={op.id}
+                                    type="button"
+                                    onClick={() => handleToggleOperator(ch.key, op.id)}
+                                    className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all flex items-center gap-1 cursor-pointer ${
+                                      isSelected
+                                        ? 'bg-cyan-500/30 border border-cyan-400 text-white font-bold'
+                                        : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
+                                    }`}
+                                  >
+                                    <span>{isSelected ? '✓' : '+'}</span>
+                                    <span className="truncate max-w-[120px]">{op.name}</span>
+                                    {op.phone ? (
+                                      <span className="text-[8.5px] opacity-75">({op.phone})</span>
+                                    ) : (
+                                      <span className="text-[8.5px] text-amber-400/80">(Sin tel)</span>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Selectable External Contacts */}
+                          {externalContacts.length > 0 && (
+                            <div>
+                              <span className="text-[10px] text-slate-400 font-mono block mb-1">
+                                Números Externos Asignados:
+                              </span>
+                              <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto custom-scrollbar p-1 bg-[#030610] rounded-lg border border-cyan-500/10">
+                                {externalContacts.map((ext) => {
+                                  const isSelected = ch.externalContactIds.includes(ext.id);
+                                  return (
+                                    <button
+                                      key={ext.id}
+                                      type="button"
+                                      onClick={() => handleToggleExternalContact(ch.key, ext.id)}
+                                      className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all flex items-center gap-1 cursor-pointer ${
+                                        isSelected
+                                          ? 'bg-emerald-500/30 border border-emerald-400 text-emerald-200 font-bold'
+                                          : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
+                                      }`}
+                                    >
+                                      <span>{isSelected ? '✓' : '+'}</span>
+                                      <span className="truncate max-w-[120px]">{ext.name}</span>
+                                      <span className="text-[8.5px] opacity-75">({ext.phone})</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   )}

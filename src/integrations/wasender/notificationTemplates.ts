@@ -8,6 +8,8 @@ export interface NuevaVentaTemplateData {
   vin?: string | null;
   mainPart?: string | null;
   productSpecs?: string | null;
+  partDescription?: string | null;
+  notes?: string | null;
   totalPrice: number;
   downPayment?: number;
   deliveryType?: 'retiro_tienda' | 'envio_domicilio' | string | null;
@@ -21,7 +23,30 @@ export function formatNuevaVentaMessage(data: NuevaVentaTemplateData): string {
   const vehicle = [data.vehicleYear, data.vehicleMake, data.vehicleModel].filter(Boolean).join(' ') || 'Vehículo no especificado';
   const vinStr = data.vin || 'Sin VIN registrado';
   const pieceStr = data.mainPart || 'Pieza';
-  const specsStr = data.productSpecs ? ` – *(${data.productSpecs})*` : '';
+
+  let descStr = (data.partDescription || '').trim();
+  if (!descStr) {
+    const specs = (data.productSpecs || '').trim();
+    const cleanNotes = (data.notes || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('['))
+      .join(' ')
+      .trim();
+
+    if (specs && cleanNotes) {
+      descStr = cleanNotes.toLowerCase().includes(specs.toLowerCase())
+        ? cleanNotes
+        : `${specs} - ${cleanNotes}`;
+    } else {
+      descStr = specs || cleanNotes || '';
+    }
+  }
+
+  if (!descStr) {
+    descStr = 'Sin descripción adicional';
+  }
+
   const total = Number(data.totalPrice || 0);
   const downPayment = Number(data.downPayment || 0);
   const pending = Math.max(0, total - downPayment);
@@ -33,9 +58,10 @@ export function formatNuevaVentaMessage(data: NuevaVentaTemplateData): string {
   return `🚀 *NUEVA VENTA* | \`#${cleanOrderCode}\`
 
 👤 *Cliente:* ${data.customerName || 'Cliente'}${clientPhone}
-🚘 *Auto:* ${vehicle}
+🚗 *Auto:* ${vehicle}
 🔢 *VIN:* \`${vinStr}\`
-⚙️ *Pieza:* ${pieceStr}${specsStr}
+⚙️ *Pieza:* ${pieceStr}
+📝 *Descripción:* ${descStr}
 💰 *Monto:* $${total.toFixed(2)} *(Pendiente: $${pending.toFixed(2)})*
 📍 *Logística:* ${logistics}`;
 }

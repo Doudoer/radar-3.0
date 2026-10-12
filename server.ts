@@ -1,6 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import fs from 'node:fs/promises';
-import { createReadStream, existsSync } from 'node:fs';
+import { createReadStream, existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
@@ -322,8 +322,9 @@ const server = createServer(async (request, response) => {
         : sendJson(response, 401, { message: 'Usuario inactivo' });
     }
 
+    const isPublicApiPath = pathname.startsWith('/api/uploads/backups/');
     const authenticatedClaims = pathname.startsWith('/api/') ? verifyToken(request) as Claims | null : null;
-    if (pathname.startsWith('/api/') && !authenticatedClaims) {
+    if (pathname.startsWith('/api/') && !isPublicApiPath && !authenticatedClaims) {
       return sendJson(response, 401, { message: 'Autenticación requerida' });
     }
 
@@ -640,7 +641,11 @@ const server = createServer(async (request, response) => {
       const payload = backupSnapshotCreateSchema.parse(await readBody(request));
       const result = await saveBackupSnapshot({ tag: payload.tag || 'manual' });
 
-      const backupDownloadUrl = `https://radar-rsy.site/api/uploads/backups/${result.filename}`;
+      const appBaseUrl = (process.env.APP_URL && !process.env.APP_URL.includes('radar-rsy.site') && !process.env.APP_URL.includes('localhost'))
+        ? process.env.APP_URL.replace(/\/+$/, '')
+        : 'https://radar-rsy.store';
+
+      const backupDownloadUrl = `${appBaseUrl}/api/uploads/backups/${result.filename}`;
       const backupMsg = formatRespaldoAutomaticoMessage({
         downloadUrl: backupDownloadUrl,
       });
@@ -903,6 +908,7 @@ const server = createServer(async (request, response) => {
             vin: order.vehicle.vin,
             mainPart: order.mainPart,
             productSpecs: order.productSpecs,
+            notes: order.notes || (createdOrderRow as any)?.description || null,
             totalPrice: order.financials.partPrice || 0,
             downPayment: order.financials.downPayment || 0,
             deliveryType: order.deliveryType,
@@ -1177,6 +1183,7 @@ const server = createServer(async (request, response) => {
             vin: order.vehicle?.vin || prevOrder?.vin_nr || null,
             mainPart: order.mainPart || prevOrder?.product_type,
             productSpecs: order.productSpecs || prevOrder?.product_specs || null,
+            notes: order.notes || prevOrder?.description || null,
             totalPrice: Number(order.financials?.partPrice || prevOrder?.price || 0),
             downPayment: Number(order.financials?.downPayment || prevOrder?.down_payment || 0),
             deliveryType: order.deliveryType,
@@ -2007,6 +2014,46 @@ const server = createServer(async (request, response) => {
     }
 
     // ==========================================
+    // BACKUPS DOWNLOAD (PUBLIC SECURE ACCESS FOR WHATSAPP NOTIFICATIONS)
+    // ==========================================
+    const isBackupDownloadRoute =
+      (request.method === 'GET' || request.method === 'HEAD') &&
+      (pathname.startsWith('/api/uploads/backups/') || pathname.startsWith('/uploads/backups/'));
+
+    if (isBackupDownloadRoute) {
+      const rawFilename = pathname.replace(/^(\/api)?\/uploads\/backups\//, '');
+      const filename = path.basename(decodeURIComponent(rawFilename));
+      if (!filename || (!filename.endsWith('.sql') && !filename.endsWith('.sql.gz'))) {
+        return sendJson(response, 400, { message: 'Formato de archivo de respaldo inválido' });
+      }
+
+      let filePath = path.resolve(process.cwd(), 'backups', filename);
+      if (!existsSync(filePath)) {
+        filePath = path.resolve(process.cwd(), 'uploads', 'backups', filename);
+      }
+
+      if (!existsSync(filePath)) {
+        return sendJson(response, 404, { message: 'Archivo de respaldo no encontrado o expirado' });
+      }
+
+      const stat = statSync(filePath);
+      const isGz = filename.endsWith('.gz');
+
+      response.writeHead(200, {
+        'Content-Type': isGz ? 'application/gzip' : 'application/sql; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Length': stat.size,
+        'Cache-Control': 'private, no-cache, no-store, must-revalidate',
+      });
+      if (request.method === 'HEAD') {
+        response.end();
+        return;
+      }
+      createReadStream(filePath).pipe(response);
+      return;
+    }
+
+    // ==========================================
     // UPLOADS & FILE SERVING
     // ==========================================
     if (request.method === 'GET' && pathname.startsWith('/uploads/')) {
@@ -2292,7 +2339,7 @@ const server = createServer(async (request, response) => {
           attendantName: 'Favio Andrade',
         }),
         RESPALDO_AUTOMATICO: formatRespaldoAutomaticoMessage({
-          downloadUrl: 'https://radar-rsy.site/api/uploads/backups/backup_2026-09-20_434df2a7f1ccfe86.sql.gz',
+          downloadUrl: 'https://radar-rsy.store/api/uploads/backups/backup_2026-10-12_434df2a7f1ccfe86.sql.gz',
         }),
         LISTA_RECLAMOS: formatListaReclamosMessage({
           dateFormatted: '12/09/2026',

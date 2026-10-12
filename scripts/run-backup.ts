@@ -21,8 +21,10 @@ const main = async () => {
     console.log(`📍 Ruta: ${result.path}`);
 
     // Dispatch WhatsApp Notification to Super Admin
-    const appUrl = process.env.APP_URL || 'https://radar-rsy.site';
-    const downloadUrl = `${appUrl}/api/system/backup/download?file=${encodeURIComponent(result.filename)}`;
+    const appUrl = (process.env.APP_URL && !process.env.APP_URL.includes('radar-rsy.site') && !process.env.APP_URL.includes('localhost'))
+      ? process.env.APP_URL.replace(/\/+$/, '')
+      : 'https://radar-rsy.store';
+    const downloadUrl = `${appUrl}/api/uploads/backups/${result.filename}`;
     const notificationMessage = formatRespaldoAutomaticoMessage({ downloadUrl });
 
     try {

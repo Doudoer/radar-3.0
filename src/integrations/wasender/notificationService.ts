@@ -195,6 +195,7 @@ export async function updateNotificationChannels(
   await ensureNotificationTables(pool);
 
   for (const ch of channels) {
+    const isBackupChannel = ch.key === 'RESPALDO_AUTOMATICO';
     await pool.query(
       `UPDATE whatsapp_notification_settings
        SET is_enabled = ?,
@@ -204,9 +205,9 @@ export async function updateNotificationChannels(
        WHERE channel_key = ?`,
       [
         ch.isEnabled ? 1 : 0,
-        ch.superadminEnabled ? 1 : 0,
-        JSON.stringify(ch.operatorIds || []),
-        JSON.stringify(ch.externalContactIds || []),
+        isBackupChannel ? 1 : (ch.superadminEnabled ? 1 : 0),
+        JSON.stringify(isBackupChannel ? [] : (ch.operatorIds || [])),
+        JSON.stringify(isBackupChannel ? [] : (ch.externalContactIds || [])),
         ch.key,
       ]
     );
@@ -356,7 +357,28 @@ export async function resolveRecipientsForEvent(
     }
   };
 
-  // 1. SUPERADMIN ONLY CHANNELS (SOLICITUD_REEMBOLSO, ORDEN_CANCELADA, RESPALDO_AUTOMATICO, BUSQUEDA_SUBASTAS, ALERTA_SEGURIDAD)
+  // 0. EXCLUSIVIDAD ABSOLUTA: RESPALDO_AUTOMATICO
+  // Por estrictas políticas de seguridad e integridad del archivo SQL,
+  // la copia de respaldo de la base de datos se envía ÚNICA Y EXCLUSIVAMENTE
+  // al número del Super Administrador (+584127307933). Jamás a otros administradores ni operadores.
+  if (eventKey === 'RESPALDO_AUTOMATICO') {
+    const [superadmins] = await pool.query<RowDataPacket[]>(
+      "SELECT id, name, phone FROM users WHERE role = 'admin' AND (id = 1 OR phone LIKE '%4127307933%') ORDER BY (id = 1) DESC, (phone LIKE '%4127307933%') DESC LIMIT 1"
+    );
+    const targetAdmin = superadmins[0];
+    const targetPhone = targetAdmin?.phone || '+584127307933';
+    addRecipient(targetPhone, targetAdmin?.name || 'Super Admin', 'Super Admin (Exclusivo)', 'superadmin');
+
+    return {
+      allowed: recipients.length > 0,
+      channelKey: eventKey,
+      channelName: channel.channel_name,
+      recipients,
+      skippedReason: recipients.length === 0 ? 'No se pudo resolver el número del Super Administrador (+584127307933)' : undefined,
+    };
+  }
+
+  // 1. SUPERADMIN ONLY CHANNELS (SOLICITUD_REEMBOLSO, ORDEN_CANCELADA, BUSQUEDA_SUBASTAS, ALERTA_SEGURIDAD)
   if (channel.target_type === 'superadmin_only') {
     if (channel.superadmin_enabled !== false) {
       const [admins] = await pool.query<RowDataPacket[]>(

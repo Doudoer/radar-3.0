@@ -15,6 +15,7 @@ import {
   formatSolicitudReembolsoMessage,
   formatCambioEstatusMessage,
 } from '../src/integrations/wasender/notificationTemplates';
+import { resolveRecipientsForEvent } from '../src/integrations/wasender/notificationService';
 
 describe('Wasender WhatsApp Notification Routing Rules', () => {
   it('should define all 10 business channels with correct defaults', () => {
@@ -103,6 +104,8 @@ describe('Wasender WhatsApp Notification Routing Rules', () => {
     expect(nuevaVenta).toContain('🚀 *NUEVA VENTA* | `#ORD-524932`');
     expect(nuevaVenta).toContain('Ricardo Santiago (+19103053788)');
     expect(nuevaVenta).toContain('3N1AB7AP6GY311454');
+    expect(nuevaVenta).toContain('⚙️ *Pieza:* Transmission');
+    expect(nuevaVenta).toContain('📝 *Descripción:* AT, (CVT), (1.8L)');
     expect(nuevaVenta).toContain('Retiro en Tienda / Local');
 
     const subastas = formatBusquedaSubastasMessage({
@@ -156,10 +159,10 @@ describe('Wasender WhatsApp Notification Routing Rules', () => {
     expect(segReclamo).toContain('Favio Andrade');
 
     const respaldo = formatRespaldoAutomaticoMessage({
-      downloadUrl: 'https://radar-rsy.site/api/uploads/backups/backup_sample.sql.gz',
+      downloadUrl: 'https://radar-rsy.store/api/uploads/backups/backup_sample.sql.gz',
     });
     expect(respaldo).toContain('*Respaldo Automático Diario*');
-    expect(respaldo).toContain('https://radar-rsy.site/api/uploads/backups/backup_sample.sql.gz');
+    expect(respaldo).toContain('https://radar-rsy.store/api/uploads/backups/backup_sample.sql.gz');
 
     const lista = formatListaReclamosMessage({
       dateFormatted: '12/09/2026',
@@ -219,5 +222,42 @@ describe('Wasender WhatsApp Notification Routing Rules', () => {
     expect(estatus).toContain('🔔 *ACTUALIZACIÓN DE ORDEN / PIEZA LISTA*');
     expect(estatus).toContain('Shadetree  Auto (4345751490)');
     expect(estatus).toContain('Favio Andrade');
+  });
+
+  it('strictly isolates RESPALDO_AUTOMATICO exclusively to Super Admin phone (+584127307933)', async () => {
+    const mockPool: any = {
+      query: async (sql: string) => {
+        if (sql.includes('CREATE TABLE')) return [[]];
+        if (sql.includes('SELECT * FROM whatsapp_notification_settings WHERE channel_key = ?')) {
+          return [[{
+            channel_key: 'RESPALDO_AUTOMATICO',
+            channel_name: 'Respaldo Automático de Base de Datos',
+            is_enabled: 1,
+            target_type: 'superadmin_only',
+            superadmin_enabled: 1,
+            operator_ids: '[4, 6]',
+            external_contact_ids: '[1]',
+          }]];
+        }
+        if (sql.includes("FROM users WHERE role = 'admin'")) {
+          // Multiple admins in DB: System Admin (id: 1, +584127307933) and Favio (id: 3, +584121213270)
+          return [[
+            { id: 1, name: 'System Admin', phone: '+584127307933', role: 'admin' },
+            { id: 3, name: 'Favio Andrade', phone: '+584121213270', role: 'admin' },
+          ]];
+        }
+        return [[]];
+      },
+    };
+
+    const result = await resolveRecipientsForEvent(mockPool, 'RESPALDO_AUTOMATICO');
+    expect(result.allowed).toBe(true);
+    expect(result.recipients.length).toBe(1);
+    expect(result.recipients[0].phone).toBe('+584127307933');
+    expect(result.recipients[0].name).toBe('System Admin');
+
+    // Ensure secondary admins (+584121213270), operators, and external contacts are strictly NOT included
+    const allPhones = result.recipients.map((r) => r.phone);
+    expect(allPhones).not.toContain('+584121213270');
   });
 });

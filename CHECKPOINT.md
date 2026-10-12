@@ -2,7 +2,7 @@
 
 **Fecha y Hora:** 12 de Octubre, 2026 — 10:05 UTC-4  
 **Rama:** `main`  
-**Estado:** Probado y compilado con 100% de tests pasando (95/95 en 16 suites)
+**Estado:** Probado y compilado con 100% de tests pasando (96/96 en 16 suites)
 
 ---
 
@@ -17,7 +17,42 @@
   - Se habilitó la selección de operadores registrados en **todos** los canales activos (no solo los multicast), permitiendo asignar operadores adicionales fijos a `CAMBIO_ESTATUS` o canales administrativos.
   - Indicador visual `(Sin tel)` en operadores sin teléfono registrado para recordar registrarlo en su perfil.
   - Título de pestaña dinámico reflejando el número real de canales `(10 Tipos)`.
-- **Pruebas y Verificación:** 95 pruebas unitarias pasando en Vitest y 0 errores en TypeScript.
+
+### Formato de Notificación WhatsApp "Nueva Venta": Incorporación de Línea de Descripción (`notificationTemplates.ts`, `server.ts`)
+- **Solicitud del Usuario:** En el mensaje de WhatsApp enviado para `NUEVA_VENTA`, se requería agregar la descripción de la pieza justo debajo de la línea `⚙️ Pieza: [Nombre de la pieza]`.
+- **Implementación:**
+  - En [`src/integrations/wasender/notificationTemplates.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/integrations/wasender/notificationTemplates.ts):
+    - Ampliado `NuevaVentaTemplateData` para soportar `partDescription` y `notes`.
+    - En `formatNuevaVentaMessage`: se separó el nombre de la pieza de sus especificaciones/descripción y se añadió la línea `📝 *Descripción:* ${descStr}` inmediatamente debajo de `⚙️ *Pieza:* ${pieceStr}`.
+    - Resolución inteligente de `descStr` combinando especificaciones técnicas (`productSpecs`) y notas de la orden (`notes` / `description`), filtrando automáticamente registros de auditoría y evitando duplicaciones. Si no hay datos, muestra `'Sin descripción adicional'`.
+    - Ajustado el emoji de auto a `🚗` para coincidir exactamente con el mensaje real recibido en WhatsApp.
+  - En [`server.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/server.ts): Se pasaron las notas y descripción de la orden en `POST /api/orders` y `PUT /api/orders/:id`.
+  - Pruebas unitarias actualizadas en [`tests/wasender-notification-routing.test.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/tests/wasender-notification-routing.test.ts) (100% pasando).
+
+### Corrección de Dominio y Ruta de Descarga de Respaldos Automáticos (`server.ts`, `run-backup.ts`, `nginx-radar.conf`)
+- **Problema Detectado:** La notificación de WhatsApp para `RESPALDO_AUTOMATICO` generaba enlaces que apuntaban a `https://radar-rsy.site/api/uploads/backups/...`, cuando el dominio de producción es `https://radar-rsy.store`. Además, no existía un endpoint en el servidor para servir las descargas directas desde `/api/uploads/backups/`, arrojando error 404 al intentar descargar el respaldo generado.
+- **Corrección en Backend & Enrutamiento:**
+  - En [`server.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/server.ts):
+    - Actualizado el dominio por defecto a `https://radar-rsy.store` (y sanitización de `process.env.APP_URL` para reemplazar cualquier referencia obsoleta a `radar-rsy.site`).
+    - Exonerada la ruta `/api/uploads/backups/` del chequeo obligatorio de Bearer JWT para permitir la descarga directa al hacer clic desde WhatsApp en dispositivos móviles sin sesión activa en el navegador.
+    - Creado el endpoint seguro `GET /api/uploads/backups/:filename` (y `/uploads/backups/:filename`) con soporte para métodos `GET` y `HEAD`, sanitización contra Path Traversal (`path.basename`), validación de extensiones seguras (`.sql`, `.sql.gz`), cabeceras `Content-Disposition: attachment` y streaming directo desde el directorio físico `backups/`.
+  - En [`scripts/run-backup.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/scripts/run-backup.ts): Actualizado el script de respaldo cron para utilizar el dominio `https://radar-rsy.store` y la ruta `/api/uploads/backups/${result.filename}`.
+  - En [`deploy/nginx-radar.conf`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/deploy/nginx-radar.conf) y [`.env.example`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/.env.example): Actualizado `server_name` y variables de entorno para incluir `radar-rsy.store`.
+  - Verificado con `curl -I` y `curl -s` (código HTTP 200 OK y descarga exitosa del archivo SQL completo de 1.95 MB).
+
+### Exclusividad Absoluta de Destinatario para Respaldo Automático (`notificationService.ts`, `WasenderNotificationsManager.tsx`, `wasender-notification-routing.test.ts`)
+- **Regla de Negocio y Seguridad:** La copia de seguridad completa de la base de datos SQL (`RESPALDO_AUTOMATICO`) debe enviarse **única y exclusivamente al número del Super Administrador (`+584127307933`)**, impidiendo cualquier difusión a administradores secundarios (ej. Favio Andrade), operadores o contactos externos.
+- **Implementación en Backend:**
+  - En [`src/integrations/wasender/notificationService.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/src/integrations/wasender/notificationService.ts), se estableció una compuerta prioritaria (early return) en `resolveRecipientsForEvent`:
+    - Resuelve exclusivamente al usuario Super Admin primario (`id = 1` o teléfono coincidente con `4127307933`), con fallback de seguridad a `+584127307933`.
+    - Omite de forma tajante operadores, contactos externos y administradores secundarios.
+    - En `updateNotificationChannels`: sanitiza automáticamente `operator_ids = []` y `external_contact_ids = []` para `RESPALDO_AUTOMATICO`, forzando `superadmin_enabled = 1`.
+- **Protección Visual en Frontend (`WasenderNotificationsManager.tsx`):**
+  - La tarjeta de `RESPALDO_AUTOMATICO` en la matriz de notificaciones ahora muestra un aviso de seguridad destacado: *"Canal Protegido • Exclusivo Super Administrador (+584127307933)"*.
+  - Se ocultaron los selectores de operadores y contactos externos para este canal específico, protegiendo contra asignaciones no deseadas.
+  - Se protegieron las funciones de alternancia (`handleToggleOperator`, `handleToggleExternalContact`, `handleToggleSuperadmin`) para no mutar dicho canal.
+- **Pruebas de Verificación:**
+  - Añadido test unitario en [`tests/wasender-notification-routing.test.ts`](file:///Users/user/Desktop/Radar%20V3/radar-3.0/tests/wasender-notification-routing.test.ts) validando que aun habiendo múltiples administradores y operadores en la base de datos, `RESPALDO_AUTOMATICO` solo genera como destinatario `+584127307933`. Total: 96/96 tests pasando.
 
 ---
 
