@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { NavScreen, Order, OrderStatus, PrefillOrderData } from './types';
 import { SLA_METRICS } from './data/mockData';
 import { Sidebar } from './components/Sidebar';
@@ -103,14 +103,14 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleCreateOrder = async (newOrder: Order) => {
+  const handleCreateOrder = useCallback(async (newOrder: Order) => {
     const savedOrder = await createOrder(newOrder);
     if (savedOrder) {
       setPrefillOrderData(null);
       setIsNewOrderModalOpen(false);
       setCurrentScreen('order-detail');
     }
-  };
+  }, [createOrder]);
 
   const handleCreateOrderFromCustomer = (customer: any) => {
     setPrefillOrderData({
@@ -135,9 +135,21 @@ export default function App() {
     setIsNewOrderModalOpen(true);
   };
 
-  const handleUpdateOrder = async (updatedOrder: Order) => {
+  const handleUpdateOrder = useCallback(async (updatedOrder: Order) => {
     await updateOrder(updatedOrder);
-  };
+  }, [updateOrder]);
+
+  const handleCloseNewOrderModal = useCallback(() => {
+    setIsNewOrderModalOpen(false);
+    setEditingOrder(null);
+    setPrefillOrderData(null);
+  }, []);
+
+  const handleUpdateNewOrderModal = useCallback((updatedOrder: Order) => {
+    void handleUpdateOrder(updatedOrder);
+    setIsNewOrderModalOpen(false);
+    setEditingOrder(null);
+  }, [handleUpdateOrder]);
 
   if (authChecking) return <LoadingOverlay visible label="Validando sesión" />;
   if (!authenticated || !authUser) {
@@ -322,17 +334,9 @@ export default function App() {
       {/* Global Modals */}
       <NewOrderModal
         isOpen={isNewOrderModalOpen}
-        onClose={() => {
-          setIsNewOrderModalOpen(false);
-          setEditingOrder(null);
-          setPrefillOrderData(null);
-        }}
+        onClose={handleCloseNewOrderModal}
         onCreateOrder={handleCreateOrder}
-        onUpdateOrder={(updatedOrder) => {
-          void handleUpdateOrder(updatedOrder);
-          setIsNewOrderModalOpen(false);
-          setEditingOrder(null);
-        }}
+        onUpdateOrder={handleUpdateNewOrderModal}
         editingOrder={editingOrder}
         initialPrefillData={prefillOrderData || undefined}
         existingCustomers={customers}

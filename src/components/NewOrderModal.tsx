@@ -167,6 +167,40 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     if (stepError) setStepError(null);
   };
 
+  const DRAFT_STORAGE_KEY = 'radar_new_order_draft';
+
+  const saveOrderDraft = useCallback((draft: Record<string, unknown>) => {
+    try {
+      const serialized = JSON.stringify(draft);
+      if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(DRAFT_STORAGE_KEY, serialized);
+      if (typeof localStorage !== 'undefined') localStorage.setItem(DRAFT_STORAGE_KEY, serialized);
+    } catch {
+      // ignore quota errors
+    }
+  }, []);
+
+  const loadOrderDraft = useCallback((): Record<string, any> | null => {
+    try {
+      const sessionRaw = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(DRAFT_STORAGE_KEY) : null;
+      const localRaw = typeof localStorage !== 'undefined' ? localStorage.getItem(DRAFT_STORAGE_KEY) : null;
+      const raw = sessionRaw || localRaw;
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const clearOrderDraft = useCallback(() => {
+    try {
+      if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(DRAFT_STORAGE_KEY);
+    } catch {}
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.removeItem(DRAFT_STORAGE_KEY);
+    } catch {}
+  }, []);
+
   const decodeVin = async (vin: string) => {
     const normalizedVin = vin.trim().toUpperCase();
     if (normalizedVin.length !== 17) {
@@ -184,7 +218,8 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       if (!response.ok) throw new Error('NHTSA no respondió');
       const payload = await response.json();
       const result = payload.Results?.[0];
-      if (!result || result.ErrorCode === '1' || (!result.Make && !result.Model)) {
+      // Note: ErrorCode '1' is only a check-digit warning in VPIC; do not reject if Make or Model exists
+      if (!result || (!result.Make && !result.Model)) {
         throw new Error('VIN no encontrado');
       }
 
@@ -241,11 +276,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   }, [defaultAdvisor]);
 
   const handleDiscardDraft = () => {
-    try {
-      sessionStorage.removeItem('radar_new_order_draft');
-    } catch {
-      // ignore
-    }
+    clearOrderDraft();
     setHasRestoredDraft(false);
     resetFormToEmpty();
   };
@@ -350,63 +381,62 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
 
       setCurrentStep(1);
     } else {
-      // Check for saved in-progress draft in sessionStorage
+      // Check for saved in-progress draft in storage
       let loadedFromDraft = false;
       try {
-        const rawDraft = sessionStorage.getItem('radar_new_order_draft');
-        if (rawDraft) {
-          const draft = JSON.parse(rawDraft);
-          if (draft && typeof draft === 'object') {
-            if (draft.currentStep) setCurrentStep(draft.currentStep);
-            if (draft.clientMode) setClientMode(draft.clientMode);
-            if (draft.clientSearchQuery !== undefined) setClientSearchQuery(draft.clientSearchQuery);
-            if (draft.selectedCategoryFilter) setSelectedCategoryFilter(draft.selectedCategoryFilter);
-            if (draft.selectedCustomerId !== undefined) setSelectedCustomerId(draft.selectedCustomerId);
-            if (draft.customerName !== undefined) setCustomerName(draft.customerName);
-            if (draft.customerPhone !== undefined) setCustomerPhone(draft.customerPhone);
-            if (draft.customerEmail !== undefined) setCustomerEmail(draft.customerEmail);
-            if (draft.customerType) setCustomerType(draft.customerType);
-            if (draft.shippingAddress !== undefined) setShippingAddress(draft.shippingAddress);
-            if (draft.zipCode !== undefined) setZipCode(draft.zipCode);
-            if (draft.showAddressDetails !== undefined) setShowAddressDetails(draft.showAddressDetails);
-            if (draft.vehicleMake !== undefined) setVehicleMake(draft.vehicleMake);
-            if (draft.vehicleModel !== undefined) setVehicleModel(draft.vehicleModel);
-            if (draft.vehicleYear !== undefined) setVehicleYear(draft.vehicleYear);
-            if (draft.vehicleTransmission !== undefined) setVehicleTransmission(draft.vehicleTransmission);
-            if (draft.vehicleVIN !== undefined) setVehicleVIN(draft.vehicleVIN);
-            if (draft.vehicleMileage !== undefined) setVehicleMileage(draft.vehicleMileage);
-            if (draft.vehicleColor !== undefined) setVehicleColor(draft.vehicleColor);
-            if (draft.mainPart !== undefined) setMainPart(draft.mainPart);
-            if (draft.productSpecs !== undefined) setProductSpecs(draft.productSpecs);
-            if (draft.stockNumber !== undefined) setStockNumber(draft.stockNumber);
-            if (draft.notes !== undefined) setNotes(draft.notes);
-            if (draft.partPrice !== undefined) setPartPrice(draft.partPrice);
-            if (draft.downPayment !== undefined) setDownPayment(draft.downPayment);
-            if (draft.deliveryFee !== undefined) setDeliveryFee(draft.deliveryFee);
-            if (draft.coreFee !== undefined) setCoreFee(draft.coreFee);
-            if (draft.deliveryType !== undefined) setDeliveryType(draft.deliveryType);
-            if (draft.warrantyDays !== undefined) setWarrantyDays(draft.warrantyDays);
-            if (draft.status !== undefined) setStatus(draft.status);
-            if (draft.advisor !== undefined) setAdvisor(draft.advisor);
-            setStepError(null);
-            setHasRestoredDraft(true);
-            loadedFromDraft = true;
-          }
+        const draft = loadOrderDraft();
+        if (draft && typeof draft === 'object') {
+          if (draft.currentStep) setCurrentStep(draft.currentStep);
+          if (draft.clientMode) setClientMode(draft.clientMode);
+          if (draft.clientSearchQuery !== undefined) setClientSearchQuery(draft.clientSearchQuery);
+          if (draft.selectedCategoryFilter) setSelectedCategoryFilter(draft.selectedCategoryFilter);
+          if (draft.selectedCustomerId !== undefined) setSelectedCustomerId(draft.selectedCustomerId);
+          if (draft.customerName !== undefined) setCustomerName(draft.customerName);
+          if (draft.customerPhone !== undefined) setCustomerPhone(draft.customerPhone);
+          if (draft.customerEmail !== undefined) setCustomerEmail(draft.customerEmail);
+          if (draft.customerType) setCustomerType(draft.customerType);
+          if (draft.shippingAddress !== undefined) setShippingAddress(draft.shippingAddress);
+          if (draft.zipCode !== undefined) setZipCode(draft.zipCode);
+          if (draft.showAddressDetails !== undefined) setShowAddressDetails(draft.showAddressDetails);
+          if (draft.vehicleMake !== undefined) setVehicleMake(draft.vehicleMake);
+          if (draft.vehicleModel !== undefined) setVehicleModel(draft.vehicleModel);
+          if (draft.vehicleYear !== undefined) setVehicleYear(draft.vehicleYear);
+          if (draft.vehicleTransmission !== undefined) setVehicleTransmission(draft.vehicleTransmission);
+          if (draft.vehicleVIN !== undefined) setVehicleVIN(draft.vehicleVIN);
+          if (draft.vehicleMileage !== undefined) setVehicleMileage(draft.vehicleMileage);
+          if (draft.vehicleColor !== undefined) setVehicleColor(draft.vehicleColor);
+          if (draft.mainPart !== undefined) setMainPart(draft.mainPart);
+          if (draft.productSpecs !== undefined) setProductSpecs(draft.productSpecs);
+          if (draft.stockNumber !== undefined) setStockNumber(draft.stockNumber);
+          if (draft.notes !== undefined) setNotes(draft.notes);
+          if (draft.partPrice !== undefined) setPartPrice(draft.partPrice);
+          if (draft.downPayment !== undefined) setDownPayment(draft.downPayment);
+          if (draft.deliveryFee !== undefined) setDeliveryFee(draft.deliveryFee);
+          if (draft.coreFee !== undefined) setCoreFee(draft.coreFee);
+          if (draft.deliveryType !== undefined) setDeliveryType(draft.deliveryType);
+          if (draft.warrantyDays !== undefined) setWarrantyDays(draft.warrantyDays);
+          if (draft.status !== undefined) setStatus(draft.status);
+          if (draft.advisor !== undefined) setAdvisor(draft.advisor);
+          setStepError(null);
+          setHasRestoredDraft(true);
+          loadedFromDraft = true;
         }
       } catch {
         loadedFromDraft = false;
       }
 
-      if (!loadedFromDraft) {
+      // CRITICAL: NEVER call resetFormToEmpty if the modal was already open!
+      // Only initialize to empty if this is a fresh open and no draft was restored.
+      if (!loadedFromDraft && justOpened) {
         setHasRestoredDraft(false);
         resetFormToEmpty();
       }
     }
-  }, [editingOrder, initialPrefillData, isOpen, resetFormToEmpty]);
+  }, [editingOrder, initialPrefillData, isOpen, loadOrderDraft, resetFormToEmpty]);
 
-  // Real-time draft auto-save to sessionStorage so typed data is NEVER lost across tab changes
+  // Real-time draft auto-save to storage so typed data is NEVER lost across tab changes
   useEffect(() => {
-    if (!isOpen || editingOrder || initialPrefillData) return;
+    if (!isOpen || editingOrder) return;
 
     const hasData = Boolean(
       vehicleMake ||
@@ -463,15 +493,10 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       savedAt: Date.now(),
     };
 
-    try {
-      sessionStorage.setItem('radar_new_order_draft', JSON.stringify(draft));
-    } catch {
-      // ignore quota errors
-    }
+    saveOrderDraft(draft);
   }, [
     isOpen,
     editingOrder,
-    initialPrefillData,
     currentStep,
     clientMode,
     clientSearchQuery,
@@ -503,6 +528,115 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     warrantyDays,
     status,
     advisor,
+    saveOrderDraft,
+  ]);
+
+  // Synchronous flush on tab switch (visibilitychange: hidden), window blur, or beforeunload
+  useEffect(() => {
+    if (!isOpen || editingOrder) return;
+
+    const flushDraft = () => {
+      const hasData = Boolean(
+        vehicleMake ||
+        vehicleModel ||
+        vehicleYear ||
+        vehicleVIN ||
+        vehicleMileage ||
+        mainPart ||
+        productSpecs ||
+        stockNumber ||
+        notes ||
+        customerName
+      );
+      if (!hasData) return;
+
+      const draft = {
+        currentStep,
+        clientMode,
+        clientSearchQuery,
+        selectedCategoryFilter,
+        selectedCustomerId,
+        customerName,
+        customerPhone,
+        customerEmail,
+        customerType,
+        shippingAddress,
+        zipCode,
+        showAddressDetails,
+        vehicleMake,
+        vehicleModel,
+        vehicleYear,
+        vehicleTransmission,
+        vehicleVIN,
+        vehicleMileage,
+        vehicleColor,
+        mainPart,
+        productSpecs,
+        stockNumber,
+        notes,
+        partPrice,
+        downPayment,
+        deliveryFee,
+        coreFee,
+        deliveryType,
+        warrantyDays,
+        status,
+        advisor,
+        savedAt: Date.now(),
+      };
+      saveOrderDraft(draft);
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        flushDraft();
+      }
+    };
+
+    window.addEventListener('beforeunload', flushDraft);
+    window.addEventListener('blur', flushDraft);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.removeEventListener('beforeunload', flushDraft);
+      window.removeEventListener('blur', flushDraft);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [
+    isOpen,
+    editingOrder,
+    currentStep,
+    clientMode,
+    clientSearchQuery,
+    selectedCategoryFilter,
+    selectedCustomerId,
+    customerName,
+    customerPhone,
+    customerEmail,
+    customerType,
+    shippingAddress,
+    zipCode,
+    showAddressDetails,
+    vehicleMake,
+    vehicleModel,
+    vehicleYear,
+    vehicleTransmission,
+    vehicleVIN,
+    vehicleMileage,
+    vehicleColor,
+    mainPart,
+    productSpecs,
+    stockNumber,
+    notes,
+    partPrice,
+    downPayment,
+    deliveryFee,
+    coreFee,
+    deliveryType,
+    warrantyDays,
+    status,
+    advisor,
+    saveOrderDraft,
   ]);
 
   // Real-time financial calculations
@@ -707,11 +841,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       onUpdateOrder(savedOrder);
     } else {
       onCreateOrder(savedOrder);
-      try {
-        sessionStorage.removeItem('radar_new_order_draft');
-      } catch {
-        // ignore
-      }
+      clearOrderDraft();
     }
     setHasRestoredDraft(false);
     onClose();
@@ -921,7 +1051,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                     <label className="block mb-1 text-slate-400 font-medium text-[11px]">Modelo *</label>
                     <select
                       required
-                      autoFocus
                       value={vehicleModel}
                       onChange={(e) => {
                         setVehicleModel(e.target.value);
@@ -946,8 +1075,10 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       type="text"
                       value={vehicleVIN}
                       maxLength={17}
-                      onChange={(e) => {
-                        const nextVin = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                      onPaste={(e) => {
+                        e.preventDefault();
+                        const pasted = e.clipboardData.getData('text');
+                        const nextVin = pasted.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 17);
                         setVehicleVIN(nextVin);
                         if (nextVin.length === 17) void decodeVin(nextVin);
                         else {
@@ -955,7 +1086,20 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                           setVinDecodeMessage('');
                         }
                       }}
-                      onBlur={() => void decodeVin(vehicleVIN)}
+                      onChange={(e) => {
+                        const nextVin = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 17);
+                        setVehicleVIN(nextVin);
+                        if (nextVin.length === 17) void decodeVin(nextVin);
+                        else {
+                          setVinDecodeStatus('idle');
+                          setVinDecodeMessage('');
+                        }
+                      }}
+                      onBlur={() => {
+                        if (typeof document !== 'undefined' && document.visibilityState === 'visible' && vehicleVIN.length === 17) {
+                          void decodeVin(vehicleVIN);
+                        }
+                      }}
                       placeholder="1FTEW1EP5KFB81920"
                       className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-mono uppercase tracking-wider focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-xs shadow-inner"
                     />
@@ -969,12 +1113,22 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   <div>
                     <label className="block mb-1 text-slate-400 font-medium text-[11px]">Millaje Reportado *</label>
                     <input
-                      type="number"
-                      min={0}
+                      type="text"
+                      inputMode="numeric"
                       required
                       value={vehicleMileage}
+                      onPaste={(e) => {
+                        e.preventDefault();
+                        const pasted = e.clipboardData.getData('text');
+                        const cleaned = pasted.replace(/[^0-9]/g, '');
+                        if (cleaned) {
+                          setVehicleMileage(cleaned);
+                          if (stepError) setStepError(null);
+                        }
+                      }}
                       onChange={(e) => {
-                        setVehicleMileage(e.target.value);
+                        const cleaned = e.target.value.replace(/[^0-9]/g, '');
+                        setVehicleMileage(cleaned);
                         if (stepError) setStepError(null);
                       }}
                       placeholder="0"
@@ -1029,6 +1183,13 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                     <input
                       type="text"
                       value={productSpecs}
+                      onPaste={(e) => {
+                        e.preventDefault();
+                        const pasted = e.clipboardData.getData('text');
+                        const singleLine = pasted.replace(/\r?\n+/g, ' - ').trim();
+                        setProductSpecs((prev) => (prev ? `${prev} ${singleLine}` : singleLine));
+                        if (stepError) setStepError(null);
+                      }}
                       onChange={(e) => setProductSpecs(e.target.value)}
                       placeholder="Ej. 2.7L Turbo VIN P, RUNS GREAT TESTED, COMPRESSION 175 PSI, OEM spec"
                       className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
@@ -1040,6 +1201,11 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                     <textarea
                       rows={2}
                       value={notes}
+                      onPaste={(e) => {
+                        e.preventDefault();
+                        const pasted = e.clipboardData.getData('text');
+                        setNotes((prev) => (prev ? `${prev}\n${pasted.trim()}` : pasted.trim()));
+                      }}
                       onChange={(e) => setNotes(e.target.value)}
                       placeholder="Observaciones de compra, contacto del desguace, instrucciones de embalaje..."
                       className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
