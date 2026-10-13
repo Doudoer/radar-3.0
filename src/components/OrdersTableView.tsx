@@ -12,6 +12,7 @@ interface OrdersTableViewProps {
   onRefresh?: () => void;
   isRefreshing?: boolean;
   lastSyncedAt?: Date | null;
+  initialSearchQuery?: string;
 }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 30, 50, 100] as const;
@@ -27,6 +28,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
   onRefresh,
   isRefreshing = false,
   lastSyncedAt,
+  initialSearchQuery = '',
 }) => {
   const [segmentView, setSegmentView] = useState<OrderSegmentView>('active');
   const [isArchivedView, setIsArchivedView] = useState(false);
@@ -37,7 +39,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
   const [partTypeFilter, setPartTypeFilter] = useState<string>('all');
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(10);
   const [activeActionMenu, setActiveActionMenu] = useState<string | null>(null);
@@ -222,34 +224,40 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
 
   // Filtered orders by Segment View, Dropdown Filters, Date Range & Search
   const filteredOrders = useMemo(() => {
+    const isSearching = Boolean(searchQuery.trim());
+
     return orders.filter((order) => {
-      // 1. Archived View vs Status & Segment Filter
-      if (isArchivedView) {
-        if (order.status !== 'archivado') return false;
-      } else {
-        if (statusFilter !== 'all') {
-          if (order.status !== statusFilter) return false;
+      // 1. Status, Archived & Segment Filter
+      // Cuando se usa el buscador de órdenes, la búsqueda debe abarcar todas las órdenes con cualquier status.
+      // Si no hay búsqueda activa por texto, se aplican las vistas segmentadas, vista archivada y filtro de estado.
+      if (!isSearching) {
+        if (isArchivedView) {
+          if (order.status !== 'archivado') return false;
         } else {
-          // Segment View Filter
-          if (segmentView === 'ready_pickup') {
-            if (order.status !== 'listo_retiro') return false;
-          } else if (segmentView === 'archived') {
-            if (order.status !== 'archivado') return false;
-          } else if (segmentView === 'cancelled') {
-            if (order.status !== 'cancelado') return false;
-          } else if (segmentView === 'refunds') {
-            if (order.status !== 'solicitud_reembolso' && order.status !== 'reembolsado') return false;
-          } else if (segmentView === 'expired_warranty') {
-            if (!isWarrantyExpired(order)) return false;
-          } else if (segmentView === 'active') {
-            if (
-              order.status === 'archivado' ||
-              order.status === 'cancelado' ||
-              order.status === 'solicitud_reembolso' ||
-              order.status === 'reembolsado' ||
-              isWarrantyExpired(order)
-            ) {
-              return false;
+          if (statusFilter !== 'all') {
+            if (order.status !== statusFilter) return false;
+          } else {
+            // Segment View Filter
+            if (segmentView === 'ready_pickup') {
+              if (order.status !== 'listo_retiro') return false;
+            } else if (segmentView === 'archived') {
+              if (order.status !== 'archivado') return false;
+            } else if (segmentView === 'cancelled') {
+              if (order.status !== 'cancelado') return false;
+            } else if (segmentView === 'refunds') {
+              if (order.status !== 'solicitud_reembolso' && order.status !== 'reembolsado') return false;
+            } else if (segmentView === 'expired_warranty') {
+              if (!isWarrantyExpired(order)) return false;
+            } else if (segmentView === 'active') {
+              if (
+                order.status === 'archivado' ||
+                order.status === 'cancelado' ||
+                order.status === 'solicitud_reembolso' ||
+                order.status === 'reembolsado' ||
+                isWarrantyExpired(order)
+              ) {
+                return false;
+              }
             }
           }
         }
@@ -281,21 +289,24 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
       }
 
       // 6. Search query
-      if (searchQuery.trim()) {
+      if (isSearching) {
         const query = searchQuery.toLowerCase().trim();
         const matchesCode = (order.code || '').toLowerCase().includes(query) || (order.id || '').toLowerCase().includes(query);
         const matchesCustomer = (order.customer?.name || '').toLowerCase().includes(query) ||
           (order.customer?.phone || '').includes(query) ||
-          (order.customer?.whatsapp || '').includes(query);
+          (order.customer?.whatsapp || '').includes(query) ||
+          (order.customer?.email || '').toLowerCase().includes(query);
         const matchesVehicle = (order.vehicle?.make || '').toLowerCase().includes(query) ||
           (order.vehicle?.model || '').toLowerCase().includes(query) ||
           (order.vehicle?.year ? String(order.vehicle.year).includes(query) : false) ||
-          (order.vehicle?.vin || '').toLowerCase().includes(query);
+          (order.vehicle?.vin || '').toLowerCase().includes(query) ||
+          (order.vehicle?.plate || '').toLowerCase().includes(query);
         const matchesPart = (order.mainPart || '').toLowerCase().includes(query) ||
           (order.productSpecs || '').toLowerCase().includes(query);
         const matchesStock = (order.stockNumber || '').toLowerCase().includes(query);
+        const matchesAdvisor = (order.advisor || '').toLowerCase().includes(query);
 
-        if (!matchesCode && !matchesCustomer && !matchesVehicle && !matchesPart && !matchesStock) {
+        if (!matchesCode && !matchesCustomer && !matchesVehicle && !matchesPart && !matchesStock && !matchesAdvisor) {
           return false;
         }
       }
@@ -434,6 +445,12 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
             <span className="inline-flex items-center justify-center bg-emerald-500/15 border border-emerald-400/40 rounded-full px-3 py-0.5 font-mono text-emerald-300 text-xs font-black shadow-[0_0_10px_rgba(16,185,129,0.25)]">
               {counts.active} Activas
             </span>
+            {searchQuery.trim() && (
+              <span className="inline-flex items-center gap-1.5 justify-center bg-cyan-500/15 border border-cyan-400/40 rounded-full px-3 py-0.5 font-mono text-cyan-300 text-xs font-bold shadow-[0_0_10px_rgba(6,182,212,0.25)]">
+                <span className="material-symbols-outlined text-[13px]">search</span>
+                <span>{filteredOrders.length} {filteredOrders.length === 1 ? 'coincidencia' : 'coincidencias'} (todos los estatus)</span>
+              </span>
+            )}
             <span
               className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-cyan-950/50 border border-cyan-500/30 text-[10px] font-mono text-cyan-300 font-semibold shadow-sm"
               title="Sincronización automática de órdenes activa cada 5 minutos"
@@ -823,6 +840,11 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
                       ({activeFiltersCount} {activeFiltersCount === 1 ? 'filtro activo' : 'filtros activos'})
                     </span>
                   )}
+                  {searchQuery.trim() !== '' && (
+                    <span className="text-cyan-400/90 text-[10.5px] font-mono">
+                      • Búsqueda global en todos los estatus
+                    </span>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -1010,8 +1032,16 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
                   <td colSpan={8} className="px-5 py-14 text-center text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <span className="material-symbols-outlined text-5xl text-cyan-400/50">search_off</span>
-                      <p className="font-bold text-white text-sm">No se encontraron órdenes en esta vista.</p>
-                      <p className="text-xs text-slate-400 font-mono">Prueba seleccionando otra de las vistas segmentadas o ajusta tu búsqueda.</p>
+                      <p className="font-bold text-white text-sm">
+                        {searchQuery.trim()
+                          ? `No se encontraron órdenes con el término "${searchQuery}".`
+                          : 'No se encontraron órdenes en esta vista.'}
+                      </p>
+                      <p className="text-xs text-slate-400 font-mono">
+                        {searchQuery.trim()
+                          ? 'Prueba con otro término de búsqueda (nombre, teléfono, VIN o pieza) o limpia el buscador.'
+                          : 'Prueba seleccionando otra de las vistas segmentadas o ajusta tu búsqueda.'}
+                      </p>
                     </div>
                   </td>
                 </tr>
