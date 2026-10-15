@@ -319,6 +319,28 @@ describe('server input schemas', () => {
     expect(updatedUser.phone).toBe('800-555-9999');
     expect(updatedUser.avatar_url).toBe('https://example.com/avatar.jpg');
     expect(updatedUser.active).toBe(false);
+
+    // Should accept vendedor_yarda role and empty password string
+    const yardUser = userUpdateSchema.parse({
+      name: 'Alejandro Palacio',
+      email: 'alejandro@radar.com',
+      role: 'vendedor_yarda',
+      password: '',
+      permissions: ['orders:view', 'orders:edit'],
+      active: true,
+      phone: '+19194644199',
+    });
+    expect(yardUser.role).toBe('vendedor_yarda');
+    expect(yardUser.password).toBe('');
+
+    // Should accept vendedor_yarda role in userCreateSchema
+    const newYardUser = userCreateSchema.parse({
+      name: 'Nuevo Vendedor Yarda',
+      email: 'yarda@radar.com',
+      password: 'StrongPassword123!',
+      role: 'vendedor_yarda',
+    });
+    expect(newYardUser.role).toBe('vendedor_yarda');
   });
 
   it('validates notificationConfigUpdateSchema, externalContactSchema, and notificationTestDispatchSchema', () => {

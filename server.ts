@@ -9,6 +9,15 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { pool, port, allowedOrigins, isAllowedLocalOrigin, jwtSecret } from './src/server/config';
 import { clearSessionCookie, isLoginRateLimited, recordLoginFailure, resetLoginAttempts, requireRole, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
+import QRCode from 'qrcode';
+import {
+  generateTotpSecret,
+  getTotpUri,
+  verifyTotpCode,
+  generateBackupCodes,
+  verifyAndConsumeBackupCode,
+  BackupCodeItem,
+} from './src/server/totp';
 import { OrderDeliveryFollowup, PendingFollowupItem } from './src/types';
 import {
   changePasswordSchema,
@@ -490,6 +499,106 @@ const server = createServer(async (request, response) => {
       });
     }
 
+    // ==========================================
+    // BACKUP 2FA: GOOGLE AUTHENTICATOR (RFC 6238 TOTP)
+    // ==========================================
+    if (authenticatedClaims?.sub && request.method === 'GET' && pathname === '/api/auth/2fa/totp-setup') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+
+      const [userRows] = await pool.query<RowDataPacket[]>(
+        'SELECT id, name, email, totp_secret, backup_codes FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        [authenticatedClaims.sub]
+      );
+      const user = userRows[0];
+      if (!user) {
+        return sendJson(response, 404, { ok: false, message: 'Usuario no encontrado' });
+      }
+
+      let secret = user.totp_secret;
+      if (!secret) {
+        secret = generateTotpSecret(20);
+        await pool.execute('UPDATE users SET totp_secret = ? WHERE id = ?', [secret, user.id]);
+      }
+
+      let backupCodes: BackupCodeItem[] = [];
+      try {
+        if (user.backup_codes) {
+          backupCodes = typeof user.backup_codes === 'string' ? JSON.parse(user.backup_codes) : user.backup_codes;
+        }
+      } catch {
+        backupCodes = [];
+      }
+
+      if (!Array.isArray(backupCodes) || backupCodes.length === 0) {
+        backupCodes = generateBackupCodes(8);
+        await pool.execute('UPDATE users SET backup_codes = ? WHERE id = ?', [
+          JSON.stringify(backupCodes),
+          user.id,
+        ]);
+      }
+
+      const accountName = user.email || user.name || 'Super Admin';
+      const otpUri = getTotpUri(secret, accountName, 'Radar 3.0');
+      const qrCodeDataUrl = await QRCode.toDataURL(otpUri, {
+        margin: 2,
+        width: 280,
+        color: { dark: '#040814', light: '#ffffff' },
+      });
+
+      return sendJson(response, 200, {
+        ok: true,
+        secret,
+        qrCodeDataUrl,
+        otpUri,
+        accountName,
+        backupCodes,
+      });
+    }
+
+    if (authenticatedClaims?.sub && request.method === 'POST' && pathname === '/api/auth/2fa/backup-codes-reset') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+
+      const newBackupCodes = generateBackupCodes(8);
+      await pool.execute('UPDATE users SET backup_codes = ? WHERE id = ?', [
+        JSON.stringify(newBackupCodes),
+        authenticatedClaims.sub,
+      ]);
+
+      return sendJson(response, 200, {
+        ok: true,
+        backupCodes: newBackupCodes,
+        message: '8 nuevos códigos de seguridad de respaldo generados exitosamente.',
+      });
+    }
+
+    if (authenticatedClaims?.sub && request.method === 'POST' && pathname === '/api/auth/2fa/totp-reset') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+
+      const newSecret = generateTotpSecret(20);
+      await pool.execute('UPDATE users SET totp_secret = ? WHERE id = ?', [newSecret, authenticatedClaims.sub]);
+
+      const [userRows] = await pool.query<RowDataPacket[]>(
+        'SELECT name, email FROM users WHERE id = ? LIMIT 1',
+        [authenticatedClaims.sub]
+      );
+      const user = userRows[0];
+      const accountName = user?.email || user?.name || 'Super Admin';
+      const otpUri = getTotpUri(newSecret, accountName, 'Radar 3.0');
+      const qrCodeDataUrl = await QRCode.toDataURL(otpUri, {
+        margin: 2,
+        width: 280,
+        color: { dark: '#040814', light: '#ffffff' },
+      });
+
+      return sendJson(response, 200, {
+        ok: true,
+        secret: newSecret,
+        qrCodeDataUrl,
+        otpUri,
+        message: 'Nueva clave de Google Authenticator generada exitosamente.',
+      });
+    }
+
     if (authenticatedClaims?.sub && request.method === 'POST' && pathname === '/api/auth/2fa/verify-otp') {
       const data = verifyOtpSchema.parse(await readBody(request));
       const cleanCode = data.code.trim();
@@ -534,12 +643,126 @@ const server = createServer(async (request, response) => {
         }
       };
 
+      // 1. Check if code matches Google Authenticator (TOTP RFC 6238) backup
+      const [userRows] = await pool.query<RowDataPacket[]>(
+        'SELECT id, name, email, role, totp_secret, backup_codes FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        [authenticatedClaims.sub]
+      );
+      const callerUser = userRows[0];
+      let verifiedViaTotp = false;
+
+      if (callerUser?.totp_secret && verifyTotpCode(callerUser.totp_secret, cleanCode, 1, now)) {
+        verifiedViaTotp = true;
+      }
+
+      if (!verifiedViaTotp) {
+        // Fallback: check any active admin user's totp_secret
+        const [adminRows] = await pool.query<RowDataPacket[]>(
+          "SELECT totp_secret FROM users WHERE role = 'admin' AND active = 1 AND totp_secret IS NOT NULL AND deleted_at IS NULL ORDER BY id ASC LIMIT 1"
+        );
+        const adminSecret = adminRows[0]?.totp_secret;
+        if (adminSecret && verifyTotpCode(adminSecret, cleanCode, 1, now)) {
+          verifiedViaTotp = true;
+        }
+      }
+
+      if (verifiedViaTotp) {
+        twoFactorFailures.delete(userKey);
+        if (activeFinancial2FA) {
+          activeFinancial2FA.used = true;
+        }
+
+        void recordAuditLog(pool, {
+          userId: Number(authenticatedClaims.sub),
+          username: authenticatedClaims.email,
+          action: '2FA_VERIFIED',
+          resourceType: '2fa',
+          details: { verified: true, method: 'google_authenticator_totp' },
+          ipAddress: ip,
+          userAgent,
+        });
+
+        return sendJson(response, 200, {
+          ok: true,
+          verified: true,
+          method: 'totp',
+          message: 'Bóveda financiera 2FA desbloqueada exitosamente mediante Google Authenticator.',
+        });
+      }
+
+      // 2. Check if code matches an Emergency Backup Security Code (One-time use)
+      let verifiedViaBackup = false;
+      let redeemedBackupCode: string | undefined;
+
+      const checkAndRedeemBackupCode = async (targetUser: RowDataPacket) => {
+        if (!targetUser?.backup_codes) return false;
+        try {
+          const parsedCodes: BackupCodeItem[] = typeof targetUser.backup_codes === 'string'
+            ? JSON.parse(targetUser.backup_codes)
+            : targetUser.backup_codes;
+          const { valid, updatedCodes, matchedCode } = verifyAndConsumeBackupCode(parsedCodes, cleanCode);
+          if (valid) {
+            await pool.execute('UPDATE users SET backup_codes = ? WHERE id = ?', [
+              JSON.stringify(updatedCodes),
+              targetUser.id,
+            ]);
+            redeemedBackupCode = matchedCode;
+            return true;
+          }
+        } catch (err) {
+          console.error('[2FA Backup Code] Parse or consumption error:', err);
+        }
+        return false;
+      };
+
+      if (callerUser && await checkAndRedeemBackupCode(callerUser)) {
+        verifiedViaBackup = true;
+      }
+
+      if (!verifiedViaBackup) {
+        // Fallback: check any active admin user's backup codes
+        const [adminRows] = await pool.query<RowDataPacket[]>(
+          "SELECT id, backup_codes FROM users WHERE role = 'admin' AND active = 1 AND backup_codes IS NOT NULL AND deleted_at IS NULL ORDER BY id ASC LIMIT 5"
+        );
+        for (const adminRow of adminRows) {
+          if (await checkAndRedeemBackupCode(adminRow)) {
+            verifiedViaBackup = true;
+            break;
+          }
+        }
+      }
+
+      if (verifiedViaBackup) {
+        twoFactorFailures.delete(userKey);
+        if (activeFinancial2FA) {
+          activeFinancial2FA.used = true;
+        }
+
+        void recordAuditLog(pool, {
+          userId: Number(authenticatedClaims.sub),
+          username: authenticatedClaims.email,
+          action: '2FA_VERIFIED',
+          resourceType: '2fa',
+          details: { verified: true, method: 'backup_security_code', code: redeemedBackupCode },
+          ipAddress: ip,
+          userAgent,
+        });
+
+        return sendJson(response, 200, {
+          ok: true,
+          verified: true,
+          method: 'backup_code',
+          message: 'Bóveda financiera 2FA desbloqueada exitosamente mediante Código de Respaldo de Emergencia.',
+        });
+      }
+
+      // 3. Check WhatsApp OTP code
       if (!activeFinancial2FA) {
-        handleFailed2FA('No hay código activo');
+        handleFailed2FA('No hay código activo o código incorrecto');
         return sendJson(response, 400, {
           ok: false,
           verified: false,
-          message: 'No hay un código de verificación activo. Por favor pulsa "Solicitar Código".',
+          message: 'Código incorrecto. Ingresa el PIN recibido por WhatsApp, el código de Google Authenticator o un código de respaldo.',
         });
       }
 
@@ -548,7 +771,7 @@ const server = createServer(async (request, response) => {
         return sendJson(response, 400, {
           ok: false,
           verified: false,
-          message: 'Este código de verificación ya fue utilizado. Por favor solicita un nuevo código.',
+          message: 'Este código de verificación ya fue utilizado. Por favor solicita un nuevo código o usa Google Authenticator.',
         });
       }
 
@@ -557,7 +780,7 @@ const server = createServer(async (request, response) => {
         return sendJson(response, 400, {
           ok: false,
           verified: false,
-          message: 'El código de verificación ha expirado (tiempo límite de 1 minuto). Por favor solicita un nuevo PIN.',
+          message: 'El código de verificación de WhatsApp ha expirado (1 minuto). Solicita uno nuevo o usa Google Authenticator.',
         });
       }
 
@@ -566,7 +789,7 @@ const server = createServer(async (request, response) => {
         return sendJson(response, 400, {
           ok: false,
           verified: false,
-          message: 'Código de verificación incorrecto. Revisa el mensaje de WhatsApp recibido.',
+          message: 'Código de verificación incorrecto. Revisa el mensaje de WhatsApp o el código de Google Authenticator.',
         });
       }
 
@@ -579,7 +802,7 @@ const server = createServer(async (request, response) => {
         username: authenticatedClaims.email,
         action: '2FA_VERIFIED',
         resourceType: '2fa',
-        details: { verified: true },
+        details: { verified: true, method: 'whatsapp' },
         ipAddress: ip,
         userAgent,
       });
@@ -587,6 +810,7 @@ const server = createServer(async (request, response) => {
       return sendJson(response, 200, {
         ok: true,
         verified: true,
+        method: 'whatsapp',
         message: 'Sesión financiera 2FA desbloqueada exitosamente.',
       });
     }
@@ -2284,6 +2508,55 @@ const server = createServer(async (request, response) => {
         if (typeof error === 'object' && error && 'code' in error && error.code === 'ER_DUP_ENTRY') {
           return sendJson(response, 409, { message: 'El correo electrónico ya está registrado' });
         }
+        if (
+          typeof error === 'object' &&
+          error &&
+          ('code' in error || 'errno' in error) &&
+          ((error as any).code === 'WARN_DATA_TRUNCATED' ||
+            (error as any).code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD' ||
+            (error as any).errno === 1265)
+        ) {
+          try {
+            await pool.query("ALTER TABLE users MODIFY COLUMN role VARCHAR(40) NOT NULL DEFAULT 'operator'");
+            const [retryResult] = await pool.execute<ResultSetHeader>(
+              `INSERT INTO users (name, email, phone, avatar_url, password, role, permissions, active)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                userData.name,
+                userData.email.toLowerCase(),
+                userData.phone ? userData.phone.trim() : null,
+                userData.avatar_url ? userData.avatar_url.trim() : null,
+                passwordHash,
+                userData.role,
+                JSON.stringify(userData.permissions),
+                userData.active ? 1 : 0,
+              ]
+            );
+            const [retryRows] = await pool.query<RowDataPacket[]>(
+              'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, created_at, updated_at FROM users WHERE id = ? LIMIT 1',
+              [retryResult.insertId]
+            );
+            void recordAuditLog(pool, {
+              userId: Number(authenticatedClaims.sub),
+              username: authenticatedClaims.email,
+              action: 'USER_CREATED',
+              resourceType: 'user',
+              resourceId: retryResult.insertId,
+              details: { name: userData.name, email: userData.email, role: userData.role },
+              ipAddress: request.socket.remoteAddress || 'unknown',
+              userAgent: request.headers['user-agent'] || null,
+            });
+            return sendJson(response, 201, {
+              ...retryRows[0],
+              phone: retryRows[0].phone || '',
+              avatar_url: retryRows[0].avatar_url || '',
+              permissions: parsePermissions(retryRows[0].permissions),
+            });
+          } catch (retryErr) {
+            console.error('Error al reintentar creación de usuario tras migrar users.role:', retryErr);
+            throw retryErr;
+          }
+        }
         throw error;
       }
     }
@@ -2308,8 +2581,8 @@ const server = createServer(async (request, response) => {
           JSON.stringify(user.permissions),
           user.active ? 1 : 0,
         ];
-        if (user.password) {
-          const hash = await bcrypt.hash(user.password, 10);
+        if (user.password && user.password.trim()) {
+          const hash = await bcrypt.hash(user.password.trim(), 10);
           passwordUpdateClause = ', password = ?';
           params.push(hash);
         }
@@ -2323,7 +2596,43 @@ const server = createServer(async (request, response) => {
         if (typeof error === 'object' && error && 'code' in error && error.code === 'ER_DUP_ENTRY') {
           return sendJson(response, 409, { message: 'El correo ya está asociado a otro usuario' });
         }
-        throw error;
+        if (
+          typeof error === 'object' &&
+          error &&
+          ('code' in error || 'errno' in error) &&
+          ((error as any).code === 'WARN_DATA_TRUNCATED' ||
+            (error as any).code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD' ||
+            (error as any).errno === 1265)
+        ) {
+          try {
+            await pool.query("ALTER TABLE users MODIFY COLUMN role VARCHAR(40) NOT NULL DEFAULT 'operator'");
+            let retryPasswordClause = '';
+            const retryParams: any[] = [
+              user.name,
+              user.email.toLowerCase(),
+              user.phone ? user.phone.trim() : null,
+              user.avatar_url ? user.avatar_url.trim() : null,
+              user.role,
+              JSON.stringify(user.permissions),
+              user.active ? 1 : 0,
+            ];
+            if (user.password && user.password.trim()) {
+              const hash = await bcrypt.hash(user.password.trim(), 10);
+              retryPasswordClause = ', password = ?';
+              retryParams.push(hash);
+            }
+            retryParams.push(userId);
+            await pool.execute(
+              `UPDATE users SET name = ?, email = ?, phone = ?, avatar_url = ?, role = ?, permissions = ?, active = ? ${retryPasswordClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`,
+              retryParams
+            );
+          } catch (retryErr) {
+            console.error('Error reintentando actualización de usuario tras migrar users.role:', retryErr);
+            throw retryErr;
+          }
+        } else {
+          throw error;
+        }
       }
 
       const [rows] = await pool.query<RowDataPacket[]>(
@@ -3043,6 +3352,38 @@ const ensureDatabaseTables = async () => {
       }
     } catch {
       // users avatar_url check handled safely
+    }
+
+    try {
+      const [totpCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM users LIKE "totp_secret"');
+      if (totpCols.length === 0) {
+        await pool.query('ALTER TABLE users ADD COLUMN totp_secret VARCHAR(128) NULL AFTER phone');
+      }
+    } catch {
+      // users totp_secret check handled safely
+    }
+
+    try {
+      const [backupCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM users LIKE "backup_codes"');
+      if (backupCols.length === 0) {
+        await pool.query('ALTER TABLE users ADD COLUMN backup_codes TEXT NULL AFTER totp_secret');
+      }
+    } catch {
+      // users backup_codes check handled safely
+    }
+
+    try {
+      const [roleCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM users LIKE "role"');
+      if (
+        roleCols.length > 0 &&
+        typeof roleCols[0].Type === 'string' &&
+        (roleCols[0].Type.toLowerCase().startsWith('enum') || !roleCols[0].Type.toLowerCase().includes('varchar(40)'))
+      ) {
+        await pool.query("ALTER TABLE users MODIFY COLUMN role VARCHAR(40) NOT NULL DEFAULT 'operator'");
+        console.log('Columna users.role verificada y ajustada a VARCHAR(40)');
+      }
+    } catch (roleErr) {
+      console.warn('Advertencia al verificar/modificar columna role en users:', roleErr);
     }
 
     await pool.query(`

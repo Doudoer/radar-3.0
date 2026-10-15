@@ -135,7 +135,7 @@ export const userUpdateSchema = z.object({
   email: z.string().trim().email().max(254),
   phone: z.string().trim().max(50).optional().nullable(),
   avatar_url: z.string().trim().max(500_000).optional().nullable(),
-  password: passwordPolicySchema.optional(),
+  password: passwordPolicySchema.optional().or(z.literal('')),
   role: z.string().trim().min(1).max(40),
   permissions: z.array(z.string().trim().min(1).max(80)).max(100),
   active: z.boolean(),
@@ -279,7 +279,16 @@ export const notificationTestDispatchSchema = z.object({
 });
 
 export const verifyOtpSchema = z.object({
-  code: z.string().trim().min(6, 'El código debe tener 6 dígitos').max(6, 'El código debe tener 6 dígitos'),
+  code: z
+    .string()
+    .trim()
+    .refine(
+      (val) => {
+        const clean = val.replace(/[\s-]/g, '');
+        return /^[0-9]{6}$/.test(clean) || /^[a-zA-Z0-9]{8}$/.test(clean);
+      },
+      { message: 'El código debe tener 6 dígitos (OTP) o ser un código de respaldo de 8 caracteres' }
+    ),
 });
 
 export const updateDeliveryDateSchema = z.object({

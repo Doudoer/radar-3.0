@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Order } from '../types';
 import { apiFetch } from '../services/apiFetch';
 import {
@@ -256,6 +257,144 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
   const [isVerifying, setIsVerifying] = useState(false);
   const [safeAnimation, setSafeAnimation] = useState<'idle' | 'spin' | 'unlock' | 'error'>('idle');
 
+  // Multi-channel 2FA state: 'whatsapp' (Primary) vs 'totp' (Authenticator) vs 'backup' (Emergency Codes)
+  const [authChannel, setAuthChannel] = useState<'whatsapp' | 'totp' | 'backup'>('whatsapp');
+  const [backupCodeInput, setBackupCodeInput] = useState('');
+  const [isTotpModalOpen, setIsTotpModalOpen] = useState(false);
+  const [totpModalTab, setTotpModalTab] = useState<'qr' | 'codes'>('qr');
+  const [totpSetupData, setTotpSetupData] = useState<{
+    secret: string;
+    qrCodeDataUrl: string;
+    otpUri: string;
+    accountName: string;
+    backupCodes?: { code: string; used: boolean; usedAt: string | null }[];
+  } | null>(null);
+  const [isLoadingTotp, setIsLoadingTotp] = useState(false);
+  const [copiedTotpSecret, setCopiedTotpSecret] = useState(false);
+  const [copiedCodeIndex, setCopiedCodeIndex] = useState<number | null>(null);
+  const [copiedAllBackupCodes, setCopiedAllBackupCodes] = useState(false);
+  const [isResettingTotp, setIsResettingTotp] = useState(false);
+  const [isResettingBackupCodes, setIsResettingBackupCodes] = useState(false);
+
+  const fetchTotpSetup = async () => {
+    setIsLoadingTotp(true);
+    try {
+      const res = await apiFetch('/auth/2fa/totp-setup');
+      if (res.ok) {
+        const data = await res.json();
+        setTotpSetupData(data);
+      }
+    } catch (err) {
+      console.error('Error fetching TOTP setup:', err);
+    } finally {
+      setIsLoadingTotp(false);
+    }
+  };
+
+  const handleOpenTotpModal = async (initialTab: 'qr' | 'codes' = 'qr') => {
+    setTotpModalTab(initialTab);
+    setIsTotpModalOpen(true);
+    if (!totpSetupData) {
+      await fetchTotpSetup();
+    }
+  };
+
+  const handleResetTotpSecret = async () => {
+    if (
+      !window.confirm(
+        '¿Deseas generar una nueva clave QR para Google Authenticator? La clave actual en tu celular dejará de funcionar y deberás escanear el nuevo código.'
+      )
+    ) {
+      return;
+    }
+    setIsResettingTotp(true);
+    try {
+      const res = await apiFetch('/auth/2fa/totp-reset', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setTotpSetupData((prev) => (prev ? { ...prev, ...data } : data));
+        showToast('✅ Nueva clave de Google Authenticator generada exitosamente.');
+      }
+    } catch (err) {
+      console.error('Error resetting TOTP:', err);
+    } finally {
+      setIsResettingTotp(false);
+    }
+  };
+
+  const handleResetBackupCodes = async () => {
+    if (
+      !window.confirm(
+        '¿Deseas generar 8 nuevos códigos de seguridad de respaldo? Los códigos anteriores quedarán invalidados de inmediato.'
+      )
+    ) {
+      return;
+    }
+    setIsResettingBackupCodes(true);
+    try {
+      const res = await apiFetch('/auth/2fa/backup-codes-reset', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setTotpSetupData((prev) => (prev ? { ...prev, backupCodes: data.backupCodes } : null));
+        showToast('✅ 8 nuevos códigos de seguridad generados exitosamente.');
+      }
+    } catch (err) {
+      console.error('Error resetting backup codes:', err);
+    } finally {
+      setIsResettingBackupCodes(false);
+    }
+  };
+
+  const handleCopyTotpSecret = () => {
+    if (totpSetupData?.secret && navigator?.clipboard?.writeText) {
+      void navigator.clipboard.writeText(totpSetupData.secret);
+      setCopiedTotpSecret(true);
+      setTimeout(() => setCopiedTotpSecret(false), 2000);
+    }
+  };
+
+  const handleCopySingleBackupCode = (code: string, index: number) => {
+    if (navigator?.clipboard?.writeText) {
+      void navigator.clipboard.writeText(code);
+      setCopiedCodeIndex(index);
+      setTimeout(() => setCopiedCodeIndex(null), 2000);
+    }
+  };
+
+  const handleCopyAllBackupCodes = () => {
+    if (!totpSetupData?.backupCodes || !navigator?.clipboard?.writeText) return;
+    const textToCopy = [
+      '=== CÓDIGOS DE SEGURIDAD Y RESPALDO (RADAR 3.0) ===',
+      `Generados para: ${totpSetupData.accountName}`,
+      'Usa cada código una sola vez si no tienes acceso a WhatsApp ni a Google Authenticator.\n',
+      ...totpSetupData.backupCodes.map((c, i) => `${i + 1}. ${c.code} ${c.used ? '[USADO]' : '[DISPONIBLE]'}`),
+      '\nGuárdalos en un lugar seguro o imprímelos.',
+    ].join('\n');
+    void navigator.clipboard.writeText(textToCopy);
+    setCopiedAllBackupCodes(true);
+    setTimeout(() => setCopiedAllBackupCodes(false), 2500);
+  };
+
+  const handleDownloadBackupCodes = () => {
+    if (!totpSetupData?.backupCodes) return;
+    const content = [
+      '=== CÓDIGOS DE SEGURIDAD Y RESPALDO (RADAR 3.0) ===',
+      `Generados para: ${totpSetupData.accountName}`,
+      `Fecha: ${new Date().toLocaleString()}`,
+      'Usa cada código una sola vez si no tienes acceso a WhatsApp ni a Google Authenticator.\n',
+      ...totpSetupData.backupCodes.map((c, i) => `${i + 1}. ${c.code} ${c.used ? '[USADO]' : '[DISPONIBLE]'}`),
+      '\nGuarda este archivo en una unidad segura o imprímelo.',
+    ].join('\n');
+
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `radar3-codigos-seguridad-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const showToast = (text: string, code?: string) => {
     setToastMessage({ text, code });
   };
@@ -318,8 +457,9 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
 
   // Verify entered 2FA OTP code with backend (1 minute expiration & single-use check)
   const executeVerification = async (codeToVerify: string) => {
-    if (!codeToVerify || codeToVerify.trim().length !== 6) {
-      setOtpError('Ingresa los 6 dígitos del PIN de seguridad.');
+    const cleanCode = codeToVerify ? codeToVerify.replace(/[\s-]/g, '') : '';
+    if (!cleanCode || (cleanCode.length !== 6 && cleanCode.length !== 8)) {
+      setOtpError('Ingresa los 6 dígitos del PIN o tu código de respaldo de 8 dígitos.');
       return;
     }
 
@@ -338,7 +478,12 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
         setOtpError(null);
         setSafeAnimation('unlock');
         setToastMessage({
-          text: '🔒 Sesión financiera 2FA desbloqueada exitosamente.',
+          text:
+            data.method === 'totp'
+              ? '🔒 Bóveda financiera desbloqueada mediante Google Authenticator (Respaldo Offline).'
+              : data.method === 'backup_code'
+              ? '🔒 Bóveda financiera desbloqueada mediante Código de Respaldo de Emergencia.'
+              : '🔒 Sesión financiera 2FA desbloqueada exitosamente.',
         });
         setTimeout(() => setToastMessage(null), 3500);
       } else {
@@ -1061,99 +1206,274 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
           </h2>
 
           <p className="text-xs text-[#94a3b8] mt-1.5 leading-relaxed max-w-sm">
-            Bóveda financiera protegida de Radar 3.0. Para desbloquear el acceso, ingresa el PIN de 6 dígitos transmitido por WhatsApp al Super Admin (expira en 1 minuto).
+            {authChannel === 'whatsapp'
+              ? 'Bóveda financiera protegida de Radar 3.0. Para desbloquear el acceso, ingresa el PIN de 6 dígitos transmitido por WhatsApp al Super Admin (expira en 1 minuto).'
+              : authChannel === 'totp'
+              ? 'Bóveda financiera protegida de Radar 3.0. Abre tu app Google Authenticator o Microsoft Authenticator e ingresa el código de 6 dígitos (respaldo 100% offline).'
+              : 'Bóveda financiera protegida de Radar 3.0. Ingresa uno de tus 8 códigos de seguridad de emergencia guardados (un solo uso, 100% offline).'}
           </p>
 
-          {/* WhatsApp Transmission Pod */}
-          <div className="w-full bg-[#050b16]/95 border border-cyan-500/30 hover:border-cyan-400/50 rounded-2xl p-4 mt-5 mb-5 flex items-center justify-between gap-3 text-xs shadow-[inset_0_0_20px_rgba(0,0,0,0.7)] transition-all">
-            <div className="flex items-center gap-3 text-left">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-400/40 flex items-center justify-center text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)] shrink-0">
-                <span className="material-symbols-outlined text-[22px]">chat</span>
-              </div>
-              <div>
-                <span className="text-[10px] uppercase font-mono font-bold text-emerald-400/90 block tracking-wider">
-                  CANAL SEGURO WHATSAPP
-                </span>
-                <strong className="text-white font-mono text-sm tracking-wider drop-shadow-[0_0_8px_rgba(255,255,255,0.4)]">
-                  +58 412-***7933
-                </strong>
-              </div>
-            </div>
+          {/* Multi-Channel Switcher (WhatsApp, Google Authenticator, 8 Códigos de Respaldo) */}
+          <div className="w-full grid grid-cols-3 gap-1.5 p-1 bg-[#050b16]/90 border border-cyan-500/30 rounded-2xl mt-5 mb-4 shadow-[inset_0_0_15px_rgba(0,0,0,0.6)]">
+            <button
+              type="button"
+              onClick={() => {
+                setAuthChannel('whatsapp');
+                setOtpError(null);
+              }}
+              className={`py-2 px-2 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                authChannel === 'whatsapp'
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                  : 'text-[#94a3b8] hover:text-white hover:bg-slate-800/40'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[16px]">chat</span>
+              <span className="truncate">WhatsApp</span>
+            </button>
 
             <button
               type="button"
-              onClick={handleRequestOTP}
-              disabled={otpCooldown > 0 || isRequestingOtp}
-              className={`py-2 px-3.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                otpCooldown > 0 || isRequestingOtp
-                  ? 'bg-[#0f172a] text-[#64748b] cursor-not-allowed border border-[#1e293b]'
-                  : 'bg-gradient-to-r from-emerald-400 to-cyan-500 hover:from-emerald-300 hover:to-cyan-400 text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.4)] hover:shadow-[0_0_25px_rgba(34,211,238,0.6)]'
+              onClick={() => {
+                setAuthChannel('totp');
+                setOtpError(null);
+              }}
+              className={`py-2 px-2 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                authChannel === 'totp'
+                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.3)]'
+                  : 'text-[#94a3b8] hover:text-white hover:bg-slate-800/40'
               }`}
             >
-              <span className="material-symbols-outlined text-[16px]">
-                {isRequestingOtp ? 'sync' : otpCooldown > 0 ? 'hourglass_top' : 'send'}
-              </span>
-              <span>
-                {isRequestingOtp
-                  ? 'Enviando...'
-                  : otpCooldown > 0
-                  ? `${otpCooldown}s`
-                  : 'Solicitar Código'}
-              </span>
+              <span className="material-symbols-outlined text-[16px]">phonelink_lock</span>
+              <span className="truncate">Authenticator</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setAuthChannel('backup');
+                setOtpError(null);
+              }}
+              className={`py-2 px-2 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                authChannel === 'backup'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
+                  : 'text-[#94a3b8] hover:text-white hover:bg-slate-800/40'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[16px]">key</span>
+              <span className="truncate">8 Códigos</span>
             </button>
           </div>
 
-          {/* 6-Digit Segmented PIN Grid */}
+          {authChannel === 'whatsapp' ? (
+            /* WhatsApp Transmission Pod */
+            <div className="w-full bg-[#050b16]/95 border border-cyan-500/30 hover:border-cyan-400/50 rounded-2xl p-4 mb-4 flex items-center justify-between gap-3 text-xs shadow-[inset_0_0_20px_rgba(0,0,0,0.7)] transition-all">
+              <div className="flex items-center gap-3 text-left">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-400/40 flex items-center justify-center text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)] shrink-0">
+                  <span className="material-symbols-outlined text-[22px]">chat</span>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-mono font-bold text-emerald-400/90 block tracking-wider">
+                    CANAL SEGURO WHATSAPP
+                  </span>
+                  <strong className="text-white font-mono text-sm tracking-wider drop-shadow-[0_0_8px_rgba(255,255,255,0.4)]">
+                    +58 412-***7933
+                  </strong>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleRequestOTP}
+                disabled={otpCooldown > 0 || isRequestingOtp}
+                className={`py-2 px-3.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                  otpCooldown > 0 || isRequestingOtp
+                    ? 'bg-[#0f172a] text-[#64748b] cursor-not-allowed border border-[#1e293b]'
+                    : 'bg-gradient-to-r from-emerald-400 to-cyan-500 hover:from-emerald-300 hover:to-cyan-400 text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.4)] hover:shadow-[0_0_25px_rgba(34,211,238,0.6)]'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[16px]">
+                  {isRequestingOtp ? 'sync' : otpCooldown > 0 ? 'hourglass_top' : 'send'}
+                </span>
+                <span>
+                  {isRequestingOtp
+                    ? 'Enviando...'
+                    : otpCooldown > 0
+                    ? `${otpCooldown}s`
+                    : 'Solicitar Código'}
+                </span>
+              </button>
+            </div>
+          ) : authChannel === 'totp' ? (
+            /* Google Authenticator (TOTP) Backup Pod */
+            <div className="w-full bg-[#050b16]/95 border border-cyan-500/40 hover:border-cyan-400/60 rounded-2xl p-4 mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs shadow-[inset_0_0_20px_rgba(0,0,0,0.7)] transition-all animate-fade-in">
+              <div className="flex items-center gap-3 text-left">
+                <div className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-400/40 flex items-center justify-center text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.3)] shrink-0">
+                  <span className="material-symbols-outlined text-[22px]">phonelink_lock</span>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase font-mono font-bold text-cyan-400 block tracking-wider">
+                      RESPALDO OFFLINE TOTP
+                    </span>
+                    <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                      SIN WHATSAPP
+                    </span>
+                  </div>
+                  <p className="text-slate-300 font-mono text-xs mt-0.5">
+                    Abre tu app Google Authenticator o Microsoft Authenticator e ingresa los 6 dígitos.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleOpenTotpModal('qr')}
+                className="w-full sm:w-auto py-2 px-3.5 rounded-xl text-xs font-mono font-bold tracking-wide transition-all cursor-pointer flex items-center justify-center gap-1.5 shrink-0 bg-cyan-950/60 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 hover:text-white shadow-[0_0_15px_rgba(6,182,212,0.2)] active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[16px]">qr_code_2</span>
+                <span>Vincular / Ver QR</span>
+              </button>
+            </div>
+          ) : (
+            /* Backup Codes Emergency Pod */
+            <div className="w-full bg-[#050b16]/95 border border-amber-500/40 hover:border-amber-400/60 rounded-2xl p-4 mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs shadow-[inset_0_0_20px_rgba(0,0,0,0.7)] transition-all animate-fade-in">
+              <div className="flex items-center gap-3 text-left">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-400/40 flex items-center justify-center text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.3)] shrink-0">
+                  <span className="material-symbols-outlined text-[22px]">key</span>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase font-mono font-bold text-amber-400 block tracking-wider">
+                      CÓDIGOS DE EMERGENCIA
+                    </span>
+                    <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      8 CÓDIGOS OFFLINE
+                    </span>
+                  </div>
+                  <p className="text-slate-300 font-mono text-xs mt-0.5">
+                    Usa uno de tus 8 códigos de respaldo guardados de un solo uso.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleOpenTotpModal('codes')}
+                className="w-full sm:w-auto py-2 px-3.5 rounded-xl text-xs font-mono font-bold tracking-wide transition-all cursor-pointer flex items-center justify-center gap-1.5 shrink-0 bg-amber-950/60 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 hover:text-white shadow-[0_0_15px_rgba(245,158,11,0.2)] active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[16px]">visibility</span>
+                <span>Ver Mis 8 Códigos</span>
+              </button>
+            </div>
+          )}
+
+          {/* Form: PIN or Emergency Code */}
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              executeVerification(digits.join(''));
+              if (authChannel === 'backup') {
+                executeVerification(backupCodeInput);
+              } else {
+                executeVerification(digits.join(''));
+              }
             }}
             className="w-full"
           >
-            <div className="mb-2 text-left flex items-center justify-between">
-              <label className="text-[11px] font-mono uppercase tracking-wider text-cyan-300/90 font-bold">
-                PIN de Seguridad (6 dígitos)
-              </label>
-              {(otpRequested || otpCooldown > 0) && (
-                <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1 font-bold">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  PIN transmitido (Válido 1 min)
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between gap-1.5 sm:gap-2.5 my-3">
-              {digits.map((digit, idx) => (
-                <React.Fragment key={idx}>
-                  {idx === 3 && (
-                    <div className="text-cyan-400/60 font-mono font-bold text-xl select-none px-0.5 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]">
-                      •
-                    </div>
-                  )}
+            {authChannel === 'backup' ? (
+              <div className="my-3 space-y-2 text-left">
+                <label className="text-[11px] font-mono uppercase tracking-wider text-amber-300/90 font-bold block">
+                  Código de Seguridad de Respaldo (8 dígitos)
+                </label>
+                <div className="relative flex items-center">
                   <input
-                    ref={(el) => (digitInputRefs.current[idx] = el)}
                     type="text"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    maxLength={1}
-                    value={digit}
-                    onChange={(e) => handleDigitChange(idx, e.target.value)}
-                    onKeyDown={(e) => handleKeyDown(idx, e)}
-                    onPaste={handlePaste}
-                    className={`w-11 h-14 sm:w-13 sm:h-16 rounded-2xl text-center font-mono text-2xl font-black transition-all outline-none ${
-                      digit
-                        ? 'bg-[#0a1830] border-2 border-cyan-400 text-cyan-300 shadow-[0_0_20px_rgba(34,211,238,0.45),inset_0_0_12px_rgba(34,211,238,0.2)]'
-                        : 'bg-[#040814] border border-cyan-500/25 text-white focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30 focus:shadow-[0_0_15px_rgba(34,211,238,0.3)]'
-                    } ${
-                      otpError
-                        ? 'border-red-500 text-red-400 shadow-[0_0_20px_rgba(239,68,68,0.35)] bg-red-950/20'
-                        : ''
-                    }`}
+                    value={backupCodeInput}
+                    onChange={(e) => {
+                      setBackupCodeInput(e.target.value.toUpperCase());
+                      setOtpError(null);
+                    }}
+                    placeholder="Ej: 4829-1053 o 48291053"
+                    maxLength={14}
+                    className="w-full text-center text-lg sm:text-xl font-mono font-black tracking-widest bg-[#050b16] border-2 border-amber-500/50 focus:border-amber-400 rounded-2xl py-3 px-14 text-amber-200 outline-none transition-all shadow-[0_0_20px_rgba(245,158,11,0.2)] focus:shadow-[0_0_30px_rgba(245,158,11,0.4)] placeholder:text-slate-600 placeholder:text-xs placeholder:font-normal placeholder:tracking-normal"
+                    autoFocus
                   />
-                </React.Fragment>
-              ))}
-            </div>
+                  {navigator?.clipboard?.readText && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const text = await navigator.clipboard.readText();
+                          if (text) {
+                            setBackupCodeInput(text.trim().toUpperCase());
+                            setOtpError(null);
+                          }
+                        } catch {
+                          // clipboard permission
+                        }
+                      }}
+                      className="absolute right-3 py-1 px-2.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-[10px] font-mono font-bold border border-amber-500/30 cursor-pointer active:scale-95"
+                      title="Pegar código copiado"
+                    >
+                      Pegar
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] font-mono text-slate-400">
+                  💡 Cada código es de un solo uso. No requiere internet en tu celular ni WhatsApp activo.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <div className="mb-2 text-left flex items-center justify-between">
+                  <label className="text-[11px] font-mono uppercase tracking-wider text-cyan-300/90 font-bold">
+                    {authChannel === 'whatsapp' ? 'PIN de Seguridad (6 dígitos)' : 'Código Authenticator (6 dígitos)'}
+                  </label>
+                  {authChannel === 'whatsapp' && (otpRequested || otpCooldown > 0) ? (
+                    <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1 font-bold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      PIN transmitido (Válido 1 min)
+                    </span>
+                  ) : authChannel === 'totp' ? (
+                    <span className="text-[10px] text-cyan-400 font-mono flex items-center gap-1 font-bold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                      Actualiza cada 30 segundos
+                    </span>
+                  ) : null}
+                </div>
+
+                <div className="flex items-center justify-between gap-1.5 sm:gap-2.5 my-3">
+                  {digits.map((digit, idx) => (
+                    <React.Fragment key={idx}>
+                      {idx === 3 && (
+                        <div className="text-cyan-400/60 font-mono font-bold text-xl select-none px-0.5 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]">
+                          •
+                        </div>
+                      )}
+                      <input
+                        ref={(el) => (digitInputRefs.current[idx] = el)}
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        maxLength={1}
+                        value={digit}
+                        onChange={(e) => handleDigitChange(idx, e.target.value)}
+                        onKeyDown={(e) => handleKeyDown(idx, e)}
+                        onPaste={handlePaste}
+                        className={`w-11 h-14 sm:w-13 sm:h-16 rounded-2xl text-center font-mono text-2xl font-black transition-all outline-none ${
+                          digit
+                            ? 'bg-[#0a1830] border-2 border-cyan-400 text-cyan-300 shadow-[0_0_20px_rgba(34,211,238,0.45),inset_0_0_12px_rgba(34,211,238,0.2)]'
+                            : 'bg-[#040814] border border-cyan-500/25 text-white focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30 focus:shadow-[0_0_15px_rgba(34,211,238,0.3)]'
+                        } ${
+                          otpError
+                            ? 'border-red-500 text-red-400 shadow-[0_0_20px_rgba(239,68,68,0.35)] bg-red-950/20'
+                            : ''
+                        }`}
+                      />
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {otpError && (
               <div className="my-3 p-3 bg-red-500/15 border border-red-500/40 rounded-2xl text-xs text-red-200 flex items-center gap-2.5 text-left animate-shake shadow-[0_0_20px_rgba(239,68,68,0.2)]">
@@ -1164,8 +1484,16 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
 
             <button
               type="submit"
-              disabled={!isCodeComplete || isVerifying}
-              className="w-full mt-4 bg-gradient-to-r from-cyan-400 via-blue-500 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 font-black tracking-wider uppercase text-xs py-3.5 px-5 rounded-2xl transition-all cursor-pointer shadow-[0_0_30px_rgba(6,182,212,0.45)] hover:shadow-[0_0_40px_rgba(16,185,129,0.6)] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-[0.98]"
+              disabled={
+                authChannel === 'backup'
+                  ? backupCodeInput.replace(/[\s-]/g, '').length < 8 || isVerifying
+                  : !isCodeComplete || isVerifying
+              }
+              className={`w-full mt-4 text-slate-950 font-black tracking-wider uppercase text-xs py-3.5 px-5 rounded-2xl transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-[0.98] ${
+                authChannel === 'backup'
+                  ? 'bg-gradient-to-r from-amber-400 via-orange-400 to-yellow-300 hover:from-amber-300 hover:to-yellow-200 shadow-[0_0_30px_rgba(245,158,11,0.45)]'
+                  : 'bg-gradient-to-r from-cyan-400 via-blue-500 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 shadow-[0_0_30px_rgba(6,182,212,0.45)] hover:shadow-[0_0_40px_rgba(16,185,129,0.6)]'
+              }`}
             >
               {isVerifying ? (
                 <>
@@ -1174,21 +1502,67 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
                 </>
               ) : (
                 <>
-                  <span className="material-symbols-outlined text-[20px]">verified_user</span>
+                  <span className="material-symbols-outlined text-[20px]">
+                    {authChannel === 'backup' ? 'vpn_key' : 'verified_user'}
+                  </span>
                   <span>VERIFICAR Y DESBLOQUEAR</span>
                 </>
               )}
             </button>
 
+            {/* Alternative Methods Quick Links */}
+            <div className="mt-3.5 flex flex-wrap items-center justify-center gap-3 text-center">
+              {authChannel !== 'whatsapp' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthChannel('whatsapp');
+                    setOtpError(null);
+                  }}
+                  className="text-[11px] font-mono text-emerald-400/90 hover:text-emerald-200 underline underline-offset-2 transition-colors cursor-pointer"
+                >
+                  💬 Solicitar por WhatsApp
+                </button>
+              )}
+
+              {authChannel !== 'totp' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthChannel('totp');
+                    setOtpError(null);
+                  }}
+                  className="text-[11px] font-mono text-cyan-400/90 hover:text-cyan-200 underline underline-offset-2 transition-colors cursor-pointer"
+                >
+                  🛡️ Usar Google Authenticator
+                </button>
+              )}
+
+              {authChannel !== 'backup' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthChannel('backup');
+                    setOtpError(null);
+                  }}
+                  className="text-[11px] font-mono text-amber-400/90 hover:text-amber-200 underline underline-offset-2 transition-colors cursor-pointer"
+                >
+                  🔑 Usar Código de Respaldo (8 códigos)
+                </button>
+              )}
+            </div>
+
             {onBackToDashboard && (
-              <button
-                type="button"
-                onClick={onBackToDashboard}
-                className="mt-3 text-[11px] font-medium text-[#94a3b8] hover:text-cyan-300 transition-colors cursor-pointer inline-flex items-center gap-1.5"
-              >
-                <span className="material-symbols-outlined text-[14px]">arrow_back</span>
-                <span>Volver al Dashboard Principal</span>
-              </button>
+              <div className="mt-2 text-center">
+                <button
+                  type="button"
+                  onClick={onBackToDashboard}
+                  className="text-[11px] font-medium text-[#94a3b8] hover:text-cyan-300 transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-[14px]">arrow_back</span>
+                  <span>Volver al Dashboard Principal</span>
+                </button>
+              </div>
             )}
           </form>
 
@@ -1197,6 +1571,258 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
             <span>SHA-256 E2EE • PROTOCOLO RADAR V3 2FA</span>
           </div>
         </div>
+
+        {/* Modal Configuración Respaldo: Google Authenticator & 8 Códigos de Seguridad */}
+        {isTotpModalOpen &&
+          createPortal(
+            <div
+              className="fixed inset-0 z-[99999] flex items-center justify-center p-3 sm:p-4 md:p-6 bg-slate-950/85 backdrop-blur-md animate-fade-in overflow-y-auto"
+              onClick={() => setIsTotpModalOpen(false)}
+            >
+              <div
+                className="relative w-full max-w-lg bg-[#070c18] border-2 border-cyan-500/50 rounded-3xl p-5 sm:p-6 shadow-[0_0_50px_rgba(6,182,212,0.35)] text-center overflow-hidden flex flex-col items-center"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Laser top bar */}
+                <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-cyan-400 via-emerald-400 to-amber-400 shadow-[0_0_15px_#22d3ee]" />
+
+                <div className="w-full flex items-center justify-between pb-3 mb-3 border-b border-cyan-500/20">
+                  <div className="flex items-center gap-2">
+                    <span className="material-symbols-outlined text-cyan-400 text-[22px]">security</span>
+                    <h3 className="text-sm sm:text-base font-black text-white font-mono uppercase tracking-wide">
+                      Respaldo Offline 2FA
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsTotpModalOpen(false)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">close</span>
+                  </button>
+                </div>
+
+                {/* Tabs: Google Authenticator vs 8 Códigos de Respaldo */}
+                <div className="grid grid-cols-2 gap-2 w-full mb-4">
+                  <button
+                    type="button"
+                    onClick={() => setTotpModalTab('qr')}
+                    className={`py-2 px-3 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      totpModalTab === 'qr'
+                        ? 'bg-cyan-500/25 border border-cyan-400/60 text-cyan-200 shadow-[0_0_15px_rgba(6,182,212,0.3)]'
+                        : 'bg-slate-900/60 border border-slate-700/40 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[16px]">qr_code_2</span>
+                    <span>Google Authenticator</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setTotpModalTab('codes')}
+                    className={`py-2 px-3 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      totpModalTab === 'codes'
+                        ? 'bg-amber-500/25 border border-amber-400/60 text-amber-200 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
+                        : 'bg-slate-900/60 border border-slate-700/40 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[16px]">key</span>
+                    <span>8 Códigos de Emergencia</span>
+                  </button>
+                </div>
+
+                {isLoadingTotp ? (
+                  <div className="py-12 flex flex-col items-center gap-3">
+                    <div className="w-8 h-8 border-3 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+                    <span className="text-xs font-mono text-cyan-300">Generando claves seguras...</span>
+                  </div>
+                ) : totpSetupData ? (
+                  totpModalTab === 'qr' ? (
+                    /* Tab 1: Google Authenticator QR */
+                    <div className="w-full space-y-4 animate-fade-in">
+                      <p className="text-xs text-slate-300 font-mono leading-relaxed text-left">
+                        Escanea este código QR con la app <strong>Google Authenticator</strong> o <strong>Microsoft Authenticator</strong> en tu celular. Funciona 100% sin internet y sin WhatsApp.
+                      </p>
+
+                      {/* QR Code Container */}
+                      <div className="bg-white p-3 rounded-2xl inline-block shadow-[0_0_25px_rgba(255,255,255,0.2)] border-2 border-cyan-400 mx-auto">
+                        <img
+                          src={totpSetupData.qrCodeDataUrl}
+                          alt="Código QR Google Authenticator"
+                          className="w-48 h-48 sm:w-52 sm:h-52 mx-auto block rounded-lg"
+                        />
+                      </div>
+
+                      {/* Manual Secret Key */}
+                      <div className="bg-[#050b16] border border-cyan-500/30 rounded-xl p-2.5 text-left">
+                        <span className="text-[10px] font-mono text-cyan-400 uppercase font-bold block mb-1">
+                          O ingresa esta clave manualmente en la app:
+                        </span>
+                        <div className="flex items-center justify-between gap-2">
+                          <code className="font-mono text-xs font-bold text-white tracking-widest break-all select-all">
+                            {totpSetupData.secret}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={handleCopyTotpSecret}
+                            className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-xs font-mono font-bold border border-cyan-500/40 shrink-0 cursor-pointer active:scale-95 transition-all"
+                          >
+                            {copiedTotpSecret ? '¡Copiado!' : 'Copiar'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* 3 Step Instruction */}
+                      <div className="bg-cyan-950/30 border border-cyan-500/20 rounded-xl p-3 text-left space-y-1 text-[11px] font-mono text-slate-300">
+                        <div className="flex items-start gap-2">
+                          <strong className="text-cyan-400 font-bold">1.</strong>
+                          <span>Abre <strong>Google Authenticator</strong> en tu celular.</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <strong className="text-cyan-400 font-bold">2.</strong>
+                          <span>Presiona el botón <strong>'+'</strong> y elige <strong>Escanear código QR</strong>.</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <strong className="text-cyan-400 font-bold">3.</strong>
+                          <span>Apunta la cámara a la pantalla. ¡Listo! Ya tienes tus códigos de 6 dígitos.</span>
+                        </div>
+                      </div>
+
+                      {/* Modal Buttons */}
+                      <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleResetTotpSecret}
+                          disabled={isResettingTotp}
+                          className="w-full sm:w-auto py-2.5 px-3 rounded-xl border border-rose-500/40 hover:bg-rose-500/20 text-rose-300 text-xs font-mono font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                          title="Genera una nueva clave si perdiste acceso a tu teléfono anterior"
+                        >
+                          <span className="material-symbols-outlined text-[15px]">refresh</span>
+                          <span>{isResettingTotp ? 'Regenerando...' : 'Regenerar QR'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsTotpModalOpen(false);
+                            setAuthChannel('totp');
+                            setTimeout(() => digitInputRefs.current[0]?.focus(), 150);
+                          }}
+                          className="w-full flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 text-xs font-mono font-black uppercase tracking-wider transition-all cursor-pointer shadow-[0_0_20px_rgba(6,182,212,0.4)] active:scale-95"
+                        >
+                          Listo, Ingresar PIN
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Tab 2: 8 Backup Codes */
+                    <div className="w-full space-y-3.5 animate-fade-in">
+                      <p className="text-xs text-slate-300 font-mono leading-relaxed text-left">
+                        Estos <strong>8 códigos de seguridad</strong> te permiten acceder de emergencia si no puedes recibir WhatsApp ni tienes tu celular a mano. <strong>Cada código funciona una sola vez.</strong>
+                      </p>
+
+                      {/* 8 Codes Grid */}
+                      <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto p-1">
+                        {(totpSetupData.backupCodes || []).map((codeItem, idx) => (
+                          <div
+                            key={idx}
+                            className={`p-2.5 rounded-xl border flex items-center justify-between gap-1.5 transition-all ${
+                              codeItem.used
+                                ? 'bg-slate-900/40 border-slate-700/40 text-slate-500'
+                                : 'bg-[#050b16] border-amber-500/40 hover:border-amber-400 text-amber-200 shadow-[0_0_10px_rgba(245,158,11,0.1)]'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="text-[10px] font-mono text-slate-500 font-bold">{idx + 1}.</span>
+                              <span
+                                className={`font-mono text-xs sm:text-sm font-black tracking-wider select-all ${
+                                  codeItem.used ? 'line-through opacity-60' : ''
+                                }`}
+                              >
+                                {codeItem.code}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              {codeItem.used ? (
+                                <span className="px-1.5 py-0.5 rounded text-[8px] font-mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                                  USADO
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopySingleBackupCode(codeItem.code, idx)}
+                                  className="p-1 rounded hover:bg-amber-500/20 text-amber-300 transition-colors cursor-pointer"
+                                  title="Copiar este código"
+                                >
+                                  <span className="material-symbols-outlined text-[15px]">
+                                    {copiedCodeIndex === idx ? 'done' : 'content_copy'}
+                                  </span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Copy All & Download Actions */}
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={handleCopyAllBackupCodes}
+                          className="py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-mono font-bold border border-amber-500/40 transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
+                        >
+                          <span className="material-symbols-outlined text-[15px]">
+                            {copiedAllBackupCodes ? 'done_all' : 'copy_all'}
+                          </span>
+                          <span>{copiedAllBackupCodes ? '¡Copiados!' : 'Copiar los 8'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleDownloadBackupCodes}
+                          className="py-2 px-3 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-white text-xs font-mono font-bold border border-slate-600 transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
+                        >
+                          <span className="material-symbols-outlined text-[15px]">download</span>
+                          <span>Descargar .TXT</span>
+                        </button>
+                      </div>
+
+                      {/* Modal Footer Buttons */}
+                      <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleResetBackupCodes}
+                          disabled={isResettingBackupCodes}
+                          className="w-full sm:w-auto py-2.5 px-3 rounded-xl border border-rose-500/40 hover:bg-rose-500/20 text-rose-300 text-xs font-mono font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                          title="Invalida los códigos actuales y genera 8 nuevos"
+                        >
+                          <span className="material-symbols-outlined text-[15px]">refresh</span>
+                          <span>{isResettingBackupCodes ? 'Regenerando...' : 'Regenerar 8'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsTotpModalOpen(false);
+                            setAuthChannel('backup');
+                          }}
+                          className="w-full flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 text-xs font-mono font-black uppercase tracking-wider transition-all cursor-pointer shadow-[0_0_20px_rgba(245,158,11,0.4)] active:scale-95"
+                        >
+                          Usar un Código Ahora
+                        </button>
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  <div className="py-6 text-xs text-rose-400 font-mono">
+                    Error al cargar configuración. Intenta nuevamente.
+                  </div>
+                )}
+              </div>
+            </div>,
+            document.body
+          )}
       </div>
     );
   }
