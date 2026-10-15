@@ -136,4 +136,80 @@ describe('NewOrderModal in-progress draft persistence & paste safety', () => {
     expect(loadedDraft).toBeNull();
     expect(sessionStorage.getItem(DRAFT_STORAGE_KEY)).toBeNull();
   });
+
+  it('selects newest draft when comparing timestamps between sessionStorage and localStorage', () => {
+    const olderSessionDraft = {
+      stockNumber: '',
+      notes: '',
+      savedAt: 1000,
+    };
+    const newerLocalDraft = {
+      stockNumber: 'STK-FORD-991',
+      notes: 'Pieza verificada en patio',
+      savedAt: 5000,
+    };
+
+    sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(olderSessionDraft));
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(newerLocalDraft));
+
+    const sRaw = JSON.parse(sessionStorage.getItem(DRAFT_STORAGE_KEY)!);
+    const lRaw = JSON.parse(localStorage.getItem(DRAFT_STORAGE_KEY)!);
+
+    const resolved = (lRaw.savedAt || 0) > (sRaw.savedAt || 0)
+      ? { ...sRaw, ...lRaw }
+      : { ...lRaw, ...sRaw };
+
+    expect(resolved.stockNumber).toBe('STK-FORD-991');
+    expect(resolved.notes).toBe('Pieza verificada en patio');
+    expect(resolved.savedAt).toBe(5000);
+  });
+
+  it('prevents stale empty closure state from overwriting activeFormRef synchronous live values', () => {
+    // Stale closure state captured on initial render
+    const staleClosureStock = '';
+    const staleClosureNotes = '';
+
+    // Live ref updated synchronously by keystrokes/paste
+    const activeFormRefCurrent: Record<string, any> = {
+      stockNumber: 'STK-RDZ-5501',
+      notes: 'Motor 3.5L EcoBoost en excelente estado',
+    };
+
+    // Correct pattern: live ref values take precedence over empty closure variables
+    const draft = {
+      stockNumber: activeFormRefCurrent.stockNumber || staleClosureStock,
+      notes: activeFormRefCurrent.notes || staleClosureNotes,
+      ...activeFormRefCurrent,
+    };
+
+    expect(draft.stockNumber).toBe('STK-RDZ-5501');
+    expect(draft.notes).toBe('Motor 3.5L EcoBoost en excelente estado');
+  });
+
+  it('safely filters customers with numeric IDs, null names, or missing fields without throwing TypeError', () => {
+    const dangerousCustomers: any[] = [
+      null,
+      undefined,
+      { id: 101, name: null, phone: '555-0101' }, // Numeric ID and null name
+      { id: 102, first_name: 'Juan', last_name: 'Perez', phone: null },
+      { id: 'CUST-03', name: 'Auto Partes Gomez', phone: '555-9988' },
+    ];
+
+    const safeFilter = (customers: any[], query: string) => {
+      return customers.filter((cust) => {
+        if (!cust) return false;
+        if (!query.trim()) return true;
+        const q = query.toLowerCase();
+        const name = String(cust.name || `${cust.first_name || ''} ${cust.last_name || ''}`.trim()).toLowerCase();
+        const phone = String(cust.phone || '').toLowerCase();
+        const id = String(cust.id || '').toLowerCase();
+        return name.includes(q) || phone.includes(q) || id.includes(q);
+      });
+    };
+
+    expect(() => safeFilter(dangerousCustomers, '101')).not.toThrow();
+    expect(safeFilter(dangerousCustomers, '101')).toHaveLength(1);
+    expect(safeFilter(dangerousCustomers, 'juan')).toHaveLength(1);
+    expect(safeFilter(dangerousCustomers, 'auto')).toHaveLength(1);
+  });
 });

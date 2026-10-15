@@ -10,6 +10,7 @@ export interface OfficialDeliveriesPdfData {
   orders: Order[];
   commissionPercentage: number;
   commissionAmount: number;
+  commissionNote?: string;
   employees: OfficeEmployee[];
   recurringExpenses: RecurringExpense[];
   totalPayout: number;
@@ -236,9 +237,11 @@ export const generateOfficialDeliveriesPdf = async (
 
       const price = order.financials?.total || order.financials?.partPrice || 0;
       const specs = order.productSpecs || `${order.vehicle.trim || ''} ${order.vehicle.transmission || ''}`.trim() || '—';
+      const isYard = Boolean(order.isYardSale || order.advisorRole === 'vendedor_yarda');
+      const customerDisplayName = isYard ? `${order.customer.name} (Yarda)` : order.customer.name;
 
       const cellValues = [
-        { text: fitText(order.customer.name, bold, 7.5, cols[0].width - 12), font: bold, size: 7.5 },
+        { text: fitText(customerDisplayName, bold, 7.5, cols[0].width - 12), font: bold, size: 7.5 },
         { text: fitText(String(order.vehicle.year || '—'), regular, 7.5, cols[1].width - 12), font: regular, size: 7.5 },
         { text: fitText(order.vehicle.make, regular, 7.5, cols[2].width - 12), font: regular, size: 7.5 },
         { text: fitText(order.vehicle.model, regular, 7.5, cols[3].width - 12), font: regular, size: 7.5 },
@@ -327,6 +330,17 @@ export const generateOfficialDeliveriesPdf = async (
     color: textDark,
   });
   lineY -= 14;
+
+  if (data.commissionNote) {
+    page.drawText(cleanPdfText(data.commissionNote, 45), {
+      x: boxX,
+      y: lineY,
+      size: 6.5,
+      font: regular,
+      color: textMuted,
+    });
+    lineY -= 10;
+  }
 
   // 2. Employees (Sorted from highest to lowest salary)
   const sortedEmployees = [...data.employees].sort((a, b) => b.weeklySalary - a.weeklySalary);

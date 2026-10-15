@@ -13,6 +13,9 @@ interface TopHeaderProps {
   onOpenProfile?: () => void;
   onOpenChangePassword?: () => void;
   onOpenNewOrder?: () => void;
+  onOpenFollowups?: () => void;
+  pendingFollowupsCount?: number;
+  overdueFollowupsCount?: number;
   userName?: string;
   userAvatar?: string;
   userRole?: string;
@@ -29,6 +32,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onOpenProfile,
   onOpenChangePassword,
   onOpenNewOrder,
+  onOpenFollowups,
+  pendingFollowupsCount = 0,
+  overdueFollowupsCount = 0,
   userName = 'Usuario Administrador',
   userAvatar,
   userRole,
@@ -110,6 +116,34 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             {isDark ? 'CLARO' : 'OSCURO'}
           </span>
         </button>
+
+        {/* Post-Delivery Followup Badge & Modal Opener */}
+        {onOpenFollowups && (
+          <button
+            type="button"
+            onClick={onOpenFollowups}
+            title="Seguimiento Post-Entrega • Garantía Temprana (14 Días)"
+            className={`relative inline-flex items-center gap-1.5 py-1.5 px-2.5 sm:px-3 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer active:scale-95 ${
+              overdueFollowupsCount > 0
+                ? 'bg-rose-500/25 border border-rose-500/60 text-rose-300 hover:bg-rose-500/35 shadow-[0_0_15px_rgba(244,63,94,0.35)] animate-pulse'
+                : pendingFollowupsCount > 0
+                ? 'bg-amber-500/20 border border-amber-500/50 text-amber-300 hover:bg-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.25)]'
+                : 'bg-[#040814]/90 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/15'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[17px]">phone_in_talk</span>
+            <span className="hidden sm:inline">Seguimiento</span>
+            {pendingFollowupsCount > 0 && (
+              <span
+                className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-black rounded-full ${
+                  overdueFollowupsCount > 0 ? 'bg-rose-500 text-white' : 'bg-amber-400 text-slate-950'
+                }`}
+              >
+                {pendingFollowupsCount}
+              </span>
+            )}
+          </button>
+        )}
 
         {/* New Order CTA */}
         {onOpenNewOrder && (

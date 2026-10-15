@@ -191,6 +191,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       location: 'Raleigh, NC',
       address_shipping: '',
       zip_code: '27604',
+      language: 'es',
       notes: '',
       initials: 'CL',
     });
@@ -202,7 +203,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
   // Open Wizard to Edit Customer
   const handleOpenEditWizard = (customer: Customer) => {
-    setEditingCustomer({ ...customer });
+    setEditingCustomer({ ...customer, language: customer.language || 'es' });
     setFormErrors({});
     setWizardMode('edit');
     setWizardStep(1);
@@ -251,6 +252,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       address_shipping: editingCustomer.address_shipping || editingCustomer.shippingAddress || '',
       shippingAddress: editingCustomer.address_shipping || editingCustomer.shippingAddress || '',
       zip_code: editingCustomer.zip_code || '',
+      language: editingCustomer.language || 'es',
       notes: editingCustomer.notes || '',
     };
 
@@ -613,11 +615,23 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                     </div>
                   </div>
 
-                  <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${badgeStyle}`}
-                  >
-                    {client.type}
-                  </span>
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${badgeStyle}`}
+                    >
+                      {client.type}
+                    </span>
+                    <span
+                      className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md border flex items-center gap-1 ${
+                        client.language === 'en'
+                          ? 'bg-indigo-950/60 text-indigo-300 border-indigo-500/30'
+                          : 'bg-amber-950/60 text-amber-300 border-amber-500/30'
+                      }`}
+                    >
+                      <span>{client.language === 'en' ? '🇺🇸' : '🇪🇸'}</span>
+                      <span>{client.language === 'en' ? 'EN' : 'ES'}</span>
+                    </span>
+                  </div>
                 </div>
 
                 {/* Location & Contact Info */}
@@ -806,9 +820,21 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                         {client.company || '—'}
                       </td>
                       <td className="p-3.5">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-[#1e293b] text-[#94a3b8] border-[#334155]/60">
-                          {client.type}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-[#1e293b] text-[#94a3b8] border-[#334155]/60">
+                            {client.type}
+                          </span>
+                          <span
+                            className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md border flex items-center gap-1 ${
+                              client.language === 'en'
+                                ? 'bg-indigo-950/60 text-indigo-300 border-indigo-500/30'
+                                : 'bg-amber-950/60 text-amber-300 border-amber-500/30'
+                            }`}
+                          >
+                            <span>{client.language === 'en' ? '🇺🇸' : '🇪🇸'}</span>
+                            <span>{client.language === 'en' ? 'EN' : 'ES'}</span>
+                          </span>
+                        </div>
                       </td>
                       <td className="p-3.5">
                         <div className="font-mono text-white text-xs">{client.phone}</div>
@@ -1043,15 +1069,15 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Company & Client Type */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  {/* Company & Client Type & Language */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                     <div>
                       <label className="block text-xs font-bold text-[#cbd5e1] mb-1">
-                        Taller Mecánico / Empresa Aliada
+                        Taller Mecánico / Empresa
                       </label>
                       <input
                         type="text"
-                        placeholder="Ej. Taller El Patrón o RSA Logistics"
+                        placeholder="Ej. Taller El Patrón o RSA"
                         value={editingCustomer.company || ''}
                         onChange={(e) =>
                           setEditingCustomer({ ...editingCustomer, company: e.target.value })
@@ -1080,6 +1106,39 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                         <option value="Flota Mantenimiento">Flota Mantenimiento</option>
                         <option value="Particular">Particular</option>
                       </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-[#cbd5e1] mb-1 flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[14px] text-cyan-400">translate</span>
+                        <span>Idioma de Contacto</span>
+                      </label>
+                      <div className="flex items-center gap-1 bg-[#0b1329] border border-[#1e293b] p-1 rounded-xl">
+                        <button
+                          type="button"
+                          onClick={() => setEditingCustomer({ ...editingCustomer, language: 'es' })}
+                          className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                            (editingCustomer.language || 'es') === 'es'
+                              ? 'bg-amber-500 text-slate-950 shadow-md font-black'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <span>🇪🇸</span>
+                          <span>Español</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingCustomer({ ...editingCustomer, language: 'en' })}
+                          className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                            editingCustomer.language === 'en'
+                              ? 'bg-indigo-600 text-white shadow-md font-black'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <span>🇺🇸</span>
+                          <span>Inglés</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
 

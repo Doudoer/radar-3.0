@@ -9,6 +9,7 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { pool, port, allowedOrigins, isAllowedLocalOrigin, jwtSecret } from './src/server/config';
 import { clearSessionCookie, isLoginRateLimited, recordLoginFailure, resetLoginAttempts, requireRole, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
+import { OrderDeliveryFollowup, PendingFollowupItem } from './src/types';
 import {
   changePasswordSchema,
   claimCallCreateSchema,
@@ -36,6 +37,7 @@ import {
   notificationTestDispatchSchema,
   verifyOtpSchema,
   updateDeliveryDateSchema,
+  orderDeliveryFollowupSchema,
 } from './src/server/schemas';
 import { readBody, sendJson, serveFrontend } from './src/server/http';
 import { getOrders, mapOrder, normalizeTransmissionType, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
@@ -164,6 +166,7 @@ const mapCustomerRow = (row: RowDataPacket) => {
     address_shipping: row.address_shipping || '',
     shippingAddress: row.address_shipping || '',
     zip_code: row.zip_code || '',
+    language: (row.language || 'es') as 'es' | 'en',
     initials: name.split(' ').map((part: string) => part[0]).join('').slice(0, 2).toUpperCase(),
     notes: row.notes || '',
     createdAt: row.created_at,
@@ -772,7 +775,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'POST' && pathname === '/api/orders') {
-      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) return;
       const order = orderPayloadSchema.parse(await readBody(request));
       if (!order.customer || !order.vehicle || !order.financials || !order.mainPart) {
         return sendJson(response, 400, { message: 'Cliente, vehículo, pieza y datos financieros son obligatorios' });
@@ -793,10 +796,16 @@ const server = createServer(async (request, response) => {
           }
         }
 
+        const resolvedCustomerLanguage = ((order as any).customerLanguage || (order.customer as any)?.language || 'es') as 'es' | 'en';
+
+        if (customerId) {
+          await connection.execute('UPDATE customers SET language = ? WHERE id = ?', [resolvedCustomerLanguage, customerId]);
+        }
+
         if (!customerId) {
           const customerNameParts = String(order.customer.name || '').trim().split(/\s+/);
           const [customerResult] = await connection.execute<ResultSetHeader>(
-            'INSERT INTO customers (first_name, last_name, phone, whatsapp, email, address_shipping, zip_code) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO customers (first_name, last_name, phone, whatsapp, email, address_shipping, zip_code, language) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             [
               customerNameParts[0] || 'Cliente',
               customerNameParts.slice(1).join(' ') || null,
@@ -805,6 +814,7 @@ const server = createServer(async (request, response) => {
               order.customer.email || null,
               order.customer.shippingAddress || null,
               order.customer.zip_code || null,
+              resolvedCustomerLanguage,
             ]
           );
           customerId = customerResult.insertId;
@@ -816,6 +826,10 @@ const server = createServer(async (request, response) => {
           const [userRows] = await connection.query<RowDataPacket[]>('SELECT id FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1', [order.userId]);
           if (userRows.length > 0) assignedUserId = userRows[0].id;
         }
+        if (!assignedUserId && order.advisor && order.advisor !== 'Sin asignar') {
+          const [userRows] = await connection.query<RowDataPacket[]>('SELECT id FROM users WHERE name = ? AND deleted_at IS NULL LIMIT 1', [order.advisor]);
+          if (userRows.length > 0) assignedUserId = userRows[0].id;
+        }
         if (!assignedUserId && authenticatedClaims?.sub) {
           const authSubNum = Number(authenticatedClaims.sub);
           if (Number.isInteger(authSubNum) && authSubNum > 0) {
@@ -823,13 +837,17 @@ const server = createServer(async (request, response) => {
             if (userRows.length > 0) assignedUserId = userRows[0].id;
           }
         }
-        if (!assignedUserId && order.advisor && order.advisor !== 'Sin asignar') {
-          const [userRows] = await connection.query<RowDataPacket[]>('SELECT id FROM users WHERE name = ? AND deleted_at IS NULL LIMIT 1', [order.advisor]);
-          if (userRows.length > 0) assignedUserId = userRows[0].id;
-        }
         if (!assignedUserId) {
           const [firstUser] = await connection.query<RowDataPacket[]>('SELECT id FROM users WHERE deleted_at IS NULL ORDER BY id ASC LIMIT 1');
           if (firstUser.length > 0) assignedUserId = firstUser[0].id;
+        }
+
+        let isYardSale = Boolean((order as any).isYardSale);
+        if (assignedUserId) {
+          const [assignedUserRows] = await connection.query<RowDataPacket[]>('SELECT role FROM users WHERE id = ? LIMIT 1', [assignedUserId]);
+          if (assignedUserRows[0]?.role === 'vendedor_yarda') {
+            isYardSale = true;
+          }
         }
 
         // 3. Resolve unique Order Code (VARCHAR(20))
@@ -847,8 +865,8 @@ const server = createServer(async (request, response) => {
 
         // 5. Insert Order
         const [orderResult] = await connection.execute<ResultSetHeader>(
-          `INSERT INTO orders (order_code, vin_nr, brand, model, sub_model, year, color, mileage, product_type, transmission_type, product_specs, stock_nr, customer_id, user_id, price, core_fee, down_payment, shipping_toggle, shipping_address, shipping_cost, warranty_days, status, workflow_step, description)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO orders (order_code, vin_nr, brand, model, sub_model, year, color, mileage, product_type, transmission_type, product_specs, stock_nr, customer_id, user_id, is_yard_sale, price, core_fee, down_payment, shipping_toggle, shipping_address, shipping_cost, warranty_days, status, workflow_step, description, customer_language)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             orderCode,
             order.vehicle.vin || null,
@@ -864,6 +882,7 @@ const server = createServer(async (request, response) => {
             order.stockNumber || null,
             customerId,
             assignedUserId,
+            isYardSale ? 1 : 0,
             order.financials.partPrice || 0,
             order.financials.coreFee || 0,
             order.financials.downPayment || 0,
@@ -874,6 +893,7 @@ const server = createServer(async (request, response) => {
             statusToDatabase[order.status || 'cotizacion'] || order.status || 'Cotización',
             order.workflowStep || 1,
             order.notes || null,
+            resolvedCustomerLanguage,
           ]
         );
 
@@ -885,7 +905,7 @@ const server = createServer(async (request, response) => {
 
         await connection.commit();
         const [rows] = await connection.query<RowDataPacket[]>(
-          'SELECT o.*, c.first_name, c.last_name, c.phone, c.email, c.address_shipping, c.zip_code, u.name AS advisor, u.phone AS advisor_phone FROM orders o LEFT JOIN customers c ON c.id = o.customer_id LEFT JOIN users u ON u.id = o.user_id WHERE o.id = ?',
+          'SELECT o.*, c.first_name, c.last_name, c.phone, c.email, c.address_shipping, c.zip_code, c.language AS customer_crm_language, u.name AS advisor, u.role AS advisor_role, u.phone AS advisor_phone FROM orders o LEFT JOIN customers c ON c.id = o.customer_id LEFT JOIN users u ON u.id = o.user_id WHERE o.id = ?',
           [orderResult.insertId]
         );
         const createdOrderRow = rows[0];
@@ -1026,6 +1046,339 @@ const server = createServer(async (request, response) => {
       });
     }
 
+    // ==========================================
+    // DELIVERY FOLLOWUPS (GARANTÍA TEMPRANA 14 DÍAS)
+    // ==========================================
+    if (request.method === 'GET' && pathname === '/api/orders/followups/pending') {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) return;
+      const url = new URL(request.url || '/', 'http://localhost');
+      const advisorFilter = url.searchParams.get('advisor');
+      const allFilter = url.searchParams.get('all') === 'true';
+
+      // Fetch delivered orders within last 35 days (14 days warranty + extended window for postponed installs)
+      const [orderRows] = await pool.query<RowDataPacket[]>(`
+        SELECT 
+          o.id, 
+          o.order_code, 
+          o.brand, 
+          o.model, 
+          o.year, 
+          o.product_type, 
+          o.status, 
+          o.delivered_at, 
+          o.updated_at, 
+          o.created_at,
+          o.customer_language,
+          c.first_name, 
+          c.last_name, 
+          c.phone AS customer_phone,
+          c.language AS customer_crm_language,
+          u.name AS advisor
+        FROM orders o
+        LEFT JOIN customers c ON c.id = o.customer_id
+        LEFT JOIN users u ON u.id = o.user_id
+        WHERE o.deleted_at IS NULL
+          AND (o.status = 'Entregado' OR o.status = 'entregado')
+          AND (o.delivered_at >= NOW() - INTERVAL 35 DAY OR (o.delivered_at IS NULL AND o.updated_at >= NOW() - INTERVAL 35 DAY))
+        ORDER BY o.delivered_at DESC, o.id DESC
+      `);
+
+      if (orderRows.length === 0) {
+        return sendJson(response, 200, {
+          ok: true,
+          pending: [],
+          totalCount: 0,
+          overdueCount: 0,
+          todayCount: 0,
+          upcomingCount: 0,
+        });
+      }
+
+      const orderIds = orderRows.map((r) => r.id);
+      const [followupRows] = await pool.query<RowDataPacket[]>(
+        `SELECT * FROM order_delivery_followups WHERE order_id IN (?) ORDER BY created_at ASC`,
+        [orderIds]
+      );
+
+      const followupsByOrder = new Map<number, any[]>();
+      for (const row of followupRows) {
+        const list = followupsByOrder.get(row.order_id) || [];
+        list.push(row);
+        followupsByOrder.set(row.order_id, list);
+      }
+
+      const now = new Date();
+      const todayStr = now.toISOString().slice(0, 10);
+      const pendingItems: PendingFollowupItem[] = [];
+
+      for (const order of orderRows) {
+        const orderFollowups = followupsByOrder.get(order.id) || [];
+        const totalCalls = orderFollowups.length;
+        const rawLastFollowup = totalCalls > 0 ? orderFollowups[totalCalls - 1] : null;
+
+        const lastFollowup: OrderDeliveryFollowup | null = rawLastFollowup
+          ? {
+              id: `FOL-${rawLastFollowup.id}`,
+              orderId: String(rawLastFollowup.order_id),
+              operatorName: rawLastFollowup.operator_name,
+              contactChannel: rawLastFollowup.contact_channel || 'call',
+              callResult: rawLastFollowup.call_result,
+              partStatus: rawLastFollowup.part_status,
+              warrantyWarningGiven: Boolean(rawLastFollowup.warranty_warning_given),
+              promisedInstallDate: rawLastFollowup.promised_install_date
+                ? new Date(rawLastFollowup.promised_install_date).toISOString().slice(0, 10)
+                : null,
+              notes: rawLastFollowup.notes,
+              createdAt: new Date(rawLastFollowup.created_at).toISOString(),
+            }
+          : null;
+
+        const deliveryDateVal = order.delivered_at || order.updated_at || order.created_at;
+        const deliveryTimestamp = new Date(deliveryDateVal).getTime();
+        const daysSinceDelivery = Math.max(0, Math.floor((now.getTime() - deliveryTimestamp) / (1000 * 60 * 60 * 24)));
+
+        // If part is confirmed installed and tested OK with at least 2 checks or past day 7, mark completed
+        if (lastFollowup && lastFollowup.partStatus === 'installed_ok' && (totalCalls >= 2 || daysSinceDelivery >= 7)) {
+          continue;
+        }
+
+        let currentMilestone: 'dia_3' | 'dia_7' | 'dia_14' | 'seguimiento_extra' = 'dia_3';
+        let milestoneLabel = 'Hito 1: Recepción & Taller (Día 1-3)';
+        let urgency: 'atrasada' | 'hoy' | 'proxima' = 'proxima';
+
+        // Evaluate promised installation date if customer postponed
+        if (lastFollowup && lastFollowup.promisedInstallDate) {
+          const promisedDate = lastFollowup.promisedInstallDate;
+          if (promisedDate < todayStr) {
+            currentMilestone = 'seguimiento_extra';
+            milestoneLabel = `Fecha prometida vencida (${promisedDate})`;
+            urgency = 'atrasada';
+          } else if (promisedDate === todayStr) {
+            currentMilestone = 'seguimiento_extra';
+            milestoneLabel = `Instalación prometida (HOY: ${promisedDate})`;
+            urgency = 'hoy';
+          } else {
+            currentMilestone = 'seguimiento_extra';
+            milestoneLabel = `Instalación agendada para: ${promisedDate}`;
+            urgency = 'proxima';
+          }
+        } else if (daysSinceDelivery <= 3) {
+          currentMilestone = 'dia_3';
+          milestoneLabel = 'Hito 1: Recepción & Llegada al Taller';
+          if (totalCalls === 0) {
+            if (daysSinceDelivery >= 3) urgency = 'atrasada';
+            else if (daysSinceDelivery >= 2) urgency = 'hoy';
+            else urgency = 'proxima';
+          } else {
+            urgency = 'proxima';
+          }
+        } else if (daysSinceDelivery <= 7) {
+          currentMilestone = 'dia_7';
+          milestoneLabel = 'Hito 2: Montaje & Encendido';
+          if (totalCalls < 1) {
+            urgency = 'atrasada';
+          } else if (totalCalls === 1) {
+            urgency = daysSinceDelivery >= 6 ? 'atrasada' : 'hoy';
+          } else {
+            urgency = 'proxima';
+          }
+        } else if (daysSinceDelivery <= 14) {
+          currentMilestone = 'dia_14';
+          milestoneLabel = 'Hito 3: Conformidad & Cierre 14 Días';
+          if (totalCalls < 2) {
+            urgency = 'atrasada';
+          } else {
+            urgency = daysSinceDelivery >= 12 ? 'hoy' : 'proxima';
+          }
+        } else {
+          currentMilestone = 'seguimiento_extra';
+          milestoneLabel = `Seguimiento Extendido (>14 Días: Día ${daysSinceDelivery})`;
+          urgency = 'atrasada';
+        }
+
+        const advisorName = order.advisor || 'Sin asignar';
+        const clientFullName = [order.first_name, order.last_name].filter(Boolean).join(' ') || 'Cliente';
+        const vehicleStr = [order.year, order.brand, order.model].filter(Boolean).join(' ') || 'Vehículo no especificado';
+
+        pendingItems.push({
+          orderId: String(order.id),
+          orderCode: order.order_code || `ORD-${order.id}`,
+          advisor: advisorName,
+          customerName: clientFullName,
+          customerPhone: order.customer_phone || '',
+          customerLanguage: (order.customer_language || order.customer_crm_language || 'es') as 'es' | 'en',
+          vehicle: vehicleStr,
+          mainPart: order.product_type || 'Pieza',
+          deliveredAt: new Date(deliveryDateVal).toISOString(),
+          daysSinceDelivery,
+          currentMilestone,
+          milestoneLabel,
+          urgency,
+          lastFollowup,
+          totalCalls,
+        });
+      }
+
+      // Sort pending items: 'atrasada' first, then 'hoy', then 'proxima', descending by daysSinceDelivery
+      const urgencyRank: Record<string, number> = { atrasada: 1, hoy: 2, proxima: 3 };
+      pendingItems.sort((a, b) => {
+        const rankDiff = (urgencyRank[a.urgency] || 9) - (urgencyRank[b.urgency] || 9);
+        if (rankDiff !== 0) return rankDiff;
+        return b.daysSinceDelivery - a.daysSinceDelivery;
+      });
+
+      let filteredItems = pendingItems;
+      if (advisorFilter && !allFilter) {
+        filteredItems = pendingItems.filter(
+          (item) => item.advisor.trim().toLowerCase() === advisorFilter.trim().toLowerCase()
+        );
+      }
+
+      const overdueCount = filteredItems.filter((i) => i.urgency === 'atrasada').length;
+      const todayCount = filteredItems.filter((i) => i.urgency === 'hoy').length;
+      const upcomingCount = filteredItems.filter((i) => i.urgency === 'proxima').length;
+
+      return sendJson(response, 200, {
+        ok: true,
+        pending: filteredItems,
+        totalCount: filteredItems.length,
+        overdueCount,
+        todayCount,
+        upcomingCount,
+      });
+    }
+
+    const orderFollowupsMatch = pathname.match(/^\/api\/orders\/(\d+)\/followups$/);
+    if (orderFollowupsMatch) {
+      const targetOrderId = Number(orderFollowupsMatch[1]);
+
+      if (request.method === 'GET') {
+        if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) return;
+        const [rows] = await pool.query<RowDataPacket[]>(
+          'SELECT * FROM order_delivery_followups WHERE order_id = ? ORDER BY created_at DESC',
+          [targetOrderId]
+        );
+        const followups: OrderDeliveryFollowup[] = rows.map((r) => ({
+          id: `FOL-${r.id}`,
+          orderId: String(r.order_id),
+          operatorName: r.operator_name,
+          contactChannel: r.contact_channel || 'call',
+          callResult: r.call_result,
+          partStatus: r.part_status,
+          warrantyWarningGiven: Boolean(r.warranty_warning_given),
+          promisedInstallDate: r.promised_install_date ? new Date(r.promised_install_date).toISOString().slice(0, 10) : null,
+          notes: r.notes,
+          createdAt: new Date(r.created_at).toISOString(),
+        }));
+        return sendJson(response, 200, { ok: true, followups });
+      }
+
+      if (request.method === 'POST') {
+        if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) return;
+        const data = orderDeliveryFollowupSchema.parse(await readBody(request));
+
+        const [orderRows] = await pool.query<RowDataPacket[]>(
+          `SELECT o.id, o.order_code, o.status, c.first_name, c.last_name, c.phone, u.name AS advisor
+           FROM orders o
+           LEFT JOIN customers c ON c.id = o.customer_id
+           LEFT JOIN users u ON u.id = o.user_id
+           WHERE o.id = ? AND o.deleted_at IS NULL LIMIT 1`,
+          [targetOrderId]
+        );
+        if (!orderRows[0]) {
+          return sendJson(response, 404, { ok: false, message: 'Orden no encontrada' });
+        }
+        const orderRow = orderRows[0];
+
+        // Operator name defaults to provided name, or authenticated user's name, or order advisor
+        let opName = data.operatorName || '';
+        if (!opName && authenticatedClaims?.sub) {
+          const [uRows] = await pool.query<RowDataPacket[]>('SELECT name FROM users WHERE id = ?', [authenticatedClaims.sub]);
+          if (uRows[0]?.name) opName = uRows[0].name;
+        }
+        if (!opName) opName = orderRow.advisor || 'Operador';
+
+        const channel = data.contactChannel || 'call';
+        const [insertResult] = await pool.execute<ResultSetHeader>(
+          `INSERT INTO order_delivery_followups 
+            (order_id, operator_name, contact_channel, call_result, part_status, warranty_warning_given, promised_install_date, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            targetOrderId,
+            opName,
+            channel,
+            data.callResult,
+            data.partStatus,
+            data.warrantyWarningGiven ? 1 : 0,
+            data.promisedInstallDate || null,
+            data.notes,
+          ]
+        );
+
+        // Also record in call_register for system-wide call reporting and history
+        const clientFullName = [orderRow.first_name, orderRow.last_name].filter(Boolean).join(' ') || 'Cliente';
+        const clientPhone = orderRow.phone || '';
+        const channelLabel = channel === 'whatsapp' ? 'WHATSAPP' : channel === 'sms' ? 'SMS' : 'LLAMADA';
+        const callSummary = `[SEGUIMIENTO 14 DÍAS - ${channelLabel} - ${data.callResult.toUpperCase()}] Estatus Pieza: ${data.partStatus}. ${data.warrantyWarningGiven ? '⚠️ Advertencia de garantía dada. ' : ''}${data.promisedInstallDate ? `Fecha prometida: ${data.promisedInstallDate}. ` : ''}Notas: ${data.notes}`;
+
+        try {
+          await pool.execute(
+            `INSERT INTO call_register (order_id, caller_name, caller_phone, attended_by, conversation_summary, whatsapp_dispatched, whatsapp_message)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+              targetOrderId,
+              clientFullName,
+              clientPhone,
+              opName,
+              callSummary,
+              channel === 'whatsapp' ? 1 : 0,
+              channel === 'whatsapp' ? data.notes : null,
+            ]
+          );
+        } catch (err) {
+          console.error('[Followup] Error registrando en call_register:', err);
+        }
+
+        void recordAuditLog(pool, {
+          userId: Number(authenticatedClaims?.sub),
+          username: authenticatedClaims?.email,
+          action: 'ORDER_FOLLOWUP_REGISTERED',
+          resourceType: 'order',
+          resourceId: targetOrderId,
+          details: {
+            orderCode: orderRow.order_code,
+            contactChannel: channel,
+            callResult: data.callResult,
+            partStatus: data.partStatus,
+            warrantyWarningGiven: data.warrantyWarningGiven,
+            promisedInstallDate: data.promisedInstallDate,
+            operatorName: opName,
+          },
+          ipAddress: request.socket.remoteAddress || 'unknown',
+          userAgent: request.headers['user-agent'] || null,
+        });
+
+        const createdFollowup: OrderDeliveryFollowup = {
+          id: `FOL-${insertResult.insertId}`,
+          orderId: String(targetOrderId),
+          operatorName: opName,
+          contactChannel: channel,
+          callResult: data.callResult,
+          partStatus: data.partStatus,
+          warrantyWarningGiven: data.warrantyWarningGiven,
+          promisedInstallDate: data.promisedInstallDate || null,
+          notes: data.notes,
+          createdAt: new Date().toISOString(),
+        };
+
+        return sendJson(response, 201, {
+          ok: true,
+          followup: createdFollowup,
+          message: 'Llamada de seguimiento registrada con éxito',
+        });
+      }
+    }
+
     const deliveryDateUpdateMatch = pathname.match(/^\/api\/orders\/(\d+)\/delivery-date$/);
     if (request.method === 'PUT' && deliveryDateUpdateMatch) {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
@@ -1107,7 +1460,7 @@ const server = createServer(async (request, response) => {
 
     const orderId = pathname.match(/^\/api\/orders\/(\d+)$/)?.[1];
     if (request.method === 'PUT' && orderId) {
-      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) return;
       const order = orderPayloadSchema.parse(await readBody(request));
       const customerName = String(order.customer?.name || '').trim().split(/\s+/);
       const connection = await pool.getConnection();
@@ -1116,7 +1469,7 @@ const server = createServer(async (request, response) => {
 
         // 1. Fetch previous order state and advisor details
         const [prevRows] = await connection.query<RowDataPacket[]>(
-          `SELECT o.order_code, o.status, o.user_id, o.brand, o.model, o.year, o.product_type, o.price, o.down_payment,
+          `SELECT o.order_code, o.status, o.user_id, o.customer_id, o.brand, o.model, o.year, o.product_type, o.price, o.down_payment,
                   c.first_name, c.last_name, c.phone AS customer_phone,
                   u.id AS advisor_user_id, u.name AS advisor_name, u.phone AS advisor_phone
            FROM orders o
@@ -1127,13 +1480,27 @@ const server = createServer(async (request, response) => {
         );
         const prevOrder = prevRows[0];
 
+        const updateCustomerLanguage = ((order as any).customerLanguage || (order.customer as any)?.language || null) as 'es' | 'en' | null;
+
         const rawCustId = String(order.customer?.id || '').trim();
         const parsedCustId = Number(rawCustId);
         if (rawCustId && !Number.isNaN(parsedCustId) && Number.isInteger(parsedCustId) && parsedCustId > 0 && !rawCustId.startsWith('CUST-')) {
           await connection.execute(
-            `UPDATE customers SET first_name = ?, last_name = ?, phone = ?, whatsapp = ?, email = ?, address_shipping = ?, zip_code = ? WHERE id = ?`,
-            [customerName[0] || 'Cliente', customerName.slice(1).join(' ') || null, order.customer?.phone || null, order.customer?.phone || null, order.customer?.email || null, order.customer?.shippingAddress || null, order.customer?.zip_code || null, parsedCustId]
+            `UPDATE customers SET first_name = ?, last_name = ?, phone = ?, whatsapp = ?, email = ?, address_shipping = ?, zip_code = ? ${updateCustomerLanguage ? ', language = ?' : ''} WHERE id = ?`,
+            [
+              customerName[0] || 'Cliente',
+              customerName.slice(1).join(' ') || null,
+              order.customer?.phone || null,
+              order.customer?.phone || null,
+              order.customer?.email || null,
+              order.customer?.shippingAddress || null,
+              order.customer?.zip_code || null,
+              ...(updateCustomerLanguage ? [updateCustomerLanguage] : []),
+              parsedCustId,
+            ]
           );
+        } else if (updateCustomerLanguage && prevOrder?.customer_id) {
+          await connection.execute('UPDATE customers SET language = ? WHERE id = ?', [updateCustomerLanguage, prevOrder.customer_id]);
         }
 
         let assignedUserId: number | null | undefined = order.userId;
@@ -1142,14 +1509,26 @@ const server = createServer(async (request, response) => {
           if (userRows[0]) assignedUserId = userRows[0].id;
         }
 
+        let isYardSale: boolean | undefined = (order as any).isYardSale !== undefined ? Boolean((order as any).isYardSale) : undefined;
+        if (assignedUserId !== undefined && assignedUserId !== null) {
+          const [targetUserRows] = await connection.query<RowDataPacket[]>('SELECT id, role FROM users WHERE id = ? LIMIT 1', [assignedUserId]);
+          if (targetUserRows[0]?.role === 'vendedor_yarda') {
+            isYardSale = true;
+          } else if (isYardSale === undefined && targetUserRows[0]?.role && targetUserRows[0].role !== 'vendedor_yarda') {
+            isYardSale = false;
+          }
+        }
+
         const transmissionType = normalizeTransmissionType(order.vehicle?.transmission);
         const newDbStatus = statusToDatabase[order.status || ''] || order.status || '';
 
         await connection.execute(
-          `UPDATE orders SET vin_nr = ?, brand = ?, model = ?, sub_model = ?, year = ?, color = ?, mileage = ?, product_type = ?, transmission_type = ?, product_specs = ?, stock_nr = ?, price = ?, core_fee = ?, down_payment = ?, shipping_toggle = ?, shipping_address = ?, shipping_cost = ?, warranty_days = ?, status = ?, workflow_step = ?, scheduled_pickup_at = ?, delivered_at = ?, warranty_started = ?, description = ?, claim_reason = ? ${assignedUserId !== undefined ? ', user_id = ?' : ''} WHERE id = ?`,
+          `UPDATE orders SET vin_nr = ?, brand = ?, model = ?, sub_model = ?, year = ?, color = ?, mileage = ?, product_type = ?, transmission_type = ?, product_specs = ?, stock_nr = ?, price = ?, core_fee = ?, down_payment = ?, shipping_toggle = ?, shipping_address = ?, shipping_cost = ?, warranty_days = ?, status = ?, workflow_step = ?, scheduled_pickup_at = ?, delivered_at = ?, warranty_started = ?, description = ?, claim_reason = ? ${updateCustomerLanguage ? ', customer_language = ?' : ''} ${assignedUserId !== undefined ? ', user_id = ?' : ''} ${isYardSale !== undefined ? ', is_yard_sale = ?' : ''} WHERE id = ?`,
           [
             order.vehicle?.vin || null, order.vehicle?.make || null, order.vehicle?.model || null, order.vehicle?.trim || null, order.vehicle?.year || null, order.vehicle?.color || null, order.vehicle?.mileage || null, order.mainPart || null, transmissionType, order.productSpecs || null, order.stockNumber || null, order.financials?.partPrice || 0, order.financials?.coreFee || 0, order.financials?.downPayment || 0, order.deliveryType === 'envio_domicilio', order.customer?.shippingAddress || null, order.financials?.deliveryFee || 0, order.warrantyDays || 60, newDbStatus, order.workflowStep || 1, toMysqlDateTime(order.scheduledPickupAt), toMysqlDateTime(order.deliveredAt), Boolean(order.warrantyStarted), order.notes || null, order.claimReason || null,
+            ...(updateCustomerLanguage ? [updateCustomerLanguage] : []),
             ...(assignedUserId !== undefined ? [assignedUserId] : []),
+            ...(isYardSale !== undefined ? [isYardSale ? 1 : 0] : []),
             orderId,
           ]
         );
@@ -1348,9 +1727,9 @@ const server = createServer(async (request, response) => {
       const shipping = data.address_shipping || data.shippingAddress || null;
 
       const [result] = await pool.execute<ResultSetHeader>(
-        `INSERT INTO customers (first_name, last_name, phone, whatsapp, email, address_shipping, zip_code, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [firstName, lastName, data.phone, data.whatsapp || data.phone, data.email || null, shipping, data.zip_code || null, data.notes || null]
+        `INSERT INTO customers (first_name, last_name, phone, whatsapp, email, address_shipping, zip_code, language, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [firstName, lastName, data.phone, data.whatsapp || data.phone, data.email || null, shipping, data.zip_code || null, data.language || 'es', data.notes || null]
       );
 
       const [rows] = await pool.query<RowDataPacket[]>(
@@ -1369,9 +1748,9 @@ const server = createServer(async (request, response) => {
       const shipping = data.address_shipping || data.shippingAddress || null;
 
       await pool.execute(
-        `UPDATE customers SET first_name = ?, last_name = ?, phone = ?, whatsapp = ?, email = ?, address_shipping = ?, zip_code = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+        `UPDATE customers SET first_name = ?, last_name = ?, phone = ?, whatsapp = ?, email = ?, address_shipping = ?, zip_code = ?, language = COALESCE(?, language), notes = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ? AND deleted_at IS NULL`,
-        [firstName, lastName, data.phone, data.whatsapp || data.phone, data.email || null, shipping, data.zip_code || null, data.notes || null, customerId]
+        [firstName, lastName, data.phone, data.whatsapp || data.phone, data.email || null, shipping, data.zip_code || null, data.language || null, data.notes || null, customerId]
       );
 
       const [rows] = await pool.query<RowDataPacket[]>(
@@ -1744,7 +2123,7 @@ const server = createServer(async (request, response) => {
     // USERS (CRUD)
     // ==========================================
     if (request.method === 'GET' && pathname === '/api/users') {
-      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) return;
       const [rows] = await pool.query<RowDataPacket[]>(
         'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, created_at, updated_at FROM users WHERE deleted_at IS NULL ORDER BY name'
       );
@@ -2520,6 +2899,33 @@ const ensureDatabaseTables = async () => {
     }
 
     try {
+      const [custLangCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM customers LIKE "language"');
+      if (custLangCols.length === 0) {
+        await pool.query("ALTER TABLE customers ADD COLUMN language VARCHAR(10) NOT NULL DEFAULT 'es' AFTER notes");
+      }
+    } catch {
+      // customers language check handled safely
+    }
+
+    try {
+      const [orderLangCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM orders LIKE "customer_language"');
+      if (orderLangCols.length === 0) {
+        await pool.query("ALTER TABLE orders ADD COLUMN customer_language VARCHAR(10) NOT NULL DEFAULT 'es' AFTER description");
+      }
+    } catch {
+      // orders customer_language check handled safely
+    }
+
+    try {
+      const [yardSaleCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM orders LIKE "is_yard_sale"');
+      if (yardSaleCols.length === 0) {
+        await pool.query('ALTER TABLE orders ADD COLUMN is_yard_sale TINYINT(1) NOT NULL DEFAULT 0 AFTER user_id');
+      }
+    } catch {
+      // orders is_yard_sale check handled safely
+    }
+
+    try {
       const [phoneCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM users LIKE "phone"');
       if (phoneCols.length === 0) {
         await pool.query('ALTER TABLE users ADD COLUMN phone VARCHAR(50) NULL AFTER email');
@@ -2535,6 +2941,38 @@ const ensureDatabaseTables = async () => {
       }
     } catch {
       // users avatar_url check handled safely
+    }
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS order_delivery_followups (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        order_id INT NOT NULL,
+        operator_name VARCHAR(200) NOT NULL,
+        contact_channel VARCHAR(20) NOT NULL DEFAULT 'call',
+        call_result VARCHAR(50) NOT NULL DEFAULT 'answered',
+        part_status VARCHAR(50) NOT NULL DEFAULT 'not_installed',
+        warranty_warning_given TINYINT(1) NOT NULL DEFAULT 0,
+        promised_install_date DATE NULL,
+        notes TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_odf_order (order_id),
+        INDEX idx_odf_operator (operator_name),
+        INDEX idx_odf_created (created_at),
+        CONSTRAINT fk_odf_order FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    try {
+      const [channelCols] = await pool.query<RowDataPacket[]>(
+        "SHOW COLUMNS FROM order_delivery_followups LIKE 'contact_channel'"
+      );
+      if (channelCols.length === 0) {
+        await pool.query(
+          "ALTER TABLE order_delivery_followups ADD COLUMN contact_channel VARCHAR(20) NOT NULL DEFAULT 'call' AFTER operator_name"
+        );
+      }
+    } catch {
+      // safe column fallback
     }
 
     await ensureAuditTable(pool);

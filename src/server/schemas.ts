@@ -22,6 +22,8 @@ export const orderStatusSchema = z.enum([
 export const orderPayloadSchema = z.object({
   code: z.string().trim().min(1).max(80).optional(),
   userId: z.coerce.number().int().positive().optional().nullable(),
+  advisor: z.string().trim().max(200).optional().nullable(),
+  isYardSale: z.boolean().optional(),
   status: orderStatusSchema.optional(),
   mainPart: z.string().trim().min(1).max(200).optional(),
   productSpecs: z.string().max(5000).optional().nullable(),
@@ -35,6 +37,7 @@ export const orderPayloadSchema = z.object({
     email: z.string().email().max(254).optional().nullable().or(z.literal('')),
     shippingAddress: z.string().max(500).optional().nullable(),
     zip_code: z.string().max(20).optional().nullable(),
+    language: z.enum(['es', 'en']).optional(),
   }).optional(),
   vehicle: z.object({
     vin: z.string().max(40).optional().nullable(),
@@ -58,6 +61,7 @@ export const orderPayloadSchema = z.object({
   warrantyStarted: z.boolean().optional(),
   notes: z.string().max(5000).optional().nullable(),
   claimReason: z.string().max(5000).optional().nullable(),
+  customerLanguage: z.enum(['es', 'en']).optional(),
 }).passthrough();
 
 export const claimUpdateSchema = z.object({
@@ -88,6 +92,7 @@ export const customerSchema = z.object({
   address_shipping: z.string().trim().max(500).optional().nullable(),
   shippingAddress: z.string().trim().max(500).optional().nullable(),
   zip_code: z.string().trim().max(20).optional().nullable(),
+  language: z.enum(['es', 'en']).optional().default('es'),
   notes: z.string().max(5000).optional().nullable(),
 });
 
@@ -120,7 +125,7 @@ export const userCreateSchema = z.object({
   phone: z.string().trim().max(50).optional().nullable(),
   avatar_url: z.string().trim().max(500_000).optional().nullable(),
   password: passwordPolicySchema,
-  role: z.enum(['admin', 'operator']).default('operator'),
+  role: z.enum(['admin', 'operator', 'vendedor_yarda']).default('operator'),
   permissions: z.array(z.string().trim().min(1).max(80)).max(100).default([]),
   active: z.boolean().default(true),
 });
@@ -281,6 +286,18 @@ export const updateDeliveryDateSchema = z.object({
   deliveredAt: z.string().min(1, 'La fecha de entrega es obligatoria'),
   otpCode: z.string().trim().min(6, 'El código OTP debe tener 6 dígitos').max(6, 'El código OTP debe tener 6 dígitos'),
   reason: z.string().max(255).optional(),
+});
+
+export const orderDeliveryFollowupSchema = z.object({
+  contactChannel: z.enum(['call', 'sms', 'whatsapp']).default('call'),
+  callResult: z
+    .enum(['answered', 'no_answer', 'busy', 'wrong_number', 'sms_sent', 'sms_replied', 'sms_no_reply'])
+    .default('answered'),
+  partStatus: z.enum(['not_installed', 'in_process', 'installed_ok', 'has_issues', 'defect_claim']).default('not_installed'),
+  warrantyWarningGiven: z.boolean().default(false),
+  promisedInstallDate: z.string().max(80).optional().nullable(),
+  notes: z.string().trim().min(5, 'Las notas de la llamada deben contener al menos 5 caracteres').max(5000),
+  operatorName: z.string().trim().max(200).optional().nullable(),
 });
 
 

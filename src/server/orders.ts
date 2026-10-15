@@ -50,6 +50,9 @@ export const mapOrder = (row: RowDataPacket) => {
     createdAt: new Date(row.created_at).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' }),
     createdAtIso: new Date(row.created_at).toISOString(),
     advisor: row.advisor || 'Sin asignar',
+    advisorRole: row.advisor_role || undefined,
+    userId: row.user_id ? Number(row.user_id) : undefined,
+    isYardSale: Boolean(row.is_yard_sale || row.advisor_role === 'vendedor_yarda'),
     status: statusFromDatabase(row.status),
     mainPart: row.product_type || 'Refacción',
     productSpecs: row.product_specs || '',
@@ -65,8 +68,10 @@ export const mapOrder = (row: RowDataPacket) => {
       location: row.address_shipping || 'Sin dirección registrada',
       shippingAddress: row.address_shipping || '',
       zip_code: row.zip_code || '',
+      language: (row.customer_language || row.customer_crm_language || row.language || 'es') as 'es' | 'en',
       initials: customerName.split(' ').map((name: string) => name[0]).join('').slice(0, 2).toUpperCase(),
     },
+    customerLanguage: (row.customer_language || row.customer_crm_language || row.language || 'es') as 'es' | 'en',
     vehicle: {
       vin: row.vin_nr || '',
       plate: '',
@@ -122,7 +127,7 @@ export const getOrders = async (options: { limit?: number; startDate?: string; e
   }
 
   const [rows] = await pool.query<RowDataPacket[]>(`
-    SELECT o.*, c.first_name, c.last_name, c.phone, c.email, c.address_shipping, c.zip_code, u.name AS advisor
+    SELECT o.*, c.first_name, c.last_name, c.phone, c.email, c.address_shipping, c.zip_code, c.language AS customer_crm_language, u.name AS advisor, u.role AS advisor_role
     FROM orders o
     LEFT JOIN customers c ON c.id = o.customer_id
     LEFT JOIN users u ON u.id = o.user_id

@@ -5,6 +5,7 @@ import { DeliveryDateOtpModal } from './DeliveryDateOtpModal';
 import { InvoiceView } from './InvoiceView';
 import { DispatchLabelView } from './DispatchLabelView';
 import { RefundRequestView } from './RefundRequestView';
+import { OrderPostDeliveryFollowup } from './OrderPostDeliveryFollowup';
 import { canTransitionOrderStatus, getAllowedNextStatuses, ORDER_STATUS_LABELS, requiresStatusAuthorization } from '../utils/orderStatusRules';
 import { apiFetch } from '../services/apiFetch';
 
@@ -15,7 +16,7 @@ interface OrderDetailViewProps {
   onUpdateOrder?: (updatedOrder: Order) => void;
   onCreateClaim?: (orderId: string, reason: string) => Promise<void>;
   currentUser?: { id?: number; name?: string; email?: string; role?: string } | null;
-  userRole?: 'admin' | 'operador';
+  userRole?: 'admin' | 'operador' | 'vendedor_yarda' | string;
 }
 
 export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
@@ -93,7 +94,62 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     actionDescription: '',
   });
 
-  const isSuperAdmin = userRole === 'admin' || currentUser?.role?.toLowerCase() === 'admin' || (typeof window !== 'undefined' && sessionStorage.getItem('radar_authenticated') === 'true');
+  const isSuperAdmin = userRole === 'admin' || currentUser?.role?.toLowerCase() === 'admin';
+
+  // Reassign Advisor State (Super Admin)
+  const [usersList, setUsersList] = useState<Array<{ id: number; name: string; role: string; active: number }>>([]);
+  const [isReassignModalOpen, setIsReassignModalOpen] = useState(false);
+  const [selectedReassignUserId, setSelectedReassignUserId] = useState<number | ''>('');
+  const [reassignIsYardSale, setReassignIsYardSale] = useState<boolean>(false);
+  const [isReassignSubmitting, setIsReassignSubmitting] = useState(false);
+  const [reassignSuccessMsg, setReassignSuccessMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    apiFetch('/users')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setUsersList(data.filter((u: any) => Boolean(u.active)));
+        }
+      })
+      .catch(() => {});
+  }, [isSuperAdmin]);
+
+  useEffect(() => {
+    if (isReassignModalOpen) {
+      const currentUid = order.userId ? Number(order.userId) : (usersList.find((u) => u.name === order.advisor)?.id ?? '');
+      setSelectedReassignUserId(currentUid);
+      setReassignIsYardSale(Boolean(order.isYardSale || order.advisorRole === 'vendedor_yarda'));
+      setReassignSuccessMsg(null);
+    }
+  }, [isReassignModalOpen, order, usersList]);
+
+  const handleConfirmReassignAdvisor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedReassignUserId) return;
+    const selectedUser = usersList.find((u) => u.id === Number(selectedReassignUserId));
+    if (!selectedUser || !onUpdateOrder) return;
+
+    setIsReassignSubmitting(true);
+    try {
+      const isYard = reassignIsYardSale || selectedUser.role === 'vendedor_yarda';
+      await onUpdateOrder({
+        ...order,
+        advisor: selectedUser.name,
+        userId: selectedUser.id,
+        isYardSale: isYard,
+        advisorRole: selectedUser.role,
+      });
+      setReassignSuccessMsg(`Asesor reasignado con éxito a ${selectedUser.name}`);
+      setTimeout(() => {
+        setIsReassignModalOpen(false);
+        setIsReassignSubmitting(false);
+      }, 900);
+    } catch {
+      setIsReassignSubmitting(false);
+    }
+  };
 
   const handleDeliveryDateSuccess = (newDeliveredAt: string) => {
     const updated = { ...order, deliveredAt: newDeliveredAt };
@@ -618,9 +674,24 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
             {/* Asesor & Delivery metadata chips */}
             <div className="hidden md:flex items-center gap-2 text-[11px] font-mono text-[var(--text-secondary)] border-l border-cyan-500/20 pl-2.5">
-              <span className="flex items-center gap-1">
+              <span className="flex items-center gap-1.5">
                 <span className="material-symbols-outlined text-[14px] text-cyan-400">person</span>
                 <strong className="text-[var(--text-primary)] font-semibold">{order.advisor || 'Carlos M.'}</strong>
+                {(order.isYardSale || order.advisorRole === 'vendedor_yarda') && (
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                    🚜 Yarda
+                  </span>
+                )}
+                {isSuperAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setIsReassignModalOpen(true)}
+                    className="p-1 rounded hover:bg-cyan-500/20 text-cyan-400 hover:text-cyan-200 transition-colors"
+                    title="Modificar asesor de venta (Super Admin)"
+                  >
+                    <span className="material-symbols-outlined text-[13px]">edit</span>
+                  </button>
+                )}
               </span>
               <span>•</span>
               <span className="flex items-center gap-1">
@@ -683,6 +754,19 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               >
                 <span className="material-symbols-outlined text-[15px] text-amber-400">edit_calendar</span>
                 <span>Modificar Fecha (2FA)</span>
+              </button>
+            )}
+
+            {/* Quick Super Admin Advisor Reassignment Button */}
+            {isSuperAdmin && (
+              <button
+                type="button"
+                onClick={() => setIsReassignModalOpen(true)}
+                className="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-sm active:scale-95"
+                title="Modificar o reasignar el asesor de esta orden (Super Admin)"
+              >
+                <span className="material-symbols-outlined text-[15px] text-cyan-400">manage_accounts</span>
+                <span className="hidden sm:inline">Reasignar Asesor</span>
               </button>
             )}
 
@@ -948,6 +1032,17 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       )}
 
       {/* ========================================================================= */}
+      {/* 4.5 POST-DELIVERY 14-DAY FOLLOWUP MODULE FOR DELIVERED ORDERS              */}
+      {/* ========================================================================= */}
+      {order.status === 'entregado' && (
+        <OrderPostDeliveryFollowup
+          order={order}
+          currentUser={currentUser}
+          userRole={userRole}
+        />
+      )}
+
+      {/* ========================================================================= */}
       {/* 5. TAB 1: RESUMEN — ULTRA-COMPACT 3-COLUMN UNIFIED HUD GRID               */}
       {/* ========================================================================= */}
       {activeTab === 'resumen' && (
@@ -1081,9 +1176,21 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                   </div>
                 </div>
 
-                <span className="px-2 py-0.5 rounded-md text-[9.5px] font-mono font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
-                  {order.customer.type || 'Individual'}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className={`px-2 py-0.5 rounded-md text-[9.5px] font-mono font-bold border flex items-center gap-1 ${
+                      (order.customerLanguage || order.customer?.language) === 'en'
+                        ? 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+                        : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/35'
+                    }`}
+                    title={`Idioma preferido del cliente: ${(order.customerLanguage || order.customer?.language) === 'en' ? 'Inglés' : 'Español'}`}
+                  >
+                    <span>{(order.customerLanguage || order.customer?.language) === 'en' ? '🇺🇸 Inglés' : '🇪🇸 Español'}</span>
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md text-[9.5px] font-mono font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
+                    {order.customer.type || 'Individual'}
+                  </span>
+                </div>
               </div>
 
               {/* Contact Information Fields */}
@@ -1526,6 +1633,109 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
         order={order}
         onSuccess={handleDeliveryDateSuccess}
       />
+
+      {/* Modal: Reasignar Asesor de Venta (Super Admin) */}
+      {isReassignModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="cyber-card w-full max-w-md p-5 border-cyan-500/50 shadow-[0_0_40px_rgba(6,182,212,0.3)]">
+            <div className="flex items-center justify-between border-b border-cyan-500/20 pb-3 mb-3">
+              <div className="flex items-center gap-2 text-cyan-400 font-mono font-bold text-sm">
+                <span className="material-symbols-outlined text-[20px]">manage_accounts</span>
+                <span>Reasignar Asesor - Orden #{order.code}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsReassignModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            {reassignSuccessMsg ? (
+              <div className="p-4 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono text-xs text-center flex items-center justify-center gap-2">
+                <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                <span>{reassignSuccessMsg}</span>
+              </div>
+            ) : (
+              <form onSubmit={handleConfirmReassignAdvisor} className="space-y-4">
+                <div className="p-2.5 rounded-xl bg-[var(--bg-card-subtle)] border border-cyan-500/15 text-xs font-mono space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-[var(--text-secondary)]">Cliente:</span>
+                    <strong className="text-[var(--text-primary)]">{order.customer?.name}</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--text-secondary)]">Asesor Actual:</span>
+                    <strong className="text-cyan-300">
+                      {order.advisor || 'No asignado'}
+                      {(order.isYardSale || order.advisorRole === 'vendedor_yarda') && ' (🚜 Yarda)'}
+                    </strong>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-mono font-bold text-[var(--text-secondary)] uppercase block mb-1.5">
+                    Nuevo Asesor de Venta:
+                  </label>
+                  <select
+                    value={selectedReassignUserId}
+                    onChange={(e) => {
+                      const uid = Number(e.target.value);
+                      setSelectedReassignUserId(uid);
+                      const user = usersList.find((u) => u.id === uid);
+                      if (user?.role === 'vendedor_yarda') {
+                        setReassignIsYardSale(true);
+                      }
+                    }}
+                    required
+                    className="cyber-input w-full text-xs font-mono py-2"
+                  >
+                    <option value="">-- Seleccionar Asesor --</option>
+                    {usersList.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.role === 'vendedor_yarda' ? '🚜 [Vendedor Yarda] ' : u.role === 'admin' ? '⭐ [Super Admin] ' : '👤 [Asesor Oficina] '}
+                        {u.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-mono text-amber-200">
+                    <input
+                      type="checkbox"
+                      checked={reassignIsYardSale}
+                      onChange={(e) => setReassignIsYardSale(e.target.checked)}
+                      className="rounded border-amber-500/40 text-amber-500 focus:ring-0 bg-[#070e1c]"
+                    />
+                    <span className="font-bold">🚜 Venta originada en Yarda / Patio</span>
+                  </label>
+                  <p className="text-[10px] text-amber-400/80 font-mono mt-1.5 leading-relaxed">
+                    Las ventas de empleados de la yarda quedan identificadas y <strong>exentas del 2% de comisiones de la oficina</strong> en la Relación Semanal.
+                  </p>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-cyan-500/15">
+                  <button
+                    type="button"
+                    onClick={() => setIsReassignModalOpen(false)}
+                    className="cyber-btn-secondary px-3.5 py-1.5 text-xs font-mono"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isReassignSubmitting || !selectedReassignUserId}
+                    className="px-4 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-mono font-bold text-xs shadow-md disabled:opacity-50"
+                  >
+                    {isReassignSubmitting ? 'Guardando...' : 'Guardar Reasignación'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

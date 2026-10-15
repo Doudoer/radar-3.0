@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useCallback } from 'react';
-import { NavScreen, Order, OrderStatus, PrefillOrderData } from './types';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { NavScreen, Order, OrderStatus, PrefillOrderData, PendingFollowupItem } from './types';
 import { SLA_METRICS } from './data/mockData';
 import { Sidebar } from './components/Sidebar';
 import { TopHeader } from './components/TopHeader';
@@ -25,6 +25,7 @@ import { ExportModal } from './components/ExportModal';
 import { StatusRequestModal } from './components/StatusRequestModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { UserProfileModal } from './components/UserProfileModal';
+import { DailyFollowupBriefingModal } from './components/DailyFollowupBriefingModal';
 import { PersonalNotesWidget } from './components/PersonalNotesWidget';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { LoginView } from './components/LoginView';
@@ -33,6 +34,7 @@ import { useRadarData } from './hooks/useRadarData';
 import { useOrderActions } from './hooks/useOrderActions';
 import { useViewLoading } from './hooks/useViewLoading';
 import { useTheme } from './hooks/useTheme';
+import { apiFetch } from './services/apiFetch';
 
 export default function App() {
   useTheme(); // Initialize theme on mount
@@ -62,6 +64,7 @@ export default function App() {
     setDatabaseMessage,
     replaceOrder,
     prependOrder,
+    refreshCustomers,
   });
   const viewLoading = useViewLoading(currentScreen);
 
@@ -84,6 +87,52 @@ export default function App() {
     phone: '',
     order: null,
   });
+
+  // Follow-up modal & pending items
+  const [isFollowupModalOpen, setIsFollowupModalOpen] = useState(false);
+  const [pendingFollowupItems, setPendingFollowupItems] = useState<PendingFollowupItem[]>([]);
+  const [pendingFollowupsCount, setPendingFollowupsCount] = useState<number>(0);
+  const [overdueFollowupsCount, setOverdueFollowupsCount] = useState<number>(0);
+  const lastCheckedAuthUserIdRef = useRef<number | null | 'unauthenticated'>('unauthenticated');
+
+  const fetchPendingFollowups = useCallback(async (autoOpenOnLogin = false) => {
+    try {
+      const response = await apiFetch('/orders/followups/pending?all=true');
+      if (response.ok) {
+        const data = await response.json();
+        const items: PendingFollowupItem[] = data.pending || [];
+        setPendingFollowupItems(items);
+
+        const isSuperAdmin = userRole === 'admin';
+        const relevantItems = isSuperAdmin
+          ? items
+          : items.filter((i) => i.advisor.trim().toLowerCase() === (authUser?.name || '').trim().toLowerCase());
+
+        const relevantOverdue = relevantItems.filter((i) => i.urgency === 'atrasada').length;
+        setPendingFollowupsCount(relevantItems.length);
+        setOverdueFollowupsCount(relevantOverdue);
+
+        // Auto open on login session every time an operator/admin logs in if there are pending orders
+        if (autoOpenOnLogin && relevantItems.length > 0) {
+          setIsFollowupModalOpen(true);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching pending followups:', err);
+    }
+  }, [userRole, authUser?.name]);
+
+  useEffect(() => {
+    if (authenticated && authUser && !authChecking) {
+      if (lastCheckedAuthUserIdRef.current !== authUser.id) {
+        lastCheckedAuthUserIdRef.current = authUser.id;
+        void fetchPendingFollowups(true);
+      }
+    } else if (!authenticated) {
+      lastCheckedAuthUserIdRef.current = 'unauthenticated';
+      setIsFollowupModalOpen(false);
+    }
+  }, [authenticated, authUser, authChecking, fetchPendingFollowups]);
   // Selected Order object
   const selectedOrder = orders.find((o) => o.id === selectedOrderId) || orders[0];
 
@@ -188,6 +237,9 @@ export default function App() {
           onLogout={() => { void logout(); }}
           onOpenProfile={() => setIsProfileModalOpen(true)}
           onOpenChangePassword={() => setIsChangePasswordOpen(true)}
+          onOpenFollowups={() => setIsFollowupModalOpen(true)}
+          pendingFollowupsCount={pendingFollowupsCount}
+          overdueFollowupsCount={overdueFollowupsCount}
           userName={authUser?.name || 'Usuario'}
           userAvatar={authUser?.avatar_url}
           userRole={userRole}
@@ -372,6 +424,15 @@ export default function App() {
         onClose={() => setIsProfileModalOpen(false)}
         user={authUser}
         onUserUpdated={(updated) => updateUser(updated)}
+      />
+      <DailyFollowupBriefingModal
+        isOpen={isFollowupModalOpen}
+        onClose={() => setIsFollowupModalOpen(false)}
+        pendingItems={pendingFollowupItems}
+        onSelectOrder={handleSelectOrder}
+        onRefreshPending={() => fetchPendingFollowups(false)}
+        currentUserName={authUser?.name}
+        userRole={userRole}
       />
       <PersonalNotesWidget />
     </div>

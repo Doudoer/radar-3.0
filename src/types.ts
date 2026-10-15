@@ -80,6 +80,7 @@ export interface Customer {
   address_shipping?: string;
   shippingAddress?: string;
   zip_code?: string;
+  language?: 'es' | 'en';
   notes?: string;
   createdAt?: string;
   deleted_at?: string | null;
@@ -117,12 +118,15 @@ export interface Order {
   createdAt: string;
   createdAtIso?: string;
   advisor: string;
+  advisorRole?: string;
+  isYardSale?: boolean;
   userId?: number;
   status: OrderStatus;
   mainPart: string;
   productSpecs?: string;
   stockNumber?: string;
   customer: Customer;
+  customerLanguage?: 'es' | 'en';
   vehicle: Vehicle;
   workflowStep: number; // 1 to 4
   financials: {
@@ -211,6 +215,7 @@ export interface PrefillOrderData {
   customerType?: 'Particular' | 'Empresa' | 'Flota Mantenimiento' | 'VIP' | 'Taller Mecánico';
   customerAddress?: string;
   customerZipCode?: string;
+  customerLanguage?: 'es' | 'en';
 }
 
 // Sub-módulo de Reclamos y Garantías (/claims)
@@ -293,5 +298,49 @@ export interface InventoryPart {
   createdAt?: string;
   updatedAt?: string;
   soldAt?: string | null; // Fecha y hora en que la pieza fue vendida / salió de disponibles
+}
+
+// Seguimiento Post-Entrega (Garantía Temprana 14 Días)
+export type FollowupContactChannel = 'call' | 'whatsapp' | 'sms';
+export type FollowupCallResult =
+  | 'answered'
+  | 'no_answer'
+  | 'busy'
+  | 'wrong_number'
+  | 'sms_sent'
+  | 'sms_replied'
+  | 'sms_no_reply';
+export type FollowupContactResult = FollowupCallResult;
+export type FollowupPartStatus = 'not_installed' | 'in_process' | 'installed_ok' | 'has_issues' | 'defect_claim';
+
+export interface OrderDeliveryFollowup {
+  id: string; // e.g. "FOL-1"
+  orderId: string;
+  operatorName: string;
+  contactChannel?: FollowupContactChannel;
+  callResult: FollowupCallResult;
+  partStatus: FollowupPartStatus;
+  warrantyWarningGiven: boolean;
+  promisedInstallDate?: string | null;
+  notes: string;
+  createdAt: string;
+}
+
+export interface PendingFollowupItem {
+  orderId: string;
+  orderCode: string;
+  advisor: string;
+  customerName: string;
+  customerPhone: string;
+  customerLanguage?: 'es' | 'en';
+  vehicle: string;
+  mainPart: string;
+  deliveredAt: string;
+  daysSinceDelivery: number;
+  currentMilestone: 'dia_3' | 'dia_7' | 'dia_14' | 'seguimiento_extra';
+  milestoneLabel: string;
+  urgency: 'atrasada' | 'hoy' | 'proxima';
+  lastFollowup?: OrderDeliveryFollowup | null;
+  totalCalls: number;
 }
 

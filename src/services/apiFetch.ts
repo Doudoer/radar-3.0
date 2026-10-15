@@ -6,9 +6,11 @@ export const apiFetch = async (path: string, options: RequestInit = {}) => {
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetch(`${API_URL}${path}`, { ...options, headers, credentials: 'include' });
+  // Sanitize path: strip leading /api if present to prevent double /api/api/...
+  const cleanPath = path.replace(/^\/api(?=\/|$)/, '');
+  const response = await fetch(`${API_URL}${cleanPath}`, { ...options, headers, credentials: 'include' });
 
-  if (response.status === 401 && !path.startsWith('/auth/login')) {
+  if (response.status === 401 && !cleanPath.startsWith('/auth/login')) {
     sessionStorage.removeItem('radar_authenticated');
     window.dispatchEvent(new CustomEvent('radar:unauthorized'));
   }

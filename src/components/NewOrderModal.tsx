@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { Component, useState, useEffect, useMemo, useRef, useCallback, type ErrorInfo, type ReactNode } from 'react';
 import { Order, OrderStatus, PrefillOrderData, Customer } from '../types';
 import { MAKE_MODEL_MAP } from '../data/vehicleData';
 import { DeliveryDateOtpModal } from './DeliveryDateOtpModal';
+import { apiFetch } from '../services/apiFetch';
 
 interface NewOrderModalProps {
   isOpen: boolean;
@@ -15,7 +16,89 @@ interface NewOrderModalProps {
   currentUserName?: string;
 }
 
-export const NewOrderModal: React.FC<NewOrderModalProps> = ({
+interface ModalErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ModalErrorBoundaryState {
+  hasError: boolean;
+  error?: Error;
+}
+
+export class ModalErrorBoundary extends (React.Component as any) {
+  state: ModalErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(error: Error): ModalErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: any) {
+    console.error('[ModalErrorBoundary] Error capturado en NewOrderModal:', error, errorInfo);
+  }
+
+  handleRecovery = () => {
+    (this as any).setState({ hasError: false, error: undefined });
+  };
+
+  render() {
+    if ((this.state as ModalErrorBoundaryState).hasError) {
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+          <div className="bg-[#070c18] border border-cyan-500/50 rounded-2xl p-6 max-w-md w-full shadow-2xl text-slate-100 flex flex-col gap-4">
+            <div className="flex items-center gap-3 text-cyan-400">
+              <span className="material-symbols-outlined text-[28px]">shield</span>
+              <h3 className="font-bold text-base">Sesión de Orden Protegida</h3>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Ocurrió un error temporal al procesar la vista. Tus datos y el borrador de la orden han sido resguardados en memoria y almacenamiento local.
+            </p>
+            <div className="flex justify-end gap-2 mt-2">
+              <button
+                type="button"
+                onClick={this.handleRecovery}
+                className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold rounded-xl text-xs shadow-lg cursor-pointer"
+              >
+                Reanudar formulario
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return (this.props as any).children;
+  }
+}
+
+const getClipboardText = (e: React.ClipboardEvent): string => {
+  try {
+    if (!e || !e.clipboardData) return '';
+    return (
+      e.clipboardData.getData('text/plain') ||
+      e.clipboardData.getData('text') ||
+      ''
+    );
+  } catch {
+    return '';
+  }
+};
+
+const insertAtSelection = (
+  target: HTMLInputElement | HTMLTextAreaElement,
+  currentValue: string,
+  replacement: string
+): string => {
+  try {
+    const start = target.selectionStart ?? currentValue.length;
+    const end = target.selectionEnd ?? currentValue.length;
+    return currentValue.slice(0, start) + replacement + currentValue.slice(end);
+  } catch {
+    return currentValue ? `${currentValue} ${replacement}` : replacement;
+  }
+};
+
+let inMemoryOrderDraft: Record<string, any> | null = null;
+
+const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
   isOpen,
   onClose,
   onCreateOrder,
@@ -46,6 +129,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   const [customerType, setCustomerType] = useState<'Particular' | 'Empresa' | 'Flota Mantenimiento' | 'VIP' | 'Taller Mecánico'>('Particular');
   const [shippingAddress, setShippingAddress] = useState('');
   const [zipCode, setZipCode] = useState('27520');
+  const [customerLanguage, setCustomerLanguage] = useState<'es' | 'en'>('es');
   const [showAddressDetails, setShowAddressDetails] = useState(true);
 
   // 2. Vehicle Dimensions
@@ -76,6 +160,25 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   const [warrantyDays, setWarrantyDays] = useState(30);
   const [status, setStatus] = useState<OrderStatus>('cotizacion');
   const [advisor, setAdvisor] = useState(defaultAdvisor);
+  const [usersList, setUsersList] = useState<Array<{ id: number; name: string; role: string; active: number }>>([]);
+  const [isYardSaleToggle, setIsYardSaleToggle] = useState<boolean>(Boolean(editingOrder?.isYardSale || editingOrder?.advisorRole === 'vendedor_yarda'));
+  const [assignedUserId, setAssignedUserId] = useState<number | undefined>(editingOrder?.userId ? Number(editingOrder.userId) : undefined);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    apiFetch('/users')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setUsersList(data.filter((u: any) => Boolean(u.active)));
+        }
+      })
+      .catch(() => {});
+  }, [isOpen]);
+
+  const yardSellers = useMemo(() => {
+    return usersList.filter((u) => u.role === 'vendedor_yarda');
+  }, [usersList]);
 
   const yearOptions = useMemo(
     () => Array.from({ length: 37 }, (_, index) => 2026 - index),
@@ -102,6 +205,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   // Filtered Customers for Step 2 CRM Selector
   const filteredCustomers = useMemo(() => {
     return existingCustomers.filter((cust) => {
+      if (!cust) return false;
       // Category filter
       if (selectedCategoryFilter !== 'all' && cust.type !== selectedCategoryFilter) {
         return false;
@@ -109,12 +213,12 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       // Query filter
       if (!clientSearchQuery.trim()) return true;
       const q = clientSearchQuery.toLowerCase();
-      const name = (cust.name || `${cust.first_name || ''} ${cust.last_name || ''}`).toLowerCase();
-      const company = (cust.company || '').toLowerCase();
-      const phone = (cust.phone || cust.whatsapp || '').toLowerCase();
-      const email = (cust.email || '').toLowerCase();
-      const loc = (cust.shippingAddress || cust.address_shipping || cust.location || '').toLowerCase();
-      const id = cust.id.toLowerCase();
+      const name = String(cust.name || `${cust.first_name || ''} ${cust.last_name || ''}`.trim()).toLowerCase();
+      const company = String(cust.company || '').toLowerCase();
+      const phone = String(cust.phone || cust.whatsapp || '').toLowerCase();
+      const email = String(cust.email || '').toLowerCase();
+      const loc = String(cust.shippingAddress || cust.address_shipping || cust.location || '').toLowerCase();
+      const id = String(cust.id || '').toLowerCase();
       return (
         name.includes(q) ||
         company.includes(q) ||
@@ -132,45 +236,100 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     return existingCustomers.find((c) => c.id === selectedCustomerId) || null;
   }, [existingCustomers, selectedCustomerId]);
 
+  // Keep customer language synchronized whenever a customer is selected or resolves from existingCustomers
+  const lastSyncedCustomerIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (selectedCustomerObj && selectedCustomerObj.id !== lastSyncedCustomerIdRef.current) {
+      lastSyncedCustomerIdRef.current = selectedCustomerObj.id;
+      const lang = selectedCustomerObj.language || 'es';
+      setCustomerLanguage(lang);
+      activeFormRef.current.customerLanguage = lang;
+      syncField('customerLanguage', lang);
+    } else if (!selectedCustomerId) {
+      lastSyncedCustomerIdRef.current = null;
+    }
+  }, [selectedCustomerObj, selectedCustomerId]);
+
   const handleSelectCustomer = (customer: Customer) => {
     setSelectedCustomerId(customer.id);
+    syncField('selectedCustomerId', customer.id);
     const fullName = customer.name || `${customer.first_name || ''} ${customer.last_name || ''}`.trim();
     setCustomerName(fullName);
-    setCustomerPhone(customer.phone || customer.whatsapp || '');
-    setCustomerEmail(customer.email || '');
-    setCustomerType(customer.type || 'Particular');
-    setShippingAddress(customer.shippingAddress || customer.address_shipping || customer.location || '');
-    setZipCode(customer.zip_code || '27520');
+    syncField('customerName', fullName);
+    const phone = customer.phone || customer.whatsapp || '';
+    setCustomerPhone(phone);
+    syncField('customerPhone', phone);
+    const email = customer.email || '';
+    setCustomerEmail(email);
+    syncField('customerEmail', email);
+    const type = customer.type || 'Particular';
+    setCustomerType(type);
+    syncField('customerType', type);
+    const addr = customer.shippingAddress || customer.address_shipping || customer.location || '';
+    setShippingAddress(addr);
+    syncField('shippingAddress', addr);
+    const zip = customer.zip_code || '27520';
+    setZipCode(zip);
+    syncField('zipCode', zip);
+    const lang = customer.language || 'es';
+    setCustomerLanguage(lang);
+    syncField('customerLanguage', lang);
     setStepError(null);
   };
 
   const handleClearCustomerSelection = () => {
     setSelectedCustomerId(null);
+    syncField('selectedCustomerId', null);
     setCustomerName('');
+    syncField('customerName', '');
     setCustomerPhone('');
+    syncField('customerPhone', '');
     setCustomerEmail('');
+    syncField('customerEmail', '');
     setCustomerType('Particular');
+    syncField('customerType', 'Particular');
     setShippingAddress('');
+    syncField('shippingAddress', '');
     setZipCode('27520');
-  };
-
-  const handleManualYearChange = (value: string) => {
-    setVehicleYear(value ? Number(value) : '');
-    setVehicleMake('');
-    setVehicleModel('');
-    if (stepError) setStepError(null);
-  };
-
-  const handleManualMakeChange = (value: string) => {
-    setVehicleMake(value);
-    setVehicleModel('');
-    if (stepError) setStepError(null);
+    syncField('zipCode', '27520');
+    setCustomerLanguage('es');
+    syncField('customerLanguage', 'es');
   };
 
   const DRAFT_STORAGE_KEY = 'radar_new_order_draft';
 
+  // Immediate synchronous in-memory ref tracking live values to prevent React batching / closure staleness
+  const activeFormRef = useRef<Record<string, any>>({
+    vehicleYear: '',
+    vehicleMake: '',
+    vehicleModel: '',
+    vehicleVIN: '',
+    vehicleMileage: '',
+    vehicleTransmission: '',
+    vehicleColor: 'Gris Grafito',
+    mainPart: '',
+    productSpecs: '',
+    stockNumber: '',
+    notes: '',
+    customerName: '',
+    customerPhone: '',
+    customerEmail: '',
+    customerType: 'Particular',
+    shippingAddress: '',
+    zipCode: '27520',
+    partPrice: '',
+    downPayment: '',
+    deliveryFee: '',
+    coreFee: '',
+    deliveryType: 'retiro_tienda',
+    warrantyDays: 30,
+    status: 'cotizacion',
+    currentStep: 1,
+  });
+
   const saveOrderDraft = useCallback((draft: Record<string, unknown>) => {
     try {
+      inMemoryOrderDraft = { ...draft };
       const serialized = JSON.stringify(draft);
       if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(DRAFT_STORAGE_KEY, serialized);
       if (typeof localStorage !== 'undefined') localStorage.setItem(DRAFT_STORAGE_KEY, serialized);
@@ -181,18 +340,48 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
 
   const loadOrderDraft = useCallback((): Record<string, any> | null => {
     try {
-      const sessionRaw = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(DRAFT_STORAGE_KEY) : null;
-      const localRaw = typeof localStorage !== 'undefined' ? localStorage.getItem(DRAFT_STORAGE_KEY) : null;
-      const raw = sessionRaw || localRaw;
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === 'object' ? parsed : null;
+      let draftSession: Record<string, any> | null = null;
+      let draftLocal: Record<string, any> | null = null;
+      try {
+        const sessionRaw = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(DRAFT_STORAGE_KEY) : null;
+        if (sessionRaw) {
+          const parsed = JSON.parse(sessionRaw);
+          if (parsed && typeof parsed === 'object') draftSession = parsed;
+        }
+      } catch {}
+      try {
+        const localRaw = typeof localStorage !== 'undefined' ? localStorage.getItem(DRAFT_STORAGE_KEY) : null;
+        if (localRaw) {
+          const parsed = JSON.parse(localRaw);
+          if (parsed && typeof parsed === 'object') draftLocal = parsed;
+        }
+      } catch {}
+
+      let storageDraft: Record<string, any> | null = null;
+      if (draftSession && draftLocal) {
+        const timeSession = Number(draftSession.savedAt) || 0;
+        const timeLocal = Number(draftLocal.savedAt) || 0;
+        storageDraft = timeLocal > timeSession ? { ...draftSession, ...draftLocal } : { ...draftLocal, ...draftSession };
+      } else {
+        storageDraft = draftSession || draftLocal;
+      }
+
+      if (inMemoryOrderDraft && storageDraft) {
+        const timeMem = Number(inMemoryOrderDraft.savedAt) || 0;
+        const timeStore = Number(storageDraft.savedAt) || 0;
+        return timeMem >= timeStore
+          ? { ...storageDraft, ...inMemoryOrderDraft }
+          : { ...inMemoryOrderDraft, ...storageDraft };
+      }
+
+      return inMemoryOrderDraft || storageDraft || null;
     } catch {
       return null;
     }
   }, []);
 
   const clearOrderDraft = useCallback(() => {
+    inMemoryOrderDraft = null;
     try {
       if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(DRAFT_STORAGE_KEY);
     } catch {}
@@ -200,6 +389,33 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       if (typeof localStorage !== 'undefined') localStorage.removeItem(DRAFT_STORAGE_KEY);
     } catch {}
   }, []);
+
+  const syncField = useCallback((field: string, value: any) => {
+    activeFormRef.current[field] = value;
+    if (inMemoryOrderDraft) inMemoryOrderDraft[field] = value;
+    if (isOpen && !editingOrder) {
+      saveOrderDraft({ ...activeFormRef.current, savedAt: Date.now() });
+    }
+  }, [isOpen, editingOrder, saveOrderDraft]);
+
+  const handleManualYearChange = (value: string) => {
+    const y = value ? Number(value) : '';
+    setVehicleYear(y);
+    syncField('vehicleYear', y);
+    setVehicleMake('');
+    syncField('vehicleMake', '');
+    setVehicleModel('');
+    syncField('vehicleModel', '');
+    if (stepError) setStepError(null);
+  };
+
+  const handleManualMakeChange = (value: string) => {
+    setVehicleMake(value);
+    syncField('vehicleMake', value);
+    setVehicleModel('');
+    syncField('vehicleModel', '');
+    if (stepError) setStepError(null);
+  };
 
   const decodeVin = async (vin: string) => {
     const normalizedVin = vin.trim().toUpperCase();
@@ -223,10 +439,24 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
         throw new Error('VIN no encontrado');
       }
 
-      if (result.Make) setVehicleMake(resolveCatalogMake(result.Make));
-      if (result.Model) setVehicleModel(result.Model);
-      if (result.ModelYear && /^\d{4}$/.test(result.ModelYear)) setVehicleYear(Number(result.ModelYear));
-      if (result.TransmissionStyle) setVehicleTransmission(result.TransmissionStyle);
+      if (result.Make) {
+        const resolved = resolveCatalogMake(result.Make);
+        setVehicleMake(resolved);
+        syncField('vehicleMake', resolved);
+      }
+      if (result.Model) {
+        setVehicleModel(result.Model);
+        syncField('vehicleModel', result.Model);
+      }
+      if (result.ModelYear && /^\d{4}$/.test(result.ModelYear)) {
+        const yr = Number(result.ModelYear);
+        setVehicleYear(yr);
+        syncField('vehicleYear', yr);
+      }
+      if (result.TransmissionStyle) {
+        setVehicleTransmission(result.TransmissionStyle);
+        syncField('vehicleTransmission', result.TransmissionStyle);
+      }
       setVinDecodeStatus('success');
       setVinDecodeMessage('Datos del vehículo actualizados desde NHTSA');
     } catch {
@@ -251,6 +481,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     setCustomerType('Particular');
     setShippingAddress('');
     setZipCode('27520');
+    setCustomerLanguage('es');
     setVehicleMake('');
     setVehicleModel('');
     setVehicleYear('');
@@ -277,6 +508,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
 
   const handleDiscardDraft = () => {
     clearOrderDraft();
+    activeFormRef.current = {};
     setHasRestoredDraft(false);
     resetFormToEmpty();
   };
@@ -318,6 +550,8 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       setCustomerType(editingOrder.customer.type || 'Particular');
       setShippingAddress(editingOrder.customer.shippingAddress || editingOrder.customer.address_shipping || '');
       setZipCode(editingOrder.customer.zip_code || '27520');
+      const lang = (editingOrder as any).customerLanguage || editingOrder.customer.language || 'es';
+      setCustomerLanguage(lang);
       setVehicleMake(editingOrder.vehicle.make || 'Ford');
       setVehicleModel(editingOrder.vehicle.model || 'F-150');
       setVehicleYear(editingOrder.vehicle.year || 2023);
@@ -341,45 +575,104 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       setStatus(editingOrder.status);
       setDeliveredAtDate(editingOrder.deliveredAt);
       setAdvisor(editingOrder.advisor || defaultAdvisor);
+      setIsYardSaleToggle(Boolean(editingOrder.isYardSale || editingOrder.advisorRole === 'vendedor_yarda'));
+      setAssignedUserId(editingOrder.userId ? Number(editingOrder.userId) : undefined);
       setStepError(null);
     } else if (initialPrefillData) {
-      setHasRestoredDraft(false);
-      if (initialPrefillData.make) setVehicleMake(initialPrefillData.make);
-      if (initialPrefillData.model) setVehicleModel(initialPrefillData.model);
-      if (initialPrefillData.year) setVehicleYear(initialPrefillData.year);
-      if (initialPrefillData.vin) setVehicleVIN(initialPrefillData.vin);
-      if (initialPrefillData.mainPart) setMainPart(normalizePartType(initialPrefillData.mainPart));
-      if (initialPrefillData.productSpecs) setProductSpecs(initialPrefillData.productSpecs);
-      if (initialPrefillData.stockNumber) setStockNumber(initialPrefillData.stockNumber);
-      
-      if (initialPrefillData.partPrice !== undefined) {
-        const priceStr = initialPrefillData.partPrice.toString();
-        setPartPrice(priceStr);
-        const autoDays = calculateAutoWarranty(initialPrefillData.partPrice);
-        setWarrantyDays(initialPrefillData.warrantyDays || autoDays);
+      // First check if there is an in-progress draft so we never wipe user-typed modifications
+      const draft = loadOrderDraft();
+      if (draft && typeof draft === 'object') {
+        setHasRestoredDraft(true);
       }
       
-      if (initialPrefillData.customerName) {
-        setCustomerName(initialPrefillData.customerName);
-        const match = existingCustomers.find(
-          (c) => c.name.toLowerCase() === initialPrefillData.customerName?.toLowerCase()
-        );
-        if (match) {
-          setSelectedCustomerId(match.id);
-        }
-      }
-      if (initialPrefillData.customerPhone) setCustomerPhone(initialPrefillData.customerPhone);
-      if (initialPrefillData.customerEmail) setCustomerEmail(initialPrefillData.customerEmail);
-      if (initialPrefillData.customerType) setCustomerType(initialPrefillData.customerType);
-      if (initialPrefillData.customerAddress) setShippingAddress(initialPrefillData.customerAddress);
-      if (initialPrefillData.customerZipCode) setZipCode(initialPrefillData.customerZipCode);
+      const resolvedMake = draft?.vehicleMake || initialPrefillData.make;
+      if (resolvedMake) { setVehicleMake(resolvedMake); activeFormRef.current.vehicleMake = resolvedMake; }
+      
+      const resolvedModel = draft?.vehicleModel || initialPrefillData.model;
+      if (resolvedModel) { setVehicleModel(resolvedModel); activeFormRef.current.vehicleModel = resolvedModel; }
+      
+      const resolvedYear = draft?.vehicleYear || initialPrefillData.year;
+      if (resolvedYear) { setVehicleYear(resolvedYear); activeFormRef.current.vehicleYear = resolvedYear; }
+      
+      const resolvedVin = draft?.vehicleVIN || initialPrefillData.vin;
+      if (resolvedVin) { setVehicleVIN(resolvedVin); activeFormRef.current.vehicleVIN = resolvedVin; }
+      
+      const resolvedPart = draft?.mainPart || (initialPrefillData.mainPart ? normalizePartType(initialPrefillData.mainPart) : '');
+      if (resolvedPart) { setMainPart(resolvedPart); activeFormRef.current.mainPart = resolvedPart; }
+      
+      const resolvedSpecs = draft?.productSpecs || initialPrefillData.productSpecs;
+      if (resolvedSpecs) { setProductSpecs(resolvedSpecs); activeFormRef.current.productSpecs = resolvedSpecs; }
+      
+      const resolvedStock = draft?.stockNumber || initialPrefillData.stockNumber;
+      if (resolvedStock) { setStockNumber(resolvedStock); activeFormRef.current.stockNumber = resolvedStock; }
+      
+      const resolvedMileage = draft?.vehicleMileage || '';
+      if (resolvedMileage) { setVehicleMileage(resolvedMileage); activeFormRef.current.vehicleMileage = resolvedMileage; }
 
       const supplierNotes = initialPrefillData.dealerName 
         ? `Cotizado vía Car-Part: ${initialPrefillData.dealerName} (${initialPrefillData.dealerLocation || ''}) Tel: ${initialPrefillData.dealerPhone || ''}. ${initialPrefillData.notes || ''}`
         : initialPrefillData.notes || '';
-      if (supplierNotes) setNotes(supplierNotes);
+      const resolvedNotes = draft?.notes || supplierNotes;
+      if (resolvedNotes) { setNotes(resolvedNotes); activeFormRef.current.notes = resolvedNotes; }
 
-      setCurrentStep(1);
+      const resolvedPrice = draft?.partPrice !== undefined ? draft.partPrice : (initialPrefillData.partPrice !== undefined ? initialPrefillData.partPrice.toString() : '');
+      if (resolvedPrice) {
+        setPartPrice(resolvedPrice);
+        activeFormRef.current.partPrice = resolvedPrice;
+        const autoDays = calculateAutoWarranty(parseFloat(resolvedPrice) || 0);
+        const resolvedWarranty = draft?.warrantyDays || initialPrefillData.warrantyDays || autoDays;
+        setWarrantyDays(resolvedWarranty);
+        activeFormRef.current.warrantyDays = resolvedWarranty;
+      }
+
+      if (draft?.customerName || initialPrefillData.customerName) {
+        const cName = draft?.customerName || initialPrefillData.customerName!;
+        setCustomerName(cName);
+        activeFormRef.current.customerName = cName;
+        const match = existingCustomers.find((c) =>
+          String(c?.name || `${c?.first_name || ''} ${c?.last_name || ''}`.trim()).toLowerCase() === String(cName || '').toLowerCase()
+        );
+        if (match) {
+          setSelectedCustomerId(match.id);
+          const lang = match.language || 'es';
+          setCustomerLanguage(lang);
+          activeFormRef.current.customerLanguage = lang;
+          syncField('customerLanguage', lang);
+        }
+      }
+      if (draft?.customerPhone || initialPrefillData.customerPhone) {
+        const cPhone = draft?.customerPhone || initialPrefillData.customerPhone!;
+        setCustomerPhone(cPhone);
+        activeFormRef.current.customerPhone = cPhone;
+      }
+      if (draft?.customerEmail || initialPrefillData.customerEmail) {
+        const cEmail = draft?.customerEmail || initialPrefillData.customerEmail!;
+        setCustomerEmail(cEmail);
+        activeFormRef.current.customerEmail = cEmail;
+      }
+      if (draft?.customerType || initialPrefillData.customerType) {
+        const cType = draft?.customerType || initialPrefillData.customerType!;
+        setCustomerType(cType);
+        activeFormRef.current.customerType = cType;
+      }
+      if (draft?.shippingAddress || initialPrefillData.customerAddress) {
+        const cAddress = draft?.shippingAddress || initialPrefillData.customerAddress!;
+        setShippingAddress(cAddress);
+        activeFormRef.current.shippingAddress = cAddress;
+      }
+      if (draft?.zipCode || initialPrefillData.customerZipCode) {
+        const cZip = draft?.zipCode || initialPrefillData.customerZipCode!;
+        setZipCode(cZip);
+        activeFormRef.current.zipCode = cZip;
+      }
+      if (draft?.customerLanguage || initialPrefillData.customerLanguage) {
+        const cLang = draft?.customerLanguage || initialPrefillData.customerLanguage!;
+        setCustomerLanguage(cLang);
+        activeFormRef.current.customerLanguage = cLang;
+      }
+
+      setCurrentStep(draft?.currentStep || 1);
+      saveOrderDraft({ ...activeFormRef.current, savedAt: Date.now() });
     } else {
       // Check for saved in-progress draft in storage
       let loadedFromDraft = false;
@@ -397,6 +690,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           if (draft.customerType) setCustomerType(draft.customerType);
           if (draft.shippingAddress !== undefined) setShippingAddress(draft.shippingAddress);
           if (draft.zipCode !== undefined) setZipCode(draft.zipCode);
+          if (draft.customerLanguage) setCustomerLanguage(draft.customerLanguage);
           if (draft.showAddressDetails !== undefined) setShowAddressDetails(draft.showAddressDetails);
           if (draft.vehicleMake !== undefined) setVehicleMake(draft.vehicleMake);
           if (draft.vehicleModel !== undefined) setVehicleModel(draft.vehicleModel);
@@ -420,19 +714,19 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           setStepError(null);
           setHasRestoredDraft(true);
           loadedFromDraft = true;
+          activeFormRef.current = { ...activeFormRef.current, ...draft };
         }
       } catch {
         loadedFromDraft = false;
       }
 
-      // CRITICAL: NEVER call resetFormToEmpty if the modal was already open!
-      // Only initialize to empty if this is a fresh open and no draft was restored.
-      if (!loadedFromDraft && justOpened) {
-        setHasRestoredDraft(false);
-        resetFormToEmpty();
+      // DO NOT call resetFormToEmpty here! Initial state already starts empty.
+      // Calling resetFormToEmpty here caused accidental data wipes.
+      if (loadedFromDraft) {
+        setHasRestoredDraft(true);
       }
     }
-  }, [editingOrder, initialPrefillData, isOpen, loadOrderDraft, resetFormToEmpty]);
+  }, [editingOrder, initialPrefillData, isOpen, loadOrderDraft, saveOrderDraft, existingCustomers, defaultAdvisor]);
 
   // Real-time draft auto-save to storage so typed data is NEVER lost across tab changes
   useEffect(() => {
@@ -458,41 +752,45 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
 
     if (!hasData) return;
 
+    const mem = activeFormRef.current || {};
     const draft = {
       currentStep,
       clientMode,
       clientSearchQuery,
       selectedCategoryFilter,
       selectedCustomerId,
-      customerName,
-      customerPhone,
-      customerEmail,
-      customerType,
-      shippingAddress,
-      zipCode,
+      customerName: mem.customerName !== undefined && mem.customerName !== '' ? mem.customerName : customerName,
+      customerPhone: mem.customerPhone !== undefined && mem.customerPhone !== '' ? mem.customerPhone : customerPhone,
+      customerEmail: mem.customerEmail !== undefined && mem.customerEmail !== '' ? mem.customerEmail : customerEmail,
+      customerType: mem.customerType || customerType,
+      shippingAddress: mem.shippingAddress !== undefined && mem.shippingAddress !== '' ? mem.shippingAddress : shippingAddress,
+      zipCode: mem.zipCode || zipCode,
+      customerLanguage: mem.customerLanguage || customerLanguage,
       showAddressDetails,
-      vehicleMake,
-      vehicleModel,
-      vehicleYear,
-      vehicleTransmission,
-      vehicleVIN,
-      vehicleMileage,
-      vehicleColor,
-      mainPart,
-      productSpecs,
-      stockNumber,
-      notes,
-      partPrice,
-      downPayment,
-      deliveryFee,
-      coreFee,
-      deliveryType,
-      warrantyDays,
-      status,
-      advisor,
+      vehicleMake: mem.vehicleMake !== undefined && mem.vehicleMake !== '' ? mem.vehicleMake : vehicleMake,
+      vehicleModel: mem.vehicleModel !== undefined && mem.vehicleModel !== '' ? mem.vehicleModel : vehicleModel,
+      vehicleYear: mem.vehicleYear !== undefined && mem.vehicleYear !== '' ? mem.vehicleYear : vehicleYear,
+      vehicleTransmission: mem.vehicleTransmission || vehicleTransmission,
+      vehicleVIN: mem.vehicleVIN !== undefined && mem.vehicleVIN !== '' ? mem.vehicleVIN : vehicleVIN,
+      vehicleMileage: mem.vehicleMileage !== undefined && mem.vehicleMileage !== '' ? mem.vehicleMileage : vehicleMileage,
+      vehicleColor: mem.vehicleColor || vehicleColor,
+      mainPart: mem.mainPart !== undefined && mem.mainPart !== '' ? mem.mainPart : mainPart,
+      productSpecs: mem.productSpecs !== undefined && mem.productSpecs !== '' ? mem.productSpecs : productSpecs,
+      stockNumber: mem.stockNumber !== undefined && mem.stockNumber !== '' ? mem.stockNumber : stockNumber,
+      notes: mem.notes !== undefined && mem.notes !== '' ? mem.notes : notes,
+      partPrice: mem.partPrice !== undefined && mem.partPrice !== '' ? mem.partPrice : partPrice,
+      downPayment: mem.downPayment !== undefined && mem.downPayment !== '' ? mem.downPayment : downPayment,
+      deliveryFee: mem.deliveryFee !== undefined && mem.deliveryFee !== '' ? mem.deliveryFee : deliveryFee,
+      coreFee: mem.coreFee !== undefined && mem.coreFee !== '' ? mem.coreFee : coreFee,
+      deliveryType: mem.deliveryType || deliveryType,
+      warrantyDays: mem.warrantyDays !== undefined ? mem.warrantyDays : warrantyDays,
+      status: mem.status || status,
+      advisor: mem.advisor || advisor,
+      ...mem,
       savedAt: Date.now(),
     };
 
+    activeFormRef.current = draft;
     saveOrderDraft(draft);
   }, [
     isOpen,
@@ -531,75 +829,102 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     saveOrderDraft,
   ]);
 
-  // Synchronous flush on tab switch (visibilitychange: hidden), window blur, or beforeunload
+  // Bidirectional Tab Sync & Protection on tab switch / window blur / return
   useEffect(() => {
     if (!isOpen || editingOrder) return;
 
     const flushDraft = () => {
-      const hasData = Boolean(
-        vehicleMake ||
-        vehicleModel ||
-        vehicleYear ||
-        vehicleVIN ||
-        vehicleMileage ||
-        mainPart ||
-        productSpecs ||
-        stockNumber ||
-        notes ||
-        customerName
-      );
-      if (!hasData) return;
-
+      const mem = activeFormRef.current || {};
       const draft = {
         currentStep,
         clientMode,
         clientSearchQuery,
         selectedCategoryFilter,
         selectedCustomerId,
-        customerName,
-        customerPhone,
-        customerEmail,
-        customerType,
-        shippingAddress,
-        zipCode,
+        customerName: mem.customerName !== undefined && mem.customerName !== '' ? mem.customerName : customerName,
+        customerPhone: mem.customerPhone !== undefined && mem.customerPhone !== '' ? mem.customerPhone : customerPhone,
+        customerEmail: mem.customerEmail !== undefined && mem.customerEmail !== '' ? mem.customerEmail : customerEmail,
+        customerType: mem.customerType || customerType,
+        shippingAddress: mem.shippingAddress !== undefined && mem.shippingAddress !== '' ? mem.shippingAddress : shippingAddress,
+        zipCode: mem.zipCode || zipCode,
         showAddressDetails,
-        vehicleMake,
-        vehicleModel,
-        vehicleYear,
-        vehicleTransmission,
-        vehicleVIN,
-        vehicleMileage,
-        vehicleColor,
-        mainPart,
-        productSpecs,
-        stockNumber,
-        notes,
-        partPrice,
-        downPayment,
-        deliveryFee,
-        coreFee,
-        deliveryType,
-        warrantyDays,
-        status,
-        advisor,
+        vehicleMake: mem.vehicleMake !== undefined && mem.vehicleMake !== '' ? mem.vehicleMake : vehicleMake,
+        vehicleModel: mem.vehicleModel !== undefined && mem.vehicleModel !== '' ? mem.vehicleModel : vehicleModel,
+        vehicleYear: mem.vehicleYear !== undefined && mem.vehicleYear !== '' ? mem.vehicleYear : vehicleYear,
+        vehicleTransmission: mem.vehicleTransmission || vehicleTransmission,
+        vehicleVIN: mem.vehicleVIN !== undefined && mem.vehicleVIN !== '' ? mem.vehicleVIN : vehicleVIN,
+        vehicleMileage: mem.vehicleMileage !== undefined && mem.vehicleMileage !== '' ? mem.vehicleMileage : vehicleMileage,
+        vehicleColor: mem.vehicleColor || vehicleColor,
+        mainPart: mem.mainPart !== undefined && mem.mainPart !== '' ? mem.mainPart : mainPart,
+        productSpecs: mem.productSpecs !== undefined && mem.productSpecs !== '' ? mem.productSpecs : productSpecs,
+        stockNumber: mem.stockNumber !== undefined && mem.stockNumber !== '' ? mem.stockNumber : stockNumber,
+        notes: mem.notes !== undefined && mem.notes !== '' ? mem.notes : notes,
+        partPrice: mem.partPrice !== undefined && mem.partPrice !== '' ? mem.partPrice : partPrice,
+        downPayment: mem.downPayment !== undefined && mem.downPayment !== '' ? mem.downPayment : downPayment,
+        deliveryFee: mem.deliveryFee !== undefined && mem.deliveryFee !== '' ? mem.deliveryFee : deliveryFee,
+        coreFee: mem.coreFee !== undefined && mem.coreFee !== '' ? mem.coreFee : coreFee,
+        deliveryType: mem.deliveryType || deliveryType,
+        warrantyDays: mem.warrantyDays !== undefined ? mem.warrantyDays : warrantyDays,
+        status: mem.status || status,
+        advisor: mem.advisor || advisor,
+        ...mem,
         savedAt: Date.now(),
       };
+      activeFormRef.current = draft;
       saveOrderDraft(draft);
+    };
+
+    const restoreFromMemoryOrStorage = () => {
+      const draft = loadOrderDraft();
+      const mem = activeFormRef.current || {};
+      const source = { ...draft, ...mem };
+
+      if (!source) return;
+
+      // Re-populate if state was blanked
+      if (source.stockNumber !== undefined && source.stockNumber !== '' && !stockNumber) setStockNumber(source.stockNumber);
+      if (source.productSpecs !== undefined && source.productSpecs !== '' && !productSpecs) setProductSpecs(source.productSpecs);
+      if (source.notes !== undefined && source.notes !== '' && !notes) setNotes(source.notes);
+      if (source.vehicleVIN !== undefined && source.vehicleVIN !== '' && !vehicleVIN) setVehicleVIN(source.vehicleVIN);
+      if (source.vehicleMileage !== undefined && source.vehicleMileage !== '' && !vehicleMileage) setVehicleMileage(source.vehicleMileage);
+      if (source.mainPart !== undefined && source.mainPart !== '' && !mainPart) setMainPart(source.mainPart);
+      if (source.vehicleMake !== undefined && source.vehicleMake !== '' && !vehicleMake) setVehicleMake(source.vehicleMake);
+      if (source.vehicleModel !== undefined && source.vehicleModel !== '' && !vehicleModel) setVehicleModel(source.vehicleModel);
+      if (source.vehicleYear !== undefined && source.vehicleYear !== '' && !vehicleYear) setVehicleYear(source.vehicleYear);
+      if (source.customerName !== undefined && source.customerName !== '' && !customerName) setCustomerName(source.customerName);
+      if (source.customerPhone !== undefined && source.customerPhone !== '' && !customerPhone) setCustomerPhone(source.customerPhone);
+      if (source.shippingAddress !== undefined && source.shippingAddress !== '' && !shippingAddress) setShippingAddress(source.shippingAddress);
+      if (source.partPrice !== undefined && source.partPrice !== '' && !partPrice) setPartPrice(source.partPrice);
+      if (source.downPayment !== undefined && source.downPayment !== '' && !downPayment) setDownPayment(source.downPayment);
+
+      activeFormRef.current = { ...source, ...activeFormRef.current };
     };
 
     const handleVisibility = () => {
       if (document.visibilityState === 'hidden') {
         flushDraft();
+      } else if (document.visibilityState === 'visible') {
+        restoreFromMemoryOrStorage();
       }
     };
 
+    const handleWindowBlur = () => {
+      flushDraft();
+    };
+
+    const handleWindowFocus = () => {
+      restoreFromMemoryOrStorage();
+    };
+
     window.addEventListener('beforeunload', flushDraft);
-    window.addEventListener('blur', flushDraft);
+    window.addEventListener('blur', handleWindowBlur);
+    window.addEventListener('focus', handleWindowFocus);
     document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
       window.removeEventListener('beforeunload', flushDraft);
-      window.removeEventListener('blur', flushDraft);
+      window.removeEventListener('blur', handleWindowBlur);
+      window.removeEventListener('focus', handleWindowFocus);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [
@@ -637,6 +962,19 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     status,
     advisor,
     saveOrderDraft,
+    loadOrderDraft,
+    stockNumber,
+    productSpecs,
+    notes,
+    vehicleVIN,
+    vehicleMileage,
+    mainPart,
+    vehicleMake,
+    vehicleModel,
+    vehicleYear,
+    customerName,
+    customerPhone,
+    shippingAddress,
   ]);
 
   // Real-time financial calculations
@@ -652,8 +990,11 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
 
   const handlePriceChange = (val: string) => {
     setPartPrice(val);
+    syncField('partPrice', val);
     const parsed = parseFloat(val) || 0;
-    setWarrantyDays(calculateAutoWarranty(parsed));
+    const w = calculateAutoWarranty(parsed);
+    setWarrantyDays(w);
+    syncField('warrantyDays', w);
     if (stepError) setStepError(null);
   };
 
@@ -788,8 +1129,10 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       id: editingOrder?.id || code,
       code: code,
       createdAt: editingOrder?.createdAt || 'Hoy, ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      advisor: editingOrder?.advisor || currentUser?.name || currentUserName || advisor || 'Operador',
-      userId: currentUser?.id,
+      advisor: advisor || editingOrder?.advisor || currentUser?.name || currentUserName || 'Operador',
+      userId: assignedUserId || (editingOrder?.userId ? Number(editingOrder.userId) : currentUser?.id),
+      isYardSale: isYardSaleToggle,
+      advisorRole: (assignedUserId ? usersList.find((u) => u.id === assignedUserId)?.role : undefined) || (isYardSaleToggle ? 'vendedor_yarda' : editingOrder?.advisorRole),
       status: status,
       mainPart: mainPart.trim(),
       productSpecs: productSpecs.trim(),
@@ -797,17 +1140,19 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       workflowStep: editingOrder?.workflowStep || 1,
       warrantyDays: warrantyDays,
       saleNotified: status === 'pagado',
+      customerLanguage: customerLanguage,
       customer: {
         id: selectedCustomerId || undefined,
         name: customerName.trim(),
         company: selectedCustomerObj?.company || (customerType === 'Empresa' || customerType === 'Flota Mantenimiento' || customerType === 'Taller Mecánico' ? customerName.trim() : undefined),
         type: customerType,
-        email: customerEmail.trim() || `${customerName.toLowerCase().replace(/[^a-z0-9]/g, '.')}@ejemplo.com`,
+        email: customerEmail.trim() || `${String(customerName || '').toLowerCase().replace(/[^a-z0-9]/g, '.')}@ejemplo.com`,
         phone: customerPhone.trim() || '+1 (919) 555-0188',
         location: shippingAddress.trim() ? `${shippingAddress.trim()}, ZIP ${zipCode}` : (selectedCustomerObj?.location || 'Raleigh, NC, USA'),
         shippingAddress: shippingAddress.trim(),
         address_shipping: shippingAddress.trim(),
         zip_code: zipCode.trim(),
+        language: customerLanguage,
         initials: initials,
       },
       vehicle: {
@@ -1054,6 +1399,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       value={vehicleModel}
                       onChange={(e) => {
                         setVehicleModel(e.target.value);
+                        syncField('vehicleModel', e.target.value);
                         if (stepError) setStepError(null);
                       }}
                       disabled={!vehicleMake}
@@ -1076,19 +1422,26 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       value={vehicleVIN}
                       maxLength={17}
                       onPaste={(e) => {
-                        e.preventDefault();
-                        const pasted = e.clipboardData.getData('text');
-                        const nextVin = pasted.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 17);
-                        setVehicleVIN(nextVin);
-                        if (nextVin.length === 17) void decodeVin(nextVin);
-                        else {
-                          setVinDecodeStatus('idle');
-                          setVinDecodeMessage('');
+                        try {
+                          e.preventDefault();
+                          const raw = getClipboardText(e);
+                          const cleaned = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                          const nextVin = insertAtSelection(e.currentTarget, vehicleVIN, cleaned).slice(0, 17);
+                          setVehicleVIN(nextVin);
+                          syncField('vehicleVIN', nextVin);
+                          if (nextVin.length === 17) void decodeVin(nextVin);
+                          else {
+                            setVinDecodeStatus('idle');
+                            setVinDecodeMessage('');
+                          }
+                        } catch (err) {
+                          console.warn('[NewOrderModal] Error en onPaste VIN:', err);
                         }
                       }}
                       onChange={(e) => {
                         const nextVin = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 17);
                         setVehicleVIN(nextVin);
+                        syncField('vehicleVIN', nextVin);
                         if (nextVin.length === 17) void decodeVin(nextVin);
                         else {
                           setVinDecodeStatus('idle');
@@ -1118,17 +1471,24 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       required
                       value={vehicleMileage}
                       onPaste={(e) => {
-                        e.preventDefault();
-                        const pasted = e.clipboardData.getData('text');
-                        const cleaned = pasted.replace(/[^0-9]/g, '');
-                        if (cleaned) {
-                          setVehicleMileage(cleaned);
-                          if (stepError) setStepError(null);
+                        try {
+                          e.preventDefault();
+                          const raw = getClipboardText(e);
+                          const cleaned = raw.replace(/[^0-9]/g, '');
+                          if (cleaned) {
+                            const nextMileage = insertAtSelection(e.currentTarget, vehicleMileage, cleaned);
+                            setVehicleMileage(nextMileage);
+                            syncField('vehicleMileage', nextMileage);
+                            if (stepError) setStepError(null);
+                          }
+                        } catch (err) {
+                          console.warn('[NewOrderModal] Error en onPaste Mileage:', err);
                         }
                       }}
                       onChange={(e) => {
                         const cleaned = e.target.value.replace(/[^0-9]/g, '');
                         setVehicleMileage(cleaned);
+                        syncField('vehicleMileage', cleaned);
                         if (stepError) setStepError(null);
                       }}
                       placeholder="0"
@@ -1153,6 +1513,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       value={mainPart}
                       onChange={(e) => {
                         setMainPart(e.target.value);
+                        syncField('mainPart', e.target.value);
                         if (stepError) setStepError(null);
                       }}
                       className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-medium focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-xs cursor-pointer"
@@ -1169,8 +1530,27 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       type="text"
                       required
                       value={stockNumber}
+                      onPaste={(e) => {
+                        try {
+                          e.preventDefault();
+                          const raw = getClipboardText(e);
+                          const cleaned = raw
+                            .replace(/^(stock\s*#?:?|stk\s*#?:?)/i, '')
+                            .replace(/[\r\n\t]+/g, ' ')
+                            .trim();
+                          if (cleaned) {
+                            const nextStock = insertAtSelection(e.currentTarget, stockNumber, cleaned);
+                            setStockNumber(nextStock);
+                            syncField('stockNumber', nextStock);
+                            if (stepError) setStepError(null);
+                          }
+                        } catch (err) {
+                          console.warn('[NewOrderModal] Error en onPaste StockNumber:', err);
+                        }
+                      }}
                       onChange={(e) => {
                         setStockNumber(e.target.value);
+                        syncField('stockNumber', e.target.value);
                         if (stepError) setStepError(null);
                       }}
                       placeholder="STK-RDZ-4491"
@@ -1184,13 +1564,24 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       type="text"
                       value={productSpecs}
                       onPaste={(e) => {
-                        e.preventDefault();
-                        const pasted = e.clipboardData.getData('text');
-                        const singleLine = pasted.replace(/\r?\n+/g, ' - ').trim();
-                        setProductSpecs((prev) => (prev ? `${prev} ${singleLine}` : singleLine));
-                        if (stepError) setStepError(null);
+                        try {
+                          e.preventDefault();
+                          const raw = getClipboardText(e);
+                          const singleLine = raw.replace(/[\r\n\t]+/g, ' - ').replace(/\s+-\s+-\s+/g, ' - ').trim();
+                          if (singleLine) {
+                            const nextSpecs = insertAtSelection(e.currentTarget, productSpecs, singleLine);
+                            setProductSpecs(nextSpecs);
+                            syncField('productSpecs', nextSpecs);
+                            if (stepError) setStepError(null);
+                          }
+                        } catch (err) {
+                          console.warn('[NewOrderModal] Error en onPaste ProductSpecs:', err);
+                        }
                       }}
-                      onChange={(e) => setProductSpecs(e.target.value)}
+                      onChange={(e) => {
+                        setProductSpecs(e.target.value);
+                        syncField('productSpecs', e.target.value);
+                      }}
                       placeholder="Ej. 2.7L Turbo VIN P, RUNS GREAT TESTED, COMPRESSION 175 PSI, OEM spec"
                       className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                     />
@@ -1202,11 +1593,23 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       rows={2}
                       value={notes}
                       onPaste={(e) => {
-                        e.preventDefault();
-                        const pasted = e.clipboardData.getData('text');
-                        setNotes((prev) => (prev ? `${prev}\n${pasted.trim()}` : pasted.trim()));
+                        try {
+                          e.preventDefault();
+                          const raw = getClipboardText(e);
+                          const cleaned = raw.replace(/\t/g, '  ').trim();
+                          if (cleaned) {
+                            const nextNotes = insertAtSelection(e.currentTarget, notes, cleaned);
+                            setNotes(nextNotes);
+                            syncField('notes', nextNotes);
+                          }
+                        } catch (err) {
+                          console.warn('[NewOrderModal] Error en onPaste Notes:', err);
+                        }
                       }}
-                      onChange={(e) => setNotes(e.target.value)}
+                      onChange={(e) => {
+                        setNotes(e.target.value);
+                        syncField('notes', e.target.value);
+                      }}
                       placeholder="Observaciones de compra, contacto del desguace, instrucciones de embalaje..."
                       className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                     />
@@ -1283,12 +1686,12 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       <div className="flex items-start justify-between">
                         <div className="flex items-center gap-3">
                           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-emerald-500 text-slate-950 font-black text-base flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.4)]">
-                            {selectedCustomerObj.initials || selectedCustomerObj.name.substring(0, 2).toUpperCase()}
+                            {selectedCustomerObj.initials || (selectedCustomerObj.name ? selectedCustomerObj.name.substring(0, 2).toUpperCase() : 'CL')}
                           </div>
                           <div>
                             <div className="flex items-center gap-2">
                               <h4 className="font-bold text-sm text-slate-100">
-                                {selectedCustomerObj.name}
+                                {selectedCustomerObj.name || `${selectedCustomerObj.first_name || ''} ${selectedCustomerObj.last_name || ''}`.trim() || 'Cliente'}
                               </h4>
                               <span className="text-[10px] bg-emerald-950/50 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-mono font-bold flex items-center gap-1">
                                 <span className="material-symbols-outlined text-[12px] text-emerald-400">verified</span>
@@ -1355,7 +1758,10 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                             <input
                               type="text"
                               value={shippingAddress}
-                              onChange={(e) => setShippingAddress(e.target.value)}
+                              onChange={(e) => {
+                                setShippingAddress(e.target.value);
+                                syncField('shippingAddress', e.target.value);
+                              }}
                               placeholder="Dirección completa de entrega o taller"
                               className="w-full bg-[#050914] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400"
                             />
@@ -1364,11 +1770,60 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                             <input
                               type="text"
                               value={zipCode}
-                              onChange={(e) => setZipCode(e.target.value)}
+                              onChange={(e) => {
+                                setZipCode(e.target.value);
+                                syncField('zipCode', e.target.value);
+                              }}
                               placeholder="ZIP (Ej. 27520)"
                               className="w-full bg-[#050914] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400"
                             />
                           </div>
+                        </div>
+                      </div>
+
+                      {/* Idioma de Habla del Cliente */}
+                      <div className="bg-[#070e1c] p-3.5 rounded-xl border border-cyan-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-100">
+                            <span className="material-symbols-outlined text-[15px] text-cyan-400">translate</span>
+                            <span>Idioma de Habla del Cliente</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400">
+                            Define el idioma de los mensajes de texto, WhatsApp y llamadas de seguimiento
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 bg-[#050914] p-1 rounded-xl border border-cyan-500/30">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomerLanguage('es');
+                              syncField('customerLanguage', 'es');
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                              customerLanguage === 'es'
+                                ? 'bg-amber-500 text-slate-950 shadow-md font-black'
+                                : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            <span>🇪🇸</span>
+                            <span>Español</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomerLanguage('en');
+                              syncField('customerLanguage', 'en');
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                              customerLanguage === 'en'
+                                ? 'bg-indigo-600 text-white shadow-md font-black'
+                                : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            <span>🇺🇸</span>
+                            <span>Inglés</span>
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -1442,8 +1897,11 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                                 className="px-3 py-1.5 rounded-xl bg-[#070e1c] hover:bg-cyan-950/40 hover:border-cyan-500/50 border border-slate-800 text-slate-200 text-[11px] flex items-center gap-2 transition-all cursor-pointer"
                               >
                                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                                <span className="font-semibold">{quickCust.name}</span>
+                                <span className="font-semibold">{quickCust.name || `${quickCust.first_name || ''} ${quickCust.last_name || ''}`.trim() || 'Cliente'}</span>
                                 <span className="text-[9px] text-slate-400 font-mono">({quickCust.type})</span>
+                                <span className="text-[9px] font-mono px-1 py-0.5 bg-black/40 rounded border border-slate-700 text-slate-300 font-bold">
+                                  {quickCust.language === 'en' ? '🇺🇸 EN' : '🇪🇸 ES'}
+                                </span>
                               </button>
                             ))}
                           </div>
@@ -1467,12 +1925,12 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                               >
                                 <div className="flex items-center gap-2.5 min-w-0">
                                   <div className="w-8 h-8 rounded-xl bg-[#0a1428] border border-cyan-500/30 text-cyan-400 font-bold text-xs flex items-center justify-center shrink-0 shadow-inner">
-                                    {cust.initials || cust.name.substring(0, 2).toUpperCase()}
+                                    {cust.initials || (cust.name ? cust.name.substring(0, 2).toUpperCase() : 'CL')}
                                   </div>
                                   <div className="min-w-0">
                                     <div className="flex items-center gap-2">
                                       <span className="font-bold text-xs text-slate-100 truncate">
-                                        {cust.name}
+                                        {cust.name || `${cust.first_name || ''} ${cust.last_name || ''}`.trim() || 'Cliente'}
                                       </span>
                                       <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold shrink-0 font-mono ${
                                         cust.type === 'VIP'
@@ -1484,6 +1942,13 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                                           : 'bg-slate-800 text-slate-300'
                                       }`}>
                                         {cust.type}
+                                      </span>
+                                      <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md border flex items-center gap-1 shrink-0 ${
+                                        cust.language === 'en'
+                                          ? 'bg-indigo-950/60 text-indigo-300 border-indigo-500/30'
+                                          : 'bg-amber-950/60 text-amber-300 border-amber-500/30'
+                                      }`}>
+                                        <span>{cust.language === 'en' ? '🇺🇸 EN' : '🇪🇸 ES'}</span>
                                       </span>
                                     </div>
                                     <div className="text-[11px] text-slate-400 flex items-center gap-2 truncate mt-0.5">
@@ -1545,6 +2010,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       value={customerName}
                       onChange={(e) => {
                         setCustomerName(e.target.value);
+                        syncField('customerName', e.target.value);
                         if (stepError) setStepError(null);
                       }}
                       placeholder="Ej. Roberto Sánchez o Taller Hermanos Gómez"
@@ -1556,7 +2022,10 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                     <label className="block mb-1 text-slate-400 font-medium text-[11px]">Tipo de Cliente</label>
                     <select
                       value={customerType}
-                      onChange={(e) => setCustomerType(e.target.value as any)}
+                      onChange={(e) => {
+                        setCustomerType(e.target.value as any);
+                        syncField('customerType', e.target.value);
+                      }}
                       className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 cursor-pointer"
                     >
                       <option value="Particular">Particular (Cliente Directo)</option>
@@ -1572,7 +2041,10 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                     <input
                       type="text"
                       value={customerPhone}
-                      onChange={(e) => setCustomerPhone(e.target.value)}
+                      onChange={(e) => {
+                        setCustomerPhone(e.target.value);
+                        syncField('customerPhone', e.target.value);
+                      }}
                       placeholder="+1 (919) 555-0188"
                       className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                     />
@@ -1583,7 +2055,10 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                     <input
                       type="email"
                       value={customerEmail}
-                      onChange={(e) => setCustomerEmail(e.target.value)}
+                      onChange={(e) => {
+                        setCustomerEmail(e.target.value);
+                        syncField('customerEmail', e.target.value);
+                      }}
                       placeholder="cliente@ejemplo.com"
                       className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                     />
@@ -1595,7 +2070,10 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       <input
                         type="text"
                         value={shippingAddress}
-                        onChange={(e) => setShippingAddress(e.target.value)}
+                        onChange={(e) => {
+                          setShippingAddress(e.target.value);
+                          syncField('shippingAddress', e.target.value);
+                        }}
                         placeholder="Calle, Número, Taller / Local, Ciudad"
                         className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                       />
@@ -1605,10 +2083,59 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       <input
                         type="text"
                         value={zipCode}
-                        onChange={(e) => setZipCode(e.target.value)}
+                        onChange={(e) => {
+                          setZipCode(e.target.value);
+                          syncField('zipCode', e.target.value);
+                        }}
                         placeholder="Ej. 27520"
                         className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                       />
+                    </div>
+                  </div>
+
+                  {/* Idioma de Habla del Cliente (Modo Manual) */}
+                  <div className="sm:col-span-2 bg-[#070e1c] p-3 rounded-xl border border-cyan-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+                    <div>
+                      <label className="block text-slate-200 font-bold text-xs flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[15px] text-cyan-400">translate</span>
+                        <span>Idioma de Habla del Cliente *</span>
+                      </label>
+                      <span className="text-[10px] text-slate-400">
+                        Los mensajes y textos de seguimiento se generarán automáticamente en este idioma
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 bg-[#050914] p-1 rounded-xl border border-cyan-500/30">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomerLanguage('es');
+                          syncField('customerLanguage', 'es');
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                          customerLanguage === 'es'
+                            ? 'bg-amber-500 text-slate-950 shadow-md font-black'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <span>🇪🇸</span>
+                        <span>Español</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomerLanguage('en');
+                          syncField('customerLanguage', 'en');
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                          customerLanguage === 'en'
+                            ? 'bg-indigo-600 text-white shadow-md font-black'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <span>🇺🇸</span>
+                        <span>Inglés</span>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1660,6 +2187,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       value={downPayment}
                       onChange={(e) => {
                         setDownPayment(e.target.value);
+                        syncField('downPayment', e.target.value);
                         if (stepError) setStepError(null);
                       }}
                       placeholder="0.00"
@@ -1679,6 +2207,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       value={deliveryFee}
                       onChange={(e) => {
                         setDeliveryFee(e.target.value);
+                        syncField('deliveryFee', e.target.value);
                         if (stepError) setStepError(null);
                       }}
                       placeholder="0.00"
@@ -1698,6 +2227,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       value={coreFee}
                       onChange={(e) => {
                         setCoreFee(e.target.value);
+                        syncField('coreFee', e.target.value);
                         if (stepError) setStepError(null);
                       }}
                       placeholder="0.00"
@@ -1741,6 +2271,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       type="button"
                       onClick={() => {
                         setDeliveryType('retiro_tienda');
+                        syncField('deliveryType', 'retiro_tienda');
                       }}
                       className={`py-2.5 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
                         deliveryType === 'retiro_tienda'
@@ -1756,6 +2287,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       type="button"
                       onClick={() => {
                         setDeliveryType('envio_domicilio');
+                        syncField('deliveryType', 'envio_domicilio');
                       }}
                       className={`py-2.5 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
                         deliveryType === 'envio_domicilio'
@@ -1778,6 +2310,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                         value={shippingAddress}
                         onChange={(e) => {
                           setShippingAddress(e.target.value);
+                          syncField('shippingAddress', e.target.value);
                           if (stepError) setStepError(null);
                         }}
                         placeholder="Calle, número, ciudad, estado"
@@ -1786,7 +2319,10 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       <input
                         type="text"
                         value={zipCode}
-                        onChange={(e) => setZipCode(e.target.value)}
+                        onChange={(e) => {
+                          setZipCode(e.target.value);
+                          syncField('zipCode', e.target.value);
+                        }}
                         placeholder="ZIP"
                         className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                       />
@@ -1823,15 +2359,116 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                   </div>
                 </div>
 
-                <div className="sm:text-right border-t sm:border-t-0 pt-2 sm:pt-0 border-cyan-500/10">
-                  <span className="block text-[10.5px] text-slate-400 font-mono uppercase tracking-wider mb-1">
-                    Operador / Asesor Registrado
-                  </span>
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#070e1c] border border-cyan-500/30 text-emerald-400 font-mono font-bold text-xs shadow-[0_0_10px_rgba(16,185,129,0.15)]">
-                    <span className="material-symbols-outlined text-[15px] text-cyan-400">badge</span>
-                    <span>{advisor || defaultAdvisor}</span>
+                {isSuperAdmin ? (
+                  <div className="flex-1 sm:max-w-xs border-t sm:border-t-0 pt-2 sm:pt-0 border-cyan-500/10">
+                    <div className="flex items-center justify-between sm:justify-end gap-2 mb-1">
+                      <span className="text-[10.5px] text-slate-400 font-mono uppercase tracking-wider">
+                        Asesor Asignado (Admin)
+                      </span>
+                      {isYardSaleToggle && (
+                        <span className="px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          🚜 Venta Yarda
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <select
+                        value={assignedUserId || (usersList.find((u) => u.name === advisor)?.id ?? '')}
+                        onChange={(e) => {
+                          const uid = Number(e.target.value);
+                          const selectedUser = usersList.find((u) => u.id === uid);
+                          if (selectedUser) {
+                            setAssignedUserId(selectedUser.id);
+                            setAdvisor(selectedUser.name);
+                            setIsYardSaleToggle(selectedUser.role === 'vendedor_yarda');
+                          } else {
+                            setAssignedUserId(undefined);
+                          }
+                        }}
+                        className="w-full bg-[#070e1c] border border-cyan-500/40 rounded-xl px-3 py-2 text-xs font-mono font-semibold text-cyan-200 focus:outline-none focus:border-cyan-400"
+                      >
+                        <option value="">Seleccionar Asesor...</option>
+                        {usersList.length > 0 ? (
+                          usersList.map((u) => (
+                            <option key={u.id} value={u.id}>
+                              {u.role === 'vendedor_yarda' ? '🚜 [Yarda] ' : u.role === 'admin' ? '⭐ [Admin] ' : '👤 '}
+                              {u.name}
+                            </option>
+                          ))
+                        ) : (
+                          <option value={currentUser?.id || ''}>{advisor || defaultAdvisor}</option>
+                        )}
+                      </select>
+                    </div>
+                    {isYardSaleToggle && (
+                      <p className="text-[10px] text-amber-400/90 font-mono mt-1 text-right">
+                        * Exenta de comisión de oficina
+                      </p>
+                    )}
                   </div>
-                </div>
+                ) : (
+                  <div className="flex-1 sm:max-w-sm border-t sm:border-t-0 pt-2 sm:pt-0 border-cyan-500/10 sm:text-right">
+                    <span className="block text-[10.5px] text-slate-400 font-mono uppercase tracking-wider mb-1">
+                      Operador / Asesor Registrado
+                    </span>
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#070e1c] border border-cyan-500/30 text-emerald-400 font-mono font-bold text-xs shadow-[0_0_10px_rgba(16,185,129,0.15)] mb-2">
+                      <span className="material-symbols-outlined text-[15px] text-cyan-400">badge</span>
+                      <span>{advisor || defaultAdvisor}</span>
+                    </div>
+
+                    {yardSellers.length > 0 && (
+                      <div className="mt-1 pt-2 border-t border-cyan-500/10 flex flex-col items-start sm:items-end gap-1.5">
+                        <label className="inline-flex items-center gap-2 cursor-pointer text-xs font-mono text-amber-300">
+                          <input
+                            type="checkbox"
+                            checked={isYardSaleToggle}
+                            onChange={(e) => {
+                              const isChecked = e.target.checked;
+                              setIsYardSaleToggle(isChecked);
+                              if (isChecked && yardSellers.length > 0) {
+                                const firstSeller = yardSellers[0];
+                                setAssignedUserId(firstSeller.id);
+                                setAdvisor(firstSeller.name);
+                              } else {
+                                setAdvisor(defaultAdvisor);
+                                setAssignedUserId(currentUser?.id);
+                              }
+                            }}
+                            className="rounded border-amber-500/40 text-amber-500 focus:ring-0 bg-[#070e1c]"
+                          />
+                          <span>🚜 Venta originada en Yarda</span>
+                        </label>
+
+                        {isYardSaleToggle && (
+                          <div className="w-full sm:w-auto mt-1 flex flex-col gap-1 items-start sm:items-end">
+                            <select
+                              value={assignedUserId || ''}
+                              onChange={(e) => {
+                                const uid = Number(e.target.value);
+                                const seller = yardSellers.find((y) => y.id === uid);
+                                if (seller) {
+                                  setAssignedUserId(seller.id);
+                                  setAdvisor(seller.name);
+                                }
+                              }}
+                              className="bg-[#070e1c] border border-amber-500/40 rounded-lg px-2.5 py-1 text-xs font-mono text-amber-200 focus:outline-none focus:border-amber-400"
+                            >
+                              <option value="">-- Seleccionar Vendedor de Yarda --</option>
+                              {yardSellers.map((y) => (
+                                <option key={y.id} value={y.id}>
+                                  🚜 {y.name}
+                                </option>
+                              ))}
+                            </select>
+                            <span className="text-[10px] text-amber-400/80 font-mono">
+                              * No suma a comisión de oficina
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Fecha de Entrega Física (Solo Órdenes Entregadas) */}
@@ -1954,6 +2591,15 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
         />
       )}
     </div>
+  );
+};
+
+export const NewOrderModal: React.FC<NewOrderModalProps> = (props) => {
+  if (!props.isOpen) return null;
+  return (
+    <ModalErrorBoundary>
+      <NewOrderModalContent {...props} />
+    </ModalErrorBoundary>
   );
 };
 

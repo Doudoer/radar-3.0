@@ -10,6 +10,7 @@ interface UseOrderActionsOptions {
   setDatabaseMessage: Dispatch<SetStateAction<string | null>>;
   replaceOrder: (order: Order) => void;
   prependOrder: (order: Order) => void;
+  refreshCustomers?: () => Promise<void> | void;
 }
 
 export const useOrderActions = ({
@@ -18,11 +19,13 @@ export const useOrderActions = ({
   setDatabaseMessage,
   replaceOrder,
   prependOrder,
+  refreshCustomers,
 }: UseOrderActionsOptions) => {
   const createOrder = async (order: Order) => {
     try {
       const savedOrder = await ordersApi.create(order);
       prependOrder(savedOrder);
+      void refreshCustomers?.();
       return savedOrder;
     } catch {
       setDatabaseMessage('No se pudo guardar la orden en radar_db.');
@@ -34,6 +37,7 @@ export const useOrderActions = ({
     try {
       const savedOrder = await ordersApi.update(order);
       replaceOrder(savedOrder);
+      void refreshCustomers?.();
       return savedOrder;
     } catch {
       setDatabaseMessage('No se pudieron guardar los cambios en radar_db.');

@@ -53,7 +53,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
     phone: '',
     avatar_url: DEFAULT_AVATAR,
     password: '',
-    role: 'operator' as 'operator' | 'admin',
+    role: 'operator' as 'operator' | 'admin' | 'vendedor_yarda',
     active: true,
     permissions: ['orders:view', 'orders:edit', 'customers:view', 'claims:view'] as string[],
   });
@@ -331,9 +331,11 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
                       <span className={`font-mono text-xs font-bold px-2.5 py-0.5 rounded-lg border ${
                         user.role === 'admin'
                           ? 'bg-purple-950/70 border-purple-500/40 text-purple-300'
+                          : user.role === 'vendedor_yarda'
+                          ? 'bg-amber-950/70 border-amber-500/40 text-amber-300'
                           : 'bg-cyan-950/60 border-cyan-500/30 text-cyan-300'
                       }`}>
-                        {user.role === 'admin' ? 'Super Admin' : 'Operador'}
+                        {user.role === 'admin' ? 'Super Admin' : user.role === 'vendedor_yarda' ? '🚜 Vendedor Yarda' : 'Operador'}
                       </span>
                       <span className="text-[10.5px] font-mono text-slate-400">
                         ({user.permissions?.length || 0} permisos)
@@ -489,7 +491,8 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
                       onChange={(event) => setDraft({ ...draft, role: event.target.value })}
                       className="mt-1 w-full rounded-xl border border-cyan-500/30 bg-[#040814] px-3.5 py-2 text-sm text-white outline-none focus:border-cyan-400"
                     >
-                      <option value="operator">Operador / Vendedor</option>
+                      <option value="operator">Operador / Vendedor Oficina</option>
+                      <option value="vendedor_yarda">🚜 Vendedor Yarda (Patio)</option>
                       <option value="admin">Administrador</option>
                     </select>
                   </label>
@@ -652,10 +655,11 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
                 Rol en el Sistema
                 <select
                   value={newUserDraft.role}
-                  onChange={(event) => setNewUserDraft({ ...newUserDraft, role: event.target.value as 'operator' | 'admin' })}
+                  onChange={(event) => setNewUserDraft({ ...newUserDraft, role: event.target.value as 'operator' | 'admin' | 'vendedor_yarda' })}
                   className="mt-1 w-full rounded-xl border border-cyan-500/30 bg-[#040814] px-3.5 py-2 text-sm text-white outline-none focus:border-cyan-400"
                 >
-                  <option value="operator">Operador / Vendedor</option>
+                  <option value="operator">Operador / Vendedor Oficina</option>
+                  <option value="vendedor_yarda">🚜 Vendedor Yarda (Patio)</option>
                   <option value="admin">Administrador</option>
                 </select>
               </label>
