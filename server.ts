@@ -682,6 +682,14 @@ const server = createServer(async (request, response) => {
           userAgent,
         });
 
+        // Renovar cookie de sesión fresca al verificar 2FA
+        const refreshedToken = jwt.sign(
+          { sub: authenticatedClaims.sub, role: authenticatedClaims.role, email: authenticatedClaims.email },
+          jwtSecret,
+          { expiresIn: '8h' }
+        );
+        setSessionCookie(response, refreshedToken);
+
         return sendJson(response, 200, {
           ok: true,
           verified: true,
@@ -748,6 +756,14 @@ const server = createServer(async (request, response) => {
           userAgent,
         });
 
+        // Renovar cookie de sesión fresca al verificar 2FA con código de respaldo
+        const refreshedToken = jwt.sign(
+          { sub: authenticatedClaims.sub, role: authenticatedClaims.role, email: authenticatedClaims.email },
+          jwtSecret,
+          { expiresIn: '8h' }
+        );
+        setSessionCookie(response, refreshedToken);
+
         return sendJson(response, 200, {
           ok: true,
           verified: true,
@@ -806,6 +822,14 @@ const server = createServer(async (request, response) => {
         ipAddress: ip,
         userAgent,
       });
+
+      // Renovar cookie de sesión fresca al verificar 2FA con WhatsApp
+      const refreshedToken = jwt.sign(
+        { sub: authenticatedClaims.sub, role: authenticatedClaims.role, email: authenticatedClaims.email },
+        jwtSecret,
+        { expiresIn: '8h' }
+      );
+      setSessionCookie(response, refreshedToken);
 
       return sendJson(response, 200, {
         ok: true,
@@ -890,7 +914,15 @@ const server = createServer(async (request, response) => {
       if (!valid) return sendJson(response, 400, { message: 'La contraseña actual no es correcta' });
 
       const newHash = await bcrypt.hash(payload.newPassword, 10);
-      await pool.execute('UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [newHash, authenticatedClaims.sub]);
+      await pool.execute('UPDATE users SET password = ?, password_changed_at = CURRENT_TIMESTAMP WHERE id = ?', [newHash, authenticatedClaims.sub]);
+
+      const refreshedToken = jwt.sign(
+        { sub: authenticatedClaims.sub, role: authenticatedClaims.role, email: authenticatedClaims.email },
+        jwtSecret,
+        { expiresIn: '8h' }
+      );
+      setSessionCookie(response, refreshedToken);
+
       void recordAuditLog(pool, {
         userId: Number(authenticatedClaims.sub),
         username: authenticatedClaims.email,
@@ -3413,6 +3445,15 @@ const ensureDatabaseTables = async () => {
         await pool.query(
           "ALTER TABLE order_delivery_followups ADD COLUMN contact_channel VARCHAR(20) NOT NULL DEFAULT 'call' AFTER operator_name"
         );
+      }
+    } catch {
+      // safe column fallback
+    }
+
+    try {
+      const [pwdChangedCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM users LIKE "password_changed_at"');
+      if (pwdChangedCols.length === 0) {
+        await pool.query('ALTER TABLE users ADD COLUMN password_changed_at TIMESTAMP NULL DEFAULT NULL AFTER password');
       }
     } catch {
       // safe column fallback

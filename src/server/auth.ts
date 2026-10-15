@@ -67,14 +67,33 @@ setInterval(() => {
 
 export const userIsActive = async (claims: Claims) => {
   if (!claims.sub) return false;
-  const [rows] = await pool.query<Array<{ active: number; updated_at: Date } & import('mysql2/promise').RowDataPacket>>(
-    'SELECT active, updated_at FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
-    [claims.sub]
-  );
-  const user = rows[0];
-  if (!user?.active) return false;
-  const issuedAt = Number(claims.iat || 0) * 1000;
-  return !issuedAt || !user.updated_at || new Date(user.updated_at).getTime() <= issuedAt + 2000;
+  try {
+    const [rows] = await pool.query<Array<{ active: number; password_changed_at?: Date | null } & import('mysql2/promise').RowDataPacket>>(
+      'SELECT active, password_changed_at FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+      [claims.sub]
+    );
+    const user = rows[0];
+    if (!user || !user.active) return false;
+
+    // Solo si se cambió explícitamente la contraseña después de emitir el token, revocar la sesión
+    if (user.password_changed_at && claims.iat) {
+      const issuedAt = Number(claims.iat) * 1000;
+      const changedAt = new Date(user.password_changed_at).getTime();
+      if (changedAt > issuedAt + 2000) {
+        return false;
+      }
+    }
+
+    return true;
+  } catch {
+    // Fallback de compatibilidad
+    const [rows] = await pool.query<Array<{ active: number } & import('mysql2/promise').RowDataPacket>>(
+      'SELECT active FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+      [claims.sub]
+    );
+    const user = rows[0];
+    return Boolean(user && user.active);
+  }
 };
 
 export const setSessionCookie = (response: ServerResponse, token: string) => {
