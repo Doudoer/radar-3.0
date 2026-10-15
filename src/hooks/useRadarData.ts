@@ -16,6 +16,8 @@ export const useRadarData = (authenticated: boolean) => {
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
 
   const isMountedRef = useRef(true);
+  const lastFetchTimeRef = useRef<number>(Date.now());
+
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -25,6 +27,7 @@ export const useRadarData = (authenticated: boolean) => {
 
   const fetchAllData = useCallback(async (options?: { silent?: boolean }) => {
     if (!authenticated) return;
+    lastFetchTimeRef.current = Date.now();
     const isSilent = options?.silent ?? false;
     if (!isSilent) {
       setLoading(true);
@@ -87,10 +90,14 @@ export const useRadarData = (authenticated: boolean) => {
       fetchAllData({ silent: true });
     }, FIVE_MINUTES_MS);
 
-    // Refresh silently when browser tab returns to focus
+    // Refresh silently when browser tab returns to focus with 60s cooldown
+    const VISIBILITY_COOLDOWN_MS = 60_000;
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        fetchAllData({ silent: true });
+        const now = Date.now();
+        if (now - lastFetchTimeRef.current >= VISIBILITY_COOLDOWN_MS) {
+          fetchAllData({ silent: true });
+        }
       }
     };
 

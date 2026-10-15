@@ -10,18 +10,7 @@ import { Sidebar } from './components/Sidebar';
 import { TopHeader } from './components/TopHeader';
 import { DashboardView } from './components/DashboardView';
 import { OrdersTableView } from './components/OrdersTableView';
-import { OrderDetailView } from './components/OrderDetailView';
-import { ClientsView } from './components/ClientsView';
-import { ClaimsView } from './components/ClaimsView';
-import { OperationsView } from './components/OperationsView';
-import { InventoryView } from './components/InventoryView';
-import { WeeklyRelationView } from './components/WeeklyRelationView';
-import { SystemSettingsView } from './components/SystemSettingsView';
-import { UsersManagementView } from './components/UsersManagementView';
-import { NewOrderModal } from './components/NewOrderModal';
 import { QuickSMSModal } from './components/QuickSMSModal';
-import { SearchModal } from './components/SearchModal';
-import { ExportModal } from './components/ExportModal';
 import { StatusRequestModal } from './components/StatusRequestModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { UserProfileModal } from './components/UserProfileModal';
@@ -30,6 +19,26 @@ import { PersonalNotesWidget } from './components/PersonalNotesWidget';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { LoginView } from './components/LoginView';
 import { useAuthSession } from './hooks/useAuthSession';
+
+// Code-splitting con React.lazy para pantallas secundarias y modales pesados
+const OrderDetailView = React.lazy(() => import('./components/OrderDetailView').then((m) => ({ default: m.OrderDetailView })));
+const ClientsView = React.lazy(() => import('./components/ClientsView').then((m) => ({ default: m.ClientsView })));
+const ClaimsView = React.lazy(() => import('./components/ClaimsView').then((m) => ({ default: m.ClaimsView })));
+const OperationsView = React.lazy(() => import('./components/OperationsView').then((m) => ({ default: m.OperationsView })));
+const InventoryView = React.lazy(() => import('./components/InventoryView').then((m) => ({ default: m.InventoryView })));
+const WeeklyRelationView = React.lazy(() => import('./components/WeeklyRelationView').then((m) => ({ default: m.WeeklyRelationView })));
+const SystemSettingsView = React.lazy(() => import('./components/SystemSettingsView').then((m) => ({ default: m.SystemSettingsView })));
+const UsersManagementView = React.lazy(() => import('./components/UsersManagementView').then((m) => ({ default: m.UsersManagementView })));
+const NewOrderModal = React.lazy(() => import('./components/NewOrderModal').then((m) => ({ default: m.NewOrderModal })));
+const SearchModal = React.lazy(() => import('./components/SearchModal').then((m) => ({ default: m.SearchModal })));
+const ExportModal = React.lazy(() => import('./components/ExportModal').then((m) => ({ default: m.ExportModal })));
+
+const ViewFallback: React.FC = () => (
+  <div className="flex flex-col items-center justify-center p-12 min-h-[350px] animate-fade-in text-slate-400">
+    <div className="w-8 h-8 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin mb-3 shadow-[0_0_15px_rgba(6,182,212,0.3)]" />
+    <span className="text-xs font-mono text-cyan-300 tracking-wider">Cargando módulo...</span>
+  </div>
+);
 import { useRadarData } from './hooks/useRadarData';
 import { useOrderActions } from './hooks/useOrderActions';
 import { useViewLoading } from './hooks/useViewLoading';
@@ -357,182 +366,192 @@ export default function App() {
 
         {/* Scrollable Main Screen Container */}
         <main className="flex-1 min-w-0 overflow-y-auto p-3 sm:p-4 md:p-5 lg:p-6 custom-scrollbar">
-          {currentScreen === 'dashboard' && (
-            <DashboardView
-              orders={orders}
-              slaMetrics={SLA_METRICS}
-              activities={activities}
-              onSelectOrder={handleSelectOrder}
-              onNavigateTaller={() => handleNavigate('ordenes')}
-            />
-          )}
-
-          {(currentScreen === 'ordenes' || currentScreen === 'taller') && (
-            <OrdersTableView
-              orders={orders}
-              onSelectOrder={handleSelectOrder}
-              onEditOrder={(order) => {
-                setEditingOrder(order);
-                setIsNewOrderModalOpen(true);
-              }}
-              onOpenNewOrder={() => {
-                setPrefillOrderData(null);
-                setIsNewOrderModalOpen(true);
-              }}
-              onExport={() => setIsExportModalOpen(true)}
-              onStatusRequest={() => setIsStatusRequestOpen(true)}
-              onUpdateStatus={updateOrderStatus}
-              onRefresh={() => fetchAllData({ silent: false })}
-              isRefreshing={isRefreshing}
-              lastSyncedAt={lastSyncedAt}
-            />
-          )}
-
-          {(currentScreen === 'clientes' || currentScreen === 'crm') && (
-            <ClientsView
-              orders={orders}
-              customers={customers}
-              userRole={userRole}
-              onSelectOrder={handleSelectOrder}
-              onOpenNewOrderWithCustomer={handleCreateOrderFromCustomer}
-              onOpenSMS={(customerName, phone) =>
-                setSmsModalData({ isOpen: true, customerName, phone, order: null })
-              }
-              onRefreshCustomers={refreshCustomers}
-            />
-          )}
-
-          {currentScreen === 'reclamos' && (
-            <ClaimsView
-              orders={orders}
-              onUpdateOrder={handleUpdateOrder}
-              userRole={userRole}
-              onSelectOrder={handleSelectOrder}
-            />
-          )}
-
-          {(currentScreen === 'inventario' || (currentScreen as any) === 'piezas' || (currentScreen as any) === 'hold') && (
-            <InventoryView
-              onOpenNewOrderWithPart={handleCreateOrderFromPart}
-              userRole={userRole}
-            />
-          )}
-
-          {currentScreen === 'mis_operaciones' && (
-            <OperationsView
-              orders={orders}
-              onSelectOrder={handleSelectOrder}
-              onUpdateOrder={handleUpdateOrder}
-              userRole={userRole}
-              currentUser={authUser}
-            />
-          )}
-
-          {(currentScreen === 'relacion_semanal' || currentScreen === 'finanzas') && (
-            userRole === 'admin' ? (
-              <WeeklyRelationView
+          <React.Suspense fallback={<ViewFallback />}>
+            {currentScreen === 'dashboard' && (
+              <DashboardView
                 orders={orders}
-                onBackToDashboard={() => handleNavigate('dashboard')}
+                slaMetrics={SLA_METRICS}
+                activities={activities}
+                onSelectOrder={handleSelectOrder}
+                onNavigateTaller={() => handleNavigate('ordenes')}
               />
-            ) : (
-              <div className="flex flex-col items-center justify-center p-12 text-center">
-                <div className="w-14 h-14 rounded-2xl bg-[#ef4444]/15 border border-[#ef4444]/30 flex items-center justify-center text-[#fca5a5] mb-4">
-                  <span className="material-symbols-outlined text-[32px]">lock</span>
+            )}
+
+            {(currentScreen === 'ordenes' || currentScreen === 'taller') && (
+              <OrdersTableView
+                orders={orders}
+                onSelectOrder={handleSelectOrder}
+                onEditOrder={(order) => {
+                  setEditingOrder(order);
+                  setIsNewOrderModalOpen(true);
+                }}
+                onOpenNewOrder={() => {
+                  setPrefillOrderData(null);
+                  setIsNewOrderModalOpen(true);
+                }}
+                onExport={() => setIsExportModalOpen(true)}
+                onStatusRequest={() => setIsStatusRequestOpen(true)}
+                onUpdateStatus={updateOrderStatus}
+                onRefresh={() => fetchAllData({ silent: false })}
+                isRefreshing={isRefreshing}
+                lastSyncedAt={lastSyncedAt}
+              />
+            )}
+
+            {(currentScreen === 'clientes' || currentScreen === 'crm') && (
+              <ClientsView
+                orders={orders}
+                customers={customers}
+                userRole={userRole}
+                onSelectOrder={handleSelectOrder}
+                onOpenNewOrderWithCustomer={handleCreateOrderFromCustomer}
+                onOpenSMS={(customerName, phone) =>
+                  setSmsModalData({ isOpen: true, customerName, phone, order: null })
+                }
+                onRefreshCustomers={refreshCustomers}
+              />
+            )}
+
+            {currentScreen === 'reclamos' && (
+              <ClaimsView
+                orders={orders}
+                onUpdateOrder={handleUpdateOrder}
+                userRole={userRole}
+                onSelectOrder={handleSelectOrder}
+              />
+            )}
+
+            {(currentScreen === 'inventario' || (currentScreen as any) === 'piezas' || (currentScreen as any) === 'hold') && (
+              <InventoryView
+                onOpenNewOrderWithPart={handleCreateOrderFromPart}
+                userRole={userRole}
+              />
+            )}
+
+            {currentScreen === 'mis_operaciones' && (
+              <OperationsView
+                orders={orders}
+                onSelectOrder={handleSelectOrder}
+                onUpdateOrder={handleUpdateOrder}
+                userRole={userRole}
+                currentUser={authUser}
+              />
+            )}
+
+            {(currentScreen === 'relacion_semanal' || currentScreen === 'finanzas') && (
+              userRole === 'admin' ? (
+                <WeeklyRelationView
+                  orders={orders}
+                  onBackToDashboard={() => handleNavigate('dashboard')}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center p-12 text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-[#ef4444]/15 border border-[#ef4444]/30 flex items-center justify-center text-[#fca5a5] mb-4">
+                    <span className="material-symbols-outlined text-[32px]">lock</span>
+                  </div>
+                  <h2 className="text-lg font-bold text-[#f1f5f9]">Acceso Restringido</h2>
+                  <p className="text-xs text-[#94a3b8] max-w-sm mt-1.5">
+                    El módulo de Relación Semanal y Finanzas está reservado exclusivamente para la administración del sistema.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleNavigate('dashboard')}
+                    className="mt-5 px-4 py-2 rounded-xl bg-[#1e293b] hover:bg-[#334155] text-xs font-semibold text-[#cbd5e1] transition-colors cursor-pointer"
+                  >
+                    Volver al Dashboard
+                  </button>
                 </div>
-                <h2 className="text-lg font-bold text-[#f1f5f9]">Acceso Restringido</h2>
-                <p className="text-xs text-[#94a3b8] max-w-sm mt-1.5">
-                  El módulo de Relación Semanal y Finanzas está reservado exclusivamente para la administración del sistema.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => handleNavigate('dashboard')}
-                  className="mt-5 px-4 py-2 rounded-xl bg-[#1e293b] hover:bg-[#334155] text-xs font-semibold text-[#cbd5e1] transition-colors cursor-pointer"
-                >
-                  Volver al Dashboard
-                </button>
-              </div>
-            )
-          )}
+              )
+            )}
 
-          {(currentScreen === 'sistema' || currentScreen === 'configuracion' || currentScreen === 'ayuda') && (
-            <SystemSettingsView
-              userRole={userRole}
-              onOpenChangePassword={() => setIsChangePasswordOpen(true)}
-            />
-          )}
+            {(currentScreen === 'sistema' || currentScreen === 'configuracion' || currentScreen === 'ayuda') && (
+              <SystemSettingsView
+                userRole={userRole}
+                onOpenChangePassword={() => setIsChangePasswordOpen(true)}
+              />
+            )}
 
-          {(currentScreen === 'usuarios' || currentScreen === 'directorio') && (
-            <UsersManagementView currentUserId={authUser.id} />
-          )}
+            {(currentScreen === 'usuarios' || currentScreen === 'directorio') && (
+              <UsersManagementView currentUserId={authUser.id} />
+            )}
 
-          {currentScreen === 'order-detail' && selectedOrder && (
-            <OrderDetailView
-              order={selectedOrder}
-              onBack={() => handleNavigate('ordenes')}
-              onOpenSMS={(customerName, phone, order) =>
-                setSmsModalData({ isOpen: true, customerName, phone, order })
-              }
-              onUpdateOrder={handleUpdateOrder}
-              onCreateClaim={createOrderClaim}
-              currentUser={authUser}
-              userRole={userRole}
-            />
-          )}
+            {currentScreen === 'order-detail' && selectedOrder && (
+              <OrderDetailView
+                order={selectedOrder}
+                onBack={() => handleNavigate('ordenes')}
+                onOpenSMS={(customerName, phone, order) =>
+                  setSmsModalData({ isOpen: true, customerName, phone, order })
+                }
+                onUpdateOrder={handleUpdateOrder}
+                onCreateClaim={createOrderClaim}
+                currentUser={authUser}
+                userRole={userRole}
+              />
+            )}
+          </React.Suspense>
         </main>
       </div>
 
-      {/* Global Modals */}
-      <NewOrderModal
-        isOpen={isNewOrderModalOpen}
-        onClose={handleCloseNewOrderModal}
-        onCreateOrder={handleCreateOrder}
-        onUpdateOrder={handleUpdateNewOrderModal}
-        editingOrder={editingOrder}
-        initialPrefillData={prefillOrderData || undefined}
-        existingCustomers={customers}
-        currentUser={authUser}
-      />
+      {/* Global Modals con Suspense y carga condicional */}
+      <React.Suspense fallback={null}>
+        {isNewOrderModalOpen && (
+          <NewOrderModal
+            isOpen={isNewOrderModalOpen}
+            onClose={handleCloseNewOrderModal}
+            onCreateOrder={handleCreateOrder}
+            onUpdateOrder={handleUpdateNewOrderModal}
+            editingOrder={editingOrder}
+            initialPrefillData={prefillOrderData || undefined}
+            existingCustomers={customers}
+            currentUser={authUser}
+          />
+        )}
 
-      <QuickSMSModal
-        isOpen={smsModalData.isOpen}
-        customerName={smsModalData.customerName}
-        phone={smsModalData.phone}
-        order={smsModalData.order || undefined}
-        onClose={() => setSmsModalData({ isOpen: false, customerName: '', phone: '', order: null })}
-      />
+        <QuickSMSModal
+          isOpen={smsModalData.isOpen}
+          customerName={smsModalData.customerName}
+          phone={smsModalData.phone}
+          order={smsModalData.order || undefined}
+          onClose={() => setSmsModalData({ isOpen: false, customerName: '', phone: '', order: null })}
+        />
 
-      <SearchModal
-        isOpen={isSearchModalOpen}
-        onClose={() => setIsSearchModalOpen(false)}
-        orders={orders}
-        onSelectOrder={handleSelectOrder}
-        onNavigate={handleNavigate}
-        userRole={userRole}
-      />
+        {isSearchModalOpen && (
+          <SearchModal
+            isOpen={isSearchModalOpen}
+            onClose={() => setIsSearchModalOpen(false)}
+            orders={orders}
+            onSelectOrder={handleSelectOrder}
+            onNavigate={handleNavigate}
+            userRole={userRole}
+          />
+        )}
 
-      <ExportModal
-        isOpen={isExportModalOpen}
-        onClose={() => setIsExportModalOpen(false)}
-        orders={orders}
-      />
-      <StatusRequestModal isOpen={isStatusRequestOpen} orders={orders} onClose={() => setIsStatusRequestOpen(false)} />
-      <ChangePasswordModal isOpen={isChangePasswordOpen} onClose={() => setIsChangePasswordOpen(false)} />
-      <UserProfileModal
-        isOpen={isProfileModalOpen}
-        onClose={() => setIsProfileModalOpen(false)}
-        user={authUser}
-        onUserUpdated={(updated) => updateUser(updated)}
-      />
-      <DailyFollowupBriefingModal
-        isOpen={isFollowupModalOpen}
-        onClose={() => setIsFollowupModalOpen(false)}
-        pendingItems={pendingFollowupItems}
-        onSelectOrder={handleSelectOrder}
-        onRefreshPending={() => fetchPendingFollowups(false)}
-        currentUserName={authUser?.name}
-        userRole={userRole}
-      />
-      <PersonalNotesWidget />
+        {isExportModalOpen && (
+          <ExportModal
+            isOpen={isExportModalOpen}
+            onClose={() => setIsExportModalOpen(false)}
+            orders={orders}
+          />
+        )}
+        <StatusRequestModal isOpen={isStatusRequestOpen} orders={orders} onClose={() => setIsStatusRequestOpen(false)} />
+        <ChangePasswordModal isOpen={isChangePasswordOpen} onClose={() => setIsChangePasswordOpen(false)} />
+        <UserProfileModal
+          isOpen={isProfileModalOpen}
+          onClose={() => setIsProfileModalOpen(false)}
+          user={authUser}
+          onUserUpdated={(updated) => updateUser(updated)}
+        />
+        <DailyFollowupBriefingModal
+          isOpen={isFollowupModalOpen}
+          onClose={() => setIsFollowupModalOpen(false)}
+          pendingItems={pendingFollowupItems}
+          onSelectOrder={handleSelectOrder}
+          onRefreshPending={() => fetchPendingFollowups(false)}
+          currentUserName={authUser?.name}
+          userRole={userRole}
+        />
+        <PersonalNotesWidget />
+      </React.Suspense>
     </div>
   );
 }

@@ -67,44 +67,96 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
     return () => clearTimeout(handler);
   }, [searchInput]);
 
-  // Compute metrics from real orders for each customer
+  // Compute metrics from real orders for each customer - Optimizacion O(N + M) indexada
   const customerStatsMap = useMemo(() => {
     const map = new Map<
       string,
       { activeOrdersCount: number; totalOrdersCount: number; totalSpent: number; lastOrder: Order | null }
     >();
 
-    customerRecords.forEach((cust) => {
-      const custOrders = orders.filter((o) => {
-        if (!o.customer) return false;
-        if (o.customer.id && o.customer.id === cust.id) return true;
-        if (o.customer.name && cust.name && o.customer.name.toLowerCase() === cust.name.toLowerCase()) return true;
-        if (o.customer.phone && cust.phone && o.customer.phone.replace(/\D/g, '') === cust.phone.replace(/\D/g, '')) return true;
-        return false;
-      });
+    // 1. Indexar ordenes en una sola pasada O(M)
+    const ordersByCustId = new Map<string, Order[]>();
+    const ordersByPhone = new Map<string, Order[]>();
+    const ordersByName = new Map<string, Order[]>();
 
-      const activeOrders = custOrders.filter(
-        (o) =>
+    for (const o of orders) {
+      if (!o.customer) continue;
+      if (o.customer.id) {
+        let arr = ordersByCustId.get(o.customer.id);
+        if (!arr) {
+          arr = [];
+          ordersByCustId.set(o.customer.id, arr);
+        }
+        arr.push(o);
+      }
+      if (o.customer.phone) {
+        const cleanPhone = o.customer.phone.replace(/\D/g, '');
+        if (cleanPhone) {
+          let arr = ordersByPhone.get(cleanPhone);
+          if (!arr) {
+            arr = [];
+            ordersByPhone.set(cleanPhone, arr);
+          }
+          arr.push(o);
+        }
+      }
+      if (o.customer.name) {
+        const cleanName = o.customer.name.trim().toLowerCase();
+        if (cleanName) {
+          let arr = ordersByName.get(cleanName);
+          if (!arr) {
+            arr = [];
+            ordersByName.set(cleanName, arr);
+          }
+          arr.push(o);
+        }
+      }
+    }
+
+    // 2. Asociar estadisticas a cada cliente en O(N)
+    for (const cust of customerRecords) {
+      const orderSet = new Set<Order>();
+      if (cust.id && ordersByCustId.has(cust.id)) {
+        for (const o of ordersByCustId.get(cust.id)!) orderSet.add(o);
+      }
+      if (cust.phone) {
+        const cleanPhone = cust.phone.replace(/\D/g, '');
+        if (cleanPhone && ordersByPhone.has(cleanPhone)) {
+          for (const o of ordersByPhone.get(cleanPhone)!) orderSet.add(o);
+        }
+      }
+      if (orderSet.size === 0 && cust.name) {
+        const cleanName = cust.name.trim().toLowerCase();
+        if (cleanName && ordersByName.has(cleanName)) {
+          for (const o of ordersByName.get(cleanName)!) orderSet.add(o);
+        }
+      }
+
+      let activeOrdersCount = 0;
+      let totalSpent = 0;
+      let lastOrder: Order | null = null;
+
+      for (const o of orderSet) {
+        if (!lastOrder) lastOrder = o;
+        if (
           o.status !== 'entregado' &&
           o.status !== 'cancelado' &&
           o.status !== 'reembolsado' &&
           o.status !== 'archivado'
-      );
-
-      const totalSpent = custOrders.reduce((sum, o) => {
+        ) {
+          activeOrdersCount++;
+        }
         const amt = o.financials?.total || o.financials?.partPrice || 0;
-        return sum + amt;
-      }, 0);
-
-      const lastOrder = custOrders[0] || null;
+        totalSpent += amt;
+      }
 
       map.set(cust.id, {
-        activeOrdersCount: activeOrders.length,
-        totalOrdersCount: custOrders.length,
+        activeOrdersCount,
+        totalOrdersCount: orderSet.size,
         totalSpent,
         lastOrder,
       });
-    });
+    }
 
     return map;
   }, [customerRecords, orders]);

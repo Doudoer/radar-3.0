@@ -3420,6 +3420,31 @@ const ensureDatabaseTables = async () => {
 
     await ensureAuditTable(pool);
     await ensureNotificationTables(pool);
+
+    // -------------------------------------------------------------------------
+    // Índices de rendimiento para acelerar tiempos de carga y respuesta de la API
+    // -------------------------------------------------------------------------
+    const ensureIndex = async (tableName: string, indexName: string, columnsDef: string) => {
+      try {
+        const [existing] = await pool.query<RowDataPacket[]>(
+          `SHOW INDEX FROM ${tableName} WHERE Key_name = ?`,
+          [indexName]
+        );
+        if (existing.length === 0) {
+          await pool.query(`ALTER TABLE ${tableName} ADD INDEX ${indexName} (${columnsDef})`);
+          console.log(`Índice de rendimiento verificado/creado: ${tableName}.${indexName}`);
+        }
+      } catch (idxErr) {
+        console.warn(`Aviso al verificar/crear índice ${tableName}.${indexName}:`, idxErr);
+      }
+    };
+
+    await ensureIndex('orders', 'idx_orders_deleted_created', 'deleted_at, created_at');
+    await ensureIndex('orders', 'idx_orders_customer_deleted', 'customer_id, deleted_at');
+    await ensureIndex('orders', 'idx_orders_status_deleted', 'status, deleted_at');
+    await ensureIndex('customers', 'idx_customers_deleted_created', 'deleted_at, created_at');
+    await ensureIndex('customers', 'idx_customers_phone', 'phone');
+    await ensureIndex('claims', 'idx_claims_deleted_created', 'deleted_at, created_at');
   } catch (error) {
     console.error('Error al verificar/inicializar tablas de base de datos:', error);
   }
