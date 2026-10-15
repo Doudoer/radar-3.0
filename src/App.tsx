@@ -97,7 +97,7 @@ export default function App() {
 
   const fetchPendingFollowups = useCallback(async (autoOpenOnLogin = false) => {
     try {
-      const response = await apiFetch('/orders/followups/pending?all=true');
+      const response = await apiFetch(`/orders/followups/pending?all=true&_t=${Date.now()}`);
       if (response.ok) {
         const data = await response.json();
         const items: PendingFollowupItem[] = data.pending || [];
@@ -109,11 +109,14 @@ export default function App() {
           : items.filter((i) => i.advisor.trim().toLowerCase() === (authUser?.name || '').trim().toLowerCase());
 
         const relevantOverdue = relevantItems.filter((i) => i.urgency === 'atrasada').length;
-        setPendingFollowupsCount(relevantItems.length);
+        const relevantActionable = relevantItems.filter((i) => i.urgency === 'atrasada' || i.urgency === 'hoy').length;
+
+        // Pending followups badge reflects actionable orders needing attention (atrasadas + hoy)
+        setPendingFollowupsCount(relevantActionable);
         setOverdueFollowupsCount(relevantOverdue);
 
         // Auto open on login session every time an operator/admin logs in if there are pending orders
-        if (autoOpenOnLogin && relevantItems.length > 0) {
+        if (autoOpenOnLogin && relevantActionable > 0) {
           setIsFollowupModalOpen(true);
         }
       }
@@ -133,6 +136,101 @@ export default function App() {
       setIsFollowupModalOpen(false);
     }
   }, [authenticated, authUser, authChecking, fetchPendingFollowups]);
+
+  // 1. Server-Sent Events (SSE) for Real-Time Multi-Operator Sync
+  useEffect(() => {
+    if (!authenticated || !authUser || authChecking) return;
+
+    let eventSource: EventSource | null = null;
+    let reconnectTimeout: any = null;
+    let isCancelled = false;
+
+    const connectSSE = () => {
+      if (isCancelled) return;
+      try {
+        eventSource = new EventSource('/api/events', { withCredentials: true });
+
+        eventSource.addEventListener('followup:updated', (e: MessageEvent) => {
+          try {
+            const data = JSON.parse(e.data);
+            void fetchPendingFollowups(false);
+            window.dispatchEvent(new CustomEvent('radar:followup-updated', { detail: data }));
+          } catch {
+            void fetchPendingFollowups(false);
+          }
+        });
+
+        eventSource.addEventListener('order:updated', () => {
+          void fetchPendingFollowups(false);
+        });
+
+        eventSource.onerror = () => {
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+          if (!isCancelled) {
+            reconnectTimeout = setTimeout(connectSSE, 4000);
+          }
+        };
+      } catch (err) {
+        if (!isCancelled) {
+          reconnectTimeout = setTimeout(connectSSE, 5000);
+        }
+      }
+    };
+
+    connectSSE();
+
+    return () => {
+      isCancelled = true;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+    };
+  }, [authenticated, authUser, authChecking, fetchPendingFollowups]);
+
+  // 2. Cross-tab BroadcastChannel, window focus & periodic sync fallback
+  useEffect(() => {
+    if (!authenticated) return;
+
+    const handleLocalFollowupUpdate = () => {
+      void fetchPendingFollowups(false);
+    };
+    window.addEventListener('radar:followup-updated', handleLocalFollowupUpdate);
+
+    let bc: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        bc = new BroadcastChannel('radar_realtime');
+        bc.onmessage = (event) => {
+          if (event.data?.type === 'followup:updated') {
+            void fetchPendingFollowups(false);
+          }
+        };
+      } catch {}
+    }
+
+    const handleSync = () => {
+      if (authenticated && !document.hidden) {
+        void fetchPendingFollowups(false);
+      }
+    };
+
+    const interval = setInterval(handleSync, 20_000);
+    document.addEventListener('visibilitychange', handleSync);
+    window.addEventListener('focus', handleSync);
+
+    return () => {
+      window.removeEventListener('radar:followup-updated', handleLocalFollowupUpdate);
+      document.removeEventListener('visibilitychange', handleSync);
+      window.removeEventListener('focus', handleSync);
+      clearInterval(interval);
+      if (bc) bc.close();
+    };
+  }, [authenticated, fetchPendingFollowups]);
   // Selected Order object
   const selectedOrder = orders.find((o) => o.id === selectedOrderId) || orders[0];
 

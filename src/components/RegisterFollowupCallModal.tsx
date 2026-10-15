@@ -285,6 +285,16 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
         await onSuccess();
       }
 
+      // Dispatch local event & cross-tab broadcast for instant UI reactivity
+      window.dispatchEvent(new CustomEvent('radar:followup-updated', { detail: { orderId } }));
+      if (typeof BroadcastChannel !== 'undefined') {
+        try {
+          const bc = new BroadcastChannel('radar_realtime');
+          bc.postMessage({ type: 'followup:updated', orderId });
+          bc.close();
+        } catch {}
+      }
+
       setTimeout(() => {
         onClose();
         setFormSuccess('');

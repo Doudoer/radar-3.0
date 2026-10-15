@@ -31,7 +31,12 @@ export const readBody = async (request: IncomingMessage, maxBytes: number = maxB
 };
 
 export const sendJson = (response: ServerResponse, status: number, data: unknown) => {
-  response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  response.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0',
+  });
   response.end(JSON.stringify(data));
 };
 

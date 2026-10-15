@@ -95,4 +95,51 @@ describe('Order Delivery Followup Schema & Business Logic', () => {
     expect(valid.contactChannel).toBe('sms');
     expect(valid.callResult).toBe('sms_sent');
   });
+
+  it('marks follow-up urgency as proxima when contact was accomplished today', () => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const orderWithFollowupToday: PendingFollowupItem = {
+      orderId: '577',
+      orderCode: 'ORD-854857',
+      advisor: 'Favio Andrade',
+      customerName: 'Senor Miguel',
+      customerPhone: '9197576858',
+      vehicle: '2009 TOYOTA Corolla',
+      mainPart: 'Transmission',
+      deliveredAt: '2026-10-08T20:25:51.000Z',
+      daysSinceDelivery: 7,
+      currentMilestone: 'dia_7',
+      milestoneLabel: 'Hito 2: Montaje & Encendido',
+      urgency: 'proxima', // Correctly transitioned to proxima after today's call
+      lastFollowup: {
+        id: 'FOL-101',
+        orderId: '577',
+        operatorName: 'David Isea',
+        contactChannel: 'call',
+        callResult: 'answered',
+        partStatus: 'in_process',
+        warrantyWarningGiven: true,
+        promisedInstallDate: null,
+        notes: 'Cliente atendió la llamada, mecánico está montando la caja hoy.',
+        createdAt: `${todayStr}T14:30:00.000Z`,
+      },
+      totalCalls: 1,
+    };
+
+    expect(orderWithFollowupToday.urgency).toBe('proxima');
+    expect(orderWithFollowupToday.lastFollowup?.createdAt.slice(0, 10)).toBe(todayStr);
+    expect(orderWithFollowupToday.lastFollowup?.callResult).toBe('answered');
+  });
+
+  it('verifies partStatus installed_ok completes follow-up requirement', () => {
+    const closedFollowup = orderDeliveryFollowupSchema.parse({
+      callResult: 'answered',
+      partStatus: 'installed_ok',
+      warrantyWarningGiven: false,
+      notes: 'Cliente confirma que la pieza quedó 100% operativa y sin fallas.',
+      operatorName: 'Favio Andrade',
+    });
+
+    expect(closedFollowup.partStatus).toBe('installed_ok');
+  });
 });

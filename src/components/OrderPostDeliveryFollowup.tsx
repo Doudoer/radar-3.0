@@ -41,6 +41,18 @@ export const OrderPostDeliveryFollowup: React.FC<OrderPostDeliveryFollowupProps>
     }
   }, [order.id]);
 
+  useEffect(() => {
+    const handleUpdate = (e: any) => {
+      if (!e.detail?.orderId || String(e.detail.orderId) === String(order.id)) {
+        void fetchFollowups();
+      }
+    };
+    window.addEventListener('radar:followup-updated', handleUpdate);
+    return () => {
+      window.removeEventListener('radar:followup-updated', handleUpdate);
+    };
+  }, [order.id]);
+
   // Calculate days since delivery
   const deliveryDateVal = order.deliveredAt || order.created_at || new Date().toISOString();
   const deliveryTimestamp = new Date(deliveryDateVal).getTime();

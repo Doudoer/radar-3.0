@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { PendingFollowupItem } from '../types';
 import { RegisterFollowupCallModal } from './RegisterFollowupCallModal';
@@ -25,6 +25,37 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
   const [selectedItemForCall, setSelectedItemForCall] = useState<PendingFollowupItem | null>(null);
   const [advisorFilter, setAdvisorFilter] = useState<string>('all');
   const [copiedPhone, setCopiedPhone] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await onRefreshPending();
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  };
+
+  // Auto-refresh pending list when an update event is received from any operator
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleUpdate = () => {
+      void onRefreshPending();
+    };
+    window.addEventListener('radar:followup-updated', handleUpdate);
+    return () => {
+      window.removeEventListener('radar:followup-updated', handleUpdate);
+    };
+  }, [isOpen, onRefreshPending]);
+
+  // Periodic fallback refresh every 8 seconds while modal is open
+  useEffect(() => {
+    if (!isOpen) return;
+    const interval = setInterval(() => {
+      void onRefreshPending();
+    }, 8_000);
+    return () => clearInterval(interval);
+  }, [isOpen, onRefreshPending]);
 
   if (!isOpen) return null;
 
@@ -85,14 +116,27 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors"
-            title="Cerrar (Permanecerá accesible en barra superior)"
-          >
-            <span className="material-symbols-outlined text-[20px]">close</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-cyan-950/40 hover:bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 hover:text-white text-xs font-mono font-bold transition-all active:scale-95 disabled:opacity-50 cursor-pointer shadow-[0_0_10px_rgba(6,182,212,0.15)]"
+              title="Actualizar lista de seguimientos ahora"
+            >
+              <span className={`material-symbols-outlined text-[16px] ${isRefreshing ? 'animate-spin text-cyan-400' : 'text-cyan-400'}`}>refresh</span>
+              <span className="hidden sm:inline">{isRefreshing ? 'Actualizando...' : 'Actualizar'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors cursor-pointer"
+              title="Cerrar (Permanecerá accesible en barra superior)"
+            >
+              <span className="material-symbols-outlined text-[20px]">close</span>
+            </button>
+          </div>
         </div>
 
         {/* Operational Filter & KPI Bar */}
@@ -118,27 +162,42 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
             </div>
           </div>
 
-          {/* Advisor Selector / Filter */}
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-mono text-slate-400 flex items-center gap-1">
-              <span className="material-symbols-outlined text-[15px] text-cyan-400">person</span>
-              <span>Asesor:</span>
-            </label>
-            <select
-              value={advisorFilter}
-              onChange={(e) => setAdvisorFilter(e.target.value)}
-              className="bg-[#0b162c] border border-cyan-500/40 text-cyan-200 text-xs font-mono rounded-lg px-2.5 py-1 focus:outline-none focus:border-cyan-400 cursor-pointer"
+          {/* Controls: Advisor Selector / Filter + Primary Refresh Button */}
+          <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-1.5">
+              <label className="text-xs font-mono text-slate-400 flex items-center gap-1">
+                <span className="material-symbols-outlined text-[15px] text-cyan-400">person</span>
+                <span className="hidden sm:inline">Asesor:</span>
+              </label>
+              <select
+                value={advisorFilter}
+                onChange={(e) => setAdvisorFilter(e.target.value)}
+                className="bg-[#0b162c] border border-cyan-500/40 text-cyan-200 text-xs font-mono rounded-lg px-2.5 py-1 focus:outline-none focus:border-cyan-400 cursor-pointer"
+              >
+                <option value="all">Todas las Órdenes ({pendingItems.length})</option>
+                {currentUserName && (
+                  <option value="mine">Mis Órdenes ({pendingItems.filter((i) => i.advisor.trim().toLowerCase() === currentUserName.trim().toLowerCase()).length})</option>
+                )}
+                {advisorList.map((adv) => (
+                  <option key={adv} value={adv}>
+                    {adv} ({pendingItems.filter((i) => i.advisor === adv).length})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-cyan-500/25 via-blue-500/25 to-emerald-500/20 hover:from-cyan-500/35 hover:to-emerald-500/30 border border-cyan-400/60 hover:border-cyan-300 text-cyan-200 hover:text-white rounded-lg text-xs font-mono font-bold transition-all shadow-[0_0_15px_rgba(6,182,212,0.25)] active:scale-95 disabled:opacity-50 cursor-pointer"
+              title="Actualizar lista de órdenes de seguimiento ahora"
             >
-              <option value="all">Todas las Órdenes ({pendingItems.length})</option>
-              {currentUserName && (
-                <option value="mine">Mis Órdenes ({pendingItems.filter((i) => i.advisor.trim().toLowerCase() === currentUserName.trim().toLowerCase()).length})</option>
-              )}
-              {advisorList.map((adv) => (
-                <option key={adv} value={adv}>
-                  {adv} ({pendingItems.filter((i) => i.advisor === adv).length})
-                </option>
-              ))}
-            </select>
+              <span className={`material-symbols-outlined text-[16px] ${isRefreshing ? 'animate-spin text-cyan-300' : 'text-cyan-400'}`}>
+                refresh
+              </span>
+              <span>{isRefreshing ? 'Actualizando...' : 'Actualizar'}</span>
+            </button>
           </div>
         </div>
 
@@ -310,13 +369,26 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
             </span>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-full sm:w-auto px-4 py-1.5 rounded-xl bg-[#0b162c] hover:bg-[#12244a] border border-cyan-500/40 text-slate-200 hover:text-white text-xs font-mono font-bold transition-all cursor-pointer shrink-0"
-          >
-            Continuar a RADAR
-          </button>
+          <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end shrink-0">
+            <button
+              type="button"
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-950/40 hover:bg-cyan-500/20 border border-cyan-500/40 hover:border-cyan-300 text-cyan-300 hover:text-white text-xs font-mono font-bold transition-all active:scale-95 disabled:opacity-50 cursor-pointer shadow-[0_0_12px_rgba(6,182,212,0.15)]"
+              title="Refrescar órdenes de seguimiento ahora"
+            >
+              <span className={`material-symbols-outlined text-[16px] ${isRefreshing ? 'animate-spin text-cyan-400' : 'text-cyan-400'}`}>refresh</span>
+              <span>{isRefreshing ? 'Actualizando...' : 'Actualizar'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full sm:w-auto px-4 py-1.5 rounded-xl bg-[#0b162c] hover:bg-[#12244a] border border-cyan-500/40 text-slate-200 hover:text-white text-xs font-mono font-bold transition-all cursor-pointer shrink-0"
+            >
+              Continuar a RADAR
+            </button>
+          </div>
         </div>
       </div>
 

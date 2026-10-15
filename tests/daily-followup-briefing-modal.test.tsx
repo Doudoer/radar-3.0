@@ -81,6 +81,7 @@ describe('DailyFollowupBriefingModal', () => {
     expect(html).toContain('ATRASADA');
     expect(html).toContain('Registrar Llamada');
     expect(html).toContain('Regla Operativa');
+    expect(html).toContain('Actualizar');
   });
 
   it('renders empty celebration state when no pending items', () => {

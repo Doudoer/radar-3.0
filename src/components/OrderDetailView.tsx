@@ -1039,6 +1039,9 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
           order={order}
           currentUser={currentUser}
           userRole={userRole}
+          onCallLogged={() => {
+            window.dispatchEvent(new CustomEvent('radar:followup-updated', { detail: { orderId: order.id } }));
+          }}
         />
       )}
 

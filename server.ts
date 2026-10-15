@@ -196,6 +196,38 @@ const mapInventoryPartRow = (row: RowDataPacket) => {
   };
 };
 
+// ============================================================================
+// REAL-TIME SERVER-SENT EVENTS (SSE) BROADCASTER
+// ============================================================================
+interface RealtimeSSEClient {
+  id: string;
+  userId?: number | string;
+  response: ServerResponse;
+}
+const realtimeClients = new Set<RealtimeSSEClient>();
+
+export const broadcastRealtimeEvent = (eventType: string, data: Record<string, unknown> = {}) => {
+  const payload = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of realtimeClients) {
+    try {
+      client.response.write(payload);
+    } catch {
+      realtimeClients.delete(client);
+    }
+  }
+};
+
+// Periodic keep-alive ping for SSE connections (every 25 seconds)
+setInterval(() => {
+  for (const client of realtimeClients) {
+    try {
+      client.response.write(':keep-alive\n\n');
+    } catch {
+      realtimeClients.delete(client);
+    }
+  }
+}, 25_000);
+
 const server = createServer(async (request, response) => {
   request.setTimeout(30_000, () => {
     if (!response.headersSent) response.writeHead(408).end();
@@ -229,6 +261,50 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && pathname === '/health') {
       await pool.query('SELECT 1');
       return sendJson(response, 200, { ok: true, service: 'radar-3.0-api', database: 'connected' });
+    }
+
+    if (request.method === 'GET' && pathname === '/api/events') {
+      let claims = verifyToken(request);
+      if (!claims && jwtSecret) {
+        const urlObj = new URL(request.url || '/', 'http://localhost');
+        const tokenParam = urlObj.searchParams.get('token');
+        if (tokenParam) {
+          try {
+            claims = jwt.verify(tokenParam, jwtSecret) as Claims;
+          } catch {
+            claims = null;
+          }
+        }
+      }
+
+      if (!claims) {
+        return sendJson(response, 401, { ok: false, message: 'No autenticado para eventos en tiempo real' });
+      }
+
+      // Disable request/socket timeouts for long-lived streaming connection
+      request.setTimeout(0);
+      response.setTimeout(0);
+
+      response.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      });
+
+      const client: RealtimeSSEClient = {
+        id: crypto.randomUUID(),
+        userId: claims.sub,
+        response,
+      };
+      realtimeClients.add(client);
+
+      response.write(`event: connected\ndata: ${JSON.stringify({ ok: true, clientId: client.id, time: Date.now() })}\n\n`);
+
+      request.on('close', () => {
+        realtimeClients.delete(client);
+      });
+      return;
     }
 
     if (request.method === 'POST' && pathname === '/api/auth/login') {
@@ -1137,10 +1213,16 @@ const server = createServer(async (request, response) => {
         const deliveryTimestamp = new Date(deliveryDateVal).getTime();
         const daysSinceDelivery = Math.max(0, Math.floor((now.getTime() - deliveryTimestamp) / (1000 * 60 * 60 * 24)));
 
-        // If part is confirmed installed and tested OK with at least 2 checks or past day 7, mark completed
-        if (lastFollowup && lastFollowup.partStatus === 'installed_ok' && (totalCalls >= 2 || daysSinceDelivery >= 7)) {
+        // If part is confirmed installed and tested OK, follow-up cycle is complete!
+        if (lastFollowup && lastFollowup.partStatus === 'installed_ok') {
           continue;
         }
+
+        const lastFollowupDateStr = rawLastFollowup
+          ? new Date(rawLastFollowup.created_at).toISOString().slice(0, 10)
+          : null;
+        const calledToday = lastFollowupDateStr === todayStr;
+        const answeredToday = calledToday && rawLastFollowup?.call_result !== 'unanswered';
 
         let currentMilestone: 'dia_3' | 'dia_7' | 'dia_14' | 'seguimiento_extra' = 'dia_3';
         let milestoneLabel = 'Hito 1: Recepción & Taller (Día 1-3)';
@@ -1152,11 +1234,11 @@ const server = createServer(async (request, response) => {
           if (promisedDate < todayStr) {
             currentMilestone = 'seguimiento_extra';
             milestoneLabel = `Fecha prometida vencida (${promisedDate})`;
-            urgency = 'atrasada';
+            urgency = answeredToday ? 'proxima' : 'atrasada';
           } else if (promisedDate === todayStr) {
             currentMilestone = 'seguimiento_extra';
             milestoneLabel = `Instalación prometida (HOY: ${promisedDate})`;
-            urgency = 'hoy';
+            urgency = answeredToday ? 'proxima' : 'hoy';
           } else {
             currentMilestone = 'seguimiento_extra';
             milestoneLabel = `Instalación agendada para: ${promisedDate}`;
@@ -1176,9 +1258,9 @@ const server = createServer(async (request, response) => {
           currentMilestone = 'dia_7';
           milestoneLabel = 'Hito 2: Montaje & Encendido';
           if (totalCalls < 1) {
-            urgency = 'atrasada';
+            urgency = answeredToday ? 'proxima' : 'atrasada';
           } else if (totalCalls === 1) {
-            urgency = daysSinceDelivery >= 6 ? 'atrasada' : 'hoy';
+            urgency = answeredToday ? 'proxima' : (daysSinceDelivery >= 6 ? 'hoy' : 'proxima');
           } else {
             urgency = 'proxima';
           }
@@ -1186,14 +1268,14 @@ const server = createServer(async (request, response) => {
           currentMilestone = 'dia_14';
           milestoneLabel = 'Hito 3: Conformidad & Cierre 14 Días';
           if (totalCalls < 2) {
-            urgency = 'atrasada';
+            urgency = answeredToday ? 'proxima' : 'atrasada';
           } else {
-            urgency = daysSinceDelivery >= 12 ? 'hoy' : 'proxima';
+            urgency = answeredToday ? 'proxima' : (daysSinceDelivery >= 12 ? 'hoy' : 'proxima');
           }
         } else {
           currentMilestone = 'seguimiento_extra';
           milestoneLabel = `Seguimiento Extendido (>14 Días: Día ${daysSinceDelivery})`;
-          urgency = 'atrasada';
+          urgency = answeredToday ? 'proxima' : 'atrasada';
         }
 
         const advisorName = order.advisor || 'Sin asignar';
@@ -1371,6 +1453,13 @@ const server = createServer(async (request, response) => {
           createdAt: new Date().toISOString(),
         };
 
+        broadcastRealtimeEvent('followup:updated', {
+          orderId: targetOrderId,
+          operatorName: opName,
+          followup: createdFollowup,
+          timestamp: Date.now(),
+        });
+
         return sendJson(response, 201, {
           ok: true,
           followup: createdFollowup,
@@ -1449,6 +1538,12 @@ const server = createServer(async (request, response) => {
         },
         ipAddress: request.socket.remoteAddress || 'unknown',
         userAgent: request.headers['user-agent'] || null,
+      });
+
+      broadcastRealtimeEvent('order:updated', {
+        orderId: targetOrderId,
+        action: 'DELIVERY_DATE_UPDATED',
+        timestamp: Date.now(),
       });
 
       return sendJson(response, 200, {
@@ -1694,6 +1789,13 @@ const server = createServer(async (request, response) => {
             userAgent: request.headers['user-agent'] || null,
           });
         }
+
+        broadcastRealtimeEvent('order:updated', {
+          orderId: Number(orderId),
+          action: 'ORDER_UPDATED',
+          status: updatedOrder?.status,
+          timestamp: Date.now(),
+        });
 
         return updatedOrder ? sendJson(response, 200, updatedOrder) : sendJson(response, 404, { message: 'Orden no encontrada' });
       } catch (error) {
