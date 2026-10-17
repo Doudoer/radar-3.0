@@ -1194,11 +1194,12 @@ const server = createServer(async (request, response) => {
 
         // 4. Normalize Transmission Type for ENUM('AT','MT') / VARCHAR
         const transmissionType = normalizeTransmissionType(order.vehicle.transmission);
+        const isAuctionActive = Boolean((order as any).auctionActive || ((order as any).auctionLinks && (order as any).auctionLinks.length > 0));
 
         // 5. Insert Order
         const [orderResult] = await connection.execute<ResultSetHeader>(
-          `INSERT INTO orders (order_code, vin_nr, brand, model, sub_model, year, color, mileage, product_type, transmission_type, product_specs, stock_nr, customer_id, user_id, is_yard_sale, price, core_fee, down_payment, shipping_toggle, shipping_address, shipping_cost, warranty_days, status, workflow_step, description, customer_language)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO orders (order_code, vin_nr, brand, model, sub_model, year, color, mileage, product_type, transmission_type, product_specs, stock_nr, customer_id, user_id, is_yard_sale, auction_search_active, price, core_fee, down_payment, shipping_toggle, shipping_address, shipping_cost, warranty_days, status, workflow_step, description, customer_language)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             orderCode,
             order.vehicle.vin || null,
@@ -1215,6 +1216,7 @@ const server = createServer(async (request, response) => {
             customerId,
             assignedUserId,
             isYardSale ? 1 : 0,
+            isAuctionActive ? 1 : 0,
             order.financials.partPrice || 0,
             order.financials.coreFee || 0,
             order.financials.downPayment || 0,
@@ -1228,6 +1230,20 @@ const server = createServer(async (request, response) => {
             resolvedCustomerLanguage,
           ]
         );
+
+        if (Array.isArray((order as any).auctionLinks)) {
+          for (const link of (order as any).auctionLinks) {
+            if (link.url) {
+              const auctionType = link.auctionHouse === 'IAAI' ? 'IAA' : 'Copart';
+              const auctionDate = link.auctionDate ? new Date(link.auctionDate) : new Date();
+              const formattedDate = !isNaN(auctionDate.getTime()) ? auctionDate.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+              await connection.execute(
+                'INSERT INTO order_auction_links (order_id, url, auction_type, auction_date, status) VALUES (?, ?, ?, ?, ?)',
+                [orderResult.insertId, link.url, auctionType, formattedDate, 'active']
+              );
+            }
+          }
+        }
 
         const statusUserId = assignedUserId || Number(authenticatedClaims?.sub) || 1;
         await connection.execute(
@@ -1873,16 +1889,55 @@ const server = createServer(async (request, response) => {
         const transmissionType = normalizeTransmissionType(order.vehicle?.transmission);
         const newDbStatus = statusToDatabase[order.status || ''] || order.status || '';
 
+        const auctionActiveVal = (order as any).auctionActive !== undefined
+          ? ((order as any).auctionActive ? 1 : 0)
+          : ((order as any).auctionLinks && (order as any).auctionLinks.length > 0 ? 1 : undefined);
+
         await connection.execute(
-          `UPDATE orders SET vin_nr = ?, brand = ?, model = ?, sub_model = ?, year = ?, color = ?, mileage = ?, product_type = ?, transmission_type = ?, product_specs = ?, stock_nr = ?, price = ?, core_fee = ?, down_payment = ?, shipping_toggle = ?, shipping_address = ?, shipping_cost = ?, warranty_days = ?, status = ?, workflow_step = ?, scheduled_pickup_at = ?, delivered_at = ?, warranty_started = ?, description = ?, claim_reason = ? ${updateCustomerLanguage ? ', customer_language = ?' : ''} ${assignedUserId !== undefined ? ', user_id = ?' : ''} ${isYardSale !== undefined ? ', is_yard_sale = ?' : ''} WHERE id = ?`,
+          `UPDATE orders SET vin_nr = ?, brand = ?, model = ?, sub_model = ?, year = ?, color = ?, mileage = ?, product_type = ?, transmission_type = ?, product_specs = ?, stock_nr = ?, price = ?, core_fee = ?, down_payment = ?, shipping_toggle = ?, shipping_address = ?, shipping_cost = ?, warranty_days = ?, status = ?, workflow_step = ?, scheduled_pickup_at = ?, delivered_at = ?, warranty_started = ?, description = ?, claim_reason = ? ${updateCustomerLanguage ? ', customer_language = ?' : ''} ${assignedUserId !== undefined ? ', user_id = ?' : ''} ${isYardSale !== undefined ? ', is_yard_sale = ?' : ''} ${auctionActiveVal !== undefined ? ', auction_search_active = ?' : ''} WHERE id = ?`,
           [
             order.vehicle?.vin || null, order.vehicle?.make || null, order.vehicle?.model || null, order.vehicle?.trim || null, order.vehicle?.year || null, order.vehicle?.color || null, order.vehicle?.mileage || null, order.mainPart || null, transmissionType, order.productSpecs || null, order.stockNumber || null, order.financials?.partPrice || 0, order.financials?.coreFee || 0, order.financials?.downPayment || 0, order.deliveryType === 'envio_domicilio', order.customer?.shippingAddress || null, order.financials?.deliveryFee || 0, order.warrantyDays || 60, newDbStatus, order.workflowStep || 1, toMysqlDateTime(order.scheduledPickupAt), toMysqlDateTime(order.deliveredAt), Boolean(order.warrantyStarted), order.notes || null, order.claimReason || null,
             ...(updateCustomerLanguage ? [updateCustomerLanguage] : []),
             ...(assignedUserId !== undefined ? [assignedUserId] : []),
             ...(isYardSale !== undefined ? [isYardSale ? 1 : 0] : []),
+            ...(auctionActiveVal !== undefined ? [auctionActiveVal] : []),
             orderId,
           ]
         );
+
+        if (Array.isArray((order as any).auctionLinks)) {
+          const links = (order as any).auctionLinks;
+          const keepIds: number[] = [];
+          for (const link of links) {
+            const rawId = Number(link.id);
+            const isNumericId = Number.isInteger(rawId) && rawId > 0 && String(link.id).length < 10;
+            const auctionType = link.auctionHouse === 'IAAI' ? 'IAA' : 'Copart';
+            const auctionDate = link.auctionDate ? new Date(link.auctionDate) : new Date();
+            const formattedDate = !isNaN(auctionDate.getTime()) ? auctionDate.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+
+            if (isNumericId) {
+              await connection.execute(
+                'UPDATE order_auction_links SET url = ?, auction_type = ?, auction_date = ? WHERE id = ? AND order_id = ?',
+                [link.url, auctionType, formattedDate, rawId, orderId]
+              );
+              keepIds.push(rawId);
+            } else if (link.url) {
+              const [insResult] = await connection.execute<ResultSetHeader>(
+                'INSERT INTO order_auction_links (order_id, url, auction_type, auction_date, status) VALUES (?, ?, ?, ?, ?)',
+                [orderId, link.url, auctionType, formattedDate, 'active']
+              );
+              keepIds.push(insResult.insertId);
+            }
+          }
+          if (keepIds.length > 0) {
+            await connection.query(
+              `DELETE FROM order_auction_links WHERE order_id = ? AND id NOT IN (${keepIds.map(() => '?').join(',')})`,
+              [orderId, ...keepIds]
+            );
+          } else {
+            await connection.execute('DELETE FROM order_auction_links WHERE order_id = ?', [orderId]);
+          }
+        }
         const currentUserId = (assignedUserId !== undefined && assignedUserId !== null) ? assignedUserId : (Number(authenticatedClaims?.sub) || 1);
         await connection.execute(
           'INSERT INTO status_orders (order_id, status, description, user_id) VALUES (?, ?, ?, ?)',

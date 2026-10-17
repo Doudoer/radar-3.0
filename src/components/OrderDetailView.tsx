@@ -724,12 +724,12 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               onClick={handleToggleAuction}
               className={`px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono flex items-center gap-1 transition-all cursor-pointer border ${
                 isAuctionActive || showAuctionPanel
-                  ? 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.3)]'
+                  ? 'bg-amber-100 dark:bg-amber-500/20 border-amber-500 dark:border-amber-400 text-amber-900 dark:text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.25)]'
                   : 'cyber-btn-secondary text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
               }`}
               title="Ver o gestionar búsqueda en subasta"
             >
-              <span className="material-symbols-outlined text-[15px] text-amber-400">gavel</span>
+              <span className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">gavel</span>
               <span>Subasta{auctionLinks.length > 0 ? ` (${auctionLinks.length})` : ''}</span>
             </button>
 
@@ -737,10 +737,10 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
             <button
               type="button"
               onClick={() => setSubView('refund')}
-              className="cyber-btn-secondary px-2 py-1 text-[11px] font-bold font-mono text-amber-300 border-amber-500/30 hover:border-amber-400 hover:text-amber-200"
+              className="cyber-btn-secondary px-2 py-1 text-[11px] font-bold font-mono text-amber-700 dark:text-amber-300 border-amber-400/40 dark:border-amber-500/30 hover:border-amber-500 hover:text-amber-900 dark:hover:text-amber-200"
               title="Solicitar reembolso"
             >
-              <span className="material-symbols-outlined text-[15px] text-amber-400">account_balance_wallet</span>
+              <span className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">account_balance_wallet</span>
               <span className="hidden sm:inline">Reembolso</span>
             </button>
 
@@ -955,10 +955,30 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       {/* ========================================================================= */}
       {showAuctionPanel && (
         <div className="cyber-card p-3 shadow-md flex flex-col gap-2.5 animate-fade-in">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-[18px] text-amber-400">gavel</span>
-              <strong className="text-xs font-mono font-bold text-amber-300">Búsqueda en Subasta ({auctionLinks.length})</strong>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-[18px] text-amber-600 dark:text-amber-400">gavel</span>
+              <strong className="text-xs font-mono font-bold text-amber-900 dark:text-amber-300">Búsqueda en Subasta ({auctionLinks.length})</strong>
+              <label className="inline-flex items-center gap-1.5 cursor-pointer text-[11px] font-mono font-bold text-amber-900 dark:text-amber-200 bg-amber-100/90 dark:bg-amber-500/15 px-2.5 py-1 rounded-lg border border-amber-400/80 dark:border-amber-500/30 shadow-sm transition-colors hover:bg-amber-200/70 dark:hover:bg-amber-500/25">
+                <input
+                  type="checkbox"
+                  checked={isAuctionActive}
+                  onChange={(e) => {
+                    const active = e.target.checked;
+                    setIsAuctionActive(active);
+                    if (onUpdateOrder) {
+                      onUpdateOrder({
+                        ...order,
+                        auctionActive: active,
+                        auctionLinks,
+                      });
+                    }
+                    handleToast(active ? 'Marcada para búsqueda en subasta' : 'Desmarcada de búsqueda en subasta');
+                  }}
+                  className="rounded border-amber-500/60 text-amber-600 focus:ring-0 accent-amber-500 bg-white dark:bg-[#070e1c] cursor-pointer"
+                />
+                <span className="font-bold text-amber-950 dark:text-amber-200">{isAuctionActive ? 'Activa para Subasta' : 'Marcar para Subasta'}</span>
+              </label>
             </div>
             <button
               type="button"
@@ -1703,17 +1723,17 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                   </select>
                 </div>
 
-                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
-                  <label className="flex items-center gap-2 cursor-pointer text-xs font-mono text-amber-200">
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30">
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-mono font-bold text-amber-900 dark:text-amber-200">
                     <input
                       type="checkbox"
                       checked={reassignIsYardSale}
                       onChange={(e) => setReassignIsYardSale(e.target.checked)}
-                      className="rounded border-amber-500/40 text-amber-500 focus:ring-0 bg-[#070e1c]"
+                      className="rounded border-amber-500/50 text-amber-600 focus:ring-0 accent-amber-500 bg-white dark:bg-[#070e1c] cursor-pointer"
                     />
                     <span className="font-bold">🚜 Venta originada en Yarda / Patio</span>
                   </label>
-                  <p className="text-[10px] text-amber-400/80 font-mono mt-1.5 leading-relaxed">
+                  <p className="text-[10px] text-amber-800 dark:text-amber-400/80 font-mono mt-1.5 leading-relaxed">
                     Las ventas de empleados de la yarda quedan identificadas y <strong>exentas del 2% de comisiones de la oficina</strong> en la Relación Semanal.
                   </p>
                 </div>

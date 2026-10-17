@@ -82,9 +82,51 @@ describe('database order mapping', () => {
     expect(orderWithMileage.vehicle.mileage).toBe('125400');
   });
 
+  it('maps auction search active and auction links properly', () => {
+    const orderWithAuction = mapOrder({
+      id: 11,
+      order_code: 'ORD-11',
+      created_at: new Date('2026-09-18T12:00:00Z'),
+      status: 'Cotización',
+      product_type: 'Transmisión',
+      auction_search_active: 1,
+    } as never);
+
+    expect(orderWithAuction.auctionActive).toBe(true);
+    expect(orderWithAuction.auctionLinks).toEqual([]);
+
+    const orderWithLinks = mapOrder(
+      {
+        id: 12,
+        order_code: 'ORD-12',
+        created_at: new Date('2026-09-18T12:00:00Z'),
+        status: 'Cotización',
+        product_type: 'Motor',
+        auction_search_active: 0,
+      } as never,
+      [{ id: '1', url: 'https://copart.com/lot/123', auctionHouse: 'Copart' }]
+    );
+
+    expect(orderWithLinks.auctionActive).toBe(true);
+    expect(orderWithLinks.auctionLinks).toHaveLength(1);
+
+    const normalOrder = mapOrder({
+      id: 13,
+      order_code: 'ORD-13',
+      created_at: new Date('2026-09-18T12:00:00Z'),
+      status: 'Cotización',
+      product_type: 'Puerta',
+      auction_search_active: 0,
+    } as never);
+
+    expect(normalOrder.auctionActive).toBe(false);
+    expect(normalOrder.auctionLinks).toEqual([]);
+  });
+
   it('returns null for empty or invalid SQL dates', () => {
     expect(toMysqlDateTime()).toBeNull();
     expect(toMysqlDateTime('not-a-date')).toBeNull();
     expect(toMysqlDateTime('2026-09-18T14:30:45')).toMatch(/^2026-09-18 14:30:45$/);
   });
 });
+

@@ -193,6 +193,9 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
     return count;
   }, [statusFilter, operatorFilter, makeFilter, partTypeFilter, fromDate, toDate]);
 
+  // Helper to check if order has auction search active or has links
+  const isOrderAuction = (o: Order) => Boolean(o.auctionActive || (o.auctionLinks && o.auctionLinks.length > 0));
+
   // Segment Counts
   const counts = useMemo(() => {
     let active = 0;
@@ -201,8 +204,12 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
     let cancelled = 0;
     let refunds = 0;
     let archived = 0;
+    let auction = 0;
 
     orders.forEach((o) => {
+      if (isOrderAuction(o) && o.status !== 'archivado' && o.status !== 'cancelado') {
+        auction++;
+      }
       if (o.status === 'listo_retiro') {
         readyPickup++;
       }
@@ -219,7 +226,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
       }
     });
 
-    return { active, readyPickup, expiredWarranty, cancelled, refunds, archived, total: orders.length };
+    return { active, readyPickup, expiredWarranty, cancelled, refunds, archived, auction, total: orders.length };
   }, [orders]);
 
   // Filtered orders by Segment View, Dropdown Filters, Date Range & Search
@@ -240,6 +247,8 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
             // Segment View Filter
             if (segmentView === 'ready_pickup') {
               if (order.status !== 'listo_retiro') return false;
+            } else if (segmentView === 'auction') {
+              if (!isOrderAuction(order) || order.status === 'archivado') return false;
             } else if (segmentView === 'archived') {
               if (order.status !== 'archivado') return false;
             } else if (segmentView === 'cancelled') {
@@ -305,8 +314,10 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
           (order.productSpecs || '').toLowerCase().includes(query);
         const matchesStock = (order.stockNumber || '').toLowerCase().includes(query);
         const matchesAdvisor = (order.advisor || '').toLowerCase().includes(query);
+        const matchesAuction = (query === 'subasta' && isOrderAuction(order)) ||
+          (order.auctionLinks || []).some((l) => (l.auctionHouse || '').toLowerCase().includes(query) || (l.url || '').toLowerCase().includes(query));
 
-        if (!matchesCode && !matchesCustomer && !matchesVehicle && !matchesPart && !matchesStock && !matchesAdvisor) {
+        if (!matchesCode && !matchesCustomer && !matchesVehicle && !matchesPart && !matchesStock && !matchesAdvisor && !matchesAuction) {
           return false;
         }
       }
@@ -523,6 +534,23 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
           <span>🟢 Órdenes Activas</span>
           <span className="text-[10px] bg-[#02050c] px-2 py-0.5 rounded-md border border-cyan-500/25 text-white">
             {counts.active}
+          </span>
+        </button>
+
+        {/* Búsqueda Subasta */}
+        <button
+          onClick={() => handleSegmentChange('auction')}
+          className={`text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
+            segmentView === 'auction' && !isArchivedView
+              ? 'bg-amber-100 dark:bg-amber-500/20 border-2 border-amber-500 dark:border-amber-400 text-amber-950 dark:text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.35)]'
+              : 'bg-white dark:bg-[#040814] border border-slate-200 dark:border-cyan-500/20 text-slate-700 dark:text-slate-300 hover:border-amber-400/50 hover:text-amber-900 dark:hover:text-white'
+          }`}
+          title="Ver solo órdenes marcadas para búsqueda en subasta"
+        >
+          <span className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">gavel</span>
+          <span>Búsqueda Subasta</span>
+          <span className="text-[10px] bg-amber-50 dark:bg-[#02050c] px-2 py-0.5 rounded-md border border-amber-300 dark:border-amber-500/30 text-amber-900 dark:text-amber-300 font-bold">
+            {counts.auction}
           </span>
         </button>
 
@@ -896,9 +924,24 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
                     {/* Código & Fecha */}
                     <td className="px-4 py-3 sm:px-5 sm:py-3.5">
                       <div className="flex flex-col">
-                        <span className="font-mono font-black text-xs sm:text-sm text-cyan-300 group-hover:text-cyan-200 group-hover:underline drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">
-                          {order.code}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-mono font-black text-xs sm:text-sm text-cyan-300 group-hover:text-cyan-200 group-hover:underline drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">
+                            {order.code}
+                          </span>
+                          {isOrderAuction(order) && (
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 border border-amber-400/80 dark:border-amber-500/40 shadow-[0_0_8px_rgba(245,158,11,0.25)] animate-pulse shrink-0"
+                              title={`Orden marcada para Búsqueda en Subasta${order.auctionLinks && order.auctionLinks.length > 0 ? ` (${order.auctionLinks.length} enlace${order.auctionLinks.length > 1 ? 's' : ''} registrado${order.auctionLinks.length > 1 ? 's' : ''})` : ' (Búsqueda pendiente)'}`}
+                            >
+                              <span className="material-symbols-outlined text-[13px] text-amber-600 dark:text-amber-400">gavel</span>
+                              <span className="font-bold">
+                                {order.auctionLinks && order.auctionLinks.length > 0
+                                  ? `Subasta (${order.auctionLinks.length})`
+                                  : 'Subasta'}
+                              </span>
+                            </span>
+                          )}
+                        </div>
                         <span className="text-[10.5px] text-slate-400 font-mono mt-0.5">
                           {order.createdAt}
                         </span>
@@ -937,7 +980,18 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
                     {/* Refacción */}
                     <td className="px-4 py-3 sm:px-5 sm:py-3.5">
                       <div className="flex flex-col">
-                        <span className="text-slate-100 font-semibold">{order.mainPart}</span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-slate-100 font-semibold">{order.mainPart}</span>
+                          {isOrderAuction(order) && (
+                            <span
+                              className="text-amber-900 dark:text-amber-400 font-mono text-[9.5px] font-bold inline-flex items-center gap-0.5 bg-amber-100/90 dark:bg-amber-500/15 px-1.5 py-0.5 rounded border border-amber-400/70 dark:border-amber-500/30 shrink-0"
+                              title="Requiere búsqueda en subasta (Copart/IAAI)"
+                            >
+                              <span className="material-symbols-outlined text-[11px] text-amber-600 dark:text-amber-400">gavel</span>
+                              <span>Subasta</span>
+                            </span>
+                          )}
+                        </div>
                         {order.stockNumber && (
                           <span className="font-mono text-[9.5px] text-emerald-400 font-bold">
                             Stock: {order.stockNumber}

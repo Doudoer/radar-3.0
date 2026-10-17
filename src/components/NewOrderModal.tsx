@@ -162,6 +162,9 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
   const [advisor, setAdvisor] = useState(defaultAdvisor);
   const [usersList, setUsersList] = useState<Array<{ id: number; name: string; role: string; active: number }>>([]);
   const [isYardSaleToggle, setIsYardSaleToggle] = useState<boolean>(Boolean(editingOrder?.isYardSale || editingOrder?.advisorRole === 'vendedor_yarda'));
+  const [auctionActiveToggle, setAuctionActiveToggle] = useState<boolean>(
+    Boolean(editingOrder?.auctionActive || (editingOrder?.auctionLinks && editingOrder.auctionLinks.length > 0))
+  );
   const [assignedUserId, setAssignedUserId] = useState<number | undefined>(editingOrder?.userId ? Number(editingOrder.userId) : undefined);
 
   useEffect(() => {
@@ -576,6 +579,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
       setDeliveredAtDate(editingOrder.deliveredAt);
       setAdvisor(editingOrder.advisor || defaultAdvisor);
       setIsYardSaleToggle(Boolean(editingOrder.isYardSale || editingOrder.advisorRole === 'vendedor_yarda'));
+      setAuctionActiveToggle(Boolean(editingOrder.auctionActive || (editingOrder.auctionLinks && editingOrder.auctionLinks.length > 0)));
       setAssignedUserId(editingOrder.userId ? Number(editingOrder.userId) : undefined);
       setStepError(null);
     } else if (initialPrefillData) {
@@ -1132,6 +1136,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
       advisor: advisor || editingOrder?.advisor || currentUser?.name || currentUserName || 'Operador',
       userId: assignedUserId || (editingOrder?.userId ? Number(editingOrder.userId) : currentUser?.id),
       isYardSale: isYardSaleToggle,
+      auctionActive: auctionActiveToggle,
       advisorRole: (assignedUserId ? usersList.find((u) => u.id === assignedUserId)?.role : undefined) || (isYardSaleToggle ? 'vendedor_yarda' : editingOrder?.advisorRole),
       status: status,
       mainPart: mainPart.trim(),
@@ -2405,6 +2410,18 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                         * Exenta de comisión de oficina
                       </p>
                     )}
+                    <div className="mt-2 pt-2 border-t border-cyan-500/10 flex flex-col items-start sm:items-end gap-1.5">
+                      <label className="inline-flex items-center gap-2 cursor-pointer text-xs font-mono font-bold text-amber-900 dark:text-amber-300 bg-amber-50 dark:bg-transparent px-2.5 py-1 rounded-lg border border-amber-300/80 dark:border-transparent hover:bg-amber-100/60 dark:hover:bg-amber-500/10 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={auctionActiveToggle}
+                          onChange={(e) => setAuctionActiveToggle(e.target.checked)}
+                          className="rounded border-amber-500/50 text-amber-600 focus:ring-0 accent-amber-500 bg-white dark:bg-[#070e1c] cursor-pointer"
+                        />
+                        <span className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">gavel</span>
+                        <span>Buscar en Subasta (Copart/IAAI)</span>
+                      </label>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex-1 sm:max-w-sm border-t sm:border-t-0 pt-2 sm:pt-0 border-cyan-500/10 sm:text-right">
@@ -2467,6 +2484,19 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                         )}
                       </div>
                     )}
+
+                    <div className="mt-2 pt-2 border-t border-cyan-500/10 flex flex-col items-start sm:items-end gap-1.5">
+                      <label className="inline-flex items-center gap-2 cursor-pointer text-xs font-mono font-bold text-amber-900 dark:text-amber-300 bg-amber-50 dark:bg-transparent px-2.5 py-1 rounded-lg border border-amber-300/80 dark:border-transparent hover:bg-amber-100/60 dark:hover:bg-amber-500/10 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={auctionActiveToggle}
+                          onChange={(e) => setAuctionActiveToggle(e.target.checked)}
+                          className="rounded border-amber-500/50 text-amber-600 focus:ring-0 accent-amber-500 bg-white dark:bg-[#070e1c] cursor-pointer"
+                        />
+                        <span className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">gavel</span>
+                        <span>Buscar en Subasta (Copart/IAAI)</span>
+                      </label>
+                    </div>
                   </div>
                 )}
               </div>

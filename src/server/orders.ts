@@ -37,7 +37,7 @@ export const normalizeTransmissionType = (value?: string | null): 'AT' | 'MT' | 
   return null;
 };
 
-export const mapOrder = (row: RowDataPacket) => {
+export const mapOrder = (row: RowDataPacket, auctionLinks: any[] = []) => {
   const customerName = [row.first_name, row.last_name].filter(Boolean).join(' ') || 'Cliente sin nombre';
   const price = Number(row.price || 0);
   const deliveryFee = Number(row.shipping_cost || 0);
@@ -100,6 +100,8 @@ export const mapOrder = (row: RowDataPacket) => {
     warrantyStarted: Boolean(row.warranty_started),
     claimReason: row.claim_reason || undefined,
     notes: row.description || '',
+    auctionActive: Boolean(row.auction_search_active) || (auctionLinks && auctionLinks.length > 0),
+    auctionLinks: auctionLinks || [],
   };
 };
 
@@ -135,5 +137,28 @@ export const getOrders = async (options: { limit?: number; startDate?: string; e
     ORDER BY o.created_at DESC
     LIMIT ?
   `, [...params, maxLimit]);
-  return rows.map(mapOrder);
+
+  let linksByOrderId: Map<number, any[]> | undefined;
+  try {
+    const [linkRows] = await pool.query<RowDataPacket[]>(
+      'SELECT id, order_id, url, auction_date, auction_type, status, created_at FROM order_auction_links ORDER BY id ASC'
+    );
+    linksByOrderId = new Map();
+    for (const l of linkRows) {
+      const arr = linksByOrderId.get(Number(l.order_id)) || [];
+      arr.push({
+        id: String(l.id),
+        url: l.url,
+        auctionHouse: l.auction_type === 'IAA' ? 'IAAI' : (l.auction_type || 'Copart'),
+        auctionDate: l.auction_date ? new Date(l.auction_date).toISOString().slice(0, 10) : undefined,
+        createdAt: l.created_at ? new Date(l.created_at).toISOString() : undefined,
+        status: l.status || 'active',
+      });
+      linksByOrderId.set(Number(l.order_id), arr);
+    }
+  } catch (err) {
+    console.warn('[getOrders] Could not load auction links:', err);
+  }
+
+  return rows.map((row) => mapOrder(row, linksByOrderId?.get(Number(row.id))));
 };

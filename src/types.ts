@@ -49,7 +49,8 @@ export type OrderSegmentView =
   | 'expired_warranty'
   | 'cancelled'
   | 'refunds'
-  | 'archived';
+  | 'archived'
+  | 'auction';
 
 export interface Vehicle {
   vin: string;
