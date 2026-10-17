@@ -49,10 +49,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   // Quick suggestion constants
   const COMMON_TRACTIONS = ['4x4', '4x2', 'FWD', 'AWD', 'RWD'] as const;
   const COMMON_STATUSES = [
-    { value: 'disponible', label: 'Disponible', color: 'emerald', bg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' },
-    { value: 'vendido', label: 'Vendido', color: 'blue', bg: 'bg-blue-500/20 text-blue-300 border-blue-500/40' },
-    { value: 'reservado', label: 'Reservado', color: 'amber', bg: 'bg-amber-500/20 text-amber-300 border-amber-500/40' },
-    { value: 'en_revision', label: 'En Revisión', color: 'purple', bg: 'bg-purple-500/20 text-purple-300 border-purple-500/40' },
+    { value: 'disponible', label: 'Disponible', color: 'emerald', bg: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/40' },
+    { value: 'vendido', label: 'Vendido', color: 'blue', bg: 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/40' },
+    { value: 'reservado', label: 'Reservado', color: 'amber', bg: 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/40' },
+    { value: 'en_revision', label: 'En Revisión', color: 'purple', bg: 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-500/20 dark:text-purple-300 dark:border-purple-500/40' },
   ] as const;
 
   // Cascading vehicle options
@@ -408,29 +408,29 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   };
 
   return (
-    <div className="space-y-5 animate-fade-in text-slate-100 font-sans pb-10">
+    <div className="space-y-5 animate-fade-in text-slate-800 dark:text-slate-100 font-sans pb-10">
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#0c1a30] border border-emerald-500/60 text-emerald-300 px-4 py-3 rounded-2xl shadow-[0_0_25px_rgba(16,185,129,0.35)] flex items-center gap-2.5 animate-bounce-subtle">
-          <span className="material-symbols-outlined text-[20px] text-emerald-400">check_circle</span>
+        <div className="fixed bottom-6 right-6 z-50 bg-white dark:bg-[#0c1a30] border border-emerald-500/60 text-emerald-800 dark:text-emerald-300 px-4 py-3 rounded-2xl shadow-lg dark:shadow-[0_0_25px_rgba(16,185,129,0.35)] flex items-center gap-2.5 animate-bounce-subtle">
+          <span className="material-symbols-outlined text-[20px] text-emerald-500 dark:text-emerald-400">check_circle</span>
           <span className="text-xs font-mono font-bold">{toastMessage}</span>
         </div>
       )}
 
       {/* Header Banner */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-[#070c18] via-[#0b1424] to-[#080d1a] border border-cyan-500/30 p-5 sm:p-6 shadow-[0_10px_35px_rgba(0,0,0,0.6)]">
+      <div className="relative overflow-hidden rounded-3xl bg-white dark:bg-gradient-to-r dark:from-[#070c18] dark:via-[#0b1424] dark:to-[#080d1a] border border-slate-200 dark:border-cyan-500/30 p-5 sm:p-6 shadow-sm dark:shadow-[0_10px_35px_rgba(0,0,0,0.6)]">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500/20 via-blue-500/20 to-emerald-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.3)]">
+            <div className="w-12 h-12 rounded-2xl bg-cyan-50 dark:bg-gradient-to-br dark:from-cyan-500/20 dark:via-blue-500/20 dark:to-emerald-500/20 border border-cyan-200 dark:border-cyan-500/40 flex items-center justify-center text-cyan-600 dark:text-cyan-400 shadow-sm dark:shadow-[0_0_20px_rgba(6,182,212,0.3)]">
               <span className="material-symbols-outlined text-[28px]">
                 warehouse
               </span>
             </div>
             <div>
-              <h1 className="text-lg sm:text-xl font-black text-white tracking-wide uppercase">
+              <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-wide uppercase">
                 Inventario de Piezas
               </h1>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">
                 Control y edición de Motores y Transmisiones por Año, Marca, Modelo, VIN, Paleta y Estado
               </p>
             </div>
@@ -441,10 +441,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               type="button"
               onClick={fetchInventory}
               disabled={loading}
-              className="px-3 py-2.5 rounded-xl bg-[#0a1224] hover:bg-[#121f3a] text-slate-300 border border-slate-700/60 text-xs font-mono font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
+              className="px-3 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#0a1224] dark:hover:bg-[#121f3a] text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700/60 text-xs font-mono font-semibold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs dark:shadow-none"
               title="Refrescar datos"
             >
-              <span className={`material-symbols-outlined text-[16px] text-cyan-400 ${loading ? 'animate-spin' : ''}`}>
+              <span className={`material-symbols-outlined text-[16px] text-cyan-600 dark:text-cyan-400 ${loading ? 'animate-spin' : ''}`}>
                 sync
               </span>
               <span className="hidden sm:inline">Actualizar</span>
@@ -454,17 +454,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               type="button"
               onClick={() => setIsPrintModalOpen(true)}
               disabled={loading || items.length === 0}
-              className="px-3.5 py-2.5 rounded-xl bg-[#0a1224] hover:bg-[#121f3a] text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold transition-all flex items-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.15)] hover:border-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98]"
+              className="px-3.5 py-2.5 rounded-xl bg-cyan-50 hover:bg-cyan-100 dark:bg-[#0a1224] dark:hover:bg-[#121f3a] text-cyan-800 dark:text-cyan-300 border border-cyan-300 dark:border-cyan-500/40 text-xs font-mono font-bold transition-all flex items-center gap-2 cursor-pointer shadow-xs dark:shadow-[0_0_15px_rgba(6,182,212,0.15)] hover:border-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98]"
               title="Imprimir reporte de inventario clasificado y ordenado por marcas"
             >
-              <span className="material-symbols-outlined text-[18px] text-cyan-400">print</span>
+              <span className="material-symbols-outlined text-[18px] text-cyan-600 dark:text-cyan-400">print</span>
               <span>Imprimir por Marcas</span>
             </button>
 
             <button
               type="button"
               onClick={handleOpenCreate}
-              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-black text-xs font-mono uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-black text-xs font-mono uppercase tracking-wider transition-all shadow-md dark:shadow-[0_0_20px_rgba(6,182,212,0.4)] flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
             >
               <span className="material-symbols-outlined text-[18px]">add_circle</span>
               <span>+ Agregar Pieza</span>
@@ -474,65 +474,65 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
         {/* 5 Metric Chips */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-5">
-          <div className="rounded-2xl bg-[#040814]/80 border border-slate-800 p-3 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+          <div className="rounded-2xl bg-slate-50 dark:bg-[#040814]/80 border border-slate-200 dark:border-slate-800 p-3 flex items-center gap-3 shadow-xs dark:shadow-none">
+            <div className="w-9 h-9 rounded-xl bg-cyan-100/80 dark:bg-cyan-500/15 border border-cyan-200 dark:border-cyan-500/30 flex items-center justify-center text-cyan-700 dark:text-cyan-400">
               <span className="material-symbols-outlined text-[18px]">inventory_2</span>
             </div>
             <div>
-              <div className="text-[10px] font-mono text-slate-400 uppercase">Total Piezas</div>
-              <div className="text-lg font-black text-white font-mono">{stats.total}</div>
+              <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 uppercase font-semibold">Total Piezas</div>
+              <div className="text-lg font-black text-slate-900 dark:text-white font-mono">{stats.total}</div>
             </div>
           </div>
 
-          <div className="rounded-2xl bg-[#040814]/80 border border-emerald-500/30 p-3 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+          <div className="rounded-2xl bg-emerald-50/60 dark:bg-[#040814]/80 border border-emerald-200 dark:border-emerald-500/30 p-3 flex items-center gap-3 shadow-xs dark:shadow-none">
+            <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-500/20 border border-emerald-200 dark:border-emerald-500/40 flex items-center justify-center text-emerald-700 dark:text-emerald-400">
               <span className="material-symbols-outlined text-[18px]">check_circle</span>
             </div>
             <div>
-              <div className="text-[10px] font-mono text-emerald-400 uppercase font-bold">Disponibles</div>
-              <div className="text-lg font-black text-emerald-300 font-mono">{stats.available}</div>
+              <div className="text-[10px] font-mono text-emerald-800 dark:text-emerald-400 uppercase font-bold">Disponibles</div>
+              <div className="text-lg font-black text-emerald-800 dark:text-emerald-300 font-mono">{stats.available}</div>
             </div>
           </div>
 
-          <div className="rounded-2xl bg-[#040814]/80 border border-blue-500/30 p-3 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
+          <div className="rounded-2xl bg-blue-50/60 dark:bg-[#040814]/80 border border-blue-200 dark:border-blue-500/30 p-3 flex items-center gap-3 shadow-xs dark:shadow-none">
+            <div className="w-9 h-9 rounded-xl bg-blue-100 dark:bg-blue-500/20 border border-blue-200 dark:border-blue-500/40 flex items-center justify-center text-blue-700 dark:text-blue-400">
               <span className="material-symbols-outlined text-[18px]">sell</span>
             </div>
             <div>
-              <div className="text-[10px] font-mono text-blue-400 uppercase font-bold">Vendidos</div>
-              <div className="text-lg font-black text-blue-300 font-mono">{stats.sold}</div>
+              <div className="text-[10px] font-mono text-blue-800 dark:text-blue-400 uppercase font-bold">Vendidos</div>
+              <div className="text-lg font-black text-blue-800 dark:text-blue-300 font-mono">{stats.sold}</div>
             </div>
           </div>
 
-          <div className="rounded-2xl bg-[#040814]/80 border border-amber-500/30 p-3 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+          <div className="rounded-2xl bg-amber-50/60 dark:bg-[#040814]/80 border border-amber-200 dark:border-amber-500/30 p-3 flex items-center gap-3 shadow-xs dark:shadow-none">
+            <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/40 flex items-center justify-center text-amber-700 dark:text-amber-400">
               <span className="material-symbols-outlined text-[18px]">swap_driving_apps</span>
             </div>
             <div>
-              <div className="text-[10px] font-mono text-amber-400 uppercase font-bold">Motores / Trans.</div>
-              <div className="text-sm font-black text-amber-300 font-mono mt-0.5">
+              <div className="text-[10px] font-mono text-amber-900 dark:text-amber-400 uppercase font-bold">Motores / Trans.</div>
+              <div className="text-sm font-black text-amber-900 dark:text-amber-300 font-mono mt-0.5">
                 {stats.motors} M / {stats.transmissions} T
               </div>
             </div>
           </div>
 
-          <div className="rounded-2xl bg-[#040814]/80 border border-blue-500/30 p-3 flex items-center gap-3 col-span-2 sm:col-span-1">
-            <div className="w-9 h-9 rounded-xl bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
+          <div className="rounded-2xl bg-indigo-50/60 dark:bg-[#040814]/80 border border-indigo-200 dark:border-blue-500/30 p-3 flex items-center gap-3 col-span-2 sm:col-span-1 shadow-xs dark:shadow-none">
+            <div className="w-9 h-9 rounded-xl bg-indigo-100 dark:bg-blue-500/20 border border-indigo-200 dark:border-blue-500/40 flex items-center justify-center text-indigo-700 dark:text-blue-400">
               <span className="material-symbols-outlined text-[18px]">pallet</span>
             </div>
             <div>
-              <div className="text-[10px] font-mono text-blue-400 uppercase font-bold">Paletas Únicas</div>
-              <div className="text-lg font-black text-blue-300 font-mono">{stats.uniquePallets}</div>
+              <div className="text-[10px] font-mono text-indigo-800 dark:text-blue-400 uppercase font-bold">Paletas Únicas</div>
+              <div className="text-lg font-black text-indigo-800 dark:text-blue-300 font-mono">{stats.uniquePallets}</div>
             </div>
           </div>
         </div>
       </div>
 
       {/* Filter & Search Toolbar */}
-      <div className="rounded-2xl bg-[#060b17] border border-cyan-500/20 p-3 sm:p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shadow-lg">
+      <div className="rounded-2xl bg-white dark:bg-[#060b17] border border-slate-200 dark:border-cyan-500/20 p-3 sm:p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shadow-sm dark:shadow-lg">
         {/* Search */}
         <div className="relative flex-1">
-          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 material-symbols-outlined text-[18px] text-cyan-400 pointer-events-none">
+          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 material-symbols-outlined text-[18px] text-cyan-600 dark:text-cyan-400 pointer-events-none">
             search
           </span>
           <input
@@ -540,13 +540,13 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Buscar por Año, Marca, Modelo, VIN, Paleta o Notas..."
-            className="w-full pl-10 pr-9 py-2.5 bg-[#03060f] border border-cyan-500/30 rounded-xl text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:shadow-[0_0_15px_rgba(6,182,212,0.25)] transition-all"
+            className="w-full pl-10 pr-9 py-2.5 bg-slate-50 dark:bg-[#03060f] border border-slate-200 dark:border-cyan-500/30 rounded-xl text-xs font-mono text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-cyan-500 dark:focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500 transition-all"
           />
           {searchQuery && (
             <button
               type="button"
               onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-white"
             >
               <span className="material-symbols-outlined text-[16px]">close</span>
             </button>
@@ -556,7 +556,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         {/* Filter Pills */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* Type Filter */}
-          <div className="flex items-center gap-1 bg-[#03060f] p-1 rounded-xl border border-slate-800">
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#03060f] p-1 rounded-xl border border-slate-200 dark:border-slate-800">
             {(
               [
                 { id: 'all', label: 'Todos' },
@@ -572,8 +572,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   onClick={() => setTypeFilter(filter.id)}
                   className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
                     isActive
-                      ? 'bg-cyan-500/30 border border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.3)]'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-white dark:bg-cyan-500/30 border border-cyan-500 dark:border-cyan-400 text-cyan-800 dark:text-cyan-300 shadow-sm dark:shadow-[0_0_10px_rgba(6,182,212,0.3)]'
+                      : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                   }`}
                 >
                   {filter.label}
@@ -583,7 +583,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           </div>
 
           {/* Status Filter */}
-          <div className="flex items-center gap-1 bg-[#03060f] p-1 rounded-xl border border-slate-800">
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#03060f] p-1 rounded-xl border border-slate-200 dark:border-slate-800">
             {(
               [
                 { id: 'disponible', label: `🟢 Disponibles (${stats.available})` },
@@ -600,8 +600,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   onClick={() => setStatusFilter(filter.id)}
                   className={`px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
                     isActive
-                      ? 'bg-emerald-500/30 border border-emerald-400 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
-                      : 'text-slate-400 hover:text-white'
+                      ? 'bg-white dark:bg-emerald-500/30 border border-emerald-500 dark:border-emerald-400 text-emerald-800 dark:text-emerald-300 shadow-sm dark:shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                      : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
                   }`}
                 >
                   {filter.label}
@@ -614,27 +614,27 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
       {/* Error / Loading */}
       {errorMessage && (
-        <div className="p-4 rounded-2xl bg-red-950/40 border border-red-500/40 text-red-300 text-xs font-mono flex items-center gap-2">
-          <span className="material-symbols-outlined text-[20px] text-red-400">error</span>
+        <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-500/40 text-red-800 dark:text-red-300 text-xs font-mono flex items-center gap-2">
+          <span className="material-symbols-outlined text-[20px] text-red-500 dark:text-red-400">error</span>
           <span>{errorMessage}</span>
         </div>
       )}
 
       {loading && (
         <div className="p-12 flex flex-col items-center justify-center text-center">
-          <div className="w-10 h-10 rounded-2xl border-2 border-cyan-400 border-t-transparent animate-spin mb-3" />
-          <span className="text-xs font-mono text-cyan-300">Cargando inventario...</span>
+          <div className="w-10 h-10 rounded-2xl border-2 border-cyan-500 dark:border-cyan-400 border-t-transparent animate-spin mb-3" />
+          <span className="text-xs font-mono text-cyan-800 dark:text-cyan-300">Cargando inventario...</span>
         </div>
       )}
 
       {/* Empty State */}
       {!loading && filteredItems.length === 0 && (
-        <div className="p-12 rounded-3xl bg-[#060b17]/60 border border-slate-800 flex flex-col items-center justify-center text-center">
-          <div className="w-14 h-14 rounded-2xl bg-slate-800/60 border border-slate-700 flex items-center justify-center text-slate-500 mb-3">
+        <div className="p-12 rounded-3xl bg-white dark:bg-[#060b17]/60 border border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center text-center shadow-sm dark:shadow-none">
+          <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 dark:text-slate-500 mb-3">
             <span className="material-symbols-outlined text-[28px]">inventory_2</span>
           </div>
-          <h3 className="text-sm font-bold text-white">No hay piezas registradas</h3>
-          <p className="text-xs text-slate-400 font-mono max-w-sm mt-1">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white">No hay piezas registradas</h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 font-mono max-w-sm mt-1">
             {searchQuery
               ? 'No hay piezas que coincidan con la búsqueda.'
               : 'Agrega tu primera pieza con Año, Marca, Modelo, Tipo de Pieza, VIN y Número de Paleta.'}
@@ -642,7 +642,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           <button
             type="button"
             onClick={handleOpenCreate}
-            className="mt-4 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 text-slate-950 font-mono font-bold text-xs cursor-pointer hover:scale-105 transition-transform"
+            className="mt-4 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 text-slate-950 font-mono font-bold text-xs cursor-pointer hover:scale-105 transition-transform shadow-sm"
           >
             + Agregar Pieza
           </button>
@@ -651,11 +651,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
       {/* Table of Inventory Items */}
       {!loading && filteredItems.length > 0 && (
-        <div className="rounded-2xl bg-[#060b17] border border-cyan-500/25 overflow-hidden shadow-xl">
+        <div className="rounded-2xl bg-white dark:bg-[#060b17] border border-slate-200 dark:border-cyan-500/25 overflow-hidden shadow-sm dark:shadow-xl">
           <div className="table-responsive-wrapper custom-scrollbar">
             <table className="w-full text-left text-xs font-mono border-collapse min-w-[880px]">
               <thead>
-                <tr className="bg-[#03060f] border-b border-slate-800 text-slate-400 uppercase text-[10px]">
+                <tr className="bg-slate-50 dark:bg-[#03060f] border-b border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 uppercase text-[10px]">
                   <th className="py-3 px-4">Paleta #</th>
                   <th className="py-3 px-4">Año</th>
                   <th className="py-3 px-4">Marca</th>
@@ -666,7 +666,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   <th className="py-3 px-4 text-center">Acciones</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 text-slate-200">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-800 dark:text-slate-200">
                 {filteredItems.map((item) => {
                   const isMotor = (item.partType || '').toLowerCase().includes('motor');
                   return (
@@ -674,12 +674,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       key={item.id}
                       onClick={() => setSelectedDetailItem(item)}
                       onDoubleClick={() => handleOpenEdit(item)}
-                      className="hover:bg-cyan-500/10 transition-colors cursor-pointer group"
+                      className="hover:bg-cyan-50/50 dark:hover:bg-cyan-500/10 transition-colors cursor-pointer group"
                       title="Clic para ver ficha completa | Doble clic para editar"
                     >
                       {/* Pallet # */}
                       <td className="py-3 px-4">
-                        <span className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-[0_0_10px_rgba(59,130,246,0.2)]">
+                        <span className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono bg-blue-100 text-blue-800 border border-blue-200 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/40 shadow-xs dark:shadow-[0_0_10px_rgba(59,130,246,0.2)]">
                           {item.palletNumber || 'S/P'}
                         </span>
                       </td>
@@ -687,10 +687,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       {/* Year & Compatibility */}
                       <td className="py-3 px-4">
                         <div className="flex flex-col gap-1 items-start">
-                          <span className="font-bold text-amber-300 text-xs">{item.year}</span>
+                          <span className="font-bold text-amber-800 dark:text-amber-300 text-xs">{item.year}</span>
                           {item.isExactYearOnly ? (
                             <span
-                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[9px] font-mono font-semibold"
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30 text-[9px] font-mono font-semibold"
                               title="Compatible únicamente con el año de fabricación"
                             >
                               <span className="material-symbols-outlined text-[10px]">lock</span>
@@ -698,7 +698,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                             </span>
                           ) : (item.yearFrom || item.yearTo) ? (
                             <span
-                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 text-[9px] font-mono font-semibold"
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-cyan-100 text-cyan-800 border border-cyan-300 dark:bg-cyan-500/15 dark:text-cyan-300 dark:border-cyan-500/30 text-[9px] font-mono font-semibold"
                               title="Rango de compatibilidad de años"
                             >
                               <span className="material-symbols-outlined text-[10px]">event_repeat</span>
@@ -715,11 +715,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       </td>
 
                       {/* Brand */}
-                      <td className="py-3 px-4 font-black text-white">{item.brand}</td>
+                      <td className="py-3 px-4 font-black text-slate-900 dark:text-white">{item.brand}</td>
 
                       {/* Model */}
-                      <td className="py-3 px-4 font-bold text-slate-200">
-                        {item.model || <span className="text-slate-500 font-normal italic">Sin modelo</span>}
+                      <td className="py-3 px-4 font-bold text-slate-800 dark:text-slate-200">
+                        {item.model || <span className="text-slate-400 font-normal italic">Sin modelo</span>}
                       </td>
 
                       {/* Part Type & Specs (Motor with Liters / Transmission with Traction) */}
@@ -729,8 +729,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                             <span
                               className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold uppercase ${
                                 isMotor
-                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/40'
+                                  : 'bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/40'
                               }`}
                             >
                               <span className="material-symbols-outlined text-[14px]">
@@ -743,8 +743,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                               <span
                                 className={`px-2 py-0.5 rounded-md text-[11px] font-black font-mono border ${
                                   isMotor
-                                    ? 'bg-emerald-950/80 text-emerald-200 border-emerald-500/50 shadow-[0_0_8px_rgba(16,185,129,0.3)]'
-                                    : 'bg-amber-950/80 text-amber-200 border-amber-500/50 shadow-[0_0_8px_rgba(245,158,11,0.3)]'
+                                    ? 'bg-emerald-50 text-emerald-900 border-emerald-300 dark:bg-emerald-950/80 dark:text-emerald-200 dark:border-emerald-500/50 shadow-xs dark:shadow-[0_0_8px_rgba(16,185,129,0.3)]'
+                                    : 'bg-amber-50 text-amber-950 border-amber-300 dark:bg-amber-950/80 dark:text-amber-200 dark:border-amber-500/50 shadow-xs dark:shadow-[0_0_8px_rgba(245,158,11,0.3)]'
                                 }`}
                               >
                                 {item.engineSpecs}
@@ -753,8 +753,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                           </div>
 
                           {item.notes && (
-                            <span className="text-[10px] text-slate-400 font-sans italic flex items-center gap-1 line-clamp-1 max-w-[220px]">
-                              <span className="material-symbols-outlined text-[12px] text-cyan-400 shrink-0">notes</span>
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-sans italic flex items-center gap-1 line-clamp-1 max-w-[220px]">
+                              <span className="material-symbols-outlined text-[12px] text-cyan-600 dark:text-cyan-400 shrink-0">notes</span>
                               <span className="truncate">{item.notes}</span>
                             </span>
                           )}
@@ -762,7 +762,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       </td>
 
                       {/* VIN */}
-                      <td className="py-3 px-4 font-mono text-cyan-300 font-medium tracking-wider">
+                      <td className="py-3 px-4 font-mono text-cyan-800 dark:text-cyan-300 font-medium tracking-wider">
                         {item.vin || '—'}
                       </td>
 
@@ -772,10 +772,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                           {getStatusBadge(item.status)}
                           {item.status === 'vendido' && item.soldAt && (
                             <span
-                              className="text-[9px] font-mono text-blue-300/90 flex items-center gap-0.5"
+                              className="text-[9px] font-mono text-blue-700 dark:text-blue-300/90 flex items-center gap-0.5"
                               title={`Fecha de salida: ${new Date(item.soldAt).toLocaleString('es-ES')}`}
                             >
-                              <span className="material-symbols-outlined text-[11px] text-blue-400">schedule</span>
+                              <span className="material-symbols-outlined text-[11px] text-blue-600 dark:text-blue-400">schedule</span>
                               <span>
                                 {new Date(item.soldAt).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit' })}
                               </span>
@@ -792,7 +792,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleConvertToOrder(item)}
-                                className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white text-[11px] font-bold flex items-center gap-1 transition-transform cursor-pointer shadow-[0_0_10px_rgba(6,182,212,0.3)]"
+                                className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white text-[11px] font-bold flex items-center gap-1 transition-transform cursor-pointer shadow-sm dark:shadow-[0_0_10px_rgba(6,182,212,0.3)]"
                                 title="Crear Orden con esta pieza"
                               >
                                 <span className="material-symbols-outlined text-[14px]">shopping_cart</span>
@@ -802,7 +802,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                               <button
                                 type="button"
                                 onClick={() => setSoldConfirmItem(item)}
-                                className="px-2.5 py-1.5 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 hover:text-blue-200 border border-blue-500/40 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer hover:scale-105"
+                                className="px-2.5 py-1.5 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-800 border border-blue-200 dark:bg-blue-500/15 dark:hover:bg-blue-500/25 dark:text-blue-300 dark:hover:text-blue-200 dark:border-blue-500/40 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer hover:scale-105"
                                 title="Marcar como vendida y registrar fecha de salida"
                               >
                                 <span className="material-symbols-outlined text-[14px]">sell</span>
@@ -813,7 +813,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                             <button
                               type="button"
                               onClick={() => handleReactivateToAvailable(item)}
-                              className="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 hover:text-emerald-200 border border-emerald-500/40 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer hover:scale-105"
+                              className="px-2.5 py-1.5 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-200 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 dark:text-emerald-300 dark:hover:text-emerald-200 dark:border-emerald-500/40 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer hover:scale-105"
                               title="Reactivar pieza a Disponible"
                             >
                               <span className="material-symbols-outlined text-[14px]">restart_alt</span>
@@ -824,7 +824,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                           <button
                             type="button"
                             onClick={() => handleOpenEdit(item)}
-                            className="px-2.5 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 hover:text-amber-200 border border-amber-500/30 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer hover:scale-105"
+                            className="px-2.5 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-200 dark:bg-amber-500/15 dark:hover:bg-amber-500/25 dark:text-amber-300 dark:hover:text-amber-200 dark:border-amber-500/30 text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer hover:scale-105"
                             title="Editar pieza"
                           >
                             <span className="material-symbols-outlined text-[14px]">edit</span>
@@ -834,7 +834,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                           <button
                             type="button"
                             onClick={() => setDeleteConfirmItem(item)}
-                            className="p-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 transition-colors cursor-pointer"
+                            className="p-1.5 rounded-lg bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-950/40 dark:hover:bg-red-900/60 dark:text-red-400 transition-colors cursor-pointer"
                             title="Eliminar pieza"
                           >
                             <span className="material-symbols-outlined text-[16px]">delete</span>
@@ -853,12 +853,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       {/* Editor Modal (Create or Edit) */}
       {/* Editor Modal */}
       {isEditorOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-          <div className="relative w-full max-w-lg rounded-3xl bg-[#070c18] border border-cyan-500/40 shadow-[0_20px_60px_rgba(0,0,0,0.9)] text-slate-100 max-h-[min(94vh,700px)] flex flex-col overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 dark:bg-black/85 backdrop-blur-md animate-fade-in">
+          <div className="relative w-full max-w-lg rounded-3xl bg-white dark:bg-[#070c18] border border-slate-200 dark:border-cyan-500/40 shadow-2xl dark:shadow-[0_20px_60px_rgba(0,0,0,0.9)] text-slate-800 dark:text-slate-100 max-h-[min(94vh,700px)] flex flex-col overflow-hidden">
             {/* Modal Header */}
-            <div className="p-4 sm:p-5 border-b border-cyan-500/20 flex items-center justify-between shrink-0">
+            <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-cyan-500/20 bg-slate-50 dark:bg-[#0a1022]/90 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-slate-950 font-black shadow-[0_0_15px_rgba(6,182,212,0.4)] shrink-0 ${
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-slate-950 font-black shadow-sm dark:shadow-[0_0_15px_rgba(6,182,212,0.4)] shrink-0 ${
                   editorMode === 'create'
                     ? 'bg-gradient-to-br from-cyan-500 to-emerald-500'
                     : 'bg-gradient-to-br from-amber-400 to-amber-600'
@@ -869,16 +869,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h2 className="text-base font-black text-white uppercase tracking-wide">
+                    <h2 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-wide">
                       {editorMode === 'create' ? 'Registrar Pieza' : 'Editar Pieza'}
                     </h2>
                     {editorMode === 'edit' && editingItem.id && (
-                      <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-mono font-bold">
+                      <span className="px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40 text-[10px] font-mono font-bold">
                         #{editingItem.id}
                       </span>
                     )}
                   </div>
-                  <span className="text-[11px] font-mono text-slate-400">
+                  <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                     {editorMode === 'create'
                       ? 'Datos requeridos y especificaciones de inventario'
                       : 'Modifica cualquier dato, especificación o estado de la pieza'}
@@ -888,7 +888,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               <button
                 type="button"
                 onClick={() => setIsEditorOpen(false)}
-                className="p-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white transition-colors cursor-pointer"
               >
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
@@ -902,7 +902,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setManualVehicleInput(!manualVehicleInput)}
-                  className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer transition-colors"
+                  className="text-[11px] text-cyan-700 hover:text-cyan-800 dark:text-cyan-400 dark:hover:text-cyan-300 flex items-center gap-1 cursor-pointer transition-colors"
                 >
                   <span className="material-symbols-outlined text-[14px]">
                     {manualVehicleInput ? 'list' : 'edit_note'}
@@ -914,14 +914,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 {/* 1. Año */}
                 <div>
-                  <label className="text-[11px] text-slate-300 font-bold block mb-1">
-                    Año de Fabricación <span className="text-red-400">*</span>
+                  <label className="text-[11px] text-slate-700 dark:text-slate-300 font-bold block mb-1">
+                    Año de Fabricación <span className="text-red-500">*</span>
                   </label>
                   <select
                     required
                     value={editingItem.year || ''}
                     onChange={(e) => handleYearChange(e.target.value)}
-                    className="w-full bg-[#070e1c] border border-cyan-500/40 rounded-xl p-2.5 text-slate-100 font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 cursor-pointer text-xs"
+                    className="w-full bg-slate-50 dark:bg-[#070e1c] border border-slate-300 dark:border-cyan-500/40 rounded-xl p-2.5 text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:border-cyan-500 dark:focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500 cursor-pointer text-xs"
                   >
                     <option value="">Selecciona año</option>
                     {yearOptions.map((year) => (
@@ -932,8 +932,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
                 {/* 2. Marca */}
                 <div>
-                  <label className="text-[11px] text-slate-300 font-bold block mb-1">
-                    Marca <span className="text-red-400">*</span>
+                  <label className="text-[11px] text-slate-700 dark:text-slate-300 font-bold block mb-1">
+                    Marca <span className="text-red-500">*</span>
                   </label>
                   {manualVehicleInput ? (
                     <input
@@ -942,7 +942,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       value={editingItem.brand || ''}
                       onChange={(e) => setEditingItem({ ...editingItem, brand: e.target.value })}
                       placeholder="Ej: Chevrolet, Ford, Toyota..."
-                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-xs"
+                      className="w-full bg-slate-50 dark:bg-[#070e1c] border border-slate-300 dark:border-cyan-500/30 rounded-xl p-2.5 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-cyan-500 dark:focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500 text-xs"
                     />
                   ) : (
                     <select
@@ -950,7 +950,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       disabled={!editingItem.year}
                       value={editingItem.brand || ''}
                       onChange={(e) => handleBrandChange(e.target.value)}
-                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-xs"
+                      className="w-full bg-slate-50 dark:bg-[#070e1c] border border-slate-300 dark:border-cyan-500/30 rounded-xl p-2.5 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-cyan-500 dark:focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-xs"
                     >
                       <option value="">
                         {editingItem.year ? 'Selecciona marca' : 'Primero selecciona año'}
@@ -967,9 +967,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
                 {/* 3. Modelo (Opcional) */}
                 <div>
-                  <label className="text-[11px] text-slate-300 font-bold block mb-1 flex items-center justify-between">
+                  <label className="text-[11px] text-slate-700 dark:text-slate-300 font-bold block mb-1 flex items-center justify-between">
                     <span>Modelo</span>
-                    <span className="text-slate-500 font-normal text-[10px]">(Opcional)</span>
+                    <span className="text-slate-400 dark:text-slate-500 font-normal text-[10px]">(Opcional)</span>
                   </label>
                   {manualVehicleInput ? (
                     <input
@@ -977,14 +977,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       value={editingItem.model || ''}
                       onChange={(e) => setEditingItem({ ...editingItem, model: e.target.value })}
                       placeholder="Ej: Silverado 1500, F-150, Camry... (Opcional)"
-                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-xs"
+                      className="w-full bg-slate-50 dark:bg-[#070e1c] border border-slate-300 dark:border-cyan-500/30 rounded-xl p-2.5 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-cyan-500 dark:focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500 text-xs"
                     />
                   ) : (
                     <select
                       disabled={!editingItem.brand}
                       value={editingItem.model || ''}
                       onChange={(e) => handleModelChange(e.target.value)}
-                      className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-xs"
+                      className="w-full bg-slate-50 dark:bg-[#070e1c] border border-slate-300 dark:border-cyan-500/30 rounded-xl p-2.5 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-cyan-500 dark:focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-xs"
                     >
                       <option value="">
                         {editingItem.brand ? 'Sin modelo específico (Opcional)' : 'Primero selecciona marca'}
@@ -1001,8 +1001,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
                 {/* 4. Tipo de Pieza (Motor / Transmisión) */}
                 <div>
-                  <label className="text-[11px] text-slate-300 font-bold block mb-1">
-                    Tipo de Pieza <span className="text-red-400">*</span>
+                  <label className="text-[11px] text-slate-700 dark:text-slate-300 font-bold block mb-1">
+                    Tipo de Pieza <span className="text-red-500">*</span>
                   </label>
                   <select
                     value={editingItem.partType || 'Motor'}
@@ -1014,7 +1014,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                         engineSpecs: nextType === 'Transmisión' && !COMMON_TRACTIONS.includes(editingItem.engineSpecs as any) ? '4x4' : editingItem.engineSpecs,
                       });
                     }}
-                    className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-emerald-300 font-bold focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 cursor-pointer text-xs"
+                    className="w-full bg-slate-50 dark:bg-[#070e1c] border border-slate-300 dark:border-cyan-500/30 rounded-xl p-2.5 text-emerald-800 dark:text-emerald-300 font-bold focus:outline-none focus:border-cyan-500 dark:focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500 cursor-pointer text-xs"
                   >
                     <option value="Motor">⚙️ Motor</option>
                     <option value="Transmisión">🔄 Transmisión</option>
@@ -1022,23 +1022,23 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 </div>
 
                 {/* Compatibilidad de Años (Desde / Hasta & Checkbox Solo año de fabricación) */}
-                <div className="sm:col-span-2 rounded-2xl bg-[#040814]/90 border border-cyan-500/30 p-3.5 space-y-3 shadow-inner">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
+                <div className="sm:col-span-2 rounded-2xl bg-slate-50 dark:bg-[#040814]/90 border border-slate-200 dark:border-cyan-500/30 p-3.5 space-y-3 shadow-inner">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800/80 pb-2.5">
                     <div className="flex items-center gap-2">
-                      <span className="material-symbols-outlined text-[18px] text-cyan-400">calendar_month</span>
-                      <span className="text-xs font-bold text-white tracking-wide uppercase">Años Compatibles</span>
-                      <span className="text-[10px] text-slate-400 font-normal font-mono">(Opcional)</span>
+                      <span className="material-symbols-outlined text-[18px] text-cyan-600 dark:text-cyan-400">calendar_month</span>
+                      <span className="text-xs font-bold text-slate-900 dark:text-white tracking-wide uppercase">Años Compatibles</span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal font-mono">(Opcional)</span>
                     </div>
 
                     {/* Checkbox: Solo compatible con el año de fabricación */}
-                    <label className="flex items-center gap-2 cursor-pointer select-none group bg-[#070e1c] px-2.5 py-1.5 rounded-xl border border-slate-700/80 hover:border-amber-500/50 transition-colors">
+                    <label className="flex items-center gap-2 cursor-pointer select-none group bg-white dark:bg-[#070e1c] px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700/80 hover:border-amber-500/50 transition-colors shadow-xs">
                       <input
                         type="checkbox"
                         checked={Boolean(editingItem.isExactYearOnly)}
                         onChange={(e) => handleExactYearToggle(e.target.checked)}
-                        className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400 bg-slate-900 border-slate-600 cursor-pointer accent-amber-500"
+                        className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400 bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 cursor-pointer accent-amber-500"
                       />
-                      <span className="text-[11px] font-bold text-amber-300 group-hover:text-amber-200 flex items-center gap-1">
+                      <span className="text-[11px] font-bold text-amber-900 dark:text-amber-300 group-hover:text-amber-950 dark:group-hover:text-amber-200 flex items-center gap-1">
                         <span className="material-symbols-outlined text-[13px]">
                           {editingItem.isExactYearOnly ? 'lock' : 'lock_open'}
                         </span>
@@ -1051,10 +1051,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {/* Año Desde */}
                     <div>
-                      <label className="text-[10px] text-slate-300 font-bold block mb-1 flex items-center justify-between">
+                      <label className="text-[10px] text-slate-700 dark:text-slate-300 font-bold block mb-1 flex items-center justify-between">
                         <span>Compatible Desde (Año Inicial)</span>
                         {editingItem.isExactYearOnly && (
-                          <span className="text-[9px] text-amber-400 font-mono flex items-center gap-0.5">
+                          <span className="text-[9px] text-amber-700 dark:text-amber-400 font-mono flex items-center gap-0.5 font-bold">
                             <span className="material-symbols-outlined text-[10px]">lock</span> Bloqueado al año {editingItem.year || ''}
                           </span>
                         )}
@@ -1063,7 +1063,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                         disabled={Boolean(editingItem.isExactYearOnly)}
                         value={editingItem.yearFrom || ''}
                         onChange={(e) => setEditingItem({ ...editingItem, yearFrom: e.target.value })}
-                        className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 disabled:opacity-50 disabled:bg-slate-900/80 cursor-pointer"
+                        className="w-full bg-white dark:bg-[#070e1c] border border-slate-300 dark:border-cyan-500/30 rounded-xl p-2 text-slate-900 dark:text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-500 dark:focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500 disabled:opacity-50 disabled:bg-slate-100 dark:disabled:bg-slate-900/80 cursor-pointer"
                       >
                         <option value="">(Opcional) Selecciona año desde</option>
                         {yearOptions.map((y) => (
@@ -1074,10 +1074,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
                     {/* Año Hasta */}
                     <div>
-                      <label className="text-[10px] text-slate-300 font-bold block mb-1 flex items-center justify-between">
+                      <label className="text-[10px] text-slate-700 dark:text-slate-300 font-bold block mb-1 flex items-center justify-between">
                         <span>Compatible Hasta (Año Final)</span>
                         {editingItem.isExactYearOnly && (
-                          <span className="text-[9px] text-amber-400 font-mono flex items-center gap-0.5">
+                          <span className="text-[9px] text-amber-700 dark:text-amber-400 font-mono flex items-center gap-0.5 font-bold">
                             <span className="material-symbols-outlined text-[10px]">lock</span> Bloqueado al año {editingItem.year || ''}
                           </span>
                         )}
@@ -1086,7 +1086,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                         disabled={Boolean(editingItem.isExactYearOnly)}
                         value={editingItem.yearTo || ''}
                         onChange={(e) => setEditingItem({ ...editingItem, yearTo: e.target.value })}
-                        className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2 text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 disabled:opacity-50 disabled:bg-slate-900/80 cursor-pointer"
+                        className="w-full bg-white dark:bg-[#070e1c] border border-slate-300 dark:border-cyan-500/30 rounded-xl p-2 text-slate-900 dark:text-slate-100 font-mono text-xs focus:outline-none focus:border-cyan-500 dark:focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500 disabled:opacity-50 disabled:bg-slate-100 dark:disabled:bg-slate-900/80 cursor-pointer"
                       >
                         <option value="">(Opcional) Selecciona año hasta</option>
                         {yearOptions.map((y) => (
@@ -1099,14 +1099,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   {/* Shortcuts & Helpers when not exact year locked */}
                   {!editingItem.isExactYearOnly && editingItem.year && (
                     <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                      <span className="text-[10px] text-slate-400">Atajos de rango:</span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400">Atajos de rango:</span>
                       <button
                         type="button"
                         onClick={() => {
                           const yr = editingItem.year || '';
                           setEditingItem({ ...editingItem, yearFrom: yr, yearTo: yr });
                         }}
-                        className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-mono cursor-pointer transition-colors border border-slate-700"
+                        className="px-2 py-0.5 rounded bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-cyan-800 dark:text-cyan-300 text-[10px] font-mono cursor-pointer transition-colors border border-slate-200 dark:border-slate-700 shadow-xs"
                       >
                         Mismo año ({editingItem.year})
                       </button>
@@ -1116,7 +1116,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                           const base = parseInt(editingItem.year || '2020', 10);
                           setEditingItem({ ...editingItem, yearFrom: String(base - 1), yearTo: String(base + 1) });
                         }}
-                        className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-mono cursor-pointer transition-colors border border-slate-700"
+                        className="px-2 py-0.5 rounded bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-cyan-800 dark:text-cyan-300 text-[10px] font-mono cursor-pointer transition-colors border border-slate-200 dark:border-slate-700 shadow-xs"
                       >
                         ±1 Año ({parseInt(editingItem.year || '2020', 10) - 1} - {parseInt(editingItem.year || '2020', 10) + 1})
                       </button>
@@ -1126,7 +1126,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                           const base = parseInt(editingItem.year || '2020', 10);
                           setEditingItem({ ...editingItem, yearFrom: String(base - 2), yearTo: String(base + 2) });
                         }}
-                        className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-[10px] font-mono cursor-pointer transition-colors border border-slate-700"
+                        className="px-2 py-0.5 rounded bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-cyan-800 dark:text-cyan-300 text-[10px] font-mono cursor-pointer transition-colors border border-slate-200 dark:border-slate-700 shadow-xs"
                       >
                         ±2 Años ({parseInt(editingItem.year || '2020', 10) - 2} - {parseInt(editingItem.year || '2020', 10) + 2})
                       </button>
@@ -1134,7 +1134,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                         <button
                           type="button"
                           onClick={() => setEditingItem({ ...editingItem, yearFrom: '', yearTo: '' })}
-                          className="px-2 py-0.5 rounded bg-red-950/40 hover:bg-red-900/60 text-red-300 text-[10px] font-mono cursor-pointer transition-colors border border-red-500/30"
+                          className="px-2 py-0.5 rounded bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-700 dark:text-red-300 text-[10px] font-mono cursor-pointer transition-colors border border-red-200 dark:border-red-500/30 shadow-xs"
                         >
                           Limpiar rango
                         </button>
@@ -1147,9 +1147,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 <div className="sm:col-span-2">
                   {editingItem.partType === 'Transmisión' ? (
                     <div>
-                      <label className="text-[11px] text-amber-300 font-bold block mb-1.5 flex items-center justify-between">
+                      <label className="text-[11px] text-amber-900 dark:text-amber-300 font-bold block mb-1.5 flex items-center justify-between">
                         <span>Tracción de la Transmisión</span>
-                        <span className="text-[10px] text-slate-400 font-normal">Selecciona opción:</span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">Selecciona opción:</span>
                       </label>
                       <div className="grid grid-cols-5 gap-1.5">
                         {COMMON_TRACTIONS.map((trac) => {
@@ -1161,8 +1161,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                               onClick={() => setEditingItem({ ...editingItem, engineSpecs: trac })}
                               className={`py-2 rounded-xl text-xs font-black font-mono transition-all cursor-pointer ${
                                 isSelected
-                                  ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 shadow-[0_0_15px_rgba(245,158,11,0.5)] scale-[1.02]'
-                                  : 'bg-[#03060f] border border-slate-700 text-slate-300 hover:text-white hover:border-amber-500/50'
+                                  ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 shadow-sm dark:shadow-[0_0_15px_rgba(245,158,11,0.5)] scale-[1.02]'
+                                  : 'bg-white dark:bg-[#03060f] border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:border-amber-500/50'
                               }`}
                             >
                               {trac}
@@ -1173,16 +1173,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                     </div>
                   ) : (
                     <div>
-                      <label className="text-[11px] text-emerald-300 font-bold block mb-1 flex items-center justify-between">
+                      <label className="text-[11px] text-emerald-800 dark:text-emerald-300 font-bold block mb-1 flex items-center justify-between">
                         <span>Litraje / Cilindrada del Motor</span>
-                        <span className="text-[10px] text-slate-400 font-normal">Escribe o selecciona:</span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">Escribe o selecciona:</span>
                       </label>
                       <input
                         type="text"
                         value={editingItem.engineSpecs || ''}
                         onChange={(e) => setEditingItem({ ...editingItem, engineSpecs: e.target.value })}
                         placeholder="Ej: 1.5L, 1.6L, 2.0L, 5.3L V8..."
-                        className="w-full bg-[#070e1c] border border-emerald-500/40 rounded-xl p-2.5 text-emerald-200 font-mono font-bold focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 text-xs"
+                        className="w-full bg-slate-50 dark:bg-[#070e1c] border border-slate-300 dark:border-emerald-500/40 rounded-xl p-2.5 text-emerald-800 dark:text-emerald-200 font-mono font-bold focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-xs"
                       />
                       <div className="flex items-center gap-1 mt-1.5 flex-wrap">
                         {['1.4L', '1.5L', '1.6L', '1.8L', '2.0L', '2.4L', '2.5L', '3.0L', '3.5L', '3.6L', '4.0L', '5.0L', '5.3L', '5.7L', '6.0L', '6.2L', '6.6L', '6.7L'].map((lit) => (
@@ -1192,8 +1192,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                             onClick={() => setEditingItem({ ...editingItem, engineSpecs: lit })}
                             className={`px-2 py-0.5 rounded-md text-[10px] font-mono cursor-pointer transition-colors ${
                               editingItem.engineSpecs === lit
-                                ? 'bg-emerald-500 text-slate-950 font-black shadow-[0_0_8px_rgba(16,185,129,0.4)]'
-                                : 'bg-slate-800/80 text-slate-400 hover:text-emerald-300 hover:bg-slate-700'
+                                ? 'bg-emerald-500 text-slate-950 font-black shadow-sm dark:shadow-[0_0_8px_rgba(16,185,129,0.4)]'
+                                : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-400 hover:text-emerald-800 dark:hover:text-emerald-300 border border-slate-200 dark:border-transparent'
                             }`}
                           >
                             {lit}
@@ -1206,7 +1206,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
                 {/* 6. VIN (Número de Chasis) */}
                 <div>
-                  <label className="text-[11px] text-slate-300 font-bold block mb-1">
+                  <label className="text-[11px] text-slate-700 dark:text-slate-300 font-bold block mb-1">
                     VIN (Número de Chasis)
                   </label>
                   <input
@@ -1228,16 +1228,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       }
                     }}
                     placeholder="EJ: 1G1BE5SM8H7123456"
-                    className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-cyan-300 uppercase tracking-wider font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-xs"
+                    className="w-full bg-slate-50 dark:bg-[#070e1c] border border-slate-300 dark:border-cyan-500/30 rounded-xl p-2.5 text-cyan-800 dark:text-cyan-300 uppercase tracking-wider font-mono focus:outline-none focus:border-cyan-500 dark:focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500 text-xs"
                   />
                   {vinDecodeMessage && (
                     <span
                       className={`mt-1 block text-[10px] font-medium ${
                         vinDecodeStatus === 'error'
-                          ? 'text-rose-400'
+                          ? 'text-rose-600 dark:text-rose-400'
                           : vinDecodeStatus === 'success'
-                          ? 'text-emerald-400'
-                          : 'text-cyan-400 animate-pulse'
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : 'text-cyan-600 dark:text-cyan-400 animate-pulse'
                       }`}
                     >
                       {vinDecodeMessage}
@@ -1247,7 +1247,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
                 {/* 7. Número de Paleta */}
                 <div>
-                  <label className="text-[11px] text-slate-300 font-bold block mb-1">
+                  <label className="text-[11px] text-slate-700 dark:text-slate-300 font-bold block mb-1">
                     Número de Paleta
                   </label>
                   <input
@@ -1255,15 +1255,15 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                     value={editingItem.palletNumber || ''}
                     onChange={(e) => setEditingItem({ ...editingItem, palletNumber: e.target.value.toUpperCase() })}
                     placeholder="Ej: PAL-104"
-                    className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-blue-300 font-bold font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-xs"
+                    className="w-full bg-slate-50 dark:bg-[#070e1c] border border-slate-300 dark:border-cyan-500/30 rounded-xl p-2.5 text-blue-800 dark:text-blue-300 font-bold font-mono focus:outline-none focus:border-cyan-500 dark:focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500 text-xs"
                   />
                 </div>
 
                 {/* 8. Estado de la Pieza */}
                 <div className="sm:col-span-2">
-                  <label className="text-[11px] text-slate-300 font-bold block mb-1.5 flex items-center justify-between">
+                  <label className="text-[11px] text-slate-700 dark:text-slate-300 font-bold block mb-1.5 flex items-center justify-between">
                     <span>Estado del Inventario</span>
-                    <span className="text-[10px] text-slate-400 font-normal">Disponibilidad de la pieza:</span>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">Disponibilidad de la pieza:</span>
                   </label>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {COMMON_STATUSES.map((statusOption) => {
@@ -1275,14 +1275,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                           onClick={() => setEditingItem({ ...editingItem, status: statusOption.value })}
                           className={`py-2 px-2.5 rounded-xl text-xs font-bold font-mono transition-all cursor-pointer flex items-center justify-center gap-1.5 border ${
                             isSelected
-                              ? `${statusOption.bg} shadow-[0_0_12px_rgba(6,182,212,0.3)] scale-[1.02]`
-                              : 'bg-[#03060f] border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                              ? `${statusOption.bg} shadow-sm dark:shadow-[0_0_12px_rgba(6,182,212,0.3)] scale-[1.02]`
+                              : 'bg-white dark:bg-[#03060f] border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:border-slate-300 dark:hover:border-slate-700'
                           }`}
                         >
                           <span className={`w-2 h-2 rounded-full ${
-                            statusOption.value === 'disponible' ? 'bg-emerald-400' :
-                            statusOption.value === 'reservado' ? 'bg-amber-400' :
-                            statusOption.value === 'vendido' ? 'bg-blue-400' : 'bg-purple-400'
+                            statusOption.value === 'disponible' ? 'bg-emerald-500' :
+                            statusOption.value === 'reservado' ? 'bg-amber-500' :
+                            statusOption.value === 'vendido' ? 'bg-blue-500' : 'bg-purple-500'
                           }`} />
                           <span>{statusOption.label}</span>
                         </button>
@@ -1293,8 +1293,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
                 {/* 9. Nota Extra / Observaciones */}
                 <div className="sm:col-span-2">
-                  <label className="text-[11px] text-slate-300 font-bold block mb-1 flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-[14px] text-cyan-400">notes</span>
+                  <label className="text-[11px] text-slate-700 dark:text-slate-300 font-bold block mb-1 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[14px] text-cyan-600 dark:text-cyan-400">notes</span>
                     <span>Nota Extra / Observaciones</span>
                   </label>
                   <input
@@ -1302,19 +1302,19 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                     value={editingItem.notes || ''}
                     onChange={(e) => setEditingItem({ ...editingItem, notes: e.target.value })}
                     placeholder="Ej: Con accesorios, alternador y compresor, probado en yarda, sin fugas..."
-                    className="w-full bg-[#070e1c] border border-slate-700 rounded-xl p-2.5 text-slate-200 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-xs"
+                    className="w-full bg-slate-50 dark:bg-[#070e1c] border border-slate-300 dark:border-slate-700 rounded-xl p-2.5 text-slate-900 dark:text-slate-200 focus:outline-none focus:border-cyan-500 dark:focus:border-cyan-400 focus:ring-1 focus:ring-cyan-500 text-xs"
                   />
                 </div>
               </div>
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-end gap-3 p-4 border-t border-cyan-500/20 bg-[#060b17] shrink-0">
+              <div className="flex items-center justify-end gap-3 p-4 border-t border-slate-200 dark:border-cyan-500/20 bg-slate-50 dark:bg-[#060b17] shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsEditorOpen(false)}
                   disabled={isSaving}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition-colors cursor-pointer text-xs"
+                  className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold transition-colors cursor-pointer text-xs"
                 >
                   Cancelar
                 </button>
@@ -1322,7 +1322,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 font-black uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] cursor-pointer flex items-center gap-2 text-xs hover:scale-[1.02] active:scale-[0.98]"
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 font-black uppercase tracking-wider transition-all shadow-md dark:shadow-[0_0_20px_rgba(6,182,212,0.4)] cursor-pointer flex items-center gap-2 text-xs hover:scale-[1.02] active:scale-[0.98]"
                 >
                   {isSaving ? (
                     <>
@@ -1345,24 +1345,24 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       {/* Detail Card Modal */}
       {selectedDetailItem && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in"
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 dark:bg-black/85 backdrop-blur-md animate-fade-in"
           onClick={() => setSelectedDetailItem(null)}
         >
           <div 
-            className="relative w-full max-w-xl rounded-3xl bg-[#080d1a] border border-cyan-500/40 shadow-[0_20px_70px_rgba(0,0,0,0.95)] overflow-hidden text-slate-100 max-h-[92vh] flex flex-col"
+            className="relative w-full max-w-xl rounded-3xl bg-white dark:bg-[#080d1a] border border-slate-200 dark:border-cyan-500/40 shadow-2xl dark:shadow-[0_20px_70px_rgba(0,0,0,0.95)] overflow-hidden text-slate-800 dark:text-slate-100 max-h-[92vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Top Glowing Gradient Accent */}
             <div className="h-1.5 w-full bg-gradient-to-r from-cyan-500 via-emerald-500 to-blue-500" />
 
             {/* Modal Header */}
-            <div className="p-5 sm:p-6 pb-4 border-b border-cyan-500/20 bg-gradient-to-b from-[#0b1426] to-[#080d1a]">
+            <div className="p-5 sm:p-6 pb-4 border-b border-slate-200 dark:border-cyan-500/20 bg-slate-50 dark:bg-gradient-to-b dark:from-[#0b1426] dark:to-[#080d1a]">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3.5">
-                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg border shrink-0 ${
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm border shrink-0 ${
                     (selectedDetailItem.partType || '').toLowerCase().includes('motor')
-                      ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.3)]'
-                      : 'bg-amber-500/20 border-amber-500/40 text-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.3)]'
+                      ? 'bg-emerald-100 border-emerald-300 text-emerald-800 dark:bg-emerald-500/20 dark:border-emerald-500/40 dark:text-emerald-400 dark:shadow-[0_0_20px_rgba(16,185,129,0.3)]'
+                      : 'bg-amber-100 border-amber-300 text-amber-900 dark:bg-amber-500/20 dark:border-amber-500/40 dark:text-amber-400 dark:shadow-[0_0_20px_rgba(245,158,11,0.3)]'
                   }`}>
                     <span className="material-symbols-outlined text-[28px]">
                       {(selectedDetailItem.partType || '').toLowerCase().includes('motor') ? 'settings' : 'swap_driving_apps'}
@@ -1371,18 +1371,18 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-300 border border-blue-500/40 text-xs font-mono font-black">
+                      <span className="px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-200 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/40 text-xs font-mono font-black">
                         #{selectedDetailItem.id}
                       </span>
                       {selectedDetailItem.palletNumber && (
-                        <span className="px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold">
+                        <span className="px-2 py-0.5 rounded-md bg-cyan-100 text-cyan-800 border border-cyan-200 dark:bg-cyan-500/20 dark:text-cyan-300 dark:border-cyan-500/40 text-xs font-mono font-bold">
                           PALETA {selectedDetailItem.palletNumber}
                         </span>
                       )}
                       {getStatusBadge(selectedDetailItem.status)}
                     </div>
                     
-                    <h2 className="text-base sm:text-lg font-black text-white uppercase tracking-wide mt-1">
+                    <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white uppercase tracking-wide mt-1">
                       {selectedDetailItem.year} {selectedDetailItem.brand} {selectedDetailItem.model || ''}
                     </h2>
                   </div>
@@ -1391,7 +1391,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedDetailItem(null)}
-                  className="p-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer shrink-0"
+                  className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white transition-colors cursor-pointer shrink-0"
                   title="Cerrar tarjeta"
                 >
                   <span className="material-symbols-outlined text-[20px]">close</span>
@@ -1403,16 +1403,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             <div className="p-4 sm:p-6 space-y-3.5 flex-1 min-h-0 overflow-y-auto custom-scrollbar font-mono text-xs">
               {/* Sold Status Banner */}
               {selectedDetailItem.status === 'vendido' && (
-                <div className="rounded-2xl bg-gradient-to-r from-blue-950/90 via-[#0a1835] to-indigo-950/90 border border-blue-500/50 p-4 shadow-[0_0_20px_rgba(59,130,246,0.25)] flex items-center justify-between gap-3 flex-wrap animate-fade-in">
+                <div className="rounded-2xl bg-blue-50 dark:bg-gradient-to-r dark:from-blue-950/90 dark:via-[#0a1835] dark:to-indigo-950/90 border border-blue-200 dark:border-blue-500/50 p-4 shadow-sm dark:shadow-[0_0_20px_rgba(59,130,246,0.25)] flex items-center justify-between gap-3 flex-wrap animate-fade-in">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400 shrink-0 shadow-[0_0_15px_rgba(59,130,246,0.3)]">
+                    <div className="w-10 h-10 rounded-xl bg-blue-100 border border-blue-200 dark:bg-blue-500/20 dark:border-blue-500/40 flex items-center justify-center text-blue-700 dark:text-blue-400 shrink-0 shadow-xs dark:shadow-[0_0_15px_rgba(59,130,246,0.3)]">
                       <span className="material-symbols-outlined text-[24px]">sell</span>
                     </div>
                     <div>
-                      <span className="text-[10px] text-blue-300 font-bold uppercase tracking-wider block">
+                      <span className="text-[10px] text-blue-800 dark:text-blue-300 font-bold uppercase tracking-wider block">
                         Pieza Vendida / Fuera de Disponibles
                       </span>
-                      <span className="text-xs font-black text-white">
+                      <span className="text-xs font-black text-slate-900 dark:text-white">
                         {selectedDetailItem.soldAt ? (
                           `Salida registrada el ${new Date(selectedDetailItem.soldAt).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`
                         ) : (
@@ -1424,7 +1424,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   <button
                     type="button"
                     onClick={() => handleReactivateToAvailable(selectedDetailItem)}
-                    className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105"
+                    className="px-3 py-1.5 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-200 dark:bg-emerald-500/20 dark:hover:bg-emerald-500/30 dark:text-emerald-300 dark:border-emerald-500/40 text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105"
                     title="Reactivar pieza a Disponible"
                   >
                     <span className="material-symbols-outlined text-[16px]">restart_alt</span>
@@ -1434,48 +1434,48 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               )}
 
               {/* Card 1: Vehículo & Compatibilidad */}
-              <div className="rounded-2xl bg-[#050914] border border-cyan-500/25 p-4 space-y-3 shadow-inner">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <div className="flex items-center gap-2 text-cyan-400 font-bold text-xs uppercase tracking-wider">
+              <div className="rounded-2xl bg-slate-50 dark:bg-[#050914] border border-slate-200 dark:border-cyan-500/25 p-4 space-y-3 shadow-xs">
+                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
+                  <div className="flex items-center gap-2 text-cyan-800 dark:text-cyan-400 font-bold text-xs uppercase tracking-wider">
                     <span className="material-symbols-outlined text-[18px]">directions_car</span>
                     <span>Información del Vehículo</span>
                   </div>
-                  <span className="text-[10px] text-slate-500 font-normal">Datos automotrices</span>
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500 font-normal">Datos automotrices</span>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                  <div className="rounded-xl bg-[#080f20] p-2.5 border border-slate-800">
-                    <span className="text-[10px] text-slate-400 block mb-0.5 uppercase">Año Fabricación</span>
-                    <span className="text-sm font-black text-amber-300">{selectedDetailItem.year}</span>
+                  <div className="rounded-xl bg-white dark:bg-[#080f20] p-2.5 border border-slate-200 dark:border-slate-800 shadow-xs">
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 block mb-0.5 uppercase">Año Fabricación</span>
+                    <span className="text-sm font-black text-amber-800 dark:text-amber-300">{selectedDetailItem.year}</span>
                   </div>
 
-                  <div className="rounded-xl bg-[#080f20] p-2.5 border border-slate-800">
-                    <span className="text-[10px] text-slate-400 block mb-0.5 uppercase">Marca</span>
-                    <span className="text-sm font-black text-white">{selectedDetailItem.brand}</span>
+                  <div className="rounded-xl bg-white dark:bg-[#080f20] p-2.5 border border-slate-200 dark:border-slate-800 shadow-xs">
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 block mb-0.5 uppercase">Marca</span>
+                    <span className="text-sm font-black text-slate-900 dark:text-white">{selectedDetailItem.brand}</span>
                   </div>
 
-                  <div className="rounded-xl bg-[#080f20] p-2.5 border border-slate-800 col-span-2 sm:col-span-1">
-                    <span className="text-[10px] text-slate-400 block mb-0.5 uppercase">Modelo</span>
-                    <span className="text-sm font-black text-slate-200">
-                      {selectedDetailItem.model || <span className="text-slate-500 italic font-normal">Sin modelo</span>}
+                  <div className="rounded-xl bg-white dark:bg-[#080f20] p-2.5 border border-slate-200 dark:border-slate-800 col-span-2 sm:col-span-1 shadow-xs">
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 block mb-0.5 uppercase">Modelo</span>
+                    <span className="text-sm font-black text-slate-800 dark:text-slate-200">
+                      {selectedDetailItem.model || <span className="text-slate-400 italic font-normal">Sin modelo</span>}
                     </span>
                   </div>
                 </div>
 
                 {/* Compatibilidad de Años */}
-                <div className="rounded-xl bg-[#080f20] p-3 border border-slate-800/80 flex items-center justify-between gap-3 flex-wrap">
+                <div className="rounded-xl bg-white dark:bg-[#080f20] p-3 border border-slate-200 dark:border-slate-800/80 flex items-center justify-between gap-3 flex-wrap shadow-xs">
                   <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[18px] text-amber-400">event_repeat</span>
+                    <span className="material-symbols-outlined text-[18px] text-amber-600 dark:text-amber-400">event_repeat</span>
                     <div>
-                      <span className="text-[10px] text-slate-400 block uppercase">Compatibilidad de Años</span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block uppercase">Compatibilidad de Años</span>
                       <div className="text-xs font-bold mt-0.5">
                         {selectedDetailItem.isExactYearOnly ? (
-                          <span className="text-amber-300 font-bold flex items-center gap-1">
+                          <span className="text-amber-900 dark:text-amber-300 font-bold flex items-center gap-1">
                             <span className="material-symbols-outlined text-[13px]">lock</span>
                             Solo compatible con año {selectedDetailItem.year} (Fabricación exacta)
                           </span>
                         ) : selectedDetailItem.yearFrom || selectedDetailItem.yearTo ? (
-                          <span className="text-cyan-300 font-bold">
+                          <span className="text-cyan-800 dark:text-cyan-300 font-bold">
                             {selectedDetailItem.yearFrom && selectedDetailItem.yearTo
                               ? `Compatible desde ${selectedDetailItem.yearFrom} hasta ${selectedDetailItem.yearTo}`
                               : selectedDetailItem.yearFrom
@@ -1490,7 +1490,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   </div>
 
                   {selectedDetailItem.yearFrom && selectedDetailItem.yearTo && !selectedDetailItem.isExactYearOnly && (
-                    <span className="px-2.5 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-[11px] font-black">
+                    <span className="px-2.5 py-1 rounded-lg bg-cyan-100 text-cyan-800 border border-cyan-200 dark:bg-cyan-500/20 dark:text-cyan-300 dark:border-cyan-500/40 text-[11px] font-black">
                       {selectedDetailItem.yearFrom} – {selectedDetailItem.yearTo}
                     </span>
                   )}
@@ -1498,41 +1498,41 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               </div>
 
               {/* Card 2: Especificaciones Técnicas & Mecánicas */}
-              <div className="rounded-2xl bg-[#050914] border border-cyan-500/25 p-4 space-y-3 shadow-inner">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
+              <div className="rounded-2xl bg-slate-50 dark:bg-[#050914] border border-slate-200 dark:border-cyan-500/25 p-4 space-y-3 shadow-xs">
+                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
+                  <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-400 font-bold text-xs uppercase tracking-wider">
                     <span className="material-symbols-outlined text-[18px]">build</span>
                     <span>Especificaciones Técnicas</span>
                   </div>
-                  <span className="text-[10px] text-slate-500 font-normal">Componente mecánico</span>
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500 font-normal">Componente mecánico</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <div className="rounded-xl bg-[#080f20] p-2.5 border border-slate-800 flex items-center justify-between">
+                  <div className="rounded-xl bg-white dark:bg-[#080f20] p-2.5 border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-xs">
                     <div>
-                      <span className="text-[10px] text-slate-400 block mb-0.5 uppercase">Tipo de Pieza</span>
-                      <span className="text-xs font-black text-white">{selectedDetailItem.partType}</span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block mb-0.5 uppercase">Tipo de Pieza</span>
+                      <span className="text-xs font-black text-slate-900 dark:text-white">{selectedDetailItem.partType}</span>
                     </div>
                     <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
                       (selectedDetailItem.partType || '').toLowerCase().includes('motor')
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                        : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/40'
+                        : 'bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/40'
                     }`}>
                       {selectedDetailItem.partType}
                     </span>
                   </div>
 
-                  <div className="rounded-xl bg-[#080f20] p-2.5 border border-slate-800 flex items-center justify-between">
+                  <div className="rounded-xl bg-white dark:bg-[#080f20] p-2.5 border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-xs">
                     <div>
-                      <span className="text-[10px] text-slate-400 block mb-0.5 uppercase">
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block mb-0.5 uppercase">
                         {(selectedDetailItem.partType || '').toLowerCase().includes('transmi') ? 'Tracción' : 'Litraje / Motor'}
                       </span>
-                      <span className="text-xs font-black text-cyan-300">
-                        {selectedDetailItem.engineSpecs || <span className="text-slate-500 italic font-normal">No especificado</span>}
+                      <span className="text-xs font-black text-cyan-800 dark:text-cyan-300">
+                        {selectedDetailItem.engineSpecs || <span className="text-slate-400 italic font-normal">No especificado</span>}
                       </span>
                     </div>
                     {selectedDetailItem.engineSpecs && (
-                      <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-xs font-black">
+                      <span className="px-2 py-0.5 rounded bg-cyan-100 text-cyan-800 border border-cyan-200 dark:bg-cyan-500/20 dark:text-cyan-300 dark:border-cyan-500/40 text-xs font-black">
                         {selectedDetailItem.engineSpecs}
                       </span>
                     )}
@@ -1540,11 +1540,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 </div>
 
                 {/* VIN Card with Copy Button */}
-                <div className="rounded-xl bg-[#080f20] p-2.5 border border-slate-800 flex items-center justify-between gap-3">
+                <div className="rounded-xl bg-white dark:bg-[#080f20] p-2.5 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shadow-xs">
                   <div>
-                    <span className="text-[10px] text-slate-400 block mb-0.5 uppercase">VIN (Chasis)</span>
-                    <span className="text-xs font-mono font-black text-cyan-300 tracking-wider">
-                      {selectedDetailItem.vin || <span className="text-slate-500 italic font-normal">Sin VIN</span>}
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 block mb-0.5 uppercase">VIN (Chasis)</span>
+                    <span className="text-xs font-mono font-black text-cyan-800 dark:text-cyan-300 tracking-wider">
+                      {selectedDetailItem.vin || <span className="text-slate-400 italic font-normal">Sin VIN</span>}
                     </span>
                   </div>
 
@@ -1552,7 +1552,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                     <button
                       type="button"
                       onClick={() => handleCopyDetail(selectedDetailItem.vin!, 'VIN')}
-                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                      className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-cyan-800 dark:text-cyan-300 border border-slate-200 dark:border-slate-700 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-xs"
                       title="Copiar VIN"
                     >
                       <span className="material-symbols-outlined text-[14px]">
@@ -1564,15 +1564,15 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 </div>
 
                 {/* Pallet Card */}
-                <div className="rounded-xl bg-[#080f20] p-2.5 border border-slate-800 flex items-center justify-between">
+                <div className="rounded-xl bg-white dark:bg-[#080f20] p-2.5 border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-xs">
                   <div>
-                    <span className="text-[10px] text-slate-400 block mb-0.5 uppercase">Ubicación / Paleta</span>
-                    <span className="text-xs font-bold text-blue-300">
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 block mb-0.5 uppercase">Ubicación / Paleta</span>
+                    <span className="text-xs font-bold text-blue-800 dark:text-blue-300">
                       {selectedDetailItem.palletNumber ? `Paleta: ${selectedDetailItem.palletNumber}` : 'Sin paleta asignada'}
                     </span>
                   </div>
                   {selectedDetailItem.palletNumber && (
-                    <span className="px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-300 border border-blue-500/40 text-xs font-black shadow-[0_0_10px_rgba(59,130,246,0.2)]">
+                    <span className="px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-200 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/40 text-xs font-black shadow-xs dark:shadow-[0_0_10px_rgba(59,130,246,0.2)]">
                       {selectedDetailItem.palletNumber}
                     </span>
                   )}
@@ -1581,12 +1581,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
               {/* Card 3: Observaciones & Notas */}
               {selectedDetailItem.notes && (
-                <div className="rounded-2xl bg-[#050914] border border-cyan-500/25 p-4 space-y-2 shadow-inner">
-                  <div className="flex items-center gap-2 text-slate-300 font-bold text-xs uppercase tracking-wider">
-                    <span className="material-symbols-outlined text-[16px] text-cyan-400">notes</span>
+                <div className="rounded-2xl bg-slate-50 dark:bg-[#050914] border border-slate-200 dark:border-cyan-500/25 p-4 space-y-2 shadow-xs">
+                  <div className="flex items-center gap-2 text-slate-800 dark:text-slate-300 font-bold text-xs uppercase tracking-wider">
+                    <span className="material-symbols-outlined text-[16px] text-cyan-600 dark:text-cyan-400">notes</span>
                     <span>Notas & Observaciones</span>
                   </div>
-                  <div className="p-3 rounded-xl bg-[#080f20] border border-slate-800 text-slate-300 text-xs leading-relaxed">
+                  <div className="p-3 rounded-xl bg-white dark:bg-[#080f20] border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-300 text-xs leading-relaxed shadow-xs">
                     {selectedDetailItem.notes}
                   </div>
                 </div>
@@ -1608,11 +1608,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             </div>
 
             {/* Modal Footer Actions */}
-            <div className="p-4 sm:p-5 border-t border-cyan-500/20 bg-[#070c18] flex items-center justify-between gap-2.5 flex-wrap">
+            <div className="p-4 sm:p-5 border-t border-slate-200 dark:border-cyan-500/20 bg-slate-50 dark:bg-[#070c18] flex items-center justify-between gap-2.5 flex-wrap">
               <button
                 type="button"
                 onClick={() => handleCopyFullItemSummary(selectedDetailItem)}
-                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer transition-colors"
+                className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white border border-slate-300 dark:border-slate-700 text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
                 title="Copiar resumen para WhatsApp o correo"
               >
                 <span className="material-symbols-outlined text-[16px]">content_copy</span>
@@ -1627,7 +1627,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       const itemToMark = selectedDetailItem;
                       setSoldConfirmItem(itemToMark);
                     }}
-                    className="px-3.5 py-2 rounded-xl bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 hover:text-blue-200 border border-blue-500/40 text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105"
+                    className="px-3.5 py-2 rounded-xl bg-blue-100 hover:bg-blue-200 text-blue-800 border border-blue-200 dark:bg-blue-500/15 dark:hover:bg-blue-500/25 dark:text-blue-300 dark:hover:text-blue-200 dark:border-blue-500/40 text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105 shadow-xs"
                     title="Marcar como vendida y registrar fecha de salida"
                   >
                     <span className="material-symbols-outlined text-[16px]">sell</span>
@@ -1637,7 +1637,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   <button
                     type="button"
                     onClick={() => handleReactivateToAvailable(selectedDetailItem)}
-                    className="px-3.5 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 hover:text-emerald-200 border border-emerald-500/40 text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105"
+                    className="px-3.5 py-2 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-200 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 dark:text-emerald-300 dark:hover:text-emerald-200 dark:border-emerald-500/40 text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105 shadow-xs"
                     title="Reactivar pieza a Disponible"
                   >
                     <span className="material-symbols-outlined text-[16px]">restart_alt</span>
@@ -1652,7 +1652,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                     setSelectedDetailItem(null);
                     handleOpenEdit(itemToEdit);
                   }}
-                  className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105"
+                  className="px-3.5 py-2 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-200 dark:bg-amber-500/15 dark:hover:bg-amber-500/25 dark:text-amber-300 dark:hover:text-amber-200 dark:border-amber-500/40 text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer transition-all hover:scale-105 shadow-xs"
                   title="Editar datos de esta pieza"
                 >
                   <span className="material-symbols-outlined text-[16px]">edit</span>
@@ -1666,7 +1666,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                     setSelectedDetailItem(null);
                     handleConvertToOrder(itemToOrder);
                   }}
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-black text-xs font-mono uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-[0_0_20px_rgba(6,182,212,0.4)] hover:scale-105 transition-transform"
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-black text-xs font-mono uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-md dark:shadow-[0_0_20px_rgba(6,182,212,0.4)] hover:scale-105 transition-transform"
                   title="Crear orden de venta o taller con esta pieza"
                 >
                   <span className="material-symbols-outlined text-[16px]">shopping_cart</span>
@@ -1680,44 +1680,44 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
       {/* Sold Confirmation Modal */}
       {soldConfirmItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-          <div className="relative w-full max-w-md rounded-3xl bg-[#080d1a] border border-blue-500/50 p-6 text-center space-y-4 shadow-[0_20px_60px_rgba(0,0,0,0.9)] font-mono">
-            <div className="w-14 h-14 rounded-2xl bg-blue-500/20 border border-blue-500/40 mx-auto flex items-center justify-center text-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.3)]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 dark:bg-black/85 backdrop-blur-md animate-fade-in">
+          <div className="relative w-full max-w-md rounded-3xl bg-white dark:bg-[#080d1a] border border-slate-200 dark:border-blue-500/50 p-6 text-center space-y-4 shadow-2xl dark:shadow-[0_20px_60px_rgba(0,0,0,0.9)] font-mono">
+            <div className="w-14 h-14 rounded-2xl bg-blue-100 border border-blue-200 dark:bg-blue-500/20 dark:border-blue-500/40 mx-auto flex items-center justify-center text-blue-700 dark:text-blue-400 shadow-sm dark:shadow-[0_0_20px_rgba(59,130,246,0.3)]">
               <span className="material-symbols-outlined text-[32px]">sell</span>
             </div>
             
             <div>
-              <h3 className="text-base font-black text-white uppercase tracking-wide">¿Confirmar Venta de Pieza?</h3>
-              <p className="text-xs text-slate-400 mt-1">
+              <h3 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-wide">¿Confirmar Venta de Pieza?</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 La pieza saldrá del inventario de disponibles y quedará archivada en el registro de vendidos con su fecha exacta de salida.
               </p>
             </div>
 
-            <div className="p-3.5 rounded-2xl bg-[#040814] border border-slate-800 text-left space-y-2 text-xs">
-              <div className="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
-                <span className="text-slate-400">Pieza:</span>
-                <span className="font-bold text-white">
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#040814] border border-slate-200 dark:border-slate-800 text-left space-y-2 text-xs shadow-inner">
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800/80 pb-1.5">
+                <span className="text-slate-500 dark:text-slate-400">Pieza:</span>
+                <span className="font-bold text-slate-900 dark:text-white">
                   {soldConfirmItem.year} {soldConfirmItem.brand} {soldConfirmItem.model || ''}
                 </span>
               </div>
-              <div className="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
-                <span className="text-slate-400">Tipo:</span>
-                <span className="font-bold text-emerald-300">
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800/80 pb-1.5">
+                <span className="text-slate-500 dark:text-slate-400">Tipo:</span>
+                <span className="font-bold text-emerald-800 dark:text-emerald-300">
                   {soldConfirmItem.partType} {soldConfirmItem.engineSpecs ? `(${soldConfirmItem.engineSpecs})` : ''}
                 </span>
               </div>
-              <div className="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
-                <span className="text-slate-400">Paleta / VIN:</span>
-                <span className="font-mono text-cyan-300">
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800/80 pb-1.5">
+                <span className="text-slate-500 dark:text-slate-400">Paleta / VIN:</span>
+                <span className="font-mono text-cyan-800 dark:text-cyan-300 font-semibold">
                   {soldConfirmItem.palletNumber ? `Paleta: ${soldConfirmItem.palletNumber}` : 'S/P'} | {soldConfirmItem.vin || 'Sin VIN'}
                 </span>
               </div>
               <div className="flex items-center justify-between pt-0.5">
-                <span className="text-blue-400 font-bold flex items-center gap-1">
+                <span className="text-blue-700 dark:text-blue-400 font-bold flex items-center gap-1">
                   <span className="material-symbols-outlined text-[14px]">event_available</span>
                   <span>Fecha de Salida:</span>
                 </span>
-                <span className="font-black text-blue-300">
+                <span className="font-black text-blue-800 dark:text-blue-300">
                   {new Date().toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>
@@ -1728,7 +1728,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 type="button"
                 onClick={() => setSoldConfirmItem(null)}
                 disabled={isMarkingSold}
-                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer transition-colors"
+                className="px-4 py-2.5 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer transition-colors shadow-xs"
               >
                 Cancelar
               </button>
@@ -1736,7 +1736,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 type="button"
                 onClick={handleConfirmMarkAsSold}
                 disabled={isMarkingSold}
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white text-xs font-black uppercase tracking-wider cursor-pointer shadow-[0_0_20px_rgba(59,130,246,0.4)] flex items-center gap-2 hover:scale-105 active:scale-95 transition-all"
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white text-xs font-black uppercase tracking-wider cursor-pointer shadow-md dark:shadow-[0_0_20px_rgba(59,130,246,0.4)] flex items-center gap-2 hover:scale-105 active:scale-95 transition-all"
               >
                 {isMarkingSold ? (
                   <>
@@ -1757,33 +1757,33 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
       {/* Delete Confirmation Modal */}
       {deleteConfirmItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-          <div className="relative w-full max-w-sm rounded-3xl bg-[#0c1322] border border-red-500/50 p-6 text-center space-y-4 shadow-[0_20px_50px_rgba(0,0,0,0.85)] font-mono">
-            <div className="w-12 h-12 rounded-2xl bg-red-500/20 border border-red-500/40 mx-auto flex items-center justify-center text-red-400">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 dark:bg-black/85 backdrop-blur-md animate-fade-in">
+          <div className="relative w-full max-w-sm rounded-3xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-red-500/50 p-6 text-center space-y-4 shadow-2xl dark:shadow-[0_20px_50px_rgba(0,0,0,0.85)] font-mono">
+            <div className="w-12 h-12 rounded-2xl bg-red-100 border border-red-200 dark:bg-red-500/20 dark:border-red-500/40 mx-auto flex items-center justify-center text-red-600 dark:text-red-400 shadow-sm">
               <span className="material-symbols-outlined text-[28px]">delete</span>
             </div>
-            <h3 className="text-base font-bold text-white">¿Eliminar pieza?</h3>
-            <p className="text-xs text-slate-400">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">¿Eliminar pieza?</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Se eliminará:{' '}
-              <strong className="text-white block mt-1">
+              <strong className="text-slate-900 dark:text-white block mt-1">
                 {deleteConfirmItem.year} {deleteConfirmItem.brand} {deleteConfirmItem.model} ({deleteConfirmItem.partType})
               </strong>
               {deleteConfirmItem.palletNumber && (
-                <span className="text-blue-300 block text-[11px] mt-0.5">Paleta: {deleteConfirmItem.palletNumber}</span>
+                <span className="text-blue-700 dark:text-blue-300 block text-[11px] mt-0.5 font-bold">Paleta: {deleteConfirmItem.palletNumber}</span>
               )}
             </p>
             <div className="flex items-center justify-center gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setDeleteConfirmItem(null)}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold cursor-pointer shadow-xs"
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={handleDeleteItem}
-                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold cursor-pointer shadow-[0_0_15px_rgba(239,68,68,0.4)]"
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold cursor-pointer shadow-sm dark:shadow-[0_0_15px_rgba(239,68,68,0.4)]"
               >
                 Sí, Eliminar
               </button>

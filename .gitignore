@@ -10,3 +10,4 @@ backups/
 uploads/
 *.sql
 !migrations/*.sql
+capturas_sistema/

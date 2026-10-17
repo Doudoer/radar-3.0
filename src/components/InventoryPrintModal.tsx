@@ -437,22 +437,22 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-xl animate-fade-in font-sans">
-      <div className="relative w-full max-w-4xl rounded-3xl bg-[#070c18] border border-cyan-500/40 shadow-[0_20px_70px_rgba(0,0,0,0.95)] overflow-hidden flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 dark:bg-black/85 backdrop-blur-xl animate-fade-in font-sans">
+      <div className="relative w-full max-w-4xl rounded-3xl bg-white dark:bg-[#070c18] border border-slate-200 dark:border-cyan-500/40 shadow-2xl dark:shadow-[0_20px_70px_rgba(0,0,0,0.95)] overflow-hidden flex flex-col max-h-[92vh]">
         {/* Laser Top Accent */}
-        <div className="h-1 bg-gradient-to-r from-cyan-500 via-emerald-400 to-blue-500 w-full shrink-0 shadow-[0_0_12px_rgba(6,182,212,0.6)]" />
+        <div className="h-1 bg-gradient-to-r from-cyan-500 via-emerald-400 to-blue-500 w-full shrink-0 shadow-xs dark:shadow-[0_0_12px_rgba(6,182,212,0.6)]" />
 
         {/* Modal Header */}
-        <div className="p-4 sm:p-5 border-b border-cyan-500/20 bg-[#0a1022]/90 flex items-center justify-between shrink-0">
+        <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-cyan-500/20 bg-slate-50/90 dark:bg-[#0a1022]/90 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-cyan-500/15 border border-cyan-500/35 flex items-center justify-center text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.3)]">
+            <div className="w-10 h-10 rounded-2xl bg-cyan-100 border border-cyan-200 dark:bg-cyan-500/15 dark:border-cyan-500/35 flex items-center justify-center text-cyan-800 dark:text-cyan-400 shadow-xs dark:shadow-[0_0_15px_rgba(6,182,212,0.3)]">
               <span className="material-symbols-outlined text-[24px]">print</span>
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-black text-white uppercase tracking-wide">
+              <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white uppercase tracking-wide">
                 Imprimir Inventario por Marcas
               </h2>
-              <p className="text-xs text-slate-400 font-mono">
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">
                 Reporte clasificado y ordenado alfabéticamente por marca de vehículo
               </p>
             </div>
@@ -460,23 +460,23 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors cursor-pointer"
           >
             <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
         {/* Filter Controls Toolbar */}
-        <div className="p-4 bg-[#050914] border-b border-slate-800/80 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 shrink-0 font-mono text-xs">
+        <div className="p-4 bg-slate-50 dark:bg-[#050914] border-b border-slate-200 dark:border-slate-800/80 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 shrink-0 font-mono text-xs">
           {/* Brand Selector */}
           <div>
-            <label className="text-[10px] text-cyan-400 uppercase font-bold block mb-1">
+            <label className="text-[10px] text-cyan-800 dark:text-cyan-400 uppercase font-bold block mb-1">
               Marca:
             </label>
             <select
               value={selectedBrand}
               onChange={(e) => setSelectedBrand(e.target.value)}
-              className="w-full bg-[#03060f] border border-cyan-500/30 rounded-xl p-2 text-slate-200 text-xs focus:outline-none focus:border-cyan-400"
+              className="w-full bg-white dark:bg-[#03060f] border border-slate-200 dark:border-cyan-500/30 rounded-xl p-2 text-slate-900 dark:text-slate-200 text-xs focus:outline-none focus:border-cyan-500 shadow-xs"
             >
               <option value="all">⭐ Todas las Marcas ({allBrands.length})</option>
               {allBrands.map((b) => (
@@ -487,13 +487,13 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
 
           {/* Part Type Filter */}
           <div>
-            <label className="text-[10px] text-cyan-400 uppercase font-bold block mb-1">
+            <label className="text-[10px] text-cyan-800 dark:text-cyan-400 uppercase font-bold block mb-1">
               Tipo de Pieza:
             </label>
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value as any)}
-              className="w-full bg-[#03060f] border border-cyan-500/30 rounded-xl p-2 text-slate-200 text-xs focus:outline-none focus:border-cyan-400"
+              className="w-full bg-white dark:bg-[#03060f] border border-slate-200 dark:border-cyan-500/30 rounded-xl p-2 text-slate-900 dark:text-slate-200 text-xs focus:outline-none focus:border-cyan-500 shadow-xs"
             >
               <option value="all">Todas las piezas</option>
               <option value="Motor">⚙️ Motores</option>
@@ -503,13 +503,13 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
 
           {/* Status Filter */}
           <div>
-            <label className="text-[10px] text-cyan-400 uppercase font-bold block mb-1">
+            <label className="text-[10px] text-cyan-800 dark:text-cyan-400 uppercase font-bold block mb-1">
               Estado:
             </label>
             <select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value as any)}
-              className="w-full bg-[#03060f] border border-cyan-500/30 rounded-xl p-2 text-slate-200 text-xs focus:outline-none focus:border-cyan-400"
+              className="w-full bg-white dark:bg-[#03060f] border border-slate-200 dark:border-cyan-500/30 rounded-xl p-2 text-slate-900 dark:text-slate-200 text-xs focus:outline-none focus:border-cyan-500 shadow-xs"
             >
               <option value="all">Todos los estados</option>
               <option value="disponible">🟢 Solo Disponibles</option>
@@ -520,21 +520,21 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
 
           {/* Column Toggles */}
           <div className="flex flex-col justify-end gap-1.5">
-            <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer select-none">
+            <label className="flex items-center gap-2 text-[11px] text-slate-700 dark:text-slate-300 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={showVin}
                 onChange={(e) => setShowVin(e.target.checked)}
-                className="rounded accent-cyan-400 cursor-pointer"
+                className="rounded accent-cyan-600 dark:accent-cyan-400 cursor-pointer"
               />
               <span>Incluir columna VIN</span>
             </label>
-            <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer select-none">
+            <label className="flex items-center gap-2 text-[11px] text-slate-700 dark:text-slate-300 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={showNotes}
                 onChange={(e) => setShowNotes(e.target.checked)}
-                className="rounded accent-cyan-400 cursor-pointer"
+                className="rounded accent-cyan-600 dark:accent-cyan-400 cursor-pointer"
               />
               <span>Incluir notas extra</span>
             </label>
@@ -542,38 +542,38 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
         </div>
 
         {/* Live Preview List */}
-        <div className="p-4 sm:p-5 overflow-y-auto custom-scrollbar flex-1 min-h-0 space-y-4 font-mono text-xs">
+        <div className="p-4 sm:p-5 overflow-y-auto custom-scrollbar flex-1 min-h-0 space-y-4 font-mono text-xs bg-slate-50/50 dark:bg-transparent">
           {/* Summary Badge bar */}
-          <div className="flex items-center justify-between bg-[#040814] border border-slate-800 p-3 rounded-2xl flex-wrap gap-2">
+          <div className="flex items-center justify-between bg-white dark:bg-[#040814] border border-slate-200 dark:border-slate-800 p-3 rounded-2xl flex-wrap gap-2 shadow-xs">
             <div className="flex items-center gap-3 text-xs flex-wrap">
-              <span className="text-white font-bold">
-                Total a Imprimir: <span className="text-cyan-400">{metrics.total} piezas</span>
+              <span className="text-slate-900 dark:text-white font-bold">
+                Total a Imprimir: <span className="text-cyan-800 dark:text-cyan-400">{metrics.total} piezas</span>
               </span>
-              <span className="text-slate-600">|</span>
-              <span className="text-emerald-300 font-bold">⚙️ {metrics.motors} Motores</span>
-              <span className="text-slate-600">|</span>
-              <span className="text-amber-300 font-bold">🔄 {metrics.transmissions} Transmisiones</span>
-              <span className="text-slate-600">|</span>
-              <span className="text-blue-300 font-bold">🚗 {metrics.brandsCount} Marcas</span>
+              <span className="text-slate-300 dark:text-slate-600">|</span>
+              <span className="text-emerald-800 dark:text-emerald-300 font-bold">⚙️ {metrics.motors} Motores</span>
+              <span className="text-slate-300 dark:text-slate-600">|</span>
+              <span className="text-amber-900 dark:text-amber-300 font-bold">🔄 {metrics.transmissions} Transmisiones</span>
+              <span className="text-slate-300 dark:text-slate-600">|</span>
+              <span className="text-blue-800 dark:text-blue-300 font-bold">🚗 {metrics.brandsCount} Marcas</span>
             </div>
-            <span className="text-[10px] text-slate-400">
+            <span className="text-[10px] text-slate-500 dark:text-slate-400">
               Vista previa en pantalla
             </span>
           </div>
 
           {groupedByBrand.length === 0 ? (
-            <div className="p-8 text-center bg-[#050914] border border-slate-800 rounded-2xl text-slate-400">
+            <div className="p-8 text-center bg-white dark:bg-[#050914] border border-slate-200 dark:border-slate-800 rounded-2xl text-slate-500 dark:text-slate-400 shadow-xs">
               No hay piezas que coincidan con los filtros seleccionados.
             </div>
           ) : (
             groupedByBrand.map(([brand, brandItems]) => (
-              <div key={brand} className="rounded-2xl bg-[#050914] border border-cyan-500/20 overflow-hidden shadow-md">
+              <div key={brand} className="rounded-2xl bg-white dark:bg-[#050914] border border-slate-200 dark:border-cyan-500/20 overflow-hidden shadow-xs dark:shadow-md">
                 {/* Brand Header */}
-                <div className="bg-[#03060f] px-4 py-2.5 border-b border-cyan-500/20 flex items-center justify-between">
+                <div className="bg-slate-100 dark:bg-[#03060f] px-4 py-2.5 border-b border-slate-200 dark:border-cyan-500/20 flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-cyan-400 font-black text-sm">🚗 {brand}</span>
+                    <span className="text-slate-900 dark:text-cyan-400 font-black text-sm">🚗 {brand}</span>
                   </div>
-                  <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-[10px] font-bold">
+                  <span className="px-2.5 py-0.5 rounded-full bg-cyan-100 text-cyan-800 border border-cyan-200 dark:bg-cyan-500/20 dark:text-cyan-300 dark:border-cyan-500/40 text-[10px] font-bold">
                     {brandItems.length} {brandItems.length === 1 ? 'pieza' : 'piezas'}
                   </span>
                 </div>
@@ -582,7 +582,7 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
-                      <tr className="bg-[#040814]/80 text-slate-400 text-[10px] uppercase border-b border-slate-800">
+                      <tr className="bg-slate-50 dark:bg-[#040814]/80 text-slate-600 dark:text-slate-400 text-[10px] uppercase border-b border-slate-200 dark:border-slate-800">
                         <th className="py-2 px-3">Paleta</th>
                         <th className="py-2 px-3">Año</th>
                         <th className="py-2 px-3">Modelo</th>
@@ -592,65 +592,65 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
                         {showNotes && <th className="py-2 px-3">Notas</th>}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800/40 text-slate-200 text-[11px]">
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40 text-slate-800 dark:text-slate-200 text-[11px]">
                       {brandItems.map((item) => {
                         const isMotor = (item.partType || '').toLowerCase().includes('motor');
                         return (
-                          <tr key={item.id} className="hover:bg-cyan-500/5">
+                          <tr key={item.id} className="hover:bg-cyan-50/50 dark:hover:bg-cyan-500/5">
                             <td className="py-2 px-3">
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/30">
                                 {item.palletNumber || 'S/P'}
                               </span>
                             </td>
-                            <td className="py-2 px-3 font-bold text-amber-300">
+                            <td className="py-2 px-3 font-bold text-amber-800 dark:text-amber-300">
                               <div className="flex flex-col gap-0.5">
                                 <span>{item.year}</span>
                                 {item.isExactYearOnly ? (
-                                  <span className="text-[9px] text-amber-400 font-mono font-normal">Solo {item.year}</span>
+                                  <span className="text-[9px] text-amber-900 dark:text-amber-400 font-mono font-normal">Solo {item.year}</span>
                                 ) : (item.yearFrom || item.yearTo) ? (
-                                  <span className="text-[9px] text-cyan-400 font-mono font-normal">
+                                  <span className="text-[9px] text-cyan-800 dark:text-cyan-400 font-mono font-normal">
                                     {item.yearFrom && item.yearTo ? `${item.yearFrom}-${item.yearTo}` : item.yearFrom ? `≥${item.yearFrom}` : `≤${item.yearTo}`}
                                   </span>
                                 ) : null}
                               </div>
                             </td>
-                            <td className="py-2 px-3 font-bold text-white">
-                              {item.model || <span className="text-slate-500 font-normal italic">Sin modelo</span>}
+                            <td className="py-2 px-3 font-bold text-slate-900 dark:text-white">
+                              {item.model || <span className="text-slate-400 font-normal italic">Sin modelo</span>}
                             </td>
                             <td className="py-2 px-3">
                               <span
                                 className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
                                   isMotor
-                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/30'
+                                    : 'bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/30'
                                 }`}
                               >
                                 {item.partType}
                               </span>
                               {item.engineSpecs && (
-                                <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-200 border border-slate-700">
+                                <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 text-slate-800 border border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700">
                                   {item.engineSpecs}
                                 </span>
                               )}
                             </td>
                             {showVin && (
-                              <td className="py-2 px-3 text-cyan-300 font-mono text-[10px]">
+                              <td className="py-2 px-3 text-cyan-800 dark:text-cyan-300 font-mono text-[10px]">
                                 {item.vin || '—'}
                               </td>
                             )}
                             <td className="py-2 px-3">
                               <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
                                 item.status === 'reservado'
-                                  ? 'bg-amber-500/20 text-amber-300'
+                                  ? 'bg-amber-100 text-amber-900 border border-amber-200 dark:bg-amber-500/20 dark:text-amber-300'
                                   : item.status === 'vendido'
-                                  ? 'bg-blue-500/20 text-blue-300'
-                                  : 'bg-emerald-500/20 text-emerald-300'
+                                  ? 'bg-blue-100 text-blue-800 border border-blue-200 dark:bg-blue-500/20 dark:text-blue-300'
+                                  : 'bg-emerald-100 text-emerald-800 border border-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-300'
                               }`}>
                                 {item.status || 'disponible'}
                               </span>
                             </td>
                             {showNotes && (
-                              <td className="py-2 px-3 text-slate-400 italic text-[10px] max-w-[180px] truncate">
+                              <td className="py-2 px-3 text-slate-500 dark:text-slate-400 italic text-[10px] max-w-[180px] truncate">
                                 {item.notes || '—'}
                               </td>
                             )}
@@ -666,8 +666,8 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
         </div>
 
         {/* Modal Action Footer */}
-        <div className="p-4 bg-[#0a1022] border-t border-cyan-500/20 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
-          <div className="text-xs text-slate-400 font-mono">
+        <div className="p-4 bg-slate-50 dark:bg-[#0a1022] border-t border-slate-200 dark:border-cyan-500/20 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
+          <div className="text-xs text-slate-600 dark:text-slate-400 font-mono">
             {metrics.total} piezas en {metrics.brandsCount} marcas listas para imprimir
           </div>
 
@@ -675,9 +675,9 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
             <button
               type="button"
               onClick={handleExportCsv}
-              className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-mono font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="px-3.5 py-2.5 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-mono font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
             >
-              <span className="material-symbols-outlined text-[16px] text-cyan-400">table_chart</span>
+              <span className="material-symbols-outlined text-[16px] text-cyan-600 dark:text-cyan-400">table_chart</span>
               <span>CSV por Marcas</span>
             </button>
 
@@ -685,7 +685,7 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
               type="button"
               onClick={handlePrint}
               disabled={groupedByBrand.length === 0}
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 text-xs font-mono font-black uppercase tracking-wider flex items-center gap-2 transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] cursor-pointer hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 text-xs font-mono font-black uppercase tracking-wider flex items-center gap-2 transition-all shadow-md dark:shadow-[0_0_20px_rgba(6,182,212,0.4)] cursor-pointer hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span className="material-symbols-outlined text-[18px]">print</span>
               <span>Imprimir Reporte (PDF)</span>
