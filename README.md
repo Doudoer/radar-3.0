@@ -19,6 +19,24 @@ Producción:
 
 https://radar-rsy.store/
 
+### Actualizacion productiva del 2026-11-02
+
+La release `38f7457` se publico por GitHub y fue compilada/desplegada por Dokploy.
+Se conservaron las 28 tablas originales mediante migraciones aditivas, sin
+restaurar la base local ni ejecutar seed. El corte preservo 647 ordenes,
+604 clientes y 7 usuarios; se verificaron los valores originales por fila.
+
+Los adjuntos y respaldos usan binds persistentes en
+`/var/lib/radar-data/uploads` y `/var/lib/radar-data/backups`, no la capa efimera
+del contenedor. No retirar esos mounts en futuros despliegues. La base sigue
+en su volumen existente. Solo Traefik publica la app; el puerto directo 8083
+se retiro. La cuenta de runtime no tiene permisos DDL: futuras migraciones
+requieren una cuenta temporal separada y respaldo/restauracion ensayados.
+
+Ver [informe de seguridad](./SECURITY-REVIEW.md) para validaciones, ubicacion
+privada de respaldos y limites. Sigue pendiente rotar la clave Wasender
+expuesta en el historial; moverla al entorno no revoca la clave anterior.
+
 ## Funcionalidades
 
 - Dashboard operativo con KPIs, actividad y métricas SLA.

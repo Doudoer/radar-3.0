@@ -1,6 +1,6 @@
 # Revision y refuerzo de seguridad - Radar 3.0
 
-Fecha: 2026-11-02. Alcance: copia local aislada en Docker Desktop.
+Fecha: 2026-11-02. Alcance: copia local aislada y despliegue verificado en produccion.
 
 Actualizacion de preparacion de produccion (2026-11-02): se obtuvo el
 repositorio real y se confirmo una clave Wasender expuesta en el historial
@@ -8,21 +8,21 @@ repositorio real y se confirmo una clave Wasender expuesta en el historial
 privado del servidor. Por autorizacion del propietario se conserva
 temporalmente para no interrumpir mensajeria: **su rotacion en el proveedor
 sigue pendiente**. Borrar la clave del ultimo commit no revoca la anterior.
-Se respaldo el VPS y se ensayo la migracion sobre una copia aislada: las
-28 tablas originales conservaron todas sus columnas y valores de filas.
-La publicacion y el corte a produccion requieren verificacion posterior;
-las afirmaciones de validacion local de este informe no certifican ese corte.
+Se respaldo el VPS, se ensayo la migracion sobre una copia aislada y se
+completo el corte a produccion mediante GitHub y Dokploy. Ver resultados
+de produccion al final de este informe.
 
 ## Resultado y limites
 
 Se corrigieron los hallazgos confirmados, se reforzaron los controles compartidos
-y se reconstruyo/desplego la aplicacion local. No se conecto al VPS, no se
-modificaron servicios de produccion y no se cambiaron contrasenas o factores de
-usuarios reales. La validacion activa utilizo exclusivamente datos sinteticos
-en una base desechable.
+y se reconstruyo/desplego la aplicacion local. En esa primera fase no se
+modifico el VPS. Posteriormente se realizo el despliegue autorizado descrito
+al final. No se cambiaron contrasenas o factores de usuarios reales. Las pruebas
+destructivas o de escritura de aceptacion usaron datos sinteticos desechables;
+en produccion se comprobaron lecturas y rechazos sin editar datos de negocio.
 
 Esto reduce riesgos; no demuestra que la aplicacion sea invulnerable ni que el
-VPS este protegido con estas modificaciones. Hay acciones externas pendientes.
+VPS carezca de otros riesgos. Hay acciones externas pendientes.
 
 ## Hallazgos principales y resolucion
 
@@ -67,8 +67,8 @@ Archivos principales: [servidor](./server.ts),
 | Archivos | 10 MiB binarios / 15 MiB JSON, extension-MIME-firma concordantes, base64 valido, nombres aleatorios y permisos privados; sin SVG/ejecutables. Descarga autenticada y sandbox, documentos como adjunto. Avatar raster acotado y URL HTTPS. No incluye antivirus. |
 | Precios / pagos | Importes y precision, abonos, total comercial, estados y saldo reembolsable verificados en servidor; autorizacion y transacciones existentes conservadas. No hay procesador de pagos externo; estos registros no equivalen a verificacion de una transferencia bancaria. |
 | Dependencias | `npm audit --json`: cero vulnerabilidades conocidas reportadas, incluyendo dependencias de desarrollo. No se forzaron actualizaciones innecesarias sin avisos. Eliminados `motion` y `lucide-react`, sin referencias; herramientas de build fuera de dependencias de runtime. |
-| Archivos / Git | Excluidos entornos, respaldos, adjuntos y Git del build; proteccion de rutas publicas comprobada. La copia no incluye `.git`: no fue posible escanear commits ni afirmar que el historial esta limpio. |
-| Revocacion externa | No se encontraron claves de proveedor verificablemente comprometidas en el alcance revisado. No se revocaron credenciales externas ni se sustituyeron claves de produccion sin acceso/autorizacion. Ver pendientes. |
+| Archivos / Git | Excluidos entornos, respaldos, adjuntos y Git del build; proteccion de rutas publicas comprobada. El examen posterior del repositorio real confirmo una clave Wasender en el historial; no se afirma que este limpio. |
+| Revocacion externa | Clave Wasender comprometida retirada del codigo actual, pero conservada temporalmente en el entorno privado por autorizacion del propietario. Falta revocarla/rotarla en el proveedor. No se reescribio el historial Git. |
 
 ## Pruebas ejecutadas
 
@@ -98,25 +98,23 @@ activos, reinicios de factores ni escrituras financieras sobre datos reales.
 No se enviaron notificaciones a terceros. Solo se consultaron metadatos de
 paquetes publicos para las dependencias.
 
-## Acciones pendientes antes de produccion
+## Acciones externas pendientes
 
 1. **Rotar la contrasena root del VPS compartida durante la asistencia** y
    preferir acceso SSH por llave, usuario administrativo no-root y firewall.
    No se realizo esa rotacion desde la copia local.
-2. Obtener el repositorio Git real y escanear todas las referencias, tags y
-   commits. Si hubo claves, revocarlas en cada proveedor aunque se borren del
-   ultimo commit. Revisar tambien copias de seguridad antiguas y archivos
-   excluidos; el escaneo por patrones no prueba que nunca existio una filtracion.
+2. Revocar y rotar la clave Wasender confirmada en el historial. Revisar tambien
+   copias de seguridad antiguas, otras referencias y archivos excluidos;
+   el escaneo por patrones no prueba que nunca existieron otras filtraciones.
 3. Generar secretos exclusivos de produccion mediante un gestor de secretos,
    revisar permisos de `.env` y rotar JWT/DB/Wasender si hay evidencia de
    exposicion. Nunca reutilizar las credenciales de Docker Desktop.
-4. Desplegar estos cambios en una ventana autorizada, con respaldo probado.
-   Comprobar TLS/certificados, renovacion, cabeceras reales, proxy confiable,
-   firewall y que Node/DB no tengan acceso publico. **No se inspecciono el
-   sistema operativo ni la configuracion actual del VPS en esta tarea.**
-5. Aplicar los GRANTS de menor privilegio en produccion con una cuenta
-   migradora separada. Si DB cruza redes no confiables, habilitar TLS con
-   verificacion de certificado y segmentacion; no basta con una variable local.
+4. Mantener revision de renovacion TLS, firewall y sistema operativo. Este
+   despliegue verifico HTTPS, cabeceras, proxy y puertos de la app/DB;
+   no constituye una auditoria integral de todos los servicios del VPS.
+5. Conservar los GRANTS de menor privilegio ya aplicados y usar una cuenta
+   migradora separada en futuros cambios. Si DB cruza redes no confiables,
+   habilitar TLS con verificacion de certificado y segmentacion.
 6. Cifrar disco y respaldos, restringir su custodia y establecer retencion
    operativa. Los dumps completos contienen datos sensibles y material de
    recuperacion de factores por su finalidad; gzip no es cifrado.
@@ -128,5 +126,51 @@ paquetes publicos para las dependencias.
    Incorporar analisis antimalware si se reciben documentos de terceros no
    confiables. Mantener auditorias periodicas, SO y dependencias actualizados.
 
-No se certifican ausencia de intrusiones previas, seguridad de proveedores o
-proteccion efectiva del VPS hasta completar esa validacion de despliegue.
+No se certifican ausencia de intrusiones previas ni seguridad de proveedores.
+
+## Despliegue de produccion verificado
+
+- Sitio: https://radar-rsy.store/. Repositorio `Doudoer/radar-3.0`, rama `main`.
+- Release de aplicacion: `38f745752fa4ace566979042c65cbf4beab91d0f`.
+  Dokploy compilo el checkout de GitHub y Swarm completo el cambio el
+  2026-11-02 a las 20:17 UTC.
+- Se pauso la aplicacion anterior antes del respaldo final. Se restauro ese
+  dump en MariaDB aislada y se comprobo antes de migrar produccion.
+  Solo se aplicaron el baseline explicito y migraciones aditivas 018-021;
+  no se restauro la base local, no se ejecuto seed y no se borraron tablas.
+- Un manifiesto SHA-256 por fila verifico las 28 tablas originales, incluyendo
+  todas sus columnas y valores anteriores: **647 ordenes, 604 clientes,
+  7 usuarios, 38 piezas, 115 reclamos y 6 reembolsos** conservados.
+  Nuevas entradas de auditoria no se confunden con perdida o alteracion.
+- Los 68 archivos originales de uploads y backups se copiaron, verificaron
+  y dejaron en binds persistentes `/var/lib/radar-data/uploads` y
+  `/var/lib/radar-data/backups`. Se comprobaron permisos del usuario no-root
+  UID 1001. Nuevos respaldos automaticos pueden agregar archivos.
+- Respaldos privados y manifiestos:
+  `/root/radar-releases/20261102-security-faea6a95/`.
+  `database.final.sql.gz`, `uploads.final.tar.gz`, `backups.final.tar.gz`
+  y `SHA256SUMS.final` quedaron comprobados. Tambien se conservaron el
+  dump de Dokploy, la configuracion previa y la imagen anterior.
+  No publicar ni compartir este directorio.
+- La cuenta temporal migradora fue eliminada. `radar_app` conserva solo
+  SELECT/INSERT/UPDATE/DELETE sobre la base productiva.
+- Verificados por HTTPS real: salud con DB, frontend, lecturas administrativas
+  de ordenes/clientes/inventario e ingreso diario; rechazo sin autenticacion;
+  finanzas y backups bloqueados sin boveda; origen externo rechazado;
+  `.env` y bundle servidor no publicados. HTTP redirige a HTTPS.
+- CSP sin scripts inline/eval, HSTS y demas cabeceras presentes. Puerto 8083
+  retirado tanto de Swarm como de la configuracion persistente de Dokploy;
+  conexion directa desde Internet rechazada. DB sigue sin puerto publicado.
+- Un intento con `X-Real-IP` falsificado registro la IP real, no la suministrada
+  por el cliente. La pantalla de login se renderizo en navegador real;
+  CSRF devolvio token valido, cookie Secure/HttpOnly/SameSite=Strict invisible
+  para JavaScript y rechazo 403 de login sin cabecera CSRF.
+- Se conservaron las credenciales/factores existentes y la configuracion de
+  mensajeria sin envios sinteticos a clientes. Se detecto un destinatario
+  preexistente no reconocido por WhatsApp; requiere correccion administrativa.
+- Las finanzas antiguas guardadas en el navegador no se borran ni se inventan:
+  la opcion de importar datos locales sigue requiriendo boveda y servidor vacio.
+
+Para recuperacion: pausar escrituras y tomar un nuevo respaldo antes de cualquier
+accion; conservar el esquema ampliado y los binds al volver a la imagen anterior.
+No restaurar el dump anterior sobre ventas recibidas despues del despliegue.
