@@ -1,11 +1,14 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Order, Claim, RefundRequest } from '../types';
 import { apiFetch } from '../services/apiFetch';
+import { financeDateKey, FINANCE_TIME_ZONE, sumMoney } from '../utils/finance';
+import { getWeekRange as businessWeekRange, getMonthRange, parseOrderDate, orderSaleTotal, orderCollection, orderBalance, matchesOrderAdvisor, saleStatuses, quoteStatuses } from '../utils/orderAnalytics';
+export { getMonthRange, parseOrderDate } from '../utils/orderAnalytics';
 
 interface OperationsViewProps {
   orders: Order[];
   onSelectOrder?: (orderId: string) => void;
-  onUpdateOrder?: (order: Order) => void;
+  onUpdateOrder?: (order: Order) => Promise<Order | void>;
   userRole?: 'admin' | 'operador';
   currentUser?: { id?: number; name?: string; email?: string; role?: string } | null;
 }
@@ -17,85 +20,9 @@ interface OperatorInfo {
   email: string;
 }
 
-// Helper: robustly parse order creation date into a JS Date object
-export const parseOrderDate = (order: Order): Date => {
-  if (order.createdAtIso) {
-    const d = new Date(order.createdAtIso);
-    if (!isNaN(d.getTime())) return d;
-  }
-  const raw = (order.createdAt || '').trim();
-  if (!raw) return new Date();
-
-  const now = new Date();
-  if (raw.toLowerCase().startsWith('hoy')) {
-    return new Date();
-  }
-  if (raw.toLowerCase().startsWith('ayer')) {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    return yesterday;
-  }
-
-  const spanishMonths: Record<string, number> = {
-    ene: 0, feb: 1, mar: 2, abr: 3, may: 4, jun: 5,
-    jul: 6, ago: 7, sep: 8, oct: 9, nov: 10, dic: 11,
-    enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5,
-    julio: 6, agosto: 7, septiembre: 8, setiembre: 8, octubre: 9, noviembre: 10, diciembre: 11,
-  };
-
-  const parsed = new Date(raw);
-  if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 2000) {
-    return parsed;
-  }
-
-  // Regex matching "DD [mes] YYYY"
-  const match = raw.match(/(\d{1,2})\s+([a-zA-ZáéíóúÁÉÍÓÚ]+)\.?\s+(\d{4})/i);
-  if (match) {
-    const day = parseInt(match[1], 10);
-    const monthStr = match[2].toLowerCase().slice(0, 3);
-    const year = parseInt(match[3], 10);
-    const month = spanishMonths[monthStr] ?? 0;
-    return new Date(year, month, day, 12, 0, 0);
-  }
-
-  // Regex matching "DD/MM/YYYY" or "YYYY-MM-DD"
-  const slashMatch = raw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (slashMatch) {
-    return new Date(parseInt(slashMatch[3], 10), parseInt(slashMatch[2], 10) - 1, parseInt(slashMatch[1], 10), 12, 0, 0);
-  }
-
-  return new Date();
-};
-
-// Helper: calculate Monday-Sunday week bounds (Lunes 00:00:00 a Domingo 23:59:59)
 export const getWeekRange = (weekOffset = 0) => {
-  const now = new Date();
-  now.setDate(now.getDate() + weekOffset * 7);
-  const day = now.getDay(); // 0 is Sunday, 1 is Monday, ..., 6 is Saturday
-  const diffToMonday = day === 0 ? -6 : 1 - day;
-
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + diffToMonday);
-  monday.setHours(0, 0, 0, 0);
-
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  sunday.setHours(23, 59, 59, 999);
-
-  return { monday, sunday };
-};
-
-// Helper: calculate Month bounds (1st 00:00:00 to last day 23:59:59)
-export const getMonthRange = (monthOffset = 0) => {
-  const now = new Date();
-  now.setMonth(now.getMonth() + monthOffset);
-  const year = now.getFullYear();
-  const month = now.getMonth();
-
-  const start = new Date(year, month, 1, 0, 0, 0, 0);
-  const end = new Date(year, month + 1, 0, 23, 59, 59, 999);
-
-  return { start, end, year, month };
+  const { start, end } = businessWeekRange(weekOffset);
+  return { monday: start, sunday: end };
 };
 
 export const OperationsView: React.FC<OperationsViewProps> = ({
@@ -165,22 +92,22 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
   // Formatted Period Labels
   const periodLabel = useMemo(() => {
     if (periodType === 'semana') {
-      const startStr = weekRange.monday.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
-      const endStr = weekRange.sunday.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+      const startStr = weekRange.monday.toLocaleDateString('es-ES', { timeZone: FINANCE_TIME_ZONE, day: '2-digit', month: 'short' });
+      const endStr = weekRange.sunday.toLocaleDateString('es-ES', { timeZone: FINANCE_TIME_ZONE, day: '2-digit', month: 'short', year: 'numeric' });
       const isCurrent = weekOffset === 0;
       return {
         title: `Semana: Lun ${startStr} — Dom ${endStr}`,
-        subtitle: isCurrent ? 'Semana en curso (Lunes a Domingo)' : 'Semana histórica archivada',
+        subtitle: isCurrent ? 'Semana en curso (Lunes a Domingo)' : 'Semana seleccionada',
         isCurrent,
       };
     }
     if (periodType === 'mes') {
-      const monthName = monthRange.start.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+      const monthName = monthRange.start.toLocaleDateString('es-ES', { timeZone: FINANCE_TIME_ZONE, month: 'long', year: 'numeric' });
       const capitalized = monthName.charAt(0).toUpperCase() + monthName.slice(1);
       const isCurrent = monthOffset === 0;
       return {
         title: `Mes: ${capitalized}`,
-        subtitle: isCurrent ? 'Mes en curso (1 al último día)' : 'Mes histórico auditado',
+        subtitle: isCurrent ? 'Mes en curso (1 al último día)' : 'Mes seleccionado',
         isCurrent,
       };
     }
@@ -212,17 +139,15 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
     );
   }, [operators, selectedOperatorName, currentUser]);
 
-  // Active Main Tabs: 'ventas_periodo' | 'activas' | 'cotizaciones' | 'reclamos_reembolsos'
-  const [activeTab, setActiveTab] = useState<'ventas_periodo' | 'activas' | 'cotizaciones' | 'reclamos_reembolsos'>('ventas_periodo');
+  const [activeTab, setActiveTab] = useState<'ventas_periodo' | 'activas' | 'cotizaciones' | 'reclamos' | 'reembolsos'>('ventas_periodo');
   const [searchTableQuery, setSearchTableQuery] = useState('');
 
   // Transfer Modal State
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [transferSelectedOrder, setTransferSelectedOrder] = useState<Order | null>(null);
-  const [transferStep, setTransferStep] = useState<'select' | 'otp'>('select');
-  const [transferOtpInput, setTransferOtpInput] = useState('');
-  const [generatedOtp, setGeneratedOtp] = useState<string>('');
-  const [otpTimerSeconds, setOtpTimerSeconds] = useState(600);
+  const [transferStep, setTransferStep] = useState<'select' | 'confirm'>('select');
+  const [transferSubmitting, setTransferSubmitting] = useState(false);
+  const transferSubmittingRef = useRef(false);
   const [transferFilterSearch, setTransferFilterSearch] = useState('');
   const [transferError, setTransferError] = useState<string | null>(null);
 
@@ -257,22 +182,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
     if (isSuperAdmin && selectedOperatorName === '__ALL__') {
       return orders;
     }
-    const targetName = selectedOperatorName.trim().toLowerCase();
-    const targetId = currentOperator?.id;
-
-    return orders.filter((o) => {
-      const adv = (o.advisor || '').trim().toLowerCase();
-      if (adv && (adv === targetName || adv.includes(targetName) || targetName.includes(adv))) {
-        return true;
-      }
-      if (o.userId && targetId && targetId !== 'ALL' && String(o.userId) === String(targetId)) {
-        return true;
-      }
-      if ((!o.advisor || o.advisor === 'Sin asignar') && targetName.includes('carlos')) {
-        return true;
-      }
-      return false;
-    });
+    return orders.filter((order) => matchesOrderAdvisor(order, currentOperator.id, selectedOperatorName));
   }, [orders, selectedOperatorName, isSuperAdmin, currentOperator]);
 
   // 5. Date-Filtered Orders for the Active Period
@@ -280,6 +190,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
     return operatorOrders.filter((order) => {
       if (periodType === 'todo') return true;
       const orderDate = parseOrderDate(order);
+      if (!orderDate) return false;
 
       if (periodType === 'semana') {
         return orderDate >= weekRange.monday && orderDate <= weekRange.sunday;
@@ -291,23 +202,14 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
     });
   }, [operatorOrders, periodType, weekRange, monthRange]);
 
-  // Sales Criteria: Confirmed sales with monetary commitment
-  const isSaleStatus = (st: string) => {
-    return (
-      st !== 'cancelado' &&
-      st !== 'cotizacion' &&
-      st !== 'pendiente_aprobacion'
-    );
-  };
-
   // Period Sales (Ventas Concluidas / En Curso del Período)
   const periodSales = useMemo(() => {
-    return periodFilteredOrders.filter((o) => isSaleStatus(o.status));
+    return periodFilteredOrders.filter((o) => saleStatuses.has(o.status));
   }, [periodFilteredOrders]);
 
   // Period Quotes (Cotizaciones del Período)
   const periodQuotes = useMemo(() => {
-    return periodFilteredOrders.filter((o) => o.status === 'cotizacion' || o.status === 'espera_confirmacion');
+    return periodFilteredOrders.filter((o) => quoteStatuses.has(o.status));
   }, [periodFilteredOrders]);
 
   // Active Orders in Execution (Current operational pipeline for this operator)
@@ -346,23 +248,14 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
   // 6. Comprehensive KPIs Calculation
   const kpis = useMemo(() => {
     // 1. Total Facturado en Ventas ($)
-    const salesSum = periodSales.reduce((sum, o) => {
-      const amount = o.financials?.partPrice || o.financials?.total || 0;
-      return sum + amount;
-    }, 0);
+    const salesSum = sumMoney(periodSales.map(orderSaleTotal));
     const salesCount = periodSales.length;
 
     // 2. Anticipos / Cobrado en Mano ($)
-    const downPaymentSum = periodSales.reduce((sum, o) => {
-      const down = o.financials?.downPayment || o.financials?.advancePayment || 0;
-      return sum + down;
-    }, 0);
+    const downPaymentSum = sumMoney(periodSales.map(orderCollection));
 
     // 3. Saldo Pendiente por Cobrar ($)
-    const balanceDueSum = periodSales.reduce((sum, o) => {
-      const bal = o.financials?.balanceDue ?? Math.max(0, (o.financials?.partPrice || o.financials?.total || 0) - (o.financials?.downPayment || o.financials?.advancePayment || 0));
-      return sum + bal;
-    }, 0);
+    const balanceDueSum = sumMoney(periodSales.map(orderBalance));
 
     // 4. Ticket Promedio
     const averageTicket = salesCount > 0 ? salesSum / salesCount : 0;
@@ -372,7 +265,6 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
     const conversionRate = totalRequests > 0 ? (salesCount / totalRequests) * 100 : 0;
 
     // 6. Reembolsos y Reclamos
-    const refundsSum = operatorRefunds.reduce((sum, r) => sum + r.amount, 0);
     const openClaimsCount = operatorClaims.filter(
       (c) => c.status === 'Pending' || c.status === 'In Process'
     ).length;
@@ -385,8 +277,6 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
       averageTicket,
       conversionRate,
       quotesCount: periodQuotes.length,
-      refundsSum,
-      refundsCount: operatorRefunds.length,
       openClaimsCount,
       activeCount: activeOrders.length,
     };
@@ -406,11 +296,12 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
 
     periodSales.forEach((order) => {
       const orderDate = parseOrderDate(order);
-      const dayOfWeek = orderDate.getDay(); // 0 is Sun, 1 is Mon, etc.
+      if (!orderDate) return;
+      const dayOfWeek = new Date(`${financeDateKey(orderDate)}T12:00:00Z`).getUTCDay();
       const found = days.find((d) => d.key === dayOfWeek);
       if (found) {
         found.count += 1;
-        found.amount += order.financials?.partPrice || order.financials?.total || 0;
+        found.amount = sumMoney([found.amount, orderSaleTotal(order)]);
       }
     });
 
@@ -430,7 +321,8 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
 
     periodSales.forEach((order) => {
       const orderDate = parseOrderDate(order);
-      const dayOfMonth = orderDate.getDate();
+      if (!orderDate) return;
+      const dayOfMonth = Number(financeDateKey(orderDate).slice(8, 10));
       let index = 0;
       if (dayOfMonth <= 7) index = 0;
       else if (dayOfMonth <= 14) index = 1;
@@ -439,7 +331,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
       else index = 4;
 
       weeks[index].count += 1;
-      weeks[index].amount += order.financials?.partPrice || order.financials?.total || 0;
+      weeks[index].amount = sumMoney([weeks[index].amount, orderSaleTotal(order)]);
     });
 
     const maxAmount = Math.max(...weeks.map((w) => w.amount), 1);
@@ -454,13 +346,13 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
     let shippingSum = 0;
 
     periodSales.forEach((order) => {
-      const amt = order.financials?.partPrice || order.financials?.total || 0;
+      const amt = orderSaleTotal(order);
       if (order.deliveryType === 'retiro_tienda') {
         storePickupCount += 1;
-        storePickupSum += amt;
+        storePickupSum = sumMoney([storePickupSum, amt]);
       } else {
         shippingCount += 1;
-        shippingSum += amt;
+        shippingSum = sumMoney([shippingSum, amt]);
       }
     });
 
@@ -513,59 +405,52 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
     );
   }, [otherOperatorsOrders, transferFilterSearch]);
 
-  // OTP Timer countdown
-  useEffect(() => {
-    let interval: any;
-    if (transferStep === 'otp' && otpTimerSeconds > 0) {
-      interval = setInterval(() => {
-        setOtpTimerSeconds((prev) => prev - 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [transferStep, otpTimerSeconds]);
-
   const handleStartTransfer = (order: Order) => {
+    if (!isSuperAdmin) return;
     setTransferSelectedOrder(order);
-    const randomOtp = String(Math.floor(100000 + Math.random() * 900000));
-    setGeneratedOtp(randomOtp);
-    setOtpTimerSeconds(600);
-    setTransferOtpInput('');
     setTransferError(null);
-    setTransferStep('otp');
+    setTransferStep('confirm');
   };
 
-  const handleConfirmTransfer = (e: React.FormEvent) => {
+  const handleConfirmTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!transferSelectedOrder) return;
-
-    if (transferOtpInput.trim() !== generatedOtp) {
-      setTransferError('Código OTP incorrecto o expirado. Verifica el código enviado al WhatsApp del creador.');
-      return;
-    }
+    if (!isSuperAdmin || !transferSelectedOrder || transferSubmittingRef.current) return;
 
     const oldAdvisor = transferSelectedOrder.advisor || 'Operador Anterior';
     const targetOp = operators.find((op) => op.name === selectedOperatorName);
+    if (!targetOp || !onUpdateOrder) {
+      setTransferError('Selecciona un operador de destino válido.');
+      return;
+    }
 
     const updatedOrder: any = {
       ...transferSelectedOrder,
       advisor: selectedOperatorName,
-      userId: targetOp ? Number(targetOp.id) : currentUser?.id,
-      notes: `${transferSelectedOrder.notes || ''}\n[${new Date().toLocaleDateString()}] Traspaso de venta transferido de ${oldAdvisor} a ${selectedOperatorName} (Código OTP verificado).`,
+      userId: Number(targetOp.id),
+      advisorRole: targetOp.role,
+      isYardSale: targetOp.role === 'vendedor_yarda',
+      notes: `${transferSelectedOrder.notes || ''}\n[${new Date().toLocaleDateString()}] Reasignación administrativa de ${oldAdvisor} a ${selectedOperatorName}.`,
     };
 
-    if (onUpdateOrder) {
-      onUpdateOrder(updatedOrder);
-    }
-
+    transferSubmittingRef.current = true;
+    setTransferSubmitting(true);
+    setTransferError(null);
+    try {
+      await onUpdateOrder(updatedOrder);
     setIsTransferModalOpen(false);
     setTransferSelectedOrder(null);
     setTransferStep('select');
-    setTransferOtpInput('');
     setTransferError(null);
 
     showToast(
       `🤝 ¡Traspaso Exitoso! La orden ${updatedOrder.code} ($${(updatedOrder.financials?.partPrice || 0).toFixed(2)}) fue transferida a ${selectedOperatorName}.`
     );
+    } catch (error) {
+      setTransferError(error instanceof Error ? error.message : 'No se pudo reasignar la orden.');
+    } finally {
+      transferSubmittingRef.current = false;
+      setTransferSubmitting(false);
+    }
   };
 
   return (
@@ -652,7 +537,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
           )}
 
           {/* Transfer Sales Button */}
-          <button
+          {isSuperAdmin && <button
             type="button"
             onClick={() => {
               setTransferStep('select');
@@ -662,7 +547,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
           >
             <span className="material-symbols-outlined text-[18px]">swap_horiz</span>
             <span>Traspaso de Venta</span>
-          </button>
+          </button>}
 
           {/* Print Performance Report Button */}
           <button
@@ -791,7 +676,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
           <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_10px_#34d399]" />
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-mono font-bold text-emerald-400 uppercase tracking-wider">
-              Facturación Ventas
+              Valor de ventas
             </span>
             <div className="w-7 h-7 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-400/30">
               <span className="material-symbols-outlined text-[16px]">payments</span>
@@ -802,7 +687,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
               ${kpis.salesSum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
             <p className="text-[10px] font-mono text-slate-400 mt-0.5">
-              {kpis.salesCount} {kpis.salesCount === 1 ? 'venta cerrada' : 'ventas cerradas'}
+              {kpis.salesCount} {kpis.salesCount === 1 ? 'orden comercial' : 'órdenes comerciales'}
             </p>
           </div>
         </div>
@@ -823,7 +708,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
               ${kpis.averageTicket.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
             <p className="text-[10px] font-mono text-slate-400 mt-0.5">
-              Por orden facturada
+              Por orden comercial
             </p>
           </div>
         </div>
@@ -833,7 +718,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
           <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-teal-400 to-transparent shadow-[0_0_10px_#2dd4bf]" />
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-mono font-bold text-teal-400 uppercase tracking-wider">
-              Anticipos en Mano
+              Abonos acumulados
             </span>
             <div className="w-7 h-7 rounded-xl bg-teal-500/15 text-teal-400 flex items-center justify-center border border-teal-400/30">
               <span className="material-symbols-outlined text-[16px]">savings</span>
@@ -844,7 +729,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
               ${kpis.downPaymentSum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
             <p className="text-[10px] font-mono text-slate-400 mt-0.5">
-              Abonado en el período
+              Acumulado de estas órdenes
             </p>
           </div>
         </div>
@@ -865,7 +750,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
               ${kpis.balanceDueSum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
             <p className="text-[10px] font-mono text-slate-400 mt-0.5">
-              A liquidar en despacho
+              Saldo actual de estas órdenes
             </p>
           </div>
         </div>
@@ -1039,7 +924,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                 />
               </div>
               <span className="text-[10px] font-mono text-slate-400 block mt-1">
-                Facturado: ${deliveryBreakdown.storePickupSum.toFixed(2)} USD
+                Valor: ${deliveryBreakdown.storePickupSum.toFixed(2)} USD
               </span>
             </div>
 
@@ -1061,7 +946,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                 />
               </div>
               <span className="text-[10px] font-mono text-slate-400 block mt-1">
-                Facturado: ${deliveryBreakdown.shippingSum.toFixed(2)} USD
+                Valor: ${deliveryBreakdown.shippingSum.toFixed(2)} USD
               </span>
             </div>
           </div>
@@ -1131,18 +1016,22 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
 
             <button
               type="button"
-              onClick={() => setActiveTab('reclamos_reembolsos')}
+              onClick={() => setActiveTab('reclamos')}
               className={`px-4 py-2 rounded-2xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center gap-2 ${
-                activeTab === 'reclamos_reembolsos'
+                activeTab === 'reclamos'
                   ? 'bg-red-500/20 border-2 border-red-400 text-red-300 shadow-[0_0_15px_rgba(239,68,68,0.35)]'
                   : 'bg-[#040814] text-slate-400 hover:text-white border border-cyan-500/20'
               }`}
             >
               <span className="material-symbols-outlined text-[16px]">warning</span>
-              <span>4. Reclamaciones & Reembolsos</span>
+              <span>4. Reclamos</span>
               <span className="text-[10px] px-2 py-0.5 rounded-md font-mono font-bold bg-[#02050c] text-white border border-cyan-500/25">
-                {operatorClaims.length + operatorRefunds.length}
+                {operatorClaims.length}
               </span>
+            </button>
+            <button type="button" onClick={() => setActiveTab('reembolsos')}
+              className={`px-4 py-2 rounded-2xl text-xs font-mono font-bold border ${activeTab === 'reembolsos' ? 'border-amber-400 text-amber-300' : 'border-cyan-500/20 text-slate-400'}`}>
+              5. Reembolsos ({operatorRefunds.length})
             </button>
           </div>
 
@@ -1191,9 +1080,9 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                     </tr>
                   ) : (
                     displaySalesList.map((order) => {
-                      const totalAmount = order.financials?.partPrice || order.financials?.total || 0;
-                      const downPayment = order.financials?.downPayment || order.financials?.advancePayment || 0;
-                      const balanceDue = order.financials?.balanceDue ?? Math.max(0, totalAmount - downPayment);
+                      const totalAmount = orderSaleTotal(order);
+                      const downPayment = orderCollection(order);
+                      const balanceDue = orderBalance(order);
                       return (
                         <tr key={order.id} className="hover:bg-[#1e293b]/40 transition-colors">
                           <td className="py-3.5 px-4 font-mono font-bold text-cyan-400">
@@ -1266,14 +1155,14 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                 </span>
                 <span>•</span>
                 <span>
-                  Facturación:{' '}
+                  Valor de ventas:{' '}
                   <strong className="text-emerald-400 text-sm font-bold">
                     ${kpis.salesSum.toFixed(2)} USD
                   </strong>
                 </span>
                 <span>•</span>
                 <span>
-                  Anticipos Cobrados:{' '}
+                  Abonos acumulados:{' '}
                   <strong className="text-teal-400 font-bold">
                     ${kpis.downPaymentSum.toFixed(2)} USD
                   </strong>
@@ -1312,7 +1201,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {activeOrders.map((order) => {
-                  const total = order.financials?.partPrice || order.financials?.total || 0;
+                  const total = orderSaleTotal(order);
                   return (
                     <div
                       key={order.id}
@@ -1397,7 +1286,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                     </tr>
                   ) : (
                     periodQuotes.map((order) => {
-                      const totalAmount = order.financials?.partPrice || order.financials?.total || 0;
+                      const totalAmount = orderSaleTotal(order);
                       return (
                         <tr key={order.id} className="hover:bg-[#1e293b]/40 transition-colors">
                           <td className="py-3.5 px-4 font-mono font-bold text-blue-400">
@@ -1438,11 +1327,10 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
           </div>
         )}
 
-        {/* Tab 4: Reclamaciones & Reembolsos */}
-        {activeTab === 'reclamos_reembolsos' && (
+        {(activeTab === 'reclamos' || activeTab === 'reembolsos') && (
           <div className="p-4 flex flex-col gap-6">
             {/* Reclamos Técnicos */}
-            <div>
+            {activeTab === 'reclamos' && <div>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold text-xs uppercase tracking-wider text-[#f87171] flex items-center gap-1.5 font-mono">
                   <span className="material-symbols-outlined text-[18px]">verified_user</span>
@@ -1498,10 +1386,10 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                   ))}
                 </div>
               )}
-            </div>
+            </div>}
 
             {/* Solicitudes de Reembolso */}
-            <div>
+            {activeTab === 'reembolsos' && <div>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold text-xs uppercase tracking-wider text-[#fbbf24] flex items-center gap-1.5 font-mono">
                   <span className="material-symbols-outlined text-[18px]">currency_exchange</span>
@@ -1552,13 +1440,13 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                   ))}
                 </div>
               )}
-            </div>
+            </div>}
           </div>
         )}
       </div>
 
-      {/* MODAL 1: FLIGHT / SALES TRANSFER WITH OTP */}
-      {isTransferModalOpen && (
+      {/* Administrative reassignment is persisted by the authenticated API. */}
+      {isSuperAdmin && isTransferModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in">
           <div className="bg-[#111827] border border-[#2b3a58] rounded-2xl w-full max-w-2xl max-h-[min(94vh,700px)] shadow-2xl flex flex-col overflow-hidden">
             <div className="p-4 sm:p-5 bg-[#182338] border-b border-[#2b3a58] flex justify-between items-center shrink-0">
@@ -1568,7 +1456,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                 </div>
                 <div>
                   <h3 className="font-bold text-base text-[#f1f5f9]">
-                    Traspaso de Venta Colaborativa con Código OTP
+                    Reasignación administrativa de venta
                   </h3>
                   <p className="text-xs text-[#94a3b8]">
                     Reasigna la autoría a <strong className="text-white">{selectedOperatorName}</strong>.
@@ -1615,7 +1503,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                 ) : (
                   <div className="flex flex-col gap-2.5 max-h-96 overflow-y-auto pr-1 custom-scrollbar">
                     {filteredOtherOrders.map((order) => {
-                      const total = order.financials?.partPrice || order.financials?.total || 0;
+                      const total = orderSaleTotal(order);
                       return (
                         <div
                           key={order.id}
@@ -1664,70 +1552,16 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
               </div>
             )}
 
-            {transferStep === 'otp' && transferSelectedOrder && (
+            {transferStep === 'confirm' && transferSelectedOrder && (
               <form onSubmit={handleConfirmTransfer} className="p-5 sm:p-6 flex flex-col gap-5 flex-1 min-h-0 overflow-y-auto custom-scrollbar">
-                <div className="bg-[#10b981]/10 border border-[#10b981]/40 rounded-xl p-4 flex flex-col gap-2">
-                  <div className="flex items-center justify-between text-xs font-mono">
-                    <div className="flex items-center gap-2 text-emerald-400 font-bold">
-                      <span className="material-symbols-outlined text-[18px]">chat</span>
-                      <span>Notificación WhatsApp Wasender Enviada</span>
-                    </div>
-                    <span className="text-[10px] text-emerald-300">
-                      Tiempo: {Math.floor(otpTimerSeconds / 60)}:{String(otpTimerSeconds % 60).padStart(2, '0')}
-                    </span>
-                  </div>
-
-                  <div className="bg-[#090d16] p-3 rounded-lg border border-[#10b981]/30 font-mono text-xs text-[#cbd5e1] leading-relaxed">
-                    <span className="text-emerald-400 font-bold block mb-1">
-                      [Mensaje Wasender a {transferSelectedOrder.advisor}]:
-                    </span>
-                    "🔒 RADAR OTP: Hola {transferSelectedOrder.advisor}, el especialista{' '}
-                    <strong className="text-white">{selectedOperatorName}</strong> ha solicitado el traspaso de la orden{' '}
-                    <strong className="text-cyan-400">{transferSelectedOrder.code}</strong> ($
-                    {(transferSelectedOrder.financials?.partPrice || 0).toFixed(2)} USD). Tu código de seguridad es:{' '}
-                    <span className="text-emerald-300 font-bold text-sm bg-[#1e293b] px-1.5 py-0.5 rounded">
-                      {generatedOtp}
-                    </span>
-                    ."
-                  </div>
-                </div>
-
-                <div className="flex flex-col items-center gap-2">
-                  <label className="text-xs font-bold text-[#f1f5f9] font-mono">
-                    Código de 6 Dígitos proporcionado por {transferSelectedOrder.advisor} *
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={6}
-                    required
-                    placeholder="000000"
-                    value={transferOtpInput}
-                    onChange={(e) => {
-                      setTransferOtpInput(e.target.value);
-                      setTransferError(null);
-                    }}
-                    className="w-48 bg-[#090d16] border-2 border-cyan-400 rounded-xl text-center font-mono font-black text-2xl py-2 text-white tracking-[0.3em] focus:outline-none focus:shadow-[0_0_20px_rgba(6,182,212,0.4)]"
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => setTransferOtpInput(generatedOtp)}
-                    className="text-[11px] text-cyan-400 hover:underline cursor-pointer font-mono"
-                  >
-                    (Autocompletar código de prueba: {generatedOtp})
-                  </button>
-
-                  {transferError && (
-                    <p className="text-xs text-[#f87171] font-bold bg-[#ef4444]/15 px-3 py-1.5 rounded-lg border border-[#ef4444]/40 mt-1 font-mono">
-                      {transferError}
-                    </p>
-                  )}
-                </div>
+                <p>La orden <strong>{transferSelectedOrder.code}</strong> se reasignará de {transferSelectedOrder.advisor} a <strong>{selectedOperatorName}</strong>. El servidor verificará el rol y la versión de la orden.</p>
+                {transferError && <p role="alert" className="text-red-300">{transferError}</p>}
 
                 <div className="flex items-center justify-between pt-4 border-t border-[#1e293b]">
                   <button
                     type="button"
                     onClick={() => setTransferStep('select')}
+                    disabled={transferSubmitting}
                     className="px-4 py-2 rounded-xl text-xs font-bold text-[#94a3b8] hover:text-white bg-[#090d16] border border-[#1e293b] cursor-pointer font-mono"
                   >
                     ← Volver
@@ -1735,6 +1569,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
 
                   <button
                     type="submit"
+                    disabled={transferSubmitting}
                     className="px-5 py-2.5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-black text-xs transition-all cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)] active:scale-95 flex items-center gap-1.5 font-mono"
                   >
                     <span className="material-symbols-outlined text-[18px]">verified</span>
@@ -1820,7 +1655,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
 
               <div className="grid grid-cols-4 gap-3">
                 <div className="border border-[#e2e8f0] p-3 rounded-xl bg-[#f8fafc] text-center">
-                  <span className="text-[10px] uppercase font-bold text-[#64748b] block">Facturación Total</span>
+                  <span className="text-[10px] uppercase font-bold text-[#64748b] block">Valor de ventas</span>
                   <strong className="text-base font-mono text-[#0f172a]">
                     ${kpis.salesSum.toFixed(2)}
                   </strong>
@@ -1828,7 +1663,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                 </div>
 
                 <div className="border border-[#e2e8f0] p-3 rounded-xl bg-[#f8fafc] text-center">
-                  <span className="text-[10px] uppercase font-bold text-[#64748b] block">Anticipos Cobrados</span>
+                  <span className="text-[10px] uppercase font-bold text-[#64748b] block">Abonos acumulados</span>
                   <strong className="text-base font-mono text-teal-700">
                     ${kpis.downPaymentSum.toFixed(2)}
                   </strong>
@@ -1854,7 +1689,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
 
               <div>
                 <h4 className="font-bold text-xs uppercase text-[#0f172a] mb-2 tracking-wider font-mono">
-                  Detalle de Órdenes Facturadas ({periodSales.length})
+                  Detalle de Órdenes Comerciales ({periodSales.length})
                 </h4>
                 <table className="w-full text-left text-xs border border-[#e2e8f0] border-collapse">
                   <thead className="bg-[#f1f5f9] text-[#475569] uppercase text-[9px] border-b border-[#e2e8f0]">
@@ -1869,7 +1704,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                   </thead>
                   <tbody className="divide-y divide-[#e2e8f0]">
                     {periodSales.map((o) => {
-                      const amount = o.financials?.partPrice || o.financials?.total || 0;
+                      const amount = orderSaleTotal(o);
                       return (
                         <tr key={o.id}>
                           <td className="p-2 font-mono font-bold border-r border-[#e2e8f0]">{o.code}</td>
@@ -1893,7 +1728,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                   <tfoot className="bg-[#f8fafc] font-bold border-t-2 border-[#0f172a]">
                     <tr>
                       <td colSpan={5} className="p-2.5 text-right uppercase text-[10px] font-mono">
-                        Total Facturación del Período:
+                        Valor de ventas del período:
                       </td>
                       <td className="p-2.5 text-right font-mono text-sm text-[#0f172a]">
                         ${kpis.salesSum.toFixed(2)} USD

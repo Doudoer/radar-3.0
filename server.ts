@@ -7,7 +7,17 @@ import { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
-import { pool, port, allowedOrigins, isAllowedLocalOrigin, jwtSecret } from './src/server/config';
+import { pool, port, jwtSecret } from './src/server/config';
+import { clientAddress, isSecureRequest, isUnsafeMethod, issueCsrfToken, rateLimit, requestOriginAllowed, securityHeaders, validCsrfToken } from './src/server/security';
+import { beginIdempotentRequest, finishIdempotentRequest, cents, fail, recordPaymentChange, syncInventory, validateOrder } from './src/server/business';
+import { handleFinanceRequest } from './src/server/finance';
+import { handleAnalyticsRequest } from './src/server/analytics';
+import { inventoryForRole, mapInventoryPartRow } from './src/server/inventory';
+import { matchOrderInventory } from './src/utils/inventoryMatching';
+import { filterInventory, inventoryCsv } from './src/utils/inventoryExport';
+import { financeVaultExpiry, lockFinanceVault, revokeFinanceVaults, unlockFinanceVault } from './src/server/financeVault';
+import { businessDate, businessDaysBetween } from './src/server/businessTime';
+import { startNotificationOutbox } from './src/server/outbox';
 import { clearSessionCookie, isLoginRateLimited, recordLoginFailure, resetLoginAttempts, requireRole, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
 import QRCode from 'qrcode';
 import {
@@ -74,6 +84,7 @@ import {
   updateExternalContact,
   deleteExternalContact,
   dispatchSystemNotification,
+  queueSystemNotification,
   ensureNotificationTables,
   startDailyClaimsReportScheduler,
 } from './src/integrations/wasender/notificationService';
@@ -104,16 +115,6 @@ interface Financial2FAState {
 let activeFinancial2FA: Financial2FAState | null = null;
 const twoFactorFailures = new Map<string, number>();
 
-// In-memory 2FA OTP state for Delivery Date modifications (5 minute expiration)
-interface DeliveryDate2FAState {
-  code: string;
-  expiresAt: number;
-  orderId: number;
-  requestedByUserId: number;
-  targetPhone: string;
-}
-const activeDeliveryDateOtps = new Map<string, DeliveryDate2FAState>();
-
 const MIME_EXTENSION_MAP: Record<string, string[]> = {
   'image/jpeg': ['.jpg', '.jpeg'],
   'image/jpg': ['.jpg', '.jpeg'],
@@ -128,19 +129,19 @@ const MIME_EXTENSION_MAP: Record<string, string[]> = {
 const validateFileMagicBytes = (buffer: Buffer, mimeType: string): boolean => {
   if (buffer.length < 4) return false;
   if (mimeType === 'image/png') {
-    return buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+    return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
   }
   if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
     return buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
   }
   if (mimeType === 'image/gif') {
-    return buffer.slice(0, 4).toString('ascii') === 'GIF8';
+    return ['GIF87a', 'GIF89a'].includes(buffer.subarray(0, 6).toString('ascii'));
   }
   if (mimeType === 'image/webp') {
     return buffer.length >= 12 && buffer.slice(0, 4).toString('ascii') === 'RIFF' && buffer.slice(8, 12).toString('ascii') === 'WEBP';
   }
   if (mimeType === 'application/pdf') {
-    return buffer.slice(0, 4).toString('ascii') === '%PDF';
+    return buffer.subarray(0, 5).toString('ascii') === '%PDF-';
   }
   if (mimeType === 'text/plain' || mimeType === 'text/csv') {
     return !buffer.includes(0x00);
@@ -184,27 +185,6 @@ const mapCustomerRow = (row: RowDataPacket) => {
   };
 };
 
-const mapInventoryPartRow = (row: RowDataPacket) => {
-  return {
-    id: String(row.id),
-    year: String(row.year || ''),
-    yearFrom: row.year_from ? String(row.year_from) : '',
-    yearTo: row.year_to ? String(row.year_to) : '',
-    isExactYearOnly: Boolean(row.is_exact_year_only),
-    brand: row.brand || '',
-    model: row.model || '',
-    partType: row.part_type || 'Motor',
-    vin: row.vin || '',
-    palletNumber: row.pallet_number || '',
-    engineSpecs: row.engine_specs || '',
-    status: (row.status || 'disponible').toLowerCase(),
-    notes: row.notes || '',
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    soldAt: row.sold_at || null,
-  };
-};
-
 // ============================================================================
 // REAL-TIME SERVER-SENT EVENTS (SSE) BROADCASTER
 // ============================================================================
@@ -212,12 +192,18 @@ interface RealtimeSSEClient {
   id: string;
   userId?: number | string;
   response: ServerResponse;
+  claims: Claims;
 }
 const realtimeClients = new Set<RealtimeSSEClient>();
 
 export const broadcastRealtimeEvent = (eventType: string, data: Record<string, unknown> = {}) => {
   const payload = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const client of realtimeClients) {
+    if (Number(client.claims.exp) * 1000 <= Date.now()) {
+      client.response.end();
+      realtimeClients.delete(client);
+      continue;
+    }
     try {
       client.response.write(payload);
     } catch {
@@ -227,11 +213,18 @@ export const broadcastRealtimeEvent = (eventType: string, data: Record<string, u
 };
 
 // Periodic keep-alive ping for SSE connections (every 25 seconds)
-setInterval(() => {
+setInterval(async () => {
   for (const client of realtimeClients) {
     try {
+      if (Number(client.claims.exp) * 1000 <= Date.now() || !await userIsActive(client.claims)) {
+        client.response.end();
+        realtimeClients.delete(client);
+        continue;
+      }
       client.response.write(':keep-alive\n\n');
-    } catch {
+    } catch (error) {
+      console.error('[SSE] No fue posible verificar la sesion:', error);
+      client.response.end();
       realtimeClients.delete(client);
     }
   }
@@ -242,52 +235,68 @@ const server = createServer(async (request, response) => {
     if (!response.headersSent) response.writeHead(408).end();
     request.destroy();
   });
-  const pathname = new URL(request.url || '/', 'http://localhost').pathname;
-  const origin = request.headers.origin;
-  const allowedOrigin = (typeof origin === 'string' && allowedOrigins.has(origin)) || isAllowedLocalOrigin(origin)
-    ? origin
-    : undefined;
-
-  if (allowedOrigin) response.setHeader('Access-Control-Allow-Origin', allowedOrigin);
-  response.setHeader('Vary', 'Origin');
-  if (allowedOrigin) response.setHeader('Access-Control-Allow-Credentials', 'true');
-  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  response.setHeader('X-Content-Type-Options', 'nosniff');
-  response.setHeader('X-Frame-Options', 'DENY');
-  response.setHeader('Referrer-Policy', 'no-referrer');
-  response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  const devConnectSrc = process.env.NODE_ENV === 'production'
-    ? "connect-src 'self' https://vpic.nhtsa.dot.gov"
-    : "connect-src 'self' https://vpic.nhtsa.dot.gov http://localhost:* http://127.0.0.1:* ws: wss:";
-  response.setHeader('Content-Security-Policy', `default-src 'self'; ${devConnectSrc}; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`);
-  if (process.env.NODE_ENV === 'production') {
-    response.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  securityHeaders(request, response);
+  let pathname: string;
+  try {
+    pathname = new URL(request.url || '/', 'http://localhost').pathname;
+  } catch {
+    return sendJson(response, 400, { message: 'Ruta invalida' });
   }
-  if (request.method === 'OPTIONS') return response.end();
+  response.once('finish', () => {
+    if ([401, 403, 429].includes(response.statusCode) && pathname.startsWith('/api/')) {
+      const ipAddress = clientAddress(request);
+      if (rateLimit(`denied-alert:${ipAddress}`, 3, 60_000) === 0) {
+        void recordAuditLog(pool, { action: 'SECURITY_ALERT_TRIGGERED', resourceType: 'http',
+          details: { method: request.method, path: pathname.slice(0, 200), status: response.statusCode }, ipAddress });
+      }
+    }
+  });
 
   try {
+    if (process.env.NODE_ENV === 'production' && pathname !== '/health' && !isSecureRequest(request)) {
+      return sendJson(response, 426, { message: 'HTTPS es obligatorio' });
+    }
+    const ipAddress = clientAddress(request);
+    if (pathname.startsWith('/api/') || pathname.startsWith('/uploads/')) {
+      const retryAfter = rateLimit(`requests:${ipAddress}`, 600, 60_000);
+      if (retryAfter) {
+        response.setHeader('Retry-After', retryAfter);
+        if (rateLimit(`rate-alert:${ipAddress}`, 1, 60_000) === 0) {
+          void recordAuditLog(pool, { action: 'SECURITY_ALERT_TRIGGERED', resourceType: 'http', details: { reason: 'REQUEST_RATE_LIMIT' }, ipAddress });
+        }
+        return sendJson(response, 429, { message: 'Demasiadas peticiones. Espera antes de volver a intentar.' });
+      }
+      if (!requestOriginAllowed(request)) {
+        if (rateLimit(`origin-alert:${ipAddress}`, 1, 60_000) === 0) {
+          void recordAuditLog(pool, { action: 'SECURITY_ALERT_TRIGGERED', resourceType: 'http', details: { reason: 'ORIGIN_REJECTED' }, ipAddress });
+        }
+        return sendJson(response, 403, { code: 'ORIGIN_REJECTED', message: 'Origen no autorizado' });
+      }
+      if (request.method === 'OPTIONS') return response.writeHead(204).end();
+      if (isUnsafeMethod(request.method) && !validCsrfToken(request)) {
+        if (rateLimit(`csrf-alert:${ipAddress}`, 1, 60_000) === 0) {
+          void recordAuditLog(pool, { action: 'SECURITY_ALERT_TRIGGERED', resourceType: 'http', details: { reason: 'CSRF_REJECTED' }, ipAddress });
+        }
+        return sendJson(response, 403, { code: 'CSRF_INVALID', message: 'Verificacion de seguridad invalida. Recarga e intenta de nuevo.' });
+      }
+    }
+    if (request.method === 'GET' && pathname === '/api/auth/csrf') {
+      if (!jwtSecret) return sendJson(response, 503, { message: 'Autenticacion no configurada' });
+      return sendJson(response, 200, { token: issueCsrfToken(request, response) });
+    }
     if (request.method === 'GET' && pathname === '/health') {
       await pool.query('SELECT 1');
       return sendJson(response, 200, { ok: true, service: 'radar-3.0-api', database: 'connected' });
     }
 
     if (request.method === 'GET' && pathname === '/api/events') {
-      let claims = verifyToken(request);
-      if (!claims && jwtSecret) {
-        const urlObj = new URL(request.url || '/', 'http://localhost');
-        const tokenParam = urlObj.searchParams.get('token');
-        if (tokenParam) {
-          try {
-            claims = jwt.verify(tokenParam, jwtSecret) as Claims;
-          } catch {
-            claims = null;
-          }
-        }
-      }
+      const claims = verifyToken(request);
 
-      if (!claims) {
+      if (!claims || !await userIsActive(claims)) {
         return sendJson(response, 401, { ok: false, message: 'No autenticado para eventos en tiempo real' });
+      }
+      if (realtimeClients.size >= 200 || [...realtimeClients].filter(client => String(client.userId) === String(claims.sub)).length >= 5) {
+        return sendJson(response, 429, { message: 'Demasiadas conexiones de eventos abiertas' });
       }
 
       // Disable request/socket timeouts for long-lived streaming connection
@@ -305,6 +314,7 @@ const server = createServer(async (request, response) => {
         id: crypto.randomUUID(),
         userId: claims.sub,
         response,
+        claims,
       };
       realtimeClients.add(client);
 
@@ -318,7 +328,7 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && pathname === '/api/auth/login') {
       if (!jwtSecret) return sendJson(response, 503, { message: 'JWT_SECRET no está configurado' });
-      const ip = request.socket.remoteAddress || 'unknown';
+      const ip = clientAddress(request);
       const userAgent = request.headers['user-agent'] || null;
       if (isLoginRateLimited(ip)) {
         void recordAuditLog(pool, {
@@ -332,15 +342,18 @@ const server = createServer(async (request, response) => {
       }
       const credentials = loginSchema.parse(await readBody(request));
       const email = credentials.email.toLowerCase();
+      const accountKey = `account:${email}`;
+      if (isLoginRateLimited(accountKey)) return sendJson(response, 429, { message: 'Demasiados intentos. Intenta mas tarde.' });
       const password = credentials.password;
       const [rows] = await pool.query<RowDataPacket[]>(
-        'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, password FROM users WHERE email = ? AND deleted_at IS NULL LIMIT 1',
+        'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, password, session_version FROM users WHERE email = ? AND deleted_at IS NULL LIMIT 1',
         [email]
       );
       const user = rows[0];
       const validPassword = user ? await bcrypt.compare(password, String(user.password || '')) : false;
       if (!user || !validPassword || !user.active) {
         recordLoginFailure(ip);
+        recordLoginFailure(accountKey);
         void recordAuditLog(pool, {
           username: email,
           action: 'LOGIN_FAILED',
@@ -352,7 +365,8 @@ const server = createServer(async (request, response) => {
         return sendJson(response, 401, { message: 'Correo o contraseña incorrectos' });
       }
       resetLoginAttempts(ip);
-      const token = jwt.sign({ sub: user.id, role: user.role, email: user.email }, jwtSecret, { expiresIn: '8h' });
+      resetLoginAttempts(accountKey);
+      const token = jwt.sign({ sub: user.id, role: user.role, email: user.email, sessionVersion: Number(user.session_version) }, jwtSecret, { expiresIn: '8h' });
       setSessionCookie(response, token);
       void recordAuditLog(pool, {
         userId: user.id,
@@ -379,7 +393,9 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && pathname === '/api/auth/logout') {
       const maybeClaims = verifyToken(request);
-      if (maybeClaims?.sub) {
+      if (maybeClaims?.sub && await userIsActive(maybeClaims)) {
+        await pool.execute('UPDATE users SET session_version=session_version+1 WHERE id=?', [maybeClaims.sub]);
+        revokeFinanceVaults(maybeClaims.sub);
         void recordAuditLog(pool, {
           userId: Number(maybeClaims.sub),
           username: maybeClaims.email,
@@ -390,12 +406,14 @@ const server = createServer(async (request, response) => {
         });
       }
       clearSessionCookie(response);
+      lockFinanceVault(request, response);
       return sendJson(response, 200, { ok: true });
     }
 
     if (request.method === 'GET' && pathname === '/api/auth/me') {
       const claims = verifyToken(request);
       if (!claims?.sub) return sendJson(response, 401, { message: 'Sesión no válida' });
+      if (!await userIsActive(claims)) return sendJson(response, 401, { message: 'Sesión revocada' });
       const [rows] = await pool.query<RowDataPacket[]>(
         'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
         [claims.sub]
@@ -412,20 +430,57 @@ const server = createServer(async (request, response) => {
         : sendJson(response, 401, { message: 'Usuario inactivo' });
     }
 
-    const isPublicApiPath = pathname.startsWith('/api/uploads/backups/');
-    const authenticatedClaims = pathname.startsWith('/api/') ? verifyToken(request) as Claims | null : null;
-    if (pathname.startsWith('/api/') && !isPublicApiPath && !authenticatedClaims) {
+    const isPublicApiPath = false;
+    const protectedPath = pathname.startsWith('/api/') || pathname.startsWith('/uploads/');
+    const authenticatedClaims = protectedPath ? verifyToken(request) as Claims | null : null;
+    if (protectedPath && !isPublicApiPath && !authenticatedClaims) {
       return sendJson(response, 401, { message: 'Autenticación requerida' });
     }
 
     if (authenticatedClaims?.sub) {
       if (!await userIsActive(authenticatedClaims)) return sendJson(response, 401, { message: 'Sesión no válida o revocada' });
     }
+    if (['GET', 'HEAD'].includes(request.method || '') && pathname.startsWith('/uploads/backups/')) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      response.writeHead(308, { Location: `/api${pathname}`, 'Cache-Control': 'no-store' });
+      return response.end();
+    }
+    const sensitiveSystemPath = pathname.startsWith('/api/system/') ||
+      pathname.startsWith('/api/uploads/backups/') || pathname.startsWith('/uploads/backups/');
+    const userManagementWrite = /^\/api\/users(?:\/\d+)?$/.test(pathname) && isUnsafeMethod(request.method);
+    if (sensitiveSystemPath || userManagementWrite) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      if (!financeVaultExpiry(request, authenticatedClaims)) {
+        return sendJson(response, 403, { code: 'FINANCE_LOCKED', message: 'Desbloquea la boveda antes de acceder a respaldos, auditoria o administrar usuarios' });
+      }
+    }
+    if (authenticatedClaims?.sub && isUnsafeMethod(request.method)) {
+      const sensitive = pathname.startsWith('/api/auth/') || pathname.includes('/backup') || pathname === '/api/upload' || pathname.startsWith('/api/wasender/');
+      const retryAfter = rateLimit(`writes:${sensitive ? 'sensitive' : 'general'}:${authenticatedClaims.sub}`, sensitive ? 30 : 120, 60_000);
+      if (retryAfter) {
+        response.setHeader('Retry-After', retryAfter);
+        return sendJson(response, 429, { message: 'Demasiadas operaciones. Espera un minuto antes de continuar.' });
+      }
+    }
+    if (await handleAnalyticsRequest(request, response, pathname, authenticatedClaims)) return;
+    if (await handleFinanceRequest(request, response, pathname, authenticatedClaims)) return;
+    if (pathname === '/api/auth/2fa/vault' && request.method === 'GET') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const expiresAt = financeVaultExpiry(request, authenticatedClaims);
+      return sendJson(response, 200, { unlocked: Boolean(expiresAt), expiresAt });
+    }
+    if (pathname === '/api/auth/2fa/lock' && request.method === 'POST') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      lockFinanceVault(request, response);
+      return sendJson(response, 200, { ok: true });
+    }
 
     // ==========================================
     // 2FA OTP SECURITY GATE (RELACIÓN SEMANAL & FINANZAS)
     // ==========================================
     if (authenticatedClaims?.sub && request.method === 'POST' && pathname === '/api/auth/2fa/request-otp') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      if (!wasender.configured || wasender.isTestMode) return sendJson(response, 503, { message: 'WhatsApp no esta disponible como factor seguro en esta instalacion. Usa Authenticator o un codigo de respaldo existente.' });
       const now = Date.now();
       if (activeFinancial2FA && (now - activeFinancial2FA.requestedAt) < 5000 && !activeFinancial2FA.used) {
         const remaining = Math.max(1, Math.ceil((activeFinancial2FA.expiresAt - now) / 1000));
@@ -444,7 +499,8 @@ const server = createServer(async (request, response) => {
         "SELECT id, name, phone FROM users WHERE role = 'admin' AND active = 1 AND deleted_at IS NULL ORDER BY id ASC LIMIT 1"
       );
       const adminUser = adminRows[0];
-      const targetPhone = adminUser?.phone ? formatWasenderPhone(adminUser.phone) : (wasender.designatedTestPhone || '+584127307933');
+      if (!adminUser?.phone) return sendJson(response, 409, { message: 'No hay teléfono administrativo configurado' });
+      const targetPhone = formatWasenderPhone(adminUser.phone);
 
       // 3. Store active 2FA state with strictly 1-minute (60s) expiration and single-use flag
       activeFinancial2FA = {
@@ -476,14 +532,18 @@ const server = createServer(async (request, response) => {
         }
       }
 
-      console.log(`[2FA OTP] PIN transmitido al Super Admin (${targetPhone}): ${otpCode} (expira en 60s)`);
+      console.log('[2FA OTP] Solicitud de código procesada; no se registra el secreto');
+      if (!dispatched) {
+        activeFinancial2FA = null;
+        return sendJson(response, 503, { message: 'No se pudo enviar el código por WhatsApp. La bóveda permanece bloqueada.' });
+      }
 
       void recordAuditLog(pool, {
         userId: Number(authenticatedClaims.sub),
         username: authenticatedClaims.email,
         action: '2FA_REQUESTED',
         resourceType: '2fa',
-        details: { targetPhoneMasked: '+58 412-***7933' },
+        details: { targetPhoneMasked: `***${targetPhone.slice(-4)}` },
         ipAddress: request.socket.remoteAddress || 'unknown',
         userAgent: request.headers['user-agent'] || null,
       });
@@ -491,10 +551,10 @@ const server = createServer(async (request, response) => {
       return sendJson(response, 200, {
         ok: true,
         dispatched,
-        message: 'Código de verificación transmitido por WhatsApp al Super Admin (+58 412-***7933)',
+        message: 'Código de verificación enviado al administrador por WhatsApp',
         cooldownSeconds: 60,
         expiresInSeconds: 60,
-        targetPhoneMasked: '+58 412-***7933',
+        targetPhoneMasked: `***${targetPhone.slice(-4)}`,
         warning,
       });
     }
@@ -504,6 +564,7 @@ const server = createServer(async (request, response) => {
     // ==========================================
     if (authenticatedClaims?.sub && request.method === 'GET' && pathname === '/api/auth/2fa/totp-setup') {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      if (!financeVaultExpiry(request, authenticatedClaims)) return sendJson(response, 403, { message: 'Desbloquea la bóveda antes de consultar la configuración de autenticación' });
 
       const [userRows] = await pool.query<RowDataPacket[]>(
         'SELECT id, name, email, totp_secret, backup_codes FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
@@ -557,12 +618,18 @@ const server = createServer(async (request, response) => {
 
     if (authenticatedClaims?.sub && request.method === 'POST' && pathname === '/api/auth/2fa/backup-codes-reset') {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      if (!financeVaultExpiry(request, authenticatedClaims)) return sendJson(response, 403, { message: 'Desbloquea la bóveda antes de regenerar códigos' });
 
       const newBackupCodes = generateBackupCodes(8);
       await pool.execute('UPDATE users SET backup_codes = ? WHERE id = ?', [
         JSON.stringify(newBackupCodes),
         authenticatedClaims.sub,
       ]);
+      revokeFinanceVaults(authenticatedClaims.sub);
+      lockFinanceVault(request, response);
+      if (activeFinancial2FA?.requestedByUserId === Number(authenticatedClaims.sub)) activeFinancial2FA = null;
+      void recordAuditLog(pool, { userId: Number(authenticatedClaims.sub), action: '2FA_FACTOR_CHANGED',
+        resourceType: '2fa', details: { method: 'backup_codes' }, ipAddress: clientAddress(request) });
 
       return sendJson(response, 200, {
         ok: true,
@@ -573,9 +640,15 @@ const server = createServer(async (request, response) => {
 
     if (authenticatedClaims?.sub && request.method === 'POST' && pathname === '/api/auth/2fa/totp-reset') {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      if (!financeVaultExpiry(request, authenticatedClaims)) return sendJson(response, 403, { message: 'Desbloquea la bóveda antes de cambiar Authenticator' });
 
       const newSecret = generateTotpSecret(20);
       await pool.execute('UPDATE users SET totp_secret = ? WHERE id = ?', [newSecret, authenticatedClaims.sub]);
+      revokeFinanceVaults(authenticatedClaims.sub);
+      lockFinanceVault(request, response);
+      if (activeFinancial2FA?.requestedByUserId === Number(authenticatedClaims.sub)) activeFinancial2FA = null;
+      void recordAuditLog(pool, { userId: Number(authenticatedClaims.sub), action: '2FA_FACTOR_CHANGED',
+        resourceType: '2fa', details: { method: 'totp' }, ipAddress: clientAddress(request) });
 
       const [userRows] = await pool.query<RowDataPacket[]>(
         'SELECT name, email FROM users WHERE id = ? LIMIT 1',
@@ -600,16 +673,21 @@ const server = createServer(async (request, response) => {
     }
 
     if (authenticatedClaims?.sub && request.method === 'POST' && pathname === '/api/auth/2fa/verify-otp') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
       const data = verifyOtpSchema.parse(await readBody(request));
       const cleanCode = data.code.trim();
       const now = Date.now();
-      const ip = request.socket.remoteAddress || 'unknown';
+      const ip = clientAddress(request);
       const userAgent = request.headers['user-agent'] || null;
       const userKey = String(authenticatedClaims.sub);
+      if ((twoFactorFailures.get(userKey) || 0) >= 5) {
+        return sendJson(response, 429, { message: 'Demasiados intentos. Espera antes de volver a verificar.' });
+      }
 
       const handleFailed2FA = (reason: string) => {
         const failCount = (twoFactorFailures.get(userKey) || 0) + 1;
         twoFactorFailures.set(userKey, failCount);
+        if (failCount === 1) setTimeout(() => twoFactorFailures.delete(userKey), 15 * 60 * 1000).unref();
 
         void recordAuditLog(pool, {
           userId: Number(authenticatedClaims.sub),
@@ -655,17 +733,6 @@ const server = createServer(async (request, response) => {
         verifiedViaTotp = true;
       }
 
-      if (!verifiedViaTotp) {
-        // Fallback: check any active admin user's totp_secret
-        const [adminRows] = await pool.query<RowDataPacket[]>(
-          "SELECT totp_secret FROM users WHERE role = 'admin' AND active = 1 AND totp_secret IS NOT NULL AND deleted_at IS NULL ORDER BY id ASC LIMIT 1"
-        );
-        const adminSecret = adminRows[0]?.totp_secret;
-        if (adminSecret && verifyTotpCode(adminSecret, cleanCode, 1, now)) {
-          verifiedViaTotp = true;
-        }
-      }
-
       if (verifiedViaTotp) {
         twoFactorFailures.delete(userKey);
         if (activeFinancial2FA) {
@@ -684,60 +751,52 @@ const server = createServer(async (request, response) => {
 
         // Renovar cookie de sesión fresca al verificar 2FA
         const refreshedToken = jwt.sign(
-          { sub: authenticatedClaims.sub, role: authenticatedClaims.role, email: authenticatedClaims.email },
+          { sub: authenticatedClaims.sub, role: authenticatedClaims.role, email: authenticatedClaims.email, sessionVersion: authenticatedClaims.sessionVersion },
           jwtSecret,
           { expiresIn: '8h' }
         );
         setSessionCookie(response, refreshedToken);
+        const expiresAt = unlockFinanceVault(response, authenticatedClaims, refreshedToken);
 
         return sendJson(response, 200, {
           ok: true,
           verified: true,
           method: 'totp',
+          expiresAt,
           message: 'Bóveda financiera 2FA desbloqueada exitosamente mediante Google Authenticator.',
         });
       }
 
       // 2. Check if code matches an Emergency Backup Security Code (One-time use)
       let verifiedViaBackup = false;
-      let redeemedBackupCode: string | undefined;
 
       const checkAndRedeemBackupCode = async (targetUser: RowDataPacket) => {
         if (!targetUser?.backup_codes) return false;
+        const connection = await pool.getConnection();
         try {
-          const parsedCodes: BackupCodeItem[] = typeof targetUser.backup_codes === 'string'
-            ? JSON.parse(targetUser.backup_codes)
-            : targetUser.backup_codes;
-          const { valid, updatedCodes, matchedCode } = verifyAndConsumeBackupCode(parsedCodes, cleanCode);
+          await connection.beginTransaction();
+          const [rows] = await connection.query<RowDataPacket[]>('SELECT backup_codes FROM users WHERE id=? FOR UPDATE', [targetUser.id]);
+          const storedCodes = rows[0]?.backup_codes;
+          const parsedCodes: BackupCodeItem[] = typeof storedCodes === 'string' ? JSON.parse(storedCodes) : storedCodes;
+          const { valid, updatedCodes } = verifyAndConsumeBackupCode(parsedCodes, cleanCode);
           if (valid) {
-            await pool.execute('UPDATE users SET backup_codes = ? WHERE id = ?', [
+            await connection.execute('UPDATE users SET backup_codes = ? WHERE id = ?', [
               JSON.stringify(updatedCodes),
               targetUser.id,
             ]);
-            redeemedBackupCode = matchedCode;
+            await connection.commit();
             return true;
           }
+          await connection.rollback();
         } catch (err) {
-          console.error('[2FA Backup Code] Parse or consumption error:', err);
-        }
+          await connection.rollback();
+          throw err;
+        } finally { connection.release(); }
         return false;
       };
 
       if (callerUser && await checkAndRedeemBackupCode(callerUser)) {
         verifiedViaBackup = true;
-      }
-
-      if (!verifiedViaBackup) {
-        // Fallback: check any active admin user's backup codes
-        const [adminRows] = await pool.query<RowDataPacket[]>(
-          "SELECT id, backup_codes FROM users WHERE role = 'admin' AND active = 1 AND backup_codes IS NOT NULL AND deleted_at IS NULL ORDER BY id ASC LIMIT 5"
-        );
-        for (const adminRow of adminRows) {
-          if (await checkAndRedeemBackupCode(adminRow)) {
-            verifiedViaBackup = true;
-            break;
-          }
-        }
       }
 
       if (verifiedViaBackup) {
@@ -751,23 +810,25 @@ const server = createServer(async (request, response) => {
           username: authenticatedClaims.email,
           action: '2FA_VERIFIED',
           resourceType: '2fa',
-          details: { verified: true, method: 'backup_security_code', code: redeemedBackupCode },
+          details: { verified: true, method: 'backup_security_code' },
           ipAddress: ip,
           userAgent,
         });
 
         // Renovar cookie de sesión fresca al verificar 2FA con código de respaldo
         const refreshedToken = jwt.sign(
-          { sub: authenticatedClaims.sub, role: authenticatedClaims.role, email: authenticatedClaims.email },
+          { sub: authenticatedClaims.sub, role: authenticatedClaims.role, email: authenticatedClaims.email, sessionVersion: authenticatedClaims.sessionVersion },
           jwtSecret,
           { expiresIn: '8h' }
         );
         setSessionCookie(response, refreshedToken);
+        const expiresAt = unlockFinanceVault(response, authenticatedClaims, refreshedToken);
 
         return sendJson(response, 200, {
           ok: true,
           verified: true,
           method: 'backup_code',
+          expiresAt,
           message: 'Bóveda financiera 2FA desbloqueada exitosamente mediante Código de Respaldo de Emergencia.',
         });
       }
@@ -782,7 +843,7 @@ const server = createServer(async (request, response) => {
         });
       }
 
-      if (activeFinancial2FA.used) {
+      if (activeFinancial2FA.used || activeFinancial2FA.requestedByUserId !== Number(authenticatedClaims.sub)) {
         handleFailed2FA('Código ya utilizado');
         return sendJson(response, 400, {
           ok: false,
@@ -825,16 +886,18 @@ const server = createServer(async (request, response) => {
 
       // Renovar cookie de sesión fresca al verificar 2FA con WhatsApp
       const refreshedToken = jwt.sign(
-        { sub: authenticatedClaims.sub, role: authenticatedClaims.role, email: authenticatedClaims.email },
+        { sub: authenticatedClaims.sub, role: authenticatedClaims.role, email: authenticatedClaims.email, sessionVersion: authenticatedClaims.sessionVersion },
         jwtSecret,
         { expiresIn: '8h' }
       );
       setSessionCookie(response, refreshedToken);
+      const expiresAt = unlockFinanceVault(response, authenticatedClaims, refreshedToken);
 
       return sendJson(response, 200, {
         ok: true,
         verified: true,
         method: 'whatsapp',
+        expiresAt,
         message: 'Sesión financiera 2FA desbloqueada exitosamente.',
       });
     }
@@ -843,6 +906,21 @@ const server = createServer(async (request, response) => {
 
       const payload = userProfileUpdateSchema.parse(await readBody(request));
       const currentUserId = authenticatedClaims.sub;
+      const [currentRows] = await pool.query<RowDataPacket[]>(
+        'SELECT email,phone,password FROM users WHERE id=? AND deleted_at IS NULL LIMIT 1', [currentUserId],
+      );
+      if (!currentRows[0]) return sendJson(response, 404, { message: 'Usuario no encontrado' });
+      const phoneChanged = (payload.phone?.trim() || '') !== (currentRows[0].phone || '');
+      const emailChanged = payload.email.toLowerCase() !== currentRows[0].email.toLowerCase();
+      const factorChanged = authenticatedClaims.role === 'admin' && phoneChanged;
+      if (factorChanged && !financeVaultExpiry(request, authenticatedClaims)) {
+        return sendJson(response, 403, { code: 'FINANCE_LOCKED', message: 'Desbloquea la boveda con tu factor actual antes de cambiar el telefono de seguridad' });
+      }
+      if (payload.newPassword || emailChanged || factorChanged) {
+        if (!payload.currentPassword || !await bcrypt.compare(payload.currentPassword, String(currentRows[0].password))) {
+          return sendJson(response, 400, { message: 'Confirma tu contraseña actual para cambiar correo, contraseña o telefono de seguridad' });
+        }
+      }
 
       const [existing] = await pool.query<RowDataPacket[]>(
         'SELECT id FROM users WHERE email = ? AND id != ? AND deleted_at IS NULL LIMIT 1',
@@ -853,7 +931,7 @@ const server = createServer(async (request, response) => {
       }
 
       let passwordClause = '';
-      const params: any[] = [
+      const params: (string | number | null)[] = [
         payload.name,
         payload.email.toLowerCase(),
         payload.phone ? payload.phone.trim() : null,
@@ -861,18 +939,12 @@ const server = createServer(async (request, response) => {
       ];
 
       if (payload.newPassword) {
-        if (!payload.currentPassword) {
-          return sendJson(response, 400, { message: 'Debes ingresar tu contraseña actual para cambiarla' });
-        }
-        const [userRows] = await pool.query<RowDataPacket[]>('SELECT password FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1', [currentUserId]);
-        if (!userRows[0]) return sendJson(response, 404, { message: 'Usuario no encontrado' });
-        const valid = await bcrypt.compare(payload.currentPassword, String(userRows[0].password || ''));
-        if (!valid) return sendJson(response, 400, { message: 'La contraseña actual no es correcta' });
-
-        const newHash = await bcrypt.hash(payload.newPassword, 10);
-        passwordClause = ', password = ?';
+        const newHash = await bcrypt.hash(payload.newPassword, 12);
+        passwordClause = ', password = ?, password_changed_at=CURRENT_TIMESTAMP';
         params.push(newHash);
       }
+      const revokeSessions = Boolean(payload.newPassword || emailChanged || factorChanged);
+      if (revokeSessions) passwordClause += ', session_version=session_version+1';
 
       params.push(currentUserId);
 
@@ -880,6 +952,16 @@ const server = createServer(async (request, response) => {
         `UPDATE users SET name = ?, email = ?, phone = ?, avatar_url = ? ${passwordClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`,
         params
       );
+      if (revokeSessions) {
+        revokeFinanceVaults(currentUserId);
+        lockFinanceVault(request, response);
+        if (activeFinancial2FA?.requestedByUserId === Number(currentUserId)) activeFinancial2FA = null;
+        const token = jwt.sign({
+          sub: currentUserId, role: authenticatedClaims.role, email: payload.email.toLowerCase(),
+          sessionVersion: Number(authenticatedClaims.sessionVersion) + 1,
+        }, jwtSecret, { expiresIn: '8h' });
+        setSessionCookie(response, token);
+      }
 
       const [rows] = await pool.query<RowDataPacket[]>(
         'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, created_at, updated_at FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
@@ -891,7 +973,7 @@ const server = createServer(async (request, response) => {
         username: payload.email,
         action: 'USER_UPDATED',
         resourceType: 'profile',
-        details: { name: payload.name, email: payload.email, passwordChanged: Boolean(payload.newPassword) },
+        details: { name: payload.name, email: payload.email, passwordChanged: Boolean(payload.newPassword), factorChanged },
         ipAddress: request.socket.remoteAddress || 'unknown',
         userAgent: request.headers['user-agent'] || null,
       });
@@ -913,11 +995,14 @@ const server = createServer(async (request, response) => {
       const valid = await bcrypt.compare(payload.currentPassword, String(rows[0].password || ''));
       if (!valid) return sendJson(response, 400, { message: 'La contraseña actual no es correcta' });
 
-      const newHash = await bcrypt.hash(payload.newPassword, 10);
-      await pool.execute('UPDATE users SET password = ?, password_changed_at = CURRENT_TIMESTAMP WHERE id = ?', [newHash, authenticatedClaims.sub]);
+      const newHash = await bcrypt.hash(payload.newPassword, 12);
+      await pool.execute('UPDATE users SET password = ?, password_changed_at = CURRENT_TIMESTAMP, session_version=session_version+1 WHERE id = ?', [newHash, authenticatedClaims.sub]);
+      revokeFinanceVaults(authenticatedClaims.sub);
+      lockFinanceVault(request, response);
+      if (activeFinancial2FA?.requestedByUserId === Number(authenticatedClaims.sub)) activeFinancial2FA = null;
 
       const refreshedToken = jwt.sign(
-        { sub: authenticatedClaims.sub, role: authenticatedClaims.role, email: authenticatedClaims.email },
+        { sub: authenticatedClaims.sub, role: authenticatedClaims.role, email: authenticatedClaims.email, sessionVersion: Number(authenticatedClaims.sessionVersion || 1) + 1 },
         jwtSecret,
         { expiresIn: '8h' }
       );
@@ -978,9 +1063,7 @@ const server = createServer(async (request, response) => {
       const payload = backupSnapshotCreateSchema.parse(await readBody(request));
       const result = await saveBackupSnapshot({ tag: payload.tag || 'manual' });
 
-      const appBaseUrl = (process.env.APP_URL && !process.env.APP_URL.includes('radar-rsy.site') && !process.env.APP_URL.includes('localhost'))
-        ? process.env.APP_URL.replace(/\/+$/, '')
-        : 'https://radar-rsy.store';
+      const appBaseUrl = (process.env.APP_URL || `http://127.0.0.1:${port}`).replace(/\/+$/, '');
 
       const backupDownloadUrl = `${appBaseUrl}/api/uploads/backups/${result.filename}`;
       const backupMsg = formatRespaldoAutomaticoMessage({
@@ -1012,39 +1095,10 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && pathname === '/api/system/backup/restore') {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
-      const body = await readBody(request, 60 * 1024 * 1024);
-      const payload = backupRestoreSchema.parse(body);
-
-      let sqlToExecute = '';
-      if (payload.filename) {
-        const { sql } = await getBackupFileContent(payload.filename);
-        sqlToExecute = sql;
-      } else if (payload.sqlContent) {
-        if (payload.sqlContent.startsWith('data:') || /^[A-Za-z0-9+/=\s]+$/.test(payload.sqlContent.slice(0, 100)) && payload.sqlContent.includes('base64')) {
-          const cleanBase64 = payload.sqlContent.replace(/^data:.*?;base64,/, '');
-          sqlToExecute = Buffer.from(cleanBase64, 'base64').toString('utf8');
-        } else {
-          sqlToExecute = payload.sqlContent;
-        }
-      }
-
-      const result = await restoreDatabaseBackup(sqlToExecute, {
-        createSafetySnapshot: payload.createSafetySnapshot,
-        sourceName: payload.filename || 'uploaded_backup.sql',
+      return sendJson(response, 409, {
+        code: 'RESTORE_DISABLED',
+        message: 'Restauración directa deshabilitada. Valida el respaldo en una base aislada antes de planificar el reemplazo con mantenimiento y recuperación',
       });
-
-      void recordAuditLog(pool, {
-        userId: Number(authenticatedClaims.sub),
-        username: authenticatedClaims.email,
-        action: 'BACKUP_RESTORED',
-        resourceType: 'system_backup',
-        resourceId: payload.filename || 'uploaded_backup.sql',
-        details: { source: payload.filename || 'uploaded_backup.sql', success: result.ok },
-        ipAddress: request.socket.remoteAddress || 'unknown',
-        userAgent: request.headers['user-agent'] || null,
-      });
-
-      return sendJson(response, 200, result);
     }
 
     if (request.method === 'GET' && (pathname === '/api/system/backup' || pathname === '/api/system/backup/download')) {
@@ -1080,21 +1134,15 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && pathname === '/api/system/audit-logs') {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
       const url = new URL(request.url || '/', 'http://localhost');
-      const limitParam = url.searchParams.get('limit');
-      const offsetParam = url.searchParams.get('offset');
-      const actionParam = url.searchParams.get('action') || undefined;
-      const userIdParam = url.searchParams.get('userId') || undefined;
-      const startDateParam = url.searchParams.get('startDate') || undefined;
-      const endDateParam = url.searchParams.get('endDate') || undefined;
-
-      const result = await getAuditLogs(pool, {
-        limit: limitParam ? parseInt(limitParam, 10) : 50,
-        offset: offsetParam ? parseInt(offsetParam, 10) : 0,
-        action: actionParam,
-        userId: userIdParam ? parseInt(userIdParam, 10) : undefined,
-        startDate: startDateParam,
-        endDate: endDateParam,
-      });
+      const filters = z.object({
+        limit: z.coerce.number().int().min(1).max(200).default(50),
+        offset: z.coerce.number().int().min(0).default(0),
+        action: z.string().max(100).optional(),
+        userId: z.coerce.number().int().positive().optional(),
+        startDate: z.iso.date().optional(),
+        endDate: z.iso.date().optional(),
+      }).parse(Object.fromEntries(url.searchParams));
+      const result = await getAuditLogs(pool, filters);
 
       return sendJson(response, 200, result);
     }
@@ -1103,18 +1151,41 @@ const server = createServer(async (request, response) => {
     // ORDERS
     // ==========================================
     if (request.method === 'GET' && pathname === '/api/orders') {
-      return sendJson(response, 200, await getOrders());
+      const url = new URL(request.url || '/', 'http://localhost');
+      const offset = z.coerce.number().int().min(0).parse(url.searchParams.get('offset') || 0);
+      const limit = z.coerce.number().int().min(1).max(1000).parse(url.searchParams.get('limit') || 500);
+      const orders = await getOrders({ limit, offset });
+      response.setHeader('X-Next-Offset', orders.length === limit ? String(offset + limit) : '');
+      return sendJson(response, 200, orders);
+    }
+    const detailOrderId = pathname.match(/^\/api\/orders\/(\d+)$/)?.[1];
+    if (request.method === 'GET' && detailOrderId) {
+      const orders = await getOrders({ id: Number(detailOrderId), limit: 1 });
+      return orders[0] ? sendJson(response, 200, orders[0]) : sendJson(response, 404, { message: 'Orden no encontrada' });
     }
 
     if (request.method === 'POST' && pathname === '/api/orders') {
       if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) return;
       const order = orderPayloadSchema.parse(await readBody(request));
+      const requestFingerprint = structuredClone(order);
+      validateOrder(order, undefined, String(authenticatedClaims?.role));
+      if (!order.idempotencyKey) fail(400, 'La clave de idempotencia es obligatoria');
       if (!order.customer || !order.vehicle || !order.financials || !order.mainPart) {
         return sendJson(response, 400, { message: 'Cliente, vehículo, pieza y datos financieros son obligatorios' });
       }
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
+        const replayId = await beginIdempotentRequest(connection, 'order', order.idempotencyKey!, Number(authenticatedClaims?.sub), requestFingerprint);
+        if (replayId) {
+          await connection.rollback();
+          return sendJson(response, 200, (await getOrders({ id: replayId, limit: 1 }))[0]);
+        }
+        const [repeated] = await connection.query<RowDataPacket[]>('SELECT id FROM orders WHERE idempotency_key=?', [order.idempotencyKey]);
+        if (repeated[0]) {
+          await connection.rollback();
+          return sendJson(response, 200, (await getOrders({ id: Number(repeated[0].id), limit: 1 }))[0]);
+        }
 
         // 1. Resolve Customer ID safely (existing numeric ID or create new customer)
         let customerId: number | null = null;
@@ -1131,13 +1202,13 @@ const server = createServer(async (request, response) => {
         const resolvedCustomerLanguage = ((order as any).customerLanguage || (order.customer as any)?.language || 'es') as 'es' | 'en';
 
         if (customerId) {
-          await connection.execute('UPDATE customers SET language = ? WHERE id = ?', [resolvedCustomerLanguage, customerId]);
+          // Existing customer records are edited only through the CRM.
         }
 
         if (!customerId) {
           const customerNameParts = String(order.customer.name || '').trim().split(/\s+/);
           const [customerResult] = await connection.execute<ResultSetHeader>(
-            'INSERT INTO customers (first_name, last_name, phone, whatsapp, email, address_shipping, zip_code, language) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO customers (first_name, last_name, phone, whatsapp, email, address_shipping, zip_code, language, company, type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
               customerNameParts[0] || 'Cliente',
               customerNameParts.slice(1).join(' ') || null,
@@ -1147,6 +1218,8 @@ const server = createServer(async (request, response) => {
               order.customer.shippingAddress || null,
               order.customer.zip_code || null,
               resolvedCustomerLanguage,
+              order.customer.company || null,
+              order.customer.type || 'Particular',
             ]
           );
           customerId = customerResult.insertId;
@@ -1223,13 +1296,20 @@ const server = createServer(async (request, response) => {
             order.deliveryType === 'envio_domicilio',
             order.customer.shippingAddress || null,
             order.financials.deliveryFee || 0,
-            order.warrantyDays || 60,
+            order.warrantyDays ?? 60,
             statusToDatabase[order.status || 'cotizacion'] || order.status || 'Cotización',
             order.workflowStep || 1,
             order.notes || null,
             resolvedCustomerLanguage,
           ]
         );
+        await connection.execute(
+          `UPDATE orders SET idempotency_key=?,inventory_part_id=?,shipping_zip_code=?,contact_name=?,contact_phone=?,contact_email=?,delivered_at=?,warranty_started=? WHERE id=?`,
+          [order.idempotencyKey, order.inventoryPartId ?? null, order.customer.zip_code || null, order.customer.name,
+            order.customer.phone || null, order.customer.email || null, toMysqlDateTime(order.deliveredAt), Boolean(order.warrantyStarted), orderResult.insertId],
+        );
+        await syncInventory(connection, orderResult.insertId, order.inventoryPartId, order.status || 'cotizacion');
+        await recordPaymentChange(connection, orderResult.insertId, Number(order.financials.downPayment || 0), 0, Number(authenticatedClaims?.sub));
 
         if (Array.isArray((order as any).auctionLinks)) {
           for (const link of (order as any).auctionLinks) {
@@ -1245,15 +1325,18 @@ const server = createServer(async (request, response) => {
           }
         }
 
-        const statusUserId = assignedUserId || Number(authenticatedClaims?.sub) || 1;
+        const statusUserId = Number(authenticatedClaims?.sub);
         await connection.execute(
           'INSERT INTO status_orders (order_id, status, description, user_id) VALUES (?, ?, ?, ?)',
           [orderResult.insertId, statusToDatabase[order.status || 'cotizacion'] || order.status || 'Cotización', 'Orden creada desde RADAR 3.0', statusUserId]
         );
-
-        await connection.commit();
+        await finishIdempotentRequest(connection, 'order', order.idempotencyKey!, orderResult.insertId);
+        await connection.execute(
+          "INSERT INTO audit_logs (user_id,action,resource_type,resource_id,details) VALUES (?,'ORDER_CREATED','order',?,?)",
+          [authenticatedClaims?.sub, String(orderResult.insertId), JSON.stringify(order)],
+        );
         const [rows] = await connection.query<RowDataPacket[]>(
-          'SELECT o.*, c.first_name, c.last_name, c.phone, c.email, c.address_shipping, c.zip_code, c.language AS customer_crm_language, u.name AS advisor, u.role AS advisor_role, u.phone AS advisor_phone FROM orders o LEFT JOIN customers c ON c.id = o.customer_id LEFT JOIN users u ON u.id = o.user_id WHERE o.id = ?',
+          'SELECT o.*, c.first_name, c.last_name, c.company, c.type, c.phone, c.email, c.address_shipping, c.zip_code, c.language AS customer_crm_language, u.name AS advisor, u.role AS advisor_role, u.phone AS advisor_phone FROM orders o LEFT JOIN customers c ON c.id = o.customer_id LEFT JOIN users u ON u.id = o.user_id WHERE o.id = ?',
           [orderResult.insertId]
         );
         const createdOrderRow = rows[0];
@@ -1285,32 +1368,17 @@ const server = createServer(async (request, response) => {
             shippingAddress: order.customer.shippingAddress,
           });
 
-          void dispatchSystemNotification(pool, wasender, 'NUEVA_VENTA', newSaleMsg, {
+          await queueSystemNotification(connection, 'NUEVA_VENTA', newSaleMsg, {
             creatorUserId: assignedUserId ? Number(assignedUserId) : undefined,
             creatorPhone: createdOrderRow?.advisor_phone || undefined,
             creatorName: advisorNameStr,
             orderStatus: initialStatusStr,
-          }).catch((err) => {
-            console.error('[Notification Dispatch] Error dispatching NUEVA_VENTA:', err);
           });
         }
 
-        void recordAuditLog(pool, {
-          userId: Number(authenticatedClaims?.sub),
-          username: authenticatedClaims?.email,
-          action: 'ORDER_CREATED',
-          resourceType: 'order',
-          resourceId: createdOrderRow?.order_code || `ORD-${orderResult.insertId}`,
-          details: {
-            customer: [createdOrderRow?.first_name, createdOrderRow?.last_name].filter(Boolean).join(' ') || order.customer.name,
-            totalPrice: order.financials.partPrice || 0,
-            status: initialStatusStr,
-          },
-          ipAddress: request.socket.remoteAddress || 'unknown',
-          userAgent: request.headers['user-agent'] || null,
-        });
-
-        return sendJson(response, 201, mapOrder(createdOrderRow));
+        await connection.commit();
+        broadcastRealtimeEvent('order:updated', { orderId: orderResult.insertId, action: 'CREATED', timestamp: Date.now() });
+        return sendJson(response, 201, (await getOrders({ id: orderResult.insertId, limit: 1 }))[0]);
       } catch (error) {
         await connection.rollback();
         throw error;
@@ -1320,78 +1388,12 @@ const server = createServer(async (request, response) => {
     }
 
     // ==========================================
-    // DELIVERY DATE 2FA FOR DELIVERED ORDERS
+    // Retired OTP flow: corrections use admin authorization, version and reason.
     // ==========================================
     const deliveryDateOtpMatch = pathname.match(/^\/api\/orders\/(\d+)\/delivery-date\/request-otp$/);
     if (request.method === 'POST' && deliveryDateOtpMatch) {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
-      const targetOrderId = Number(deliveryDateOtpMatch[1]);
-      const [orderRows] = await pool.query<RowDataPacket[]>(
-        'SELECT id, order_code, status, delivered_at FROM orders WHERE id = ? AND deleted_at IS NULL LIMIT 1',
-        [targetOrderId]
-      );
-      if (!orderRows[0]) {
-        return sendJson(response, 404, { ok: false, message: 'Orden no encontrada' });
-      }
-      const orderRow = orderRows[0];
-      const isDelivered = orderRow.status === 'Entregado' || orderRow.status === 'entregado';
-      if (!isDelivered) {
-        return sendJson(response, 400, {
-          ok: false,
-          message: 'La modificación de fecha de entrega solo está permitida para órdenes con estatus Entregado',
-        });
-      }
-
-      const otpCode = crypto.randomInt(100000, 1000000).toString();
-      const now = Date.now();
-      const [adminRows] = await pool.query<RowDataPacket[]>(
-        "SELECT id, name, phone FROM users WHERE role = 'admin' AND active = 1 AND deleted_at IS NULL ORDER BY id ASC LIMIT 1"
-      );
-      const adminUser = adminRows[0];
-      const targetPhone = adminUser?.phone ? formatWasenderPhone(adminUser.phone) : (wasender.designatedTestPhone || '+584127307933');
-
-      activeDeliveryDateOtps.set(String(targetOrderId), {
-        code: otpCode,
-        expiresAt: now + 5 * 60 * 1000, // 5 minutes
-        orderId: targetOrderId,
-        requestedByUserId: Number(authenticatedClaims.sub),
-        targetPhone,
-      });
-
-      const textMessage = `🛡️ *RADAR V3 • Autorización de Fecha de Entrega*\n\nSe ha solicitado modificar la fecha de entrega física de la Orden *#${orderRow.order_code || targetOrderId}* (Estatus: Entregado).\n\nTu código PIN de verificación es:\n👉 *${otpCode}*\n\n⏰ *Válido por:* 5 minutos\n_(Transmitido vía WasenderAPI)_`;
-
-      let dispatched = false;
-      let warning: string | undefined;
-      if (wasender.configured) {
-        try {
-          await wasender.sendText({ to: targetPhone, text: textMessage });
-          dispatched = true;
-        } catch (err) {
-          warning = err instanceof Error ? err.message : 'Error al despachar mensaje WhatsApp';
-          console.error('[Delivery Date OTP] Error enviando WhatsApp:', err);
-        }
-      }
-
-      console.log(`[Delivery Date OTP] PIN transmitido al Super Admin (${targetPhone}) para Orden #${targetOrderId}: ${otpCode}`);
-
-      void recordAuditLog(pool, {
-        userId: Number(authenticatedClaims.sub),
-        username: authenticatedClaims.email,
-        action: '2FA_REQUESTED',
-        resourceType: 'order',
-        resourceId: targetOrderId,
-        details: { purpose: 'ORDER_DELIVERY_DATE', orderId: targetOrderId, orderCode: orderRow.order_code },
-        ipAddress: request.socket.remoteAddress || 'unknown',
-        userAgent: request.headers['user-agent'] || null,
-      });
-
-      return sendJson(response, 200, {
-        ok: true,
-        dispatched,
-        message: 'Código de verificación transmitido por WhatsApp al Super Admin',
-        targetPhoneMasked: targetPhone.replace(/(\+\d{2})(\d{3})(\d{3})(\d{4})/, '$1 $2-***$4'),
-        warning,
-      });
+      return sendJson(response, 410, { code: 'DELIVERY_OTP_RETIRED', message: 'El flujo OTP ya no esta disponible. Usa la correccion administrativa con version y motivo.' });
     }
 
     // ==========================================
@@ -1427,7 +1429,6 @@ const server = createServer(async (request, response) => {
         LEFT JOIN users u ON u.id = o.user_id
         WHERE o.deleted_at IS NULL
           AND (o.status = 'Entregado' OR o.status = 'entregado')
-          AND (o.delivered_at >= NOW() - INTERVAL 35 DAY OR (o.delivered_at IS NULL AND o.updated_at >= NOW() - INTERVAL 35 DAY))
         ORDER BY o.delivered_at DESC, o.id DESC
       `);
 
@@ -1456,7 +1457,7 @@ const server = createServer(async (request, response) => {
       }
 
       const now = new Date();
-      const todayStr = now.toISOString().slice(0, 10);
+      const todayStr = businessDate(now);
       const pendingItems: PendingFollowupItem[] = [];
 
       for (const order of orderRows) {
@@ -1481,9 +1482,8 @@ const server = createServer(async (request, response) => {
             }
           : null;
 
-        const deliveryDateVal = order.delivered_at || order.updated_at || order.created_at;
-        const deliveryTimestamp = new Date(deliveryDateVal).getTime();
-        const daysSinceDelivery = Math.max(0, Math.floor((now.getTime() - deliveryTimestamp) / (1000 * 60 * 60 * 24)));
+        const deliveryDateVal = order.delivered_at;
+        const daysSinceDelivery = deliveryDateVal ? Math.max(0, businessDaysBetween(deliveryDateVal, now)) : 0;
 
         // If part is confirmed installed and tested OK, follow-up cycle is complete!
         if (lastFollowup && lastFollowup.partStatus === 'installed_ok') {
@@ -1491,17 +1491,20 @@ const server = createServer(async (request, response) => {
         }
 
         const lastFollowupDateStr = rawLastFollowup
-          ? new Date(rawLastFollowup.created_at).toISOString().slice(0, 10)
+          ? businessDate(rawLastFollowup.created_at)
           : null;
         const calledToday = lastFollowupDateStr === todayStr;
-        const answeredToday = calledToday && rawLastFollowup?.call_result !== 'unanswered';
+        const answeredToday = calledToday && ['answered','sms_replied'].includes(rawLastFollowup?.call_result);
 
         let currentMilestone: 'dia_3' | 'dia_7' | 'dia_14' | 'seguimiento_extra' = 'dia_3';
         let milestoneLabel = 'Hito 1: Recepción & Taller (Día 1-3)';
         let urgency: 'atrasada' | 'hoy' | 'proxima' = 'proxima';
 
         // Evaluate promised installation date if customer postponed
-        if (lastFollowup && lastFollowup.promisedInstallDate) {
+        if (!deliveryDateVal) {
+          milestoneLabel = 'Fecha de entrega sin registrar: requiere revisión';
+          urgency = 'atrasada';
+        } else if (lastFollowup && lastFollowup.promisedInstallDate) {
           const promisedDate = lastFollowup.promisedInstallDate;
           if (promisedDate < todayStr) {
             currentMilestone = 'seguimiento_extra';
@@ -1563,7 +1566,7 @@ const server = createServer(async (request, response) => {
           customerLanguage: (order.customer_language || order.customer_crm_language || 'es') as 'es' | 'en',
           vehicle: vehicleStr,
           mainPart: order.product_type || 'Pieza',
-          deliveredAt: new Date(deliveryDateVal).toISOString(),
+          deliveredAt: deliveryDateVal ? new Date(deliveryDateVal).toISOString() : '',
           daysSinceDelivery,
           currentMilestone,
           milestoneLabel,
@@ -1652,8 +1655,11 @@ const server = createServer(async (request, response) => {
         }
         if (!opName) opName = orderRow.advisor || 'Operador';
 
+        const connection = await pool.getConnection();
+        try {
+        await connection.beginTransaction();
         const channel = data.contactChannel || 'call';
-        const [insertResult] = await pool.execute<ResultSetHeader>(
+        const [insertResult] = await connection.execute<ResultSetHeader>(
           `INSERT INTO order_delivery_followups 
             (order_id, operator_name, contact_channel, call_result, part_status, warranty_warning_given, promised_install_date, notes)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1675,8 +1681,7 @@ const server = createServer(async (request, response) => {
         const channelLabel = channel === 'whatsapp' ? 'WHATSAPP' : channel === 'sms' ? 'SMS' : 'LLAMADA';
         const callSummary = `[SEGUIMIENTO 14 DÍAS - ${channelLabel} - ${data.callResult.toUpperCase()}] Estatus Pieza: ${data.partStatus}. ${data.warrantyWarningGiven ? '⚠️ Advertencia de garantía dada. ' : ''}${data.promisedInstallDate ? `Fecha prometida: ${data.promisedInstallDate}. ` : ''}Notas: ${data.notes}`;
 
-        try {
-          await pool.execute(
+          await connection.execute(
             `INSERT INTO call_register (order_id, caller_name, caller_phone, attended_by, conversation_summary, whatsapp_dispatched, whatsapp_message)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [
@@ -1689,28 +1694,11 @@ const server = createServer(async (request, response) => {
               channel === 'whatsapp' ? data.notes : null,
             ]
           );
-        } catch (err) {
-          console.error('[Followup] Error registrando en call_register:', err);
-        }
-
-        void recordAuditLog(pool, {
-          userId: Number(authenticatedClaims?.sub),
-          username: authenticatedClaims?.email,
-          action: 'ORDER_FOLLOWUP_REGISTERED',
-          resourceType: 'order',
-          resourceId: targetOrderId,
-          details: {
-            orderCode: orderRow.order_code,
-            contactChannel: channel,
-            callResult: data.callResult,
-            partStatus: data.partStatus,
-            warrantyWarningGiven: data.warrantyWarningGiven,
-            promisedInstallDate: data.promisedInstallDate,
-            operatorName: opName,
-          },
-          ipAddress: request.socket.remoteAddress || 'unknown',
-          userAgent: request.headers['user-agent'] || null,
-        });
+        await connection.execute(
+          "INSERT INTO audit_logs (user_id,action,resource_type,resource_id,details) VALUES (?,'ORDER_FOLLOWUP_REGISTERED','order',?,?)",
+          [authenticatedClaims?.sub, String(targetOrderId), JSON.stringify(data)],
+        );
+        await connection.commit();
 
         const createdFollowup: OrderDeliveryFollowup = {
           id: `FOL-${insertResult.insertId}`,
@@ -1737,6 +1725,10 @@ const server = createServer(async (request, response) => {
           followup: createdFollowup,
           message: 'Llamada de seguimiento registrada con éxito',
         });
+        } catch (error) {
+          await connection.rollback();
+          throw error;
+        } finally { connection.release(); }
       }
     }
 
@@ -1745,84 +1737,105 @@ const server = createServer(async (request, response) => {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
       const targetOrderId = Number(deliveryDateUpdateMatch[1]);
       const data = updateDeliveryDateSchema.parse(await readBody(request));
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [orderRows] = await connection.query<RowDataPacket[]>(
+          'SELECT id, order_code, status, delivered_at, version FROM orders WHERE id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE',
+          [targetOrderId]
+        );
+        if (!orderRows[0]) {
+          fail(404, 'Orden no encontrada');
+        }
+        const orderRow = orderRows[0];
+        const isDelivered = orderRow.status === 'Entregado' || orderRow.status === 'entregado';
+        if (!isDelivered) {
+          fail(400, 'La modificación de fecha de entrega solo está permitida para órdenes con estatus Entregado');
+        }
 
-      const [orderRows] = await pool.query<RowDataPacket[]>(
-        'SELECT id, order_code, status, delivered_at FROM orders WHERE id = ? AND deleted_at IS NULL LIMIT 1',
-        [targetOrderId]
-      );
-      if (!orderRows[0]) {
-        return sendJson(response, 404, { ok: false, message: 'Orden no encontrada' });
-      }
-      const orderRow = orderRows[0];
-      const isDelivered = orderRow.status === 'Entregado' || orderRow.status === 'entregado';
-      if (!isDelivered) {
-        return sendJson(response, 400, {
-          ok: false,
-          message: 'La modificación de fecha de entrega solo está permitida para órdenes con estatus Entregado',
-        });
-      }
+        const previousDeliveredAt = orderRow.delivered_at;
+        const newDeliveredMysql = toMysqlDateTime(data.deliveredAt);
+        const [deliveryUpdate] = await connection.execute<ResultSetHeader>(
+          'UPDATE orders SET version=version+1, delivered_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND version=? AND deleted_at IS NULL',
+          [newDeliveredMysql, targetOrderId, data.version]
+        );
+        if (!deliveryUpdate.affectedRows) fail(409, 'La orden cambió; recarga antes de guardar');
 
-      const activeOtp = activeDeliveryDateOtps.get(String(targetOrderId));
-      const now = Date.now();
-      const cleanCode = data.otpCode.trim();
-
-      const isValidOtp = activeOtp && activeOtp.code === cleanCode && now < activeOtp.expiresAt;
-      if (!isValidOtp) {
-        void recordAuditLog(pool, {
-          userId: Number(authenticatedClaims.sub),
-          username: authenticatedClaims.email,
-          action: '2FA_FAILED',
-          resourceType: 'order',
-          resourceId: targetOrderId,
-          details: { purpose: 'ORDER_DELIVERY_DATE', attemptedCode: cleanCode },
-          ipAddress: request.socket.remoteAddress || 'unknown',
-          userAgent: request.headers['user-agent'] || null,
-        });
-        return sendJson(response, 400, {
-          ok: false,
-          message: 'Código OTP inválido o expirado. Solicita un nuevo código por WhatsApp.',
-        });
-      }
-
-      // Consume OTP
-      activeDeliveryDateOtps.delete(String(targetOrderId));
-
-      const previousDeliveredAt = orderRow.delivered_at;
-      const newDeliveredMysql = toMysqlDateTime(data.deliveredAt);
-
-      await pool.execute(
-        'UPDATE orders SET delivered_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL',
-        [newDeliveredMysql, targetOrderId]
-      );
-
-      void recordAuditLog(pool, {
-        userId: Number(authenticatedClaims.sub),
-        username: authenticatedClaims.email,
-        action: 'ORDER_DELIVERY_DATE_UPDATED',
-        resourceType: 'order',
-        resourceId: targetOrderId,
-        details: {
+        await connection.execute(
+          "INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details,ip_address,user_agent) VALUES (?,?,'ORDER_DELIVERY_DATE_UPDATED','order',?,?,?,?)",
+          [
+            authenticatedClaims.sub,
+            authenticatedClaims.email || null,
+            String(targetOrderId),
+            JSON.stringify({ orderCode: orderRow.order_code, previousDeliveredAt, newDeliveredAt: data.deliveredAt, reason: data.reason }),
+            request.socket.remoteAddress || null,
+            request.headers['user-agent']?.slice(0, 255) || null,
+          ],
+        );
+        await connection.commit();
+        broadcastRealtimeEvent('order:updated', {
           orderId: targetOrderId,
-          orderCode: orderRow.order_code,
-          previousDeliveredAt: previousDeliveredAt ? new Date(previousDeliveredAt).toISOString() : null,
-          newDeliveredAt: data.deliveredAt,
-          reason: data.reason || 'Modificación de fecha autorizada por Super Admin',
-        },
-        ipAddress: request.socket.remoteAddress || 'unknown',
-        userAgent: request.headers['user-agent'] || null,
-      });
+          action: 'DELIVERY_DATE_UPDATED',
+          timestamp: Date.now(),
+        });
 
-      broadcastRealtimeEvent('order:updated', {
-        orderId: targetOrderId,
-        action: 'DELIVERY_DATE_UPDATED',
-        timestamp: Date.now(),
-      });
+        return sendJson(response, 200, {
+          ok: true,
+          deliveredAt: data.deliveredAt,
+          version: data.version + 1,
+          message: 'Fecha de entrega física modificada y validada con éxito',
+        });
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally { connection.release(); }
+    }
 
-      return sendJson(response, 200, {
-        ok: true,
-        deliveredAt: data.deliveredAt,
-        message: 'Fecha de entrega física modificada y validada con éxito',
-      });
+    const inventoryLinkId = pathname.match(/^\/api\/orders\/(\d+)\/inventory$/)?.[1];
+    if (request.method === 'POST' && inventoryLinkId) {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) return;
+      const payload = z.object({
+        inventoryPartId: z.number().int().positive(),
+        version: z.number().int().positive(),
+        confirmedCompatibility: z.literal(true),
+      }).strict().parse(await readBody(request));
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [orders] = await connection.query<RowDataPacket[]>(
+          'SELECT * FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE', [inventoryLinkId],
+        );
+        const row = orders[0];
+        if (!row) fail(404, 'Orden no encontrada');
+        if (row.version !== payload.version) fail(409, 'La orden cambió. Actualiza antes de reservar');
+        if (row.inventory_part_id) fail(409, 'La orden ya tiene una pieza vinculada');
+        if (!['cotizacion', 'espera_confirmacion', 'pagado', 'en_preparacion', 'listo_despacho',
+          'listo_retiro', 'en_camino'].includes(statusFromDatabase(row.status))) {
+          fail(409, 'No se puede reservar inventario en el estado actual de esta orden');
+        }
+        const [parts] = await connection.query<RowDataPacket[]>(
+          'SELECT * FROM inventory_parts WHERE id=? AND deleted_at IS NULL FOR UPDATE', [payload.inventoryPartId],
+        );
+        if (!parts[0]) fail(404, 'Pieza de inventario no encontrada');
+        if (parts[0].status !== 'disponible') fail(409, 'La pieza ya no está disponible');
+        const availability = matchOrderInventory(mapOrder(row), [mapInventoryPartRow(parts[0])]);
+        if (!availability.candidates.length) fail(409, 'La pieza no coincide con los datos actuales de la orden');
+        await syncInventory(connection, Number(inventoryLinkId), payload.inventoryPartId, statusFromDatabase(row.status));
+        await connection.execute('UPDATE orders SET inventory_part_id=?,version=version+1 WHERE id=?',
+          [payload.inventoryPartId, inventoryLinkId]);
+        await connection.execute(
+          "INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details,ip_address,user_agent) VALUES (?,?,'ORDER_INVENTORY_LINKED','order',?,?,?,?)",
+          [authenticatedClaims?.sub, authenticatedClaims?.email || null, inventoryLinkId,
+            JSON.stringify({ inventoryPartId: payload.inventoryPartId, confirmedCompatibility: true }),
+            request.socket.remoteAddress || null, request.headers['user-agent']?.slice(0, 255) || null],
+        );
+        await connection.commit();
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally { connection.release(); }
+      broadcastRealtimeEvent('order:updated', { orderId: Number(inventoryLinkId), action: 'INVENTORY_LINKED', timestamp: Date.now() });
+      return sendJson(response, 200, (await getOrders({ id: Number(inventoryLinkId), limit: 1 }))[0]);
     }
 
     const orderId = pathname.match(/^\/api\/orders\/(\d+)$/)?.[1];
@@ -1836,44 +1849,28 @@ const server = createServer(async (request, response) => {
 
         // 1. Fetch previous order state and advisor details
         const [prevRows] = await connection.query<RowDataPacket[]>(
-          `SELECT o.order_code, o.status, o.user_id, o.customer_id, o.brand, o.model, o.year, o.product_type, o.price, o.down_payment,
+          `SELECT o.*,
                   c.first_name, c.last_name, c.phone AS customer_phone,
                   u.id AS advisor_user_id, u.name AS advisor_name, u.phone AS advisor_phone
            FROM orders o
            LEFT JOIN customers c ON c.id = o.customer_id
            LEFT JOIN users u ON u.id = o.user_id
-           WHERE o.id = ? LIMIT 1`,
+           WHERE o.id = ? AND o.deleted_at IS NULL LIMIT 1 FOR UPDATE`,
           [orderId]
         );
         const prevOrder = prevRows[0];
+        if (!prevOrder) fail(404, 'Orden no encontrada');
+        validateOrder(order, prevOrder, String(authenticatedClaims?.role));
 
-        const updateCustomerLanguage = ((order as any).customerLanguage || (order.customer as any)?.language || null) as 'es' | 'en' | null;
-
-        const rawCustId = String(order.customer?.id || '').trim();
-        const parsedCustId = Number(rawCustId);
-        if (rawCustId && !Number.isNaN(parsedCustId) && Number.isInteger(parsedCustId) && parsedCustId > 0 && !rawCustId.startsWith('CUST-')) {
-          await connection.execute(
-            `UPDATE customers SET first_name = ?, last_name = ?, phone = ?, whatsapp = ?, email = ?, address_shipping = ?, zip_code = ? ${updateCustomerLanguage ? ', language = ?' : ''} WHERE id = ?`,
-            [
-              customerName[0] || 'Cliente',
-              customerName.slice(1).join(' ') || null,
-              order.customer?.phone || null,
-              order.customer?.phone || null,
-              order.customer?.email || null,
-              order.customer?.shippingAddress || null,
-              order.customer?.zip_code || null,
-              ...(updateCustomerLanguage ? [updateCustomerLanguage] : []),
-              parsedCustId,
-            ]
-          );
-        } else if (updateCustomerLanguage && prevOrder?.customer_id) {
-          await connection.execute('UPDATE customers SET language = ? WHERE id = ?', [updateCustomerLanguage, prevOrder.customer_id]);
-        }
+        const updateCustomerLanguage = order.customerLanguage || order.customer?.language || null;
 
         let assignedUserId: number | null | undefined = order.userId;
         if (assignedUserId === undefined && order.advisor && order.advisor !== 'Sin asignar') {
           const [userRows] = await connection.query<RowDataPacket[]>('SELECT id FROM users WHERE name = ? AND deleted_at IS NULL LIMIT 1', [order.advisor]);
           if (userRows[0]) assignedUserId = userRows[0].id;
+        }
+        if (authenticatedClaims?.role !== 'admin' && assignedUserId !== undefined && Number(assignedUserId) !== Number(prevOrder.user_id)) {
+          fail(403, 'Solo administración puede reasignar una orden');
         }
 
         let isYardSale: boolean | undefined = (order as any).isYardSale !== undefined ? Boolean((order as any).isYardSale) : undefined;
@@ -1894,9 +1891,9 @@ const server = createServer(async (request, response) => {
           : ((order as any).auctionLinks && (order as any).auctionLinks.length > 0 ? 1 : undefined);
 
         await connection.execute(
-          `UPDATE orders SET vin_nr = ?, brand = ?, model = ?, sub_model = ?, year = ?, color = ?, mileage = ?, product_type = ?, transmission_type = ?, product_specs = ?, stock_nr = ?, price = ?, core_fee = ?, down_payment = ?, shipping_toggle = ?, shipping_address = ?, shipping_cost = ?, warranty_days = ?, status = ?, workflow_step = ?, scheduled_pickup_at = ?, delivered_at = ?, warranty_started = ?, description = ?, claim_reason = ? ${updateCustomerLanguage ? ', customer_language = ?' : ''} ${assignedUserId !== undefined ? ', user_id = ?' : ''} ${isYardSale !== undefined ? ', is_yard_sale = ?' : ''} ${auctionActiveVal !== undefined ? ', auction_search_active = ?' : ''} WHERE id = ?`,
+          `UPDATE orders SET version=version+1, vin_nr = ?, brand = ?, model = ?, sub_model = ?, year = ?, color = ?, mileage = ?, product_type = ?, transmission_type = ?, product_specs = ?, stock_nr = ?, price = ?, core_fee = ?, down_payment = ?, shipping_toggle = ?, shipping_address = ?, shipping_cost = ?, warranty_days = ?, status = ?, workflow_step = ?, scheduled_pickup_at = ?, delivered_at = ?, warranty_started = ?, description = ?, claim_reason = ? ${updateCustomerLanguage ? ', customer_language = ?' : ''} ${assignedUserId !== undefined ? ', user_id = ?' : ''} ${isYardSale !== undefined ? ', is_yard_sale = ?' : ''} ${auctionActiveVal !== undefined ? ', auction_search_active = ?' : ''} WHERE id = ?`,
           [
-            order.vehicle?.vin || null, order.vehicle?.make || null, order.vehicle?.model || null, order.vehicle?.trim || null, order.vehicle?.year || null, order.vehicle?.color || null, order.vehicle?.mileage || null, order.mainPart || null, transmissionType, order.productSpecs || null, order.stockNumber || null, order.financials?.partPrice || 0, order.financials?.coreFee || 0, order.financials?.downPayment || 0, order.deliveryType === 'envio_domicilio', order.customer?.shippingAddress || null, order.financials?.deliveryFee || 0, order.warrantyDays || 60, newDbStatus, order.workflowStep || 1, toMysqlDateTime(order.scheduledPickupAt), toMysqlDateTime(order.deliveredAt), Boolean(order.warrantyStarted), order.notes || null, order.claimReason || null,
+            order.vehicle?.vin || null, order.vehicle?.make || null, order.vehicle?.model || null, order.vehicle?.trim || null, order.vehicle?.year || null, order.vehicle?.color || null, order.vehicle?.mileage || null, order.mainPart || null, transmissionType, order.productSpecs || null, order.stockNumber || null, order.financials?.partPrice || 0, order.financials?.coreFee || 0, order.financials?.downPayment || 0, order.deliveryType === 'envio_domicilio', order.customer?.shippingAddress || null, order.financials?.deliveryFee || 0, order.warrantyDays ?? 60, newDbStatus, order.workflowStep || 1, toMysqlDateTime(order.scheduledPickupAt), toMysqlDateTime(order.deliveredAt) || prevOrder.delivered_at, Boolean(order.warrantyStarted || prevOrder.warranty_started), order.notes || null, order.claimReason || null,
             ...(updateCustomerLanguage ? [updateCustomerLanguage] : []),
             ...(assignedUserId !== undefined ? [assignedUserId] : []),
             ...(isYardSale !== undefined ? [isYardSale ? 1 : 0] : []),
@@ -1904,6 +1901,20 @@ const server = createServer(async (request, response) => {
             orderId,
           ]
         );
+        const workflowData = z.object({
+          isCoreCollected: z.boolean().optional(), isPartCollected: z.boolean().optional(),
+          isInvoiceSent: z.boolean().optional(), isDeliveryConfirmed: z.boolean().optional(),
+          isWarrantySent: z.boolean().optional(), isDataVerified: z.boolean().optional(),
+        }).parse(order);
+        await connection.execute(
+          'UPDATE orders SET shipping_zip_code=?,contact_name=?,contact_phone=?,contact_email=?,workflow_data=? WHERE id=?',
+          [order.customer?.zip_code || null, order.customer?.name || null, order.customer?.phone || null, order.customer?.email || null, JSON.stringify(workflowData), orderId],
+        );
+        await recordPaymentChange(connection, Number(orderId), Number(order.financials?.downPayment || 0), Number(prevOrder.down_payment || 0), Number(authenticatedClaims?.sub));
+        if (order.inventoryPartId != null && Number(order.inventoryPartId) !== Number(prevOrder.inventory_part_id)) {
+          fail(400, 'La pieza de inventario no se puede sustituir en una orden existente');
+        }
+        await syncInventory(connection, Number(orderId), prevOrder.inventory_part_id, order.status || '');
 
         if (Array.isArray((order as any).auctionLinks)) {
           const links = (order as any).auctionLinks;
@@ -1938,13 +1949,15 @@ const server = createServer(async (request, response) => {
             await connection.execute('DELETE FROM order_auction_links WHERE order_id = ?', [orderId]);
           }
         }
-        const currentUserId = (assignedUserId !== undefined && assignedUserId !== null) ? assignedUserId : (Number(authenticatedClaims?.sub) || 1);
+        const currentUserId = Number(authenticatedClaims?.sub);
         await connection.execute(
           'INSERT INTO status_orders (order_id, status, description, user_id) VALUES (?, ?, ?, ?)',
           [orderId, newDbStatus || 'Actualizada', 'Orden actualizada desde RADAR 3.0', currentUserId]
         );
-        await connection.commit();
-
+        await connection.execute(
+          "INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details) VALUES (?,?,'ORDER_UPDATED','order',?,?)",
+          [currentUserId, authenticatedClaims?.email || null, orderId, JSON.stringify({ before: prevOrder, after: order })],
+        );
         // 2. Dispatch Automated WhatsApp Notifications for Status Changes
         const clientFullName = [
           order.customer?.name || (prevOrder ? [prevOrder.first_name, prevOrder.last_name].filter(Boolean).join(' ') : 'Cliente'),
@@ -1977,13 +1990,11 @@ const server = createServer(async (request, response) => {
             shippingAddress: order.customer?.shippingAddress,
           });
 
-          void dispatchSystemNotification(pool, wasender, 'NUEVA_VENTA', newSaleMsg, {
+          await queueSystemNotification(connection, 'NUEVA_VENTA', newSaleMsg, {
             creatorUserId: targetUserId ? Number(targetUserId) : undefined,
             creatorPhone: prevOrder?.advisor_phone || undefined,
             creatorName: operatorName,
             orderStatus: newDbStatus,
-          }).catch((err) => {
-            console.error('[Notification Dispatch] Error dispatching NUEVA_VENTA upon status change to Pagado:', err);
           });
         }
 
@@ -1992,7 +2003,7 @@ const server = createServer(async (request, response) => {
           /retiro|despacho|envio|envío/i.test(newDbStatus) ||
           /retiro|despacho|envio|envío/i.test(order.status || '');
 
-        if (isReadyForPickupOrDelivery) {
+        if (isReadyForPickupOrDelivery && newDbStatus !== prevOrder.status) {
           const statusMsg = formatCambioEstatusMessage({
             orderCode,
             vehicleYear: order.vehicle?.year || prevOrder?.year,
@@ -2005,18 +2016,16 @@ const server = createServer(async (request, response) => {
             advisorName: operatorName,
           });
 
-          void dispatchSystemNotification(pool, wasender, 'CAMBIO_ESTATUS', statusMsg, {
+          await queueSystemNotification(connection, 'CAMBIO_ESTATUS', statusMsg, {
             creatorUserId: targetUserId ? Number(targetUserId) : undefined,
             creatorPhone: prevOrder?.advisor_phone || undefined,
             creatorName: operatorName,
             orderStatus: newDbStatus,
-          }).catch((err) => {
-            console.error('[Notification Dispatch] Error dispatching CAMBIO_ESTATUS:', err);
           });
         }
 
         // C) Cancelled ("Cancelado")
-        if (/cancelad/i.test(newDbStatus) || /cancelad/i.test(order.status || '')) {
+        if (newDbStatus !== prevOrder.status && /cancelad/i.test(newDbStatus)) {
           const refundAmt = Number(order.financials?.partPrice || prevOrder?.price || 0);
           const cancelMsg = formatOrdenCanceladaMessage({
             orderCode,
@@ -2029,77 +2038,14 @@ const server = createServer(async (request, response) => {
             refundAmount: refundAmt,
           });
 
-          void dispatchSystemNotification(pool, wasender, 'ORDEN_CANCELADA', cancelMsg, {
+          await queueSystemNotification(connection, 'ORDEN_CANCELADA', cancelMsg, {
             orderStatus: 'Cancelado',
-          }).catch((err) => {
-            console.error('[Notification Dispatch] Error dispatching ORDEN_CANCELADA:', err);
           });
         }
 
-        // D) Solicitud de Reembolso ("Solicitud Reembolso")
-        const isRefundRequest =
-          /solicitud.*reembolso/i.test(newDbStatus) ||
-          /solicitud.*reembolso/i.test(order.status || '');
-        const wasAlreadyRefundRequest = /solicitud.*reembolso/i.test(prevStatusStr);
-
-        if (isRefundRequest && !wasAlreadyRefundRequest) {
-          const refundAmt = Number(
-            order.financials?.downPayment ||
-            order.financials?.partPrice ||
-            prevOrder?.down_payment ||
-            prevOrder?.price ||
-            0
-          );
-          const refundReason = order.notes || 'Solicitud de reembolso registrada desde orden';
-          const refundAmountType = (order.financials?.downPayment || prevOrder?.down_payment) ? 'downpayment' : 'total';
-          const refundContact = clientPhone || prevOrder?.customer_phone || null;
-
-          // Ensure a record exists in refund_requests so it is immediately manageable in ClaimsView
-          const [existingRefund] = await connection.query<RowDataPacket[]>(
-            "SELECT id FROM refund_requests WHERE order_id = ? AND status = 'pending' LIMIT 1",
-            [orderId]
-          );
-          if (existingRefund.length === 0) {
-            await connection.execute<ResultSetHeader>(
-              `INSERT INTO refund_requests (order_id, amount, amount_type, payment_method, payment_contact, reason, status)
-               VALUES (?, ?, ?, 'Zelle', ?, ?, 'pending')`,
-              [orderId, refundAmt, refundAmountType, refundContact, refundReason]
-            );
-          }
-
-          const refundMsg = formatSolicitudReembolsoMessage({
-            orderCode,
-            beneficiaryName: clientFullName,
-            amount: refundAmt,
-            reason: refundReason,
-          });
-
-          void dispatchSystemNotification(pool, wasender, 'SOLICITUD_REEMBOLSO', refundMsg, {
-            orderStatus: newDbStatus,
-          }).catch((err) => {
-            console.error('[Notification Dispatch] Error dispatching SOLICITUD_REEMBOLSO on order status change:', err);
-          });
-        }
-
-        const orders = await getOrders();
+        await connection.commit();
+        const orders = await getOrders({ id: Number(orderId), limit: 1 });
         const updatedOrder = orders.find((currentOrder) => currentOrder.id === orderId);
-
-        if (updatedOrder) {
-          void recordAuditLog(pool, {
-            userId: Number(authenticatedClaims?.sub),
-            username: authenticatedClaims?.email,
-            action: 'ORDER_UPDATED',
-            resourceType: 'order',
-            resourceId: updatedOrder.code || `ORD-${orderId}`,
-            details: {
-              status: order.status,
-              customer: order.customer?.name,
-              totalPrice: order.financials?.partPrice,
-            },
-            ipAddress: request.socket.remoteAddress || 'unknown',
-            userAgent: request.headers['user-agent'] || null,
-          });
-        }
 
         broadcastRealtimeEvent('order:updated', {
           orderId: Number(orderId),
@@ -2140,9 +2086,9 @@ const server = createServer(async (request, response) => {
       const shipping = data.address_shipping || data.shippingAddress || null;
 
       const [result] = await pool.execute<ResultSetHeader>(
-        `INSERT INTO customers (first_name, last_name, phone, whatsapp, email, address_shipping, zip_code, language, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [firstName, lastName, data.phone, data.whatsapp || data.phone, data.email || null, shipping, data.zip_code || null, data.language || 'es', data.notes || null]
+        `INSERT INTO customers (first_name, last_name, phone, whatsapp, email, address_shipping, zip_code, language, notes, company, type)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [firstName, lastName, data.phone, data.whatsapp || data.phone, data.email || null, shipping, data.zip_code || null, data.language || 'es', data.notes || null, data.company || null, data.type]
       );
 
       const [rows] = await pool.query<RowDataPacket[]>(
@@ -2161,9 +2107,9 @@ const server = createServer(async (request, response) => {
       const shipping = data.address_shipping || data.shippingAddress || null;
 
       await pool.execute(
-        `UPDATE customers SET first_name = ?, last_name = ?, phone = ?, whatsapp = ?, email = ?, address_shipping = ?, zip_code = ?, language = COALESCE(?, language), notes = ?, updated_at = CURRENT_TIMESTAMP
+        `UPDATE customers SET version=version+1, company=?,type=?, first_name = ?, last_name = ?, phone = ?, whatsapp = ?, email = ?, address_shipping = ?, zip_code = ?, language = COALESCE(?, language), notes = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ? AND deleted_at IS NULL`,
-        [firstName, lastName, data.phone, data.whatsapp || data.phone, data.email || null, shipping, data.zip_code || null, data.language || null, data.notes || null, customerId]
+        [data.company || null, data.type, firstName, lastName, data.phone, data.whatsapp || data.phone, data.email || null, shipping, data.zip_code || null, data.language || null, data.notes || null, customerId]
       );
 
       const [rows] = await pool.query<RowDataPacket[]>(
@@ -2204,12 +2150,17 @@ const server = createServer(async (request, response) => {
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
+        const [claimOrderState] = await connection.query<RowDataPacket[]>('SELECT status FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE', [orderIdVal]);
+        if (!claimOrderState[0]) fail(404, 'Orden no encontrada');
+        const [openClaims] = await connection.query<RowDataPacket[]>("SELECT id FROM claims WHERE order_id=? AND status IN ('Pending','In Process') AND deleted_at IS NULL", [orderIdVal]);
+        if (openClaims.length) fail(409, 'La orden ya tiene un reclamo abierto');
+        if (['reclamo', 'solicitud_reembolso', 'reembolsado', 'cancelado', 'archivado'].includes(statusFromDatabase(claimOrderState[0].status))) fail(409, 'La orden no permite abrir un reclamo en su estado actual');
         const [result] = await connection.execute<ResultSetHeader>(
-          'INSERT INTO claims (order_id, description, status, assigned_user_id) VALUES (?, ?, ?, ?)',
-          [orderIdVal, description, 'Pending', claim.assignedUserId || authenticatedClaims?.sub || null]
+          'INSERT INTO claims (order_id, description, status, assigned_user_id, previous_order_status) VALUES (?, ?, ?, ?, ?)',
+          [orderIdVal, description, 'Pending', claim.assignedUserId || authenticatedClaims?.sub || null, claimOrderState[0].status]
         );
         await connection.execute(
-          'UPDATE orders SET status = ?, claim_reason = ? WHERE id = ?',
+          'UPDATE orders SET version=version+1, status = ?, claim_reason = ? WHERE id = ?',
           [statusToDatabase.reclamo, description, orderIdVal]
         );
         const currentUserId = Number(authenticatedClaims?.sub) || 1;
@@ -2217,12 +2168,12 @@ const server = createServer(async (request, response) => {
           'INSERT INTO status_orders (order_id, status, description, user_id) VALUES (?, ?, ?, ?)',
           [orderIdVal, statusToDatabase.reclamo, `Reclamo REC-${result.insertId} registrado: ${description}`, currentUserId]
         );
-        await connection.commit();
-        const claimsList = await getClaims();
-        const createdClaim = claimsList.find((c) => c.id === `REC-${result.insertId}`);
-
+        await connection.execute(
+          "INSERT INTO audit_logs (user_id,action,resource_type,resource_id,details) VALUES (?,'CLAIM_CREATED','claim',?,?)",
+          [authenticatedClaims?.sub, String(result.insertId), JSON.stringify(claim)],
+        );
         // Fetch order details for notification
-        const [claimOrderRows] = await pool.query<RowDataPacket[]>(
+        const [claimOrderRows] = await connection.query<RowDataPacket[]>(
           `SELECT o.order_code, o.brand, o.model, o.year, o.vin_nr, o.product_type, o.product_specs,
                   c.first_name, c.last_name, c.phone AS customer_phone,
                   u.name AS advisor_name
@@ -2248,21 +2199,10 @@ const server = createServer(async (request, response) => {
           claimReason: description,
         });
 
-        void dispatchSystemNotification(pool, wasender, 'NUEVO_RECLAMO', claimMsg).catch((err) => {
-          console.error('[Notification Dispatch] Error dispatching NUEVO_RECLAMO:', err);
-        });
-
-        void recordAuditLog(pool, {
-          userId: Number(authenticatedClaims?.sub),
-          username: authenticatedClaims?.email,
-          action: 'CLAIM_CREATED',
-          resourceType: 'claim',
-          resourceId: `REC-${result.insertId}`,
-          details: { orderId: orderIdVal, reason: description },
-          ipAddress: request.socket.remoteAddress || 'unknown',
-          userAgent: request.headers['user-agent'] || null,
-        });
-
+        await queueSystemNotification(connection, 'NUEVO_RECLAMO', claimMsg);
+        await connection.commit();
+        const claimsList = await getClaims();
+        const createdClaim = claimsList.find(c => c.id === `REC-${result.insertId}`);
         return sendJson(response, 201, createdClaim || { id: `REC-${result.insertId}`, orderId: String(orderIdVal), claimReason: description, status: 'Pending' });
       } catch (error) {
         await connection.rollback();
@@ -2279,26 +2219,29 @@ const server = createServer(async (request, response) => {
       if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
       const cId = claimCallsMatch[1];
       const callData = claimCallCreateSchema.parse(await readBody(request));
-      const [claimRows] = await pool.query<RowDataPacket[]>('SELECT order_id, description FROM claims WHERE id = ? AND deleted_at IS NULL LIMIT 1', [cId]);
-      if (!claimRows[0]) return sendJson(response, 404, { message: 'Reclamo no encontrado' });
+      const connection = await pool.getConnection();
+      try {
+      await connection.beginTransaction();
+      const [claimRows] = await connection.query<RowDataPacket[]>('SELECT order_id, description FROM claims WHERE id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE', [cId]);
+      if (!claimRows[0]) fail(404, 'Reclamo no encontrado');
       const ordId = claimRows[0].order_id;
       const origClaimReason = claimRows[0].description;
 
-      const [result] = await pool.execute<ResultSetHeader>(
+      const [result] = await connection.execute<ResultSetHeader>(
         `INSERT INTO call_register (order_id, claim_id, caller_name, caller_phone, attended_by, conversation_summary, whatsapp_dispatched, whatsapp_message)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [ordId, cId, callData.callerName || null, callData.callerPhone || null, callData.attendedBy || null, callData.conversationSummary, callData.whatsappDispatched ? 1 : 0, callData.whatsappMessage || null]
       );
 
       // Count total calls for this claim
-      const [callCountRows] = await pool.query<RowDataPacket[]>(
+      const [callCountRows] = await connection.query<RowDataPacket[]>(
         'SELECT COUNT(id) AS total_calls FROM call_register WHERE claim_id = ? AND deleted_at IS NULL',
         [cId]
       );
       const callNumber = Number(callCountRows[0]?.total_calls || 1);
 
       // Fetch order details for notification
-      const [ordRows] = await pool.query<RowDataPacket[]>(
+      const [ordRows] = await connection.query<RowDataPacket[]>(
         `SELECT o.order_code, o.brand, o.model, o.year, o.product_type, o.product_specs,
                 c.first_name, c.last_name, c.phone AS customer_phone
          FROM orders o
@@ -2324,10 +2267,12 @@ const server = createServer(async (request, response) => {
         attendantName: callData.attendedBy || authenticatedClaims?.name || 'Asesor de Garantías',
       });
 
-      void dispatchSystemNotification(pool, wasender, 'SEGUIMIENTO_RECLAMO', followupMsg).catch((err) => {
-        console.error('[Notification Dispatch] Error dispatching SEGUIMIENTO_RECLAMO:', err);
-      });
-
+      await queueSystemNotification(connection, 'SEGUIMIENTO_RECLAMO', followupMsg);
+      await connection.execute(
+        "INSERT INTO audit_logs (user_id,action,resource_type,resource_id,details) VALUES (?,'CLAIM_CALL_CREATED','claim',?,?)",
+        [authenticatedClaims?.sub, cId, JSON.stringify(callData)],
+      );
+      await connection.commit();
       return sendJson(response, 201, {
         id: `CALL-${result.insertId}`,
         claimId: `REC-${cId}`,
@@ -2339,6 +2284,10 @@ const server = createServer(async (request, response) => {
         whatsappDispatched: Boolean(callData.whatsappDispatched),
         whatsappMessage: callData.whatsappMessage || '',
       });
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally { connection.release(); }
     }
 
     if (request.method === 'PUT' && claimId) {
@@ -2348,18 +2297,40 @@ const server = createServer(async (request, response) => {
 
       const [existingClaims] = await pool.query<RowDataPacket[]>('SELECT id, order_id, status FROM claims WHERE id = ? AND deleted_at IS NULL LIMIT 1', [claimId]);
       if (!existingClaims[0]) return sendJson(response, 404, { message: 'Reclamo no encontrado' });
-      const targetOrderId = claim.orderId || existingClaims[0].order_id;
+      const targetOrderId = existingClaims[0].order_id;
+      if (claim.orderId && Number(claim.orderId) !== Number(targetOrderId)) fail(400, 'El reclamo no pertenece a esa orden');
 
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
-        await connection.execute('UPDATE claims SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [status, claimId]);
+        const [lockedOrders] = await connection.query<RowDataPacket[]>('SELECT status FROM orders WHERE id=? FOR UPDATE', [targetOrderId]);
+        const [lockedClaims] = await connection.query<RowDataPacket[]>('SELECT * FROM claims WHERE id=? FOR UPDATE', [claimId]);
+        const storedClaim = lockedClaims[0];
+        if (storedClaim.status === status) {
+          await connection.rollback();
+          return sendJson(response, 200, { id: `REC-${claimId}`, status });
+        }
+        if (['Resolved', 'Denied'].includes(storedClaim.status) && storedClaim.status !== status) fail(409, 'El reclamo cerrado no se puede reabrir');
+        const closing = status === 'Resolved' || status === 'Denied';
+        await connection.execute(
+          'UPDATE claims SET status=?, resolution_notes=?, resolved_by=?, resolved_at=IF(?,UTC_TIMESTAMP(),NULL), updated_at=CURRENT_TIMESTAMP WHERE id=?',
+          [status, claim.resolutionNotes || null, closing ? Number(authenticatedClaims?.sub) : null, closing, claimId],
+        );
 
         const currentUserId = Number(authenticatedClaims?.sub) || 1;
-        if (status === 'Resolved' && targetOrderId) {
-          const previousStatus = statusToDatabase[claim.previousOrderStatus || ''] || statusToDatabase.entregado;
+        if (closing && storedClaim.status !== status && targetOrderId) {
+          let previousStatus = storedClaim.previous_order_status;
+          if (!previousStatus) {
+            const [history] = await connection.query<RowDataPacket[]>(
+              "SELECT status FROM status_orders WHERE order_id=? AND created_at<=? AND status NOT IN ('Reclamo','reclamo') ORDER BY created_at DESC,id DESC LIMIT 1",
+              [targetOrderId, storedClaim.created_at],
+            );
+            previousStatus = history[0]?.status;
+          }
+          if (!previousStatus) fail(409, 'El reclamo histórico no tiene un estado anterior verificable; requiere revisión manual');
+          if (statusFromDatabase(lockedOrders[0]?.status || '') !== 'reclamo') fail(409, 'La orden cambió de estado; revisa la incidencia antes de cerrarla');
           await connection.execute(
-            'UPDATE orders SET status = ?, claim_reason = NULL WHERE id = ?',
+            'UPDATE orders SET version=version+1, status = ?, claim_reason = NULL WHERE id = ?',
             [previousStatus, targetOrderId]
           );
           await connection.execute(
@@ -2373,6 +2344,10 @@ const server = createServer(async (request, response) => {
           );
         }
 
+        await connection.execute(
+          "INSERT INTO audit_logs (user_id,action,resource_type,resource_id,details) VALUES (?,'CLAIM_UPDATED','claim',?,?)",
+          [authenticatedClaims?.sub, claimId, JSON.stringify({ before: storedClaim, after: claim })],
+        );
         await connection.commit();
         return sendJson(response, 200, { id: `REC-${claimId}`, status });
       } catch (error) {
@@ -2389,26 +2364,6 @@ const server = createServer(async (request, response) => {
     // REFUND REQUESTS
     // ==========================================
     if (request.method === 'GET' && pathname === '/api/refunds') {
-      try {
-        await pool.query(`
-          INSERT INTO refund_requests (order_id, amount, amount_type, payment_method, payment_contact, reason, status)
-          SELECT o.id,
-                 COALESCE(NULLIF(o.down_payment, 0), NULLIF(o.price, 0), 0),
-                 IF(o.down_payment > 0, 'downpayment', 'total'),
-                 'Zelle',
-                 c.phone,
-                 COALESCE(NULLIF(o.claim_reason, ''), NULLIF(o.description, ''), 'Solicitud de reembolso registrada'),
-                 'pending'
-          FROM orders o
-          LEFT JOIN customers c ON c.id = o.customer_id
-          WHERE o.status = 'Solicitud Reembolso' AND o.deleted_at IS NULL
-            AND NOT EXISTS (SELECT 1 FROM refund_requests r WHERE r.order_id = o.id AND r.status = 'pending')
-        `);
-      } catch (syncErr) {
-        console.error('[GET /api/refunds] Auto-sync error:', syncErr);
-      }
-
-
       const [rows] = await pool.query<RowDataPacket[]>(`
         SELECT r.*, o.order_code, o.brand, o.model, o.year, o.product_type,
                c.first_name, c.last_name, c.phone AS customer_phone
@@ -2428,7 +2383,7 @@ const server = createServer(async (request, response) => {
         reason: row.reason || '',
         amount: Number(row.amount || 0),
         amountType: row.amount_type || 'downpayment',
-        paymentMethod: row.payment_method || 'Zelle',
+        paymentMethod: ({zelle:'Zelle',cashapp:'CashApp',cash:'Efectivo'} as Record<string,string>)[row.payment_method] || row.payment_method,
         paymentDetails: row.payment_contact || row.payment_details || '',
         status: row.status || 'pending',
         createdAt: row.created_at,
@@ -2443,29 +2398,49 @@ const server = createServer(async (request, response) => {
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
+        const replayId = await beginIdempotentRequest(connection, 'refund', refund.idempotencyKey, Number(authenticatedClaims?.sub), refund);
+        if (replayId) {
+          const [replay] = await connection.query<RowDataPacket[]>('SELECT * FROM refund_requests WHERE id=?', [replayId]);
+          await connection.rollback();
+          return sendJson(response, 200, { id:`REF-${replayId}`, orderId:String(replay[0].order_id), status:replay[0].status, amount:Number(replay[0].amount) });
+        }
 
         // 1. Resolve actual order row by PK id or order_code
         const [targetOrderRows] = await connection.query<RowDataPacket[]>(
-          `SELECT o.id, o.order_code, o.brand, o.model, o.year, o.product_type,
+          `SELECT o.*,
                   c.first_name, c.last_name, c.phone AS customer_phone,
                   u.name AS advisor_name
            FROM orders o
            LEFT JOIN customers c ON c.id = o.customer_id
            LEFT JOIN users u ON u.id = o.user_id
-           WHERE o.id = ? OR o.order_code = ? OR o.order_code = ?
-           LIMIT 1`,
-          [refund.orderId, String(refund.orderId), `ORD-${refund.orderId}`]
+           WHERE o.id = ? AND o.deleted_at IS NULL
+           LIMIT 1 FOR UPDATE`,
+          [refund.orderId]
         );
         const refundOrder = targetOrderRows[0];
-        const actualOrderId = refundOrder ? Number(refundOrder.id) : refund.orderId;
+        if (!refundOrder) fail(404, 'Orden no encontrada');
+        const actualOrderId = Number(refundOrder.id);
+        const [duplicate] = await connection.query<RowDataPacket[]>('SELECT * FROM refund_requests WHERE idempotency_key=?', [refund.idempotencyKey]);
+        if (duplicate[0]) {
+          if (Number(duplicate[0].order_id) !== actualOrderId || cents(duplicate[0].amount) !== cents(refund.amount)) fail(409, 'La clave ya se utilizó para otra solicitud');
+          await connection.rollback();
+          return sendJson(response, 200, { id: `REF-${duplicate[0].id}`, orderId: String(actualOrderId), status: duplicate[0].status, amount: Number(duplicate[0].amount) });
+        }
+        if (['reclamo','archivado','reembolsado'].includes(statusFromDatabase(refundOrder.status))) fail(409, 'La orden no permite una devolución en su estado actual');
+        const [pendingRefunds] = await connection.query<RowDataPacket[]>("SELECT id FROM refund_requests WHERE order_id=? AND status='pending'", [actualOrderId]);
+        if (pendingRefunds.length) fail(409, 'Ya existe una solicitud pendiente para esta orden');
+        const [previousRefunds] = await connection.query<RowDataPacket[]>(
+          "SELECT COALESCE(SUM(amount),0) AS reserved FROM refund_requests WHERE order_id=? AND status IN ('pending','completed')", [actualOrderId],
+        );
+        if (cents(refund.amount) + cents(previousRefunds[0].reserved) > cents(refundOrder.down_payment)) fail(400, 'El reembolso excede el dinero cobrado disponible');
 
         const [result] = await connection.execute<ResultSetHeader>(
-          `INSERT INTO refund_requests (order_id, amount, amount_type, payment_method, payment_contact, reason, status)
-           VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
-          [actualOrderId, refund.amount, refund.amountType, refund.paymentMethod, refund.paymentDetails || null, refund.reason]
+          `INSERT INTO refund_requests (order_id, amount, amount_type, payment_method, payment_contact, reason, status, requested_by, previous_order_status, idempotency_key)
+           VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+          [actualOrderId, refund.amount, refund.amountType, refund.paymentMethod, refund.paymentDetails || null, refund.reason, authenticatedClaims?.sub, refundOrder.status, refund.idempotencyKey]
         );
         await connection.execute(
-          'UPDATE orders SET status = ? WHERE id = ?',
+          'UPDATE orders SET version=version+1, status = ? WHERE id = ?',
           [statusToDatabase.solicitud_reembolso, actualOrderId]
         );
         const currentUserId = Number(authenticatedClaims?.sub) || 1;
@@ -2473,8 +2448,11 @@ const server = createServer(async (request, response) => {
           'INSERT INTO status_orders (order_id, status, description, user_id) VALUES (?, ?, ?, ?)',
           [actualOrderId, statusToDatabase.solicitud_reembolso, `Solicitud de reembolso REF-${result.insertId} registrada por $${refund.amount}`, currentUserId]
         );
-        await connection.commit();
-
+        await finishIdempotentRequest(connection, 'refund', refund.idempotencyKey, result.insertId);
+        await connection.execute(
+          "INSERT INTO audit_logs (user_id,action,resource_type,resource_id,details) VALUES (?,'REFUND_CREATED','refund',?,?)",
+          [authenticatedClaims?.sub, String(result.insertId), JSON.stringify(refund)],
+        );
         const beneficiaryName = [refundOrder?.first_name, refundOrder?.last_name].filter(Boolean).join(' ') || 'Cliente / Beneficiario';
 
         const refundMsg = formatSolicitudReembolsoMessage({
@@ -2484,10 +2462,8 @@ const server = createServer(async (request, response) => {
           reason: refund.reason,
         });
 
-        void dispatchSystemNotification(pool, wasender, 'SOLICITUD_REEMBOLSO', refundMsg).catch((err) => {
-          console.error('[Notification Dispatch] Error dispatching SOLICITUD_REEMBOLSO:', err);
-        });
-
+        await queueSystemNotification(connection, 'SOLICITUD_REEMBOLSO', refundMsg);
+        await connection.commit();
         return sendJson(response, 201, { id: `REF-${result.insertId}`, orderId: String(actualOrderId), status: 'pending', amount: refund.amount });
       } catch (error) {
         await connection.rollback();
@@ -2508,6 +2484,22 @@ const server = createServer(async (request, response) => {
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
+        const [lockedOrder] = await connection.query<RowDataPacket[]>('SELECT * FROM orders WHERE id=? FOR UPDATE', [orderIdVal]);
+        const [lockedRefund] = await connection.query<RowDataPacket[]>('SELECT * FROM refund_requests WHERE id=? FOR UPDATE', [refundId]);
+        const refundRow = lockedRefund[0];
+        if (refundRow.status === refund.status) {
+          await connection.rollback();
+          return sendJson(response, 200, { id: `REF-${refundId}`, status: refund.status });
+        }
+        if (refundRow.status !== 'pending' || refund.status === 'pending') fail(409, 'Una devolución finalizada no se puede reabrir');
+        if (refund.status === 'completed') {
+          const [totalRefunds] = await connection.query<RowDataPacket[]>("SELECT COALESCE(SUM(amount),0) AS amount FROM refund_requests WHERE order_id=? AND status='completed'", [orderIdVal]);
+          if (cents(totalRefunds[0].amount) + cents(refundRow.amount) > cents(lockedOrder[0].down_payment)) fail(409, 'El dinero cobrado ya no cubre este reembolso');
+          await connection.execute(
+            "INSERT INTO finance_movements (order_id,kind,amount,effective_at,source,reference_key,user_id) VALUES (?,'refund',?,UTC_TIMESTAMP(),'refund',?,?)",
+            [orderIdVal, refundRow.amount, `refund-${refundId}`, authenticatedClaims?.sub],
+          );
+        }
         const completedByUserId = Number(authenticatedClaims?.sub) || null;
         await connection.execute(
           `UPDATE refund_requests SET status = ?, completed_by = ?, completed_at = ${refund.status === 'completed' ? 'CURRENT_TIMESTAMP' : 'NULL'}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -2515,13 +2507,26 @@ const server = createServer(async (request, response) => {
         );
 
         if (refund.status === 'completed' && orderIdVal) {
-          await connection.execute('UPDATE orders SET status = ? WHERE id = ?', [statusToDatabase.reembolsado, orderIdVal]);
+          const [refunded] = await connection.query<RowDataPacket[]>("SELECT SUM(amount) AS amount FROM refund_requests WHERE order_id=? AND status='completed'", [orderIdVal]);
+          const fullyRefunded = cents(refunded[0].amount) >= cents(lockedOrder[0].down_payment);
+          const previousStatus = refundRow.previous_order_status;
+          const restoredStatus = fullyRefunded ? statusToDatabase.reembolsado :
+            statusFromDatabase(previousStatus || '') === 'pagado' ? statusToDatabase.espera_confirmacion : previousStatus;
+          if (!restoredStatus) fail(409, 'La devolución histórica no tiene estado anterior verificable');
+          await connection.execute('UPDATE orders SET version=version+1,status=? WHERE id=?', [restoredStatus, orderIdVal]);
           const currentUserId = Number(authenticatedClaims?.sub) || 1;
           await connection.execute(
             'INSERT INTO status_orders (order_id, status, description, user_id) VALUES (?, ?, ?, ?)',
-            [orderIdVal, statusToDatabase.reembolsado, `Reembolso REF-${refundId} completado exitosamente.`, currentUserId]
+            [orderIdVal, restoredStatus, `Reembolso REF-${refundId} completado por $${refundRow.amount}.`, currentUserId]
           );
+        } else if (refund.status === 'cancelled') {
+          if (!refundRow.previous_order_status) fail(409, 'La devolución histórica requiere revisión: no tiene estado anterior verificable');
+          await connection.execute('UPDATE orders SET version=version+1,status=? WHERE id=?', [refundRow.previous_order_status, orderIdVal]);
         }
+        await connection.execute(
+          "INSERT INTO audit_logs (user_id,action,resource_type,resource_id,details) VALUES (?,'REFUND_UPDATED','refund',?,?)",
+          [authenticatedClaims?.sub, refundId, JSON.stringify({ before: refundRow, status: refund.status })],
+        );
         await connection.commit();
         return sendJson(response, 200, { id: `REF-${refundId}`, status: refund.status });
       } catch (error) {
@@ -2555,7 +2560,7 @@ const server = createServer(async (request, response) => {
     if (request.method === 'POST' && pathname === '/api/users') {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
       const userData = userCreateSchema.parse(await readBody(request));
-      const passwordHash = await bcrypt.hash(userData.password, 10);
+      const passwordHash = await bcrypt.hash(userData.password, 12);
       try {
         const [result] = await pool.execute<ResultSetHeader>(
           `INSERT INTO users (name, email, phone, avatar_url, password, role, permissions, active)
@@ -2595,55 +2600,6 @@ const server = createServer(async (request, response) => {
         if (typeof error === 'object' && error && 'code' in error && error.code === 'ER_DUP_ENTRY') {
           return sendJson(response, 409, { message: 'El correo electrónico ya está registrado' });
         }
-        if (
-          typeof error === 'object' &&
-          error &&
-          ('code' in error || 'errno' in error) &&
-          ((error as any).code === 'WARN_DATA_TRUNCATED' ||
-            (error as any).code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD' ||
-            (error as any).errno === 1265)
-        ) {
-          try {
-            await pool.query("ALTER TABLE users MODIFY COLUMN role VARCHAR(40) NOT NULL DEFAULT 'operator'");
-            const [retryResult] = await pool.execute<ResultSetHeader>(
-              `INSERT INTO users (name, email, phone, avatar_url, password, role, permissions, active)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-              [
-                userData.name,
-                userData.email.toLowerCase(),
-                userData.phone ? userData.phone.trim() : null,
-                userData.avatar_url ? userData.avatar_url.trim() : null,
-                passwordHash,
-                userData.role,
-                JSON.stringify(userData.permissions),
-                userData.active ? 1 : 0,
-              ]
-            );
-            const [retryRows] = await pool.query<RowDataPacket[]>(
-              'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, created_at, updated_at FROM users WHERE id = ? LIMIT 1',
-              [retryResult.insertId]
-            );
-            void recordAuditLog(pool, {
-              userId: Number(authenticatedClaims.sub),
-              username: authenticatedClaims.email,
-              action: 'USER_CREATED',
-              resourceType: 'user',
-              resourceId: retryResult.insertId,
-              details: { name: userData.name, email: userData.email, role: userData.role },
-              ipAddress: request.socket.remoteAddress || 'unknown',
-              userAgent: request.headers['user-agent'] || null,
-            });
-            return sendJson(response, 201, {
-              ...retryRows[0],
-              phone: retryRows[0].phone || '',
-              avatar_url: retryRows[0].avatar_url || '',
-              permissions: parsePermissions(retryRows[0].permissions),
-            });
-          } catch (retryErr) {
-            console.error('Error al reintentar creación de usuario tras migrar users.role:', retryErr);
-            throw retryErr;
-          }
-        }
         throw error;
       }
     }
@@ -2659,7 +2615,7 @@ const server = createServer(async (request, response) => {
 
       try {
         let passwordUpdateClause = '';
-        const params: any[] = [
+        const params: (string | number | null)[] = [
           user.name,
           user.email.toLowerCase(),
           user.phone ? user.phone.trim() : null,
@@ -2669,57 +2625,29 @@ const server = createServer(async (request, response) => {
           user.active ? 1 : 0,
         ];
         if (user.password && user.password.trim()) {
-          const hash = await bcrypt.hash(user.password.trim(), 10);
-          passwordUpdateClause = ', password = ?';
+          const hash = await bcrypt.hash(user.password, 12);
+          passwordUpdateClause = ', password = ?, password_changed_at = CURRENT_TIMESTAMP';
           params.push(hash);
         }
         params.push(userId);
 
         await pool.execute(
-          `UPDATE users SET name = ?, email = ?, phone = ?, avatar_url = ?, role = ?, permissions = ?, active = ? ${passwordUpdateClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`,
+          `UPDATE users SET name = ?, email = ?, phone = ?, avatar_url = ?, role = ?, permissions = ?, active = ? ${passwordUpdateClause}, session_version=session_version+1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`,
           params
         );
       } catch (error) {
         if (typeof error === 'object' && error && 'code' in error && error.code === 'ER_DUP_ENTRY') {
           return sendJson(response, 409, { message: 'El correo ya está asociado a otro usuario' });
         }
-        if (
-          typeof error === 'object' &&
-          error &&
-          ('code' in error || 'errno' in error) &&
-          ((error as any).code === 'WARN_DATA_TRUNCATED' ||
-            (error as any).code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD' ||
-            (error as any).errno === 1265)
-        ) {
-          try {
-            await pool.query("ALTER TABLE users MODIFY COLUMN role VARCHAR(40) NOT NULL DEFAULT 'operator'");
-            let retryPasswordClause = '';
-            const retryParams: any[] = [
-              user.name,
-              user.email.toLowerCase(),
-              user.phone ? user.phone.trim() : null,
-              user.avatar_url ? user.avatar_url.trim() : null,
-              user.role,
-              JSON.stringify(user.permissions),
-              user.active ? 1 : 0,
-            ];
-            if (user.password && user.password.trim()) {
-              const hash = await bcrypt.hash(user.password.trim(), 10);
-              retryPasswordClause = ', password = ?';
-              retryParams.push(hash);
-            }
-            retryParams.push(userId);
-            await pool.execute(
-              `UPDATE users SET name = ?, email = ?, phone = ?, avatar_url = ?, role = ?, permissions = ?, active = ? ${retryPasswordClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`,
-              retryParams
-            );
-          } catch (retryErr) {
-            console.error('Error reintentando actualización de usuario tras migrar users.role:', retryErr);
-            throw retryErr;
-          }
-        } else {
-          throw error;
-        }
+        throw error;
+      }
+      revokeFinanceVaults(userId);
+      if (activeFinancial2FA?.requestedByUserId === Number(userId)) activeFinancial2FA = null;
+      if (String(authenticatedClaims.sub) === userId) {
+        lockFinanceVault(request, response);
+        const token = jwt.sign({ sub: userId, role: user.role, email: user.email.toLowerCase(),
+          sessionVersion: Number(authenticatedClaims.sessionVersion) + 1 }, jwtSecret, { expiresIn: '8h' });
+        setSessionCookie(response, token);
       }
 
       const [rows] = await pool.query<RowDataPacket[]>(
@@ -2757,6 +2685,8 @@ const server = createServer(async (request, response) => {
         [userId]
       );
       if (result.affectedRows === 0) return sendJson(response, 404, { message: 'Usuario no encontrado' });
+      revokeFinanceVaults(userId);
+      if (activeFinancial2FA?.requestedByUserId === Number(userId)) activeFinancial2FA = null;
       void recordAuditLog(pool, {
         userId: Number(authenticatedClaims.sub),
         username: authenticatedClaims.email,
@@ -2772,17 +2702,40 @@ const server = createServer(async (request, response) => {
     // ==========================================
     // INVENTORY (HOLD & STOCK PARTS)
     // ==========================================
+    if (request.method === 'GET' && pathname === '/api/inventory/export.csv') {
+      const url = new URL(request.url || '/', 'http://localhost');
+      const filters = z.object({
+        query: z.string().max(500),
+        type: z.enum(['all', 'Motor', 'Transmisión']),
+        status: z.enum(['all', 'disponible', 'reservado', 'vendido', 'en_revision']),
+      }).parse({
+        query: url.searchParams.get('query') || '',
+        type: url.searchParams.get('type') || 'all',
+        status: url.searchParams.get('status') || 'all',
+      });
+      const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM inventory_parts WHERE deleted_at IS NULL ORDER BY id');
+      const parts = filterInventory(rows.map(mapInventoryPartRow), filters);
+      response.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="inventario-${new Date().toISOString().slice(0, 10)}.csv"`,
+        'Cache-Control': 'no-store',
+      });
+      response.end(inventoryCsv(parts, authenticatedClaims?.role === 'admin'));
+      return;
+    }
     if (request.method === 'GET' && pathname === '/api/inventory') {
       const [rows] = await pool.query<RowDataPacket[]>(`
         SELECT * FROM inventory_parts
         WHERE deleted_at IS NULL
         ORDER BY created_at DESC
       `);
-      return sendJson(response, 200, rows.map(mapInventoryPartRow));
+      return sendJson(response, 200, rows.map(row => inventoryForRole(row, authenticatedClaims?.role)));
     }
 
     if (request.method === 'POST' && pathname === '/api/inventory') {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) return;
       const payload = inventoryPartSchema.parse(await readBody(request));
+      if (payload.cost !== undefined && !requireRole(response, authenticatedClaims, 'admin')) return;
       const isSold = (payload.status || 'disponible').toLowerCase() === 'vendido';
       const soldAtValue = payload.soldAt !== undefined
         ? (payload.soldAt ? new Date(payload.soldAt) : null)
@@ -2790,8 +2743,8 @@ const server = createServer(async (request, response) => {
       
       const [result] = await pool.execute<ResultSetHeader>(`
         INSERT INTO inventory_parts (
-          year, year_from, year_to, is_exact_year_only, brand, model, part_type, vin, pallet_number, engine_specs, status, notes, sold_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          year, year_from, year_to, is_exact_year_only, brand, model, part_type, vin, pallet_number, engine_specs, status, notes, sold_at,price,cost
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?)
       `, [
         payload.year,
         payload.yearFrom || null,
@@ -2806,10 +2759,13 @@ const server = createServer(async (request, response) => {
         payload.status || 'disponible',
         payload.notes || null,
         soldAtValue,
+        payload.price ?? 0,
+        payload.cost ?? 0,
       ]);
 
       const [createdRows] = await pool.query<RowDataPacket[]>('SELECT * FROM inventory_parts WHERE id = ?', [result.insertId]);
-      return sendJson(response, 201, mapInventoryPartRow(createdRows[0]));
+      broadcastRealtimeEvent('inventory:updated', { partId: result.insertId });
+      return sendJson(response, 201, inventoryForRole(createdRows[0], authenticatedClaims?.role));
     }
 
     const inventoryIdMatch = pathname.match(/^\/api\/inventory\/(\d+)$/);
@@ -2817,17 +2773,25 @@ const server = createServer(async (request, response) => {
       const partId = Number(inventoryIdMatch[1]);
       const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM inventory_parts WHERE id = ? AND deleted_at IS NULL', [partId]);
       if (rows.length === 0) return sendJson(response, 404, { message: 'Pieza de inventario no encontrada' });
-      return sendJson(response, 200, mapInventoryPartRow(rows[0]));
+      return sendJson(response, 200, inventoryForRole(rows[0], authenticatedClaims?.role));
     }
 
     if (inventoryIdMatch && request.method === 'PUT') {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) return;
       const partId = Number(inventoryIdMatch[1]);
       const payload = inventoryPartUpdateSchema.parse(await readBody(request));
+      if (payload.cost !== undefined && !requireRole(response, authenticatedClaims, 'admin')) return;
+      const [linked] = await pool.query<RowDataPacket[]>(
+        "SELECT id FROM orders WHERE inventory_part_id=? AND deleted_at IS NULL AND status NOT IN ('Cancelado','Reembolsado') LIMIT 1", [partId],
+      );
+      if (linked.length && (payload.status !== undefined || payload.soldAt !== undefined)) fail(409, 'El estado de esta pieza lo controla la orden vinculada');
       
       const updates: string[] = [];
       const values: any[] = [];
       
       if (payload.year !== undefined) { updates.push('year = ?'); values.push(payload.year); }
+      if (payload.price !== undefined) { updates.push('price = ?'); values.push(payload.price); }
+      if (payload.cost !== undefined) { updates.push('cost = ?'); values.push(payload.cost); }
       if (payload.yearFrom !== undefined) { updates.push('year_from = ?'); values.push(payload.yearFrom || null); }
       if (payload.yearTo !== undefined) { updates.push('year_to = ?'); values.push(payload.yearTo || null); }
       if (payload.isExactYearOnly !== undefined) { updates.push('is_exact_year_only = ?'); values.push(payload.isExactYearOnly ? 1 : 0); }
@@ -2861,16 +2825,19 @@ const server = createServer(async (request, response) => {
       }
 
       const [updatedRows] = await pool.query<RowDataPacket[]>('SELECT * FROM inventory_parts WHERE id = ?', [partId]);
-      return sendJson(response, 200, mapInventoryPartRow(updatedRows[0]));
+      broadcastRealtimeEvent('inventory:updated', { partId });
+      return sendJson(response, 200, inventoryForRole(updatedRows[0], authenticatedClaims?.role));
     }
 
     if (inventoryIdMatch && request.method === 'DELETE') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
       const partId = Number(inventoryIdMatch[1]);
       const [result] = await pool.execute<ResultSetHeader>(
-        'UPDATE inventory_parts SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL',
+        "UPDATE inventory_parts SET deleted_at=CURRENT_TIMESTAMP WHERE id=? AND deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM orders WHERE inventory_part_id=inventory_parts.id AND deleted_at IS NULL AND status NOT IN ('Cancelado','Reembolsado'))",
         [partId]
       );
-      if (result.affectedRows === 0) return sendJson(response, 404, { message: 'Pieza no encontrada' });
+      if (result.affectedRows === 0) return sendJson(response, 409, { message: 'La pieza no existe o está vinculada a una orden activa' });
+      broadcastRealtimeEvent('inventory:updated', { partId });
       return sendJson(response, 200, { ok: true, id: partId });
     }
 
@@ -2900,9 +2867,10 @@ const server = createServer(async (request, response) => {
       (pathname.startsWith('/api/uploads/backups/') || pathname.startsWith('/uploads/backups/'));
 
     if (isBackupDownloadRoute) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
       const rawFilename = pathname.replace(/^(\/api)?\/uploads\/backups\//, '');
       const filename = path.basename(decodeURIComponent(rawFilename));
-      if (!filename || (!filename.endsWith('.sql') && !filename.endsWith('.sql.gz'))) {
+      if (!/^[a-zA-Z0-9_.-]+\.sql(?:\.gz)?$/.test(filename)) {
         return sendJson(response, 400, { message: 'Formato de archivo de respaldo inválido' });
       }
 
@@ -2960,7 +2928,10 @@ const server = createServer(async (request, response) => {
       };
       response.writeHead(200, {
         'Content-Type': mimeTypes[ext] || 'application/octet-stream',
-        'Cache-Control': 'public, max-age=86400',
+        'Cache-Control': 'private, no-store',
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Disposition': `${['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext) ? 'inline' : 'attachment'}; filename="${filename.replace(/"/g, '')}"`,
+        'Content-Security-Policy': "sandbox; default-src 'none'",
       });
       createReadStream(filePath).pipe(response);
       return;
@@ -2968,7 +2939,7 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && pathname === '/api/upload') {
       if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
-      const data = uploadPayloadSchema.parse(await readBody(request));
+      const data = uploadPayloadSchema.parse(await readBody(request, 15 * 1024 * 1024));
       const buffer = Buffer.from(data.base64.replace(/^data:.*?;base64,/, ''), 'base64');
       if (buffer.length > 10 * 1024 * 1024) {
         return sendJson(response, 400, { message: 'El archivo excede el límite máximo de 10MB' });
@@ -3000,9 +2971,18 @@ const server = createServer(async (request, response) => {
       await fs.mkdir(uploadDir, { recursive: true });
 
       const safeBaseName = path.basename(data.filename).replace(/[^a-zA-Z0-9._-]/g, '_');
-      const uniqueName = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${safeBaseName}`;
+      const uniqueName = `${Date.now()}-${crypto.randomBytes(16).toString('hex')}-${safeBaseName.slice(-180)}`;
       const targetPath = path.join(uploadDir, uniqueName);
-      await fs.writeFile(targetPath, buffer);
+      await fs.writeFile(targetPath, buffer, { mode: 0o600, flag: 'wx' });
+      try {
+        await pool.execute(
+          'INSERT INTO uploaded_files (filename,original_name,content_type,size_bytes,user_id,order_id) VALUES (?,?,?,?,?,?)',
+          [uniqueName, data.filename, data.contentType, buffer.length, authenticatedClaims?.sub, data.orderId || null],
+        );
+      } catch (error) {
+        await fs.unlink(targetPath);
+        throw error;
+      }
 
       return sendJson(response, 201, {
         ok: true,
@@ -3022,17 +3002,21 @@ const server = createServer(async (request, response) => {
         configured: wasender.configured,
         isTestMode: wasender.isTestMode,
         designatedTestPhone: wasender.designatedTestPhone,
-        sessionName: 'Douglas Movistar',
-        connectedPhone: '+584145380654',
-        accountName: 'Control Rodriguez Salvage Yard',
+        sessionName: process.env.WASENDER_SESSION_NAME || null,
+        connectedPhone: process.env.WASENDER_CONNECTED_PHONE || null,
+        accountName: process.env.BUSINESS_NAME || null,
         service: 'WasenderAPI (wasenderapi.com)',
       });
     }
 
     if (request.method === 'POST' && pathname === '/api/wasender/test-ping') {
       if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
-      const body = (await readBody(request).catch(() => ({}))) as { message?: string; phone?: string };
-      const targetPhone = body.phone || wasender.designatedTestPhone || '584127307933';
+      const body = z.object({
+        message: z.string().trim().min(1).max(5000).optional(),
+        phone: z.string().trim().regex(/^\+?[\d ()-]{7,40}$/).optional(),
+      }).parse(await readBody(request));
+      const targetPhone = body.phone || wasender.designatedTestPhone;
+      if (!targetPhone) return sendJson(response, 400, { message: 'Indica un telefono de prueba' });
       const nowStr = new Date().toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       const testText =
         body.message ||
@@ -3312,12 +3296,19 @@ const server = createServer(async (request, response) => {
 
     return sendJson(response, 404, { message: 'Ruta no encontrada' });
   } catch (error) {
+    const databaseCode = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+    if (['ER_DUP_ENTRY', 'ER_LOCK_DEADLOCK', 'ER_LOCK_WAIT_TIMEOUT', 'ER_CHECKREAD'].includes(databaseCode)) {
+      console.warn('[Conflict] La escritura no pudo completarse:', databaseCode);
+      return sendJson(response, 409, { message: 'Conflicto de escritura o registro duplicado. Recarga los datos antes de volver a guardar' });
+    }
     const statusCode = error instanceof z.ZodError
       ? 400
       : typeof error === 'object' && error && 'statusCode' in error
       ? Number((error as { statusCode?: number }).statusCode)
       : 500;
-    if (statusCode >= 500) console.error(error);
+    if (statusCode >= 500) {
+      console.error('[RequestFailure]', { path: pathname.slice(0, 200), code: databaseCode || 'INTERNAL_ERROR' });
+    }
     return sendJson(response, statusCode >= 400 && statusCode < 500 ? statusCode : 500, {
       message: error instanceof z.ZodError
         ? `Payload inválido: ${error.issues.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ')}`
@@ -3328,228 +3319,20 @@ const server = createServer(async (request, response) => {
   }
 });
 
-const ensureDatabaseTables = async () => {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS inventory_parts (
-        id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        year VARCHAR(50) NOT NULL,
-        year_from VARCHAR(50) NULL,
-        year_to VARCHAR(50) NULL,
-        is_exact_year_only TINYINT(1) NOT NULL DEFAULT 0,
-        brand VARCHAR(100) NOT NULL,
-        model VARCHAR(100) NOT NULL,
-        part_type VARCHAR(50) NOT NULL DEFAULT 'Motor',
-        vin VARCHAR(50) NULL,
-        pallet_number VARCHAR(50) NULL,
-        tag_code VARCHAR(80) NULL,
-        engine_specs VARCHAR(150) NULL,
-        held_for VARCHAR(200) NULL,
-        held_by VARCHAR(150) NULL,
-        hold_until DATE NULL,
-        tag_date VARCHAR(50) NULL,
-        status VARCHAR(40) NOT NULL DEFAULT 'disponible',
-        price DECIMAL(12,2) NOT NULL DEFAULT 0,
-        cost DECIMAL(12,2) NOT NULL DEFAULT 0,
-        location VARCHAR(150) NULL,
-        photo_url TEXT NULL,
-        notes TEXT NULL,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        sold_at TIMESTAMP NULL DEFAULT NULL,
-        deleted_at TIMESTAMP NULL DEFAULT NULL,
-        INDEX inventory_parts_status (status),
-        INDEX inventory_parts_brand_model (brand, model),
-        INDEX inventory_parts_vin (vin),
-        INDEX inventory_parts_pallet (pallet_number),
-        INDEX inventory_parts_deleted (deleted_at)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `);
-
-    // Auto-migration for existing database instances: check if columns exist
-    try {
-      const [cols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM inventory_parts LIKE "year_from"');
-      if (cols.length === 0) {
-        await pool.query('ALTER TABLE inventory_parts ADD COLUMN year_from VARCHAR(50) NULL AFTER year');
-        await pool.query('ALTER TABLE inventory_parts ADD COLUMN year_to VARCHAR(50) NULL AFTER year_from');
-        await pool.query('ALTER TABLE inventory_parts ADD COLUMN is_exact_year_only TINYINT(1) NOT NULL DEFAULT 0 AFTER year_to');
-      }
-    } catch {
-      // Table may have just been created with columns above
-    }
-
-    try {
-      const [soldCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM inventory_parts LIKE "sold_at"');
-      if (soldCols.length === 0) {
-        await pool.query('ALTER TABLE inventory_parts ADD COLUMN sold_at TIMESTAMP NULL DEFAULT NULL AFTER updated_at');
-      }
-    } catch {
-      // Table may have just been created with columns above
-    }
-
-    try {
-      const [mileageCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM orders LIKE "mileage"');
-      if (mileageCols.length === 0) {
-        await pool.query('ALTER TABLE orders ADD COLUMN mileage VARCHAR(60) NULL AFTER color');
-      }
-    } catch {
-      // orders table check handled safely
-    }
-
-    try {
-      const [custLangCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM customers LIKE "language"');
-      if (custLangCols.length === 0) {
-        await pool.query("ALTER TABLE customers ADD COLUMN language VARCHAR(10) NOT NULL DEFAULT 'es' AFTER notes");
-      }
-    } catch {
-      // customers language check handled safely
-    }
-
-    try {
-      const [orderLangCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM orders LIKE "customer_language"');
-      if (orderLangCols.length === 0) {
-        await pool.query("ALTER TABLE orders ADD COLUMN customer_language VARCHAR(10) NOT NULL DEFAULT 'es' AFTER description");
-      }
-    } catch {
-      // orders customer_language check handled safely
-    }
-
-    try {
-      const [yardSaleCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM orders LIKE "is_yard_sale"');
-      if (yardSaleCols.length === 0) {
-        await pool.query('ALTER TABLE orders ADD COLUMN is_yard_sale TINYINT(1) NOT NULL DEFAULT 0 AFTER user_id');
-      }
-    } catch {
-      // orders is_yard_sale check handled safely
-    }
-
-    try {
-      const [phoneCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM users LIKE "phone"');
-      if (phoneCols.length === 0) {
-        await pool.query('ALTER TABLE users ADD COLUMN phone VARCHAR(50) NULL AFTER email');
-      }
-    } catch {
-      // users phone check handled safely
-    }
-
-    try {
-      const [avatarCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM users LIKE "avatar_url"');
-      if (avatarCols.length === 0) {
-        await pool.query('ALTER TABLE users ADD COLUMN avatar_url TEXT NULL AFTER phone');
-      }
-    } catch {
-      // users avatar_url check handled safely
-    }
-
-    try {
-      const [totpCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM users LIKE "totp_secret"');
-      if (totpCols.length === 0) {
-        await pool.query('ALTER TABLE users ADD COLUMN totp_secret VARCHAR(128) NULL AFTER phone');
-      }
-    } catch {
-      // users totp_secret check handled safely
-    }
-
-    try {
-      const [backupCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM users LIKE "backup_codes"');
-      if (backupCols.length === 0) {
-        await pool.query('ALTER TABLE users ADD COLUMN backup_codes TEXT NULL AFTER totp_secret');
-      }
-    } catch {
-      // users backup_codes check handled safely
-    }
-
-    try {
-      const [roleCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM users LIKE "role"');
-      if (
-        roleCols.length > 0 &&
-        typeof roleCols[0].Type === 'string' &&
-        (roleCols[0].Type.toLowerCase().startsWith('enum') || !roleCols[0].Type.toLowerCase().includes('varchar(40)'))
-      ) {
-        await pool.query("ALTER TABLE users MODIFY COLUMN role VARCHAR(40) NOT NULL DEFAULT 'operator'");
-        console.log('Columna users.role verificada y ajustada a VARCHAR(40)');
-      }
-    } catch (roleErr) {
-      console.warn('Advertencia al verificar/modificar columna role en users:', roleErr);
-    }
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS order_delivery_followups (
-        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        order_id INT NOT NULL,
-        operator_name VARCHAR(200) NOT NULL,
-        contact_channel VARCHAR(20) NOT NULL DEFAULT 'call',
-        call_result VARCHAR(50) NOT NULL DEFAULT 'answered',
-        part_status VARCHAR(50) NOT NULL DEFAULT 'not_installed',
-        warranty_warning_given TINYINT(1) NOT NULL DEFAULT 0,
-        promised_install_date DATE NULL,
-        notes TEXT NOT NULL,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_odf_order (order_id),
-        INDEX idx_odf_operator (operator_name),
-        INDEX idx_odf_created (created_at),
-        CONSTRAINT fk_odf_order FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    `);
-
-    try {
-      const [channelCols] = await pool.query<RowDataPacket[]>(
-        "SHOW COLUMNS FROM order_delivery_followups LIKE 'contact_channel'"
-      );
-      if (channelCols.length === 0) {
-        await pool.query(
-          "ALTER TABLE order_delivery_followups ADD COLUMN contact_channel VARCHAR(20) NOT NULL DEFAULT 'call' AFTER operator_name"
-        );
-      }
-    } catch {
-      // safe column fallback
-    }
-
-    try {
-      const [pwdChangedCols] = await pool.query<RowDataPacket[]>('SHOW COLUMNS FROM users LIKE "password_changed_at"');
-      if (pwdChangedCols.length === 0) {
-        await pool.query('ALTER TABLE users ADD COLUMN password_changed_at TIMESTAMP NULL DEFAULT NULL AFTER password');
-      }
-    } catch {
-      // safe column fallback
-    }
-
-    await ensureAuditTable(pool);
-    await ensureNotificationTables(pool);
-
-    // -------------------------------------------------------------------------
-    // Índices de rendimiento para acelerar tiempos de carga y respuesta de la API
-    // -------------------------------------------------------------------------
-    const ensureIndex = async (tableName: string, indexName: string, columnsDef: string) => {
-      try {
-        const [existing] = await pool.query<RowDataPacket[]>(
-          `SHOW INDEX FROM ${tableName} WHERE Key_name = ?`,
-          [indexName]
-        );
-        if (existing.length === 0) {
-          await pool.query(`ALTER TABLE ${tableName} ADD INDEX ${indexName} (${columnsDef})`);
-          console.log(`Índice de rendimiento verificado/creado: ${tableName}.${indexName}`);
-        }
-      } catch (idxErr) {
-        console.warn(`Aviso al verificar/crear índice ${tableName}.${indexName}:`, idxErr);
-      }
-    };
-
-    await ensureIndex('orders', 'idx_orders_deleted_created', 'deleted_at, created_at');
-    await ensureIndex('orders', 'idx_orders_customer_deleted', 'customer_id, deleted_at');
-    await ensureIndex('orders', 'idx_orders_status_deleted', 'status, deleted_at');
-    await ensureIndex('customers', 'idx_customers_deleted_created', 'deleted_at, created_at');
-    await ensureIndex('customers', 'idx_customers_phone', 'phone');
-    await ensureIndex('claims', 'idx_claims_deleted_created', 'deleted_at, created_at');
-  } catch (error) {
-    console.error('Error al verificar/inicializar tablas de base de datos:', error);
-  }
-};
-
-server.listen(port, '0.0.0.0', () => {
-  console.log(`RADAR API disponible en http://0.0.0.0:${port}`);
-  void ensureDatabaseTables().then(() => {
+async function startServer() {
+  const [migrations] = await pool.query<RowDataPacket[]>(
+    'SELECT name FROM schema_migrations WHERE name=?', ['021_outbox_deduplication.sql'],
+  );
+  if (!migrations.length) throw new Error('Ejecuta scripts/migrate.ts antes de iniciar la aplicación');
+  server.listen(port, '0.0.0.0', () => {
+    console.log(`RADAR API disponible en http://0.0.0.0:${port}`);
     startDailyClaimsReportScheduler(pool, wasender);
     startDailyBackupScheduler(pool, wasender);
+    startNotificationOutbox(pool, wasender);
   });
+}
+startServer().catch(error => {
+  console.error('[Startup] No se inició la aplicación:', error);
+  process.exitCode = 1;
+  void pool.end();
 });

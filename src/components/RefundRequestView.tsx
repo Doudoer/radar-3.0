@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
-import { Order, OrderStatus } from '../types';
+import React, { useRef, useState } from 'react';
+import { Order } from '../types';
 import { apiFetch } from '../services/apiFetch';
 
 interface RefundRequestViewProps {
   order: Order;
   onBack: () => void;
-  onUpdateOrder?: (updatedOrder: Order) => void;
+  onUpdateOrder?: (updatedOrder: Order) => Promise<Order | void>;
   onSuccess?: (msg: string) => void;
 }
 
@@ -36,6 +36,8 @@ export const RefundRequestView: React.FC<RefundRequestViewProps> = ({
   const [internalNotes, setInternalNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
+  const idempotencyKeyRef = useRef<string | null>(null);
+  const submittingRef = useRef(false);
 
   const calculateEffectiveAmount = (): number => {
     if (amountType === 'downpayment') return downPayment;
@@ -55,6 +57,7 @@ export const RefundRequestView: React.FC<RefundRequestViewProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
     setError('');
 
     const finalAmount = calculateEffectiveAmount();
@@ -70,11 +73,9 @@ export const RefundRequestView: React.FC<RefundRequestViewProps> = ({
     }
 
     setIsSubmitting(true);
+    submittingRef.current = true;
 
     try {
-      // Numerical order ID fallback
-      const numericOrderId = parseInt(String(order.id).replace(/\D/g, ''), 10) || 1;
-
       const fullDetails = [
         beneficiaryName ? `Titular: ${beneficiaryName.trim()}` : '',
         paymentDetails ? `Cuenta/Destino: ${paymentDetails.trim()}` : '',
@@ -87,7 +88,8 @@ export const RefundRequestView: React.FC<RefundRequestViewProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          orderId: numericOrderId,
+          orderId: order.id,
+          idempotencyKey: (idempotencyKeyRef.current ??= crypto.randomUUID()),
           amount: finalAmount,
           amountType,
           paymentMethod,
@@ -103,15 +105,7 @@ export const RefundRequestView: React.FC<RefundRequestViewProps> = ({
 
       const createdRefund = await response.json();
 
-      // Update Order Status locally and through handler
-      if (onUpdateOrder) {
-        const auditLog = `[${new Date().toLocaleDateString('es-MX')}] Solicitud de reembolso ${createdRefund.id || ''} por $${finalAmount.toFixed(2)} USD vía ${paymentMethod}. Motivo: ${finalReason}`;
-        onUpdateOrder({
-          ...order,
-          status: 'solicitud_reembolso' as OrderStatus,
-          notes: order.notes ? `${order.notes}\n${auditLog}` : auditLog,
-        });
-      }
+      window.dispatchEvent(new Event('radar:data-changed'));
 
       if (onSuccess) {
         onSuccess(
@@ -120,6 +114,8 @@ export const RefundRequestView: React.FC<RefundRequestViewProps> = ({
       }
     } catch (err: any) {
       setError(err.message || 'Error inesperado al conectar con el servidor');
+    } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };

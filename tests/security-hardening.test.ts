@@ -9,6 +9,7 @@ describe('Security Hardening & Protection Tests (Phase 1)', () => {
     it('sets HttpOnly, SameSite=Lax and Path=/ on session cookie', () => {
       const headers: Record<string, string> = {};
       const mockResponse = {
+        getHeader: vi.fn((key: string) => headers[key]),
         setHeader: vi.fn((key: string, value: string) => {
           headers[key] = value;
         }),
@@ -26,6 +27,7 @@ describe('Security Hardening & Protection Tests (Phase 1)', () => {
     it('clears session cookie with Max-Age=0, HttpOnly and SameSite=Lax', () => {
       const headers: Record<string, string> = {};
       const mockResponse = {
+        getHeader: vi.fn((key: string) => headers[key]),
         setHeader: vi.fn((key: string, value: string) => {
           headers[key] = value;
         }),

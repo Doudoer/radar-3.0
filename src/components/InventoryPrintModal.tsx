@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { InventoryPart } from '../types';
+import { escapeHtml } from '../utils/html';
+import { inventoryCsv } from '../utils/inventoryExport';
 
 interface InventoryPrintModalProps {
   isOpen: boolean;
@@ -80,6 +82,11 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
       alert('Por favor permite las ventanas emergentes (popups) para imprimir el inventario.');
       return;
     }
+    printWindow.opener = null;
+    printWindow.addEventListener('load', () => {
+      printWindow.focus();
+      printWindow.print();
+    }, { once: true });
 
     const currentDate = new Date().toLocaleDateString('es-ES', {
       year: 'numeric',
@@ -331,7 +338,7 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
             return `
               <div class="brand-section">
                 <div class="brand-header">
-                  <span>🚗 ${brand}</span>
+                  <span>🚗 ${escapeHtml(brand)}</span>
                   <span class="brand-badge">${items.length} pieza${items.length > 1 ? 's' : ''} (${brandMotors} Mot / ${brandTrans} Trans)</span>
                 </div>
                 <table>
@@ -350,30 +357,31 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
                     ${items
                       .map((item) => {
                         const isMotor = (item.partType || '').toLowerCase().includes('motor');
-                        const statusClass = `status-${(item.status || 'disponible').toLowerCase()}`;
+                        const status = (item.status || 'disponible').toLowerCase();
+                        const statusClass = `status-${['disponible', 'reservado', 'vendido', 'en_revision'].includes(status) ? status : 'en_revision'}`;
                         const compatText = item.isExactYearOnly
-                          ? ` <span style="font-size:9px;color:#d97706;font-weight:bold;">(Solo ${item.year})</span>`
+                          ? ` <span style="font-size:9px;color:#d97706;font-weight:bold;">(Solo ${escapeHtml(item.year)})</span>`
                           : (item.yearFrom || item.yearTo)
-                          ? ` <span style="font-size:9px;color:#0284c7;">(${item.yearFrom && item.yearTo ? `${item.yearFrom}-${item.yearTo}` : item.yearFrom ? `Desde ${item.yearFrom}` : `Hasta ${item.yearTo}`})</span>`
+                          ? ` <span style="font-size:9px;color:#0284c7;">(${escapeHtml(item.yearFrom && item.yearTo ? `${item.yearFrom}-${item.yearTo}` : item.yearFrom ? `Desde ${item.yearFrom}` : `Hasta ${item.yearTo}`)})</span>`
                           : '';
                         return `
                           <tr>
-                            <td><span class="pallet-badge">${item.palletNumber || 'S/P'}</span></td>
-                            <td><strong>${item.year}</strong>${compatText}</td>
-                            <td><strong>${item.model || '—'}</strong></td>
+                            <td><span class="pallet-badge">${escapeHtml(item.palletNumber || 'S/P')}</span></td>
+                            <td><strong>${escapeHtml(item.year)}</strong>${compatText}</td>
+                            <td><strong>${escapeHtml(item.model || '—')}</strong></td>
                             <td>
                               <span class="type-badge ${isMotor ? 'type-motor' : 'type-trans'}">
-                                ${item.partType}
+                                ${escapeHtml(item.partType)}
                               </span>
-                              ${item.engineSpecs ? `<span class="spec-badge">${item.engineSpecs}</span>` : ''}
+                              ${item.engineSpecs ? `<span class="spec-badge">${escapeHtml(item.engineSpecs)}</span>` : ''}
                             </td>
-                            ${showVin ? `<td><span class="vin-text">${item.vin || '—'}</span></td>` : ''}
+                            ${showVin ? `<td><span class="vin-text">${escapeHtml(item.vin || '—')}</span></td>` : ''}
                             <td>
                               <span class="status-tag ${statusClass}">
-                                ${item.status || 'disponible'}
+                                ${escapeHtml(item.status || 'disponible')}
                               </span>
                             </td>
-                            ${showNotes ? `<td class="notes-text">${item.notes || '—'}</td>` : ''}
+                            ${showNotes ? `<td class="notes-text">${escapeHtml(item.notes || '—')}</td>` : ''}
                           </tr>
                         `;
                       })
@@ -390,12 +398,6 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
           <div>Reporte generado automáticamente • Página 1 de 1</div>
         </div>
 
-        <script>
-          window.onload = function() {
-            window.focus();
-            window.print();
-          };
-        </script>
       </body>
       </html>
     `;
@@ -406,27 +408,7 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
   };
 
   const handleExportCsv = () => {
-    const headers = 'Marca,Modelo,Año Fabricación,Años Compatibles,Tipo de Pieza,Litraje/Tracción,Paleta,VIN,Estado,Notas\n';
-    const rows: string[] = [];
-
-    groupedByBrand.forEach(([brand, brandItems]) => {
-      brandItems.forEach((item) => {
-        const compat = item.isExactYearOnly
-          ? `Solo ${item.year}`
-          : item.yearFrom && item.yearTo
-          ? `${item.yearFrom} - ${item.yearTo}`
-          : item.yearFrom
-          ? `Desde ${item.yearFrom}`
-          : item.yearTo
-          ? `Hasta ${item.yearTo}`
-          : '';
-        rows.push(
-          `"${brand}","${item.model}","${item.year}","${compat}","${item.partType}","${item.engineSpecs || ''}","${item.palletNumber || ''}","${item.vin || ''}","${item.status || 'disponible'}","${(item.notes || '').replace(/"/g, '""')}"`
-        );
-      });
-    });
-
-    const blob = new Blob([headers + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([inventoryCsv(groupedByBrand.flatMap(([, brandItems]) => brandItems))], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
@@ -434,6 +416,7 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (

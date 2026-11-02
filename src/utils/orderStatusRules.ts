@@ -46,7 +46,7 @@ export const ORDER_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   ],
   solicitud_reembolso: ['reembolsado', 'archivado', 'pagado', 'cotizacion', 'reclamo', 'cancelado'],
   reembolsado: ['archivado'],
-  archivado: [],
+  archivado: ['cotizacion'],
   cancelado: ['cotizacion', 'pagado', 'en_preparacion', 'solicitud_reembolso'],
   en_diagnostico: ['espera_confirmacion', 'pagado', 'reclamo', 'solicitud_reembolso', 'cancelado'],
   en_reparacion: ['listo_despacho', 'listo_retiro', 'pagado', 'espera_confirmacion', 'cotizacion', 'reclamo', 'solicitud_reembolso', 'cancelado'],

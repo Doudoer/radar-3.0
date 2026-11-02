@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Order } from '../types';
 import { generateOrdersReportPdf } from '../utils/ordersReportPdf';
 import { downloadPdfBytes } from '../utils/weeklyRelationPdf';
+import { serializeCsv } from '../utils/csv';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -154,14 +155,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     const statusSuffix = statusFilter !== 'all' ? `_${statusFilter}` : '';
 
     if (format === 'csv') {
-      const headers = 'Código,Fecha,Cliente,Teléfono,Vehículo,Placa,VIN,Pieza Principal,Estado,Total USD\n';
-      const rows = filteredOrders
-        .map(
-          (o) =>
-            `"${o.code}","${o.createdAt || ''}","${o.customer?.name || ''}","${o.customer?.phone || ''}","${o.vehicle?.make || ''} ${o.vehicle?.model || ''}","${o.vehicle?.plate || ''}","${o.vehicle?.vin || ''}","${o.mainPart || ''}","${STATUS_LABELS[o.status] || o.status}",${o.financials?.total ?? o.financials?.partPrice ?? 0}`
-        )
-        .join('\n');
-      const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
+      const csv = serializeCsv([
+        ['Código', 'Fecha', 'Cliente', 'Teléfono', 'Vehículo', 'Placa', 'VIN', 'Pieza Principal', 'Estado', 'Total USD'],
+        ...filteredOrders.map((o) => [
+          o.code, o.createdAt || '', o.customer?.name || '', o.customer?.phone || '',
+          `${o.vehicle?.make || ''} ${o.vehicle?.model || ''}`, o.vehicle?.plate || '', o.vehicle?.vin || '',
+          o.mainPart || '', STATUS_LABELS[o.status] || o.status, o.financials?.total ?? o.financials?.partPrice ?? '',
+        ]),
+      ]);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.setAttribute('href', url);

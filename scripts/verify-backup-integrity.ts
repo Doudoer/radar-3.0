@@ -1,6 +1,4 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import { listBackups } from '../src/server/backup';
+import { getBackupFileContent, listBackups } from '../src/server/backup';
 
 const REQUIRED_TABLES = ['users', 'orders', 'customers', 'claims', 'inventory_parts'];
 
@@ -66,7 +64,6 @@ export const parseSqlIntegrity = (sql: string, filename: string, sizeBytes: numb
 };
 
 export const checkBackupIntegrity = async (targetFile?: string): Promise<IntegrityReport> => {
-  const backupsDir = path.resolve(process.cwd(), 'backups');
   let selectedFile = targetFile;
 
   if (!selectedFile) {
@@ -77,13 +74,8 @@ export const checkBackupIntegrity = async (targetFile?: string): Promise<Integri
     selectedFile = backups[0].filename;
   }
 
-  const safeFilename = path.basename(selectedFile);
-  const filePath = path.join(backupsDir, safeFilename);
-
-  const stats = await fs.stat(filePath);
-  const sql = stats.size > 0 ? await fs.readFile(filePath, 'utf8') : '';
-
-  return parseSqlIntegrity(sql, safeFilename, stats.size);
+  const { sql, resolvedPath } = await getBackupFileContent(selectedFile);
+  return parseSqlIntegrity(sql, resolvedPath.split('/').pop()!, Buffer.byteLength(sql, 'utf8'));
 };
 
 const run = async () => {
@@ -108,7 +100,8 @@ const run = async () => {
 
     console.log('------------------------------------------------------');
     if (report.ok) {
-      console.log(' ✅ ESTADO: Respaldo íntegro y listo para restauración de emergencia.');
+      console.log(' ✅ ESTADO: Comprobación estructural aprobada; NO verifica restaurabilidad ni integridad de datos.');
+      console.log(' Requiere importar en una base aislada y comparar esquema, conteos, relaciones y valores antes de considerarlo recuperable.');
     } else {
       console.log(' ❌ ESTADO: Respaldo con inconsistencias o tablas faltantes.');
     }

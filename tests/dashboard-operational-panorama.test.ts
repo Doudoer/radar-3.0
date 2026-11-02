@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   getWeekRange,
   getMonthRange,
@@ -6,62 +6,43 @@ import {
   parseOrderDate,
 } from '../src/components/DashboardView';
 import { Order } from '../src/types';
+import { financeDateKey } from '../src/utils/finance';
+
+afterEach(() => vi.useRealTimers());
 
 describe('Panorama Operativo & Finanzas - Dashboard Period & Analytics', () => {
   it('getWeekRange computes exact Monday 00:00:00 to Sunday 23:59:59 bounds for current and offset weeks', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-02T12:00:00Z'));
     const currentWeek = getWeekRange(0);
-
-    // Monday is getDay() === 1
-    expect(currentWeek.start.getDay()).toBe(1);
-    expect(currentWeek.start.getHours()).toBe(0);
-    expect(currentWeek.start.getMinutes()).toBe(0);
-    expect(currentWeek.start.getSeconds()).toBe(0);
-
-    // Sunday is getDay() === 0
-    expect(currentWeek.end.getDay()).toBe(0);
-    expect(currentWeek.end.getHours()).toBe(23);
-    expect(currentWeek.end.getMinutes()).toBe(59);
-    expect(currentWeek.end.getSeconds()).toBe(59);
-
-    // Difference between Sunday and Monday is 6 full days (start of Monday to end of Sunday)
-    const spanMs = currentWeek.end.getTime() - currentWeek.start.getTime();
-    expect(spanMs).toBeGreaterThan(6 * 86400000);
-    expect(spanMs).toBeLessThanOrEqual(7 * 86400000);
-
-    // Previous week offset
+    expect(currentWeek.start.toISOString()).toBe('2026-11-02T05:00:00.000Z');
+    expect(currentWeek.end.toISOString()).toBe('2026-11-09T04:59:59.999Z');
+    expect(financeDateKey(currentWeek.start)).toBe('2026-11-02');
+    expect(financeDateKey(currentWeek.end)).toBe('2026-11-08');
     const prevWeek = getWeekRange(-1);
-    const sevenDaysMs = 7 * 86400000;
-    expect(currentWeek.start.getTime() - prevWeek.start.getTime()).toBe(sevenDaysMs);
+    expect(prevWeek.start.toISOString()).toBe('2026-10-26T04:00:00.000Z');
+    expect(prevWeek.end.toISOString()).toBe('2026-11-02T04:59:59.999Z');
+    expect(currentWeek.start.getTime() - prevWeek.start.getTime()).toBe(169 * 3600000);
   });
 
   it('getMonthRange computes start of month to end of month bounds', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-02T12:00:00Z'));
     const currentMonth = getMonthRange(0);
-    expect(currentMonth.start.getDate()).toBe(1);
-    expect(currentMonth.start.getHours()).toBe(0);
-
-    expect(currentMonth.end.getHours()).toBe(23);
-    expect(currentMonth.end.getMinutes()).toBe(59);
-    expect(currentMonth.end.getSeconds()).toBe(59);
-
-    // Next month check
+    expect(currentMonth.start.toISOString()).toBe('2026-11-01T04:00:00.000Z');
+    expect(currentMonth.end.toISOString()).toBe('2026-12-01T04:59:59.999Z');
     const nextMonth = getMonthRange(1);
-    expect(nextMonth.start.getDate()).toBe(1);
+    expect(nextMonth.start.toISOString()).toBe('2026-12-01T05:00:00.000Z');
+    expect(nextMonth.end.toISOString()).toBe('2027-01-01T04:59:59.999Z');
   });
 
   it('getYearRange computes Jan 1 to Dec 31 bounds', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-02T12:00:00Z'));
     const currentYear = getYearRange(0);
-    const thisYear = new Date().getFullYear();
-
-    expect(currentYear.year).toBe(thisYear);
-    expect(currentYear.start.getFullYear()).toBe(thisYear);
-    expect(currentYear.start.getMonth()).toBe(0); // January
-    expect(currentYear.start.getDate()).toBe(1);
-
-    expect(currentYear.end.getFullYear()).toBe(thisYear);
-    expect(currentYear.end.getMonth()).toBe(11); // December
-    expect(currentYear.end.getDate()).toBe(31);
-    expect(currentYear.end.getHours()).toBe(23);
-    expect(currentYear.end.getMinutes()).toBe(59);
+    expect(currentYear.year).toBe(2026);
+    expect(currentYear.start.toISOString()).toBe('2026-01-01T05:00:00.000Z');
+    expect(currentYear.end.toISOString()).toBe('2027-01-01T04:59:59.999Z');
   });
 
   it('parseOrderDate handles various date formats accurately', () => {

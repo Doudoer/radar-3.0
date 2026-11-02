@@ -66,6 +66,7 @@ export const ensureAuditTable = async (pool: Pool): Promise<void> => {
     `);
   } catch (error) {
     console.error('Error al inicializar tabla audit_logs:', error);
+    throw error;
   }
 };
 

@@ -1,7 +1,11 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useState, useMemo } from 'react';
 import { Order } from '../types';
-import { apiFetch } from '../services/apiFetch';
+import { useFinanceState, useFinanceMovements } from '../hooks/useFinanceState';
+import { FinanceVault } from './FinanceVault';
+import {
+  getFinanceWeekRange, parseFinanceDate, isInFinancePeriod, financeDateKey,
+  FINANCE_TIME_ZONE, commissionBase, commissionAmount, movementIncome, movementsInPeriod, sumMoney,
+} from '../utils/finance';
 import {
   generateOfficialDeliveriesPdf,
   generateWeeklySalesPdf,
@@ -63,59 +67,21 @@ interface WeeklyRelationViewProps {
  * Utility to calculate the Monday 00:00:00 and Sunday 23:59:59 of a given reference date
  */
 export const getWeekRange = (refDate = new Date()) => {
-  const d = new Date(refDate);
-  const day = d.getDay(); // 0 is Sunday, 1 is Monday... 6 is Saturday
-  const diffToMonday = day === 0 ? -6 : 1 - day;
-
-  const monday = new Date(d);
-  monday.setDate(d.getDate() + diffToMonday);
-  monday.setHours(0, 0, 0, 0);
-
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  sunday.setHours(23, 59, 59, 999);
-
-  return { start: monday, end: sunday };
+  return getFinanceWeekRange(refDate);
 };
 
 /**
  * Robust date parser supporting ISO strings, YYYY-MM-DD, DD/MM/YYYY, timestamps, etc.
  */
 export const parseDateSafe = (dateVal?: string | null): Date | null => {
-  if (!dateVal) return null;
-  const str = String(dateVal).trim();
-  if (!str) return null;
-
-  // Try direct parse
-  const direct = new Date(str);
-  if (!isNaN(direct.getTime())) {
-    return direct;
-  }
-
-  // Try slash-separated DD/MM/YYYY
-  if (str.includes('/')) {
-    const parts = str.split(' ')[0].split('/');
-    if (parts.length === 3) {
-      const p0 = parseInt(parts[0], 10);
-      const p1 = parseInt(parts[1], 10) - 1;
-      const p2 = parseInt(parts[2], 10);
-      if (parts[2].length === 4) {
-        const d = new Date(p2, p1, p0);
-        if (!isNaN(d.getTime())) return d;
-      }
-    }
-  }
-
-  return null;
+  return parseFinanceDate(dateVal);
 };
 
 /**
  * Checks if a date falls strictly within the specified week range
  */
 export const isDateInWeek = (dateVal?: string | null, weekRange = getWeekRange()): boolean => {
-  const d = parseDateSafe(dateVal);
-  if (!d) return false;
-  return d >= weekRange.start && d <= weekRange.end;
+  return isInFinancePeriod(dateVal, weekRange);
 };
 
 /**
@@ -133,19 +99,18 @@ export const getMonthlyRecurringDueWeek = (
   targetDay = 30,
   advanceIfWeekend = true
 ): { start: Date; end: Date; rawDueDate: Date; wasAdvanced: boolean } => {
-  const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+  const lastDayOfMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
   const effectiveDay = Math.min(targetDay, lastDayOfMonth);
 
-  const rawDueDate = new Date(year, month, effectiveDay, 12, 0, 0, 0);
-  const dayOfWeek = rawDueDate.getDay(); // 0 = Sun, 1 = Mon, ..., 5 = Fri, 6 = Sat
+  const dueKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(effectiveDay).padStart(2, '0')}`;
+  const rawDueDate = parseFinanceDate(dueKey)!;
+  const dayOfWeek = new Date(`${dueKey}T12:00:00Z`).getUTCDay();
 
   const isWeekendOrFriday = dayOfWeek === 5 || dayOfWeek === 6 || dayOfWeek === 0;
 
   if (advanceIfWeekend && isWeekendOrFriday) {
     const baseWeek = getWeekRange(rawDueDate);
-    const prevWeekRef = new Date(baseWeek.start);
-    prevWeekRef.setDate(prevWeekRef.getDate() - 7);
-    const prevWeek = getWeekRange(prevWeekRef);
+    const prevWeek = getFinanceWeekRange(baseWeek.start, -1);
     return { ...prevWeek, rawDueDate, wasAdvanced: true };
   }
 
@@ -167,8 +132,8 @@ export const isRecurringExpenseDueInWeek = (
   }
 
   if (expense.frequency === 'monthly') {
-    const yearStart = weekRange.start.getFullYear();
-    const monthStart = weekRange.start.getMonth();
+    const [yearStart, monthNumber] = financeDateKey(weekRange.start).split('-').map(Number);
+    const monthStart = monthNumber - 1;
 
     const candidateMonths = [
       { year: yearStart, month: monthStart },
@@ -185,9 +150,7 @@ export const isRecurringExpenseDueInWeek = (
       );
 
       if (
-        dueInfo.start.getFullYear() === weekRange.start.getFullYear() &&
-        dueInfo.start.getMonth() === weekRange.start.getMonth() &&
-        dueInfo.start.getDate() === weekRange.start.getDate()
+        financeDateKey(dueInfo.start) === financeDateKey(weekRange.start)
       ) {
         return true;
       }
@@ -197,414 +160,28 @@ export const isRecurringExpenseDueInWeek = (
   return false;
 };
 
-export const DEFAULT_EMPLOYEES: OfficeEmployee[] = [
-  { id: 'EMP-04', name: 'Douglas', weeklySalary: 150.0, role: 'Supervisor' },
-  { id: 'EMP-05', name: 'Favio', weeklySalary: 120.0, role: 'Asesor Comercial' },
-  { id: 'EMP-02', name: 'Williana', weeklySalary: 90.0, role: 'Asesor Peddle' },
-  { id: 'EMP-03', name: 'Maggie', weeklySalary: 75.0, role: 'Asesor Wheelzy' },
-  { id: 'EMP-06', name: 'Darrel', weeklySalary: 75.0, role: 'Asesor Comercial' },
-  { id: 'EMP-07', name: 'Samuel Rincon', weeklySalary: 75.0, role: 'Dispatcher RCAT' },
-  { id: 'EMP-08', name: 'Jose Puche', weeklySalary: 75.0, role: 'Marketing' },
-  { id: 'EMP-01', name: 'Juan', weeklySalary: 50.0, role: 'Asesor Saul Motors' },
-];
+export const DEFAULT_EMPLOYEES: OfficeEmployee[] = [];
+export const DEFAULT_RECURRING_EXPENSES: RecurringExpense[] = [];
 
-export const DEFAULT_RECURRING_EXPENSES: RecurringExpense[] = [
-  {
-    id: 'REC-01',
-    name: 'Alquiler de Local / Galpón y Oficina',
-    category: 'Alquiler de Oficina / Patio',
-    amount: 350.0,
-    frequency: 'monthly',
-    monthlyDay: 30,
-    advanceIfWeekend: true,
-    active: true,
-    paymentMethod: 'Transferencia',
-    notes: 'Pago mensual fijado para el día 30 (o último día de mes). Si cae en Viernes, Sábado o Domingo se anticipa automáticamente a la semana previa.',
-  },
-  {
-    id: 'REC-02',
-    name: 'Servicio de Internet Fibra & Comunicaciones',
-    category: 'Servicios (Luz / Agua / Internet)',
-    amount: 50.0,
-    frequency: 'monthly',
-    monthlyDay: 30,
-    advanceIfWeekend: true,
-    active: true,
-    paymentMethod: 'Transferencia',
-    notes: 'Pago mensual fijo de conectividad de oficina.',
-  },
-];
+export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = (props) => (
+  <FinanceVault onBack={props.onBackToDashboard}><WeeklyRelationContent {...props} /></FinanceVault>
+);
 
-export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
+const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   orders = [],
   onBackToDashboard,
 }) => {
-  // =========================================================================
-  // 1. 2FA SECURITY GATE STATE
-  // =========================================================================
-  const [is2FAUnlocked, setIs2FAUnlocked] = useState(false);
-
-  const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
-  const digitInputRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const [otpRequested, setOtpRequested] = useState(false);
-  const [otpCooldown, setOtpCooldown] = useState<number>(0);
-  const [otpError, setOtpError] = useState<string | null>(null);
-  const [toastMessage, setToastMessage] = useState<{
-    text: string;
-    code?: string;
-  } | null>(null);
-  const [isRequestingOtp, setIsRequestingOtp] = useState(false);
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [safeAnimation, setSafeAnimation] = useState<'idle' | 'spin' | 'unlock' | 'error'>('idle');
-
-  // Multi-channel 2FA state: 'whatsapp' (Primary) vs 'totp' (Authenticator) vs 'backup' (Emergency Codes)
-  const [authChannel, setAuthChannel] = useState<'whatsapp' | 'totp' | 'backup'>('whatsapp');
-  const [backupCodeInput, setBackupCodeInput] = useState('');
-  const [isTotpModalOpen, setIsTotpModalOpen] = useState(false);
-  const [totpModalTab, setTotpModalTab] = useState<'qr' | 'codes'>('qr');
-  const [totpSetupData, setTotpSetupData] = useState<{
-    secret: string;
-    qrCodeDataUrl: string;
-    otpUri: string;
-    accountName: string;
-    backupCodes?: { code: string; used: boolean; usedAt: string | null }[];
-  } | null>(null);
-  const [isLoadingTotp, setIsLoadingTotp] = useState(false);
-  const [copiedTotpSecret, setCopiedTotpSecret] = useState(false);
-  const [copiedCodeIndex, setCopiedCodeIndex] = useState<number | null>(null);
-  const [copiedAllBackupCodes, setCopiedAllBackupCodes] = useState(false);
-  const [isResettingTotp, setIsResettingTotp] = useState(false);
-  const [isResettingBackupCodes, setIsResettingBackupCodes] = useState(false);
-
-  const fetchTotpSetup = async () => {
-    setIsLoadingTotp(true);
-    try {
-      const res = await apiFetch('/auth/2fa/totp-setup');
-      if (res.ok) {
-        const data = await res.json();
-        setTotpSetupData(data);
-      }
-    } catch (err) {
-      console.error('Error fetching TOTP setup:', err);
-    } finally {
-      setIsLoadingTotp(false);
-    }
-  };
-
-  const handleOpenTotpModal = async (initialTab: 'qr' | 'codes' = 'qr') => {
-    setTotpModalTab(initialTab);
-    setIsTotpModalOpen(true);
-    if (!totpSetupData) {
-      await fetchTotpSetup();
-    }
-  };
-
-  const handleResetTotpSecret = async () => {
-    if (
-      !window.confirm(
-        '¿Deseas generar una nueva clave QR para Google Authenticator? La clave actual en tu celular dejará de funcionar y deberás escanear el nuevo código.'
-      )
-    ) {
-      return;
-    }
-    setIsResettingTotp(true);
-    try {
-      const res = await apiFetch('/auth/2fa/totp-reset', { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        setTotpSetupData((prev) => (prev ? { ...prev, ...data } : data));
-        showToast('✅ Nueva clave de Google Authenticator generada exitosamente.');
-      }
-    } catch (err) {
-      console.error('Error resetting TOTP:', err);
-    } finally {
-      setIsResettingTotp(false);
-    }
-  };
-
-  const handleResetBackupCodes = async () => {
-    if (
-      !window.confirm(
-        '¿Deseas generar 8 nuevos códigos de seguridad de respaldo? Los códigos anteriores quedarán invalidados de inmediato.'
-      )
-    ) {
-      return;
-    }
-    setIsResettingBackupCodes(true);
-    try {
-      const res = await apiFetch('/auth/2fa/backup-codes-reset', { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        setTotpSetupData((prev) => (prev ? { ...prev, backupCodes: data.backupCodes } : null));
-        showToast('✅ 8 nuevos códigos de seguridad generados exitosamente.');
-      }
-    } catch (err) {
-      console.error('Error resetting backup codes:', err);
-    } finally {
-      setIsResettingBackupCodes(false);
-    }
-  };
-
-  const handleCopyTotpSecret = () => {
-    if (totpSetupData?.secret && navigator?.clipboard?.writeText) {
-      void navigator.clipboard.writeText(totpSetupData.secret);
-      setCopiedTotpSecret(true);
-      setTimeout(() => setCopiedTotpSecret(false), 2000);
-    }
-  };
-
-  const handleCopySingleBackupCode = (code: string, index: number) => {
-    if (navigator?.clipboard?.writeText) {
-      void navigator.clipboard.writeText(code);
-      setCopiedCodeIndex(index);
-      setTimeout(() => setCopiedCodeIndex(null), 2000);
-    }
-  };
-
-  const handleCopyAllBackupCodes = () => {
-    if (!totpSetupData?.backupCodes || !navigator?.clipboard?.writeText) return;
-    const textToCopy = [
-      '=== CÓDIGOS DE SEGURIDAD Y RESPALDO (RADAR 3.0) ===',
-      `Generados para: ${totpSetupData.accountName}`,
-      'Usa cada código una sola vez si no tienes acceso a WhatsApp ni a Google Authenticator.\n',
-      ...totpSetupData.backupCodes.map((c, i) => `${i + 1}. ${c.code} ${c.used ? '[USADO]' : '[DISPONIBLE]'}`),
-      '\nGuárdalos en un lugar seguro o imprímelos.',
-    ].join('\n');
-    void navigator.clipboard.writeText(textToCopy);
-    setCopiedAllBackupCodes(true);
-    setTimeout(() => setCopiedAllBackupCodes(false), 2500);
-  };
-
-  const handleDownloadBackupCodes = () => {
-    if (!totpSetupData?.backupCodes) return;
-    const content = [
-      '=== CÓDIGOS DE SEGURIDAD Y RESPALDO (RADAR 3.0) ===',
-      `Generados para: ${totpSetupData.accountName}`,
-      `Fecha: ${new Date().toLocaleString()}`,
-      'Usa cada código una sola vez si no tienes acceso a WhatsApp ni a Google Authenticator.\n',
-      ...totpSetupData.backupCodes.map((c, i) => `${i + 1}. ${c.code} ${c.used ? '[USADO]' : '[DISPONIBLE]'}`),
-      '\nGuarda este archivo en una unidad segura o imprímelo.',
-    ].join('\n');
-
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `radar3-codigos-seguridad-${new Date().toISOString().slice(0, 10)}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const showToast = (text: string, code?: string) => {
-    setToastMessage({ text, code });
-  };
-
-  // Cooldown countdown (1 second interval)
-  useEffect(() => {
-    if (otpCooldown > 0) {
-      const timer = setInterval(() => setOtpCooldown((prev) => prev - 1), 1000);
-      return () => clearInterval(timer);
-    }
-  }, [otpCooldown]);
-
-  // Request 2FA OTP Code via WhatsApp (Wasender directly to Super Admin)
-  const handleRequestOTP = async () => {
-    setIsRequestingOtp(true);
-    setOtpError(null);
-    setSafeAnimation('spin');
-    setDigits(['', '', '', '', '', '']);
-
-    try {
-      const res = await apiFetch('/auth/2fa/request-otp', {
-        method: 'POST',
-      });
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        throw new Error(data.message || 'Error al solicitar el código 2FA');
-      }
-
-      setOtpCooldown(data.cooldownSeconds || 60);
-      setOtpRequested(true);
-      setTimeout(() => setSafeAnimation('idle'), 1000);
-
-      // Focus first input box
-      setTimeout(() => {
-        digitInputRefs.current[0]?.focus();
-      }, 120);
-
-      showToast(
-        data.message || 'Código de seguridad 2FA transmitido por WhatsApp al Super Admin (+58 412-***7933).'
-      );
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : 'Error al solicitar el código 2FA';
-      setOtpError(errMsg);
-      setSafeAnimation('error');
-      setTimeout(() => setSafeAnimation('idle'), 1000);
-    } finally {
-      setIsRequestingOtp(false);
-    }
-  };
-
-  // Auto-fill code helper (if toast provides one)
-  const handleAutoFillCode = (code: string) => {
-    const codeArr = code.split('').slice(0, 6);
-    setDigits(codeArr);
-    setOtpError(null);
-    setToastMessage(null);
-    executeVerification(code);
-  };
-
-  // Verify entered 2FA OTP code with backend (1 minute expiration & single-use check)
-  const executeVerification = async (codeToVerify: string) => {
-    const cleanCode = codeToVerify ? codeToVerify.replace(/[\s-]/g, '') : '';
-    if (!cleanCode || (cleanCode.length !== 6 && cleanCode.length !== 8)) {
-      setOtpError('Ingresa los 6 dígitos del PIN o tu código de respaldo de 8 dígitos.');
-      return;
-    }
-
-    setIsVerifying(true);
-    setOtpError(null);
-
-    try {
-      const res = await apiFetch('/auth/2fa/verify-otp', {
-        method: 'POST',
-        body: JSON.stringify({ code: codeToVerify.trim() }),
-      });
-      const data = await res.json().catch(() => ({}));
-
-      if (res.ok && data.verified) {
-        setIs2FAUnlocked(true);
-        setOtpError(null);
-        setSafeAnimation('unlock');
-        setToastMessage({
-          text:
-            data.method === 'totp'
-              ? '🔒 Bóveda financiera desbloqueada mediante Google Authenticator (Respaldo Offline).'
-              : data.method === 'backup_code'
-              ? '🔒 Bóveda financiera desbloqueada mediante Código de Respaldo de Emergencia.'
-              : '🔒 Sesión financiera 2FA desbloqueada exitosamente.',
-        });
-        setTimeout(() => setToastMessage(null), 3500);
-      } else {
-        setOtpError(data.message || 'Código incorrecto o expirado.');
-        setSafeAnimation('error');
-        setTimeout(() => setSafeAnimation('idle'), 900);
-      }
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : 'Código de verificación incorrecto o expirado.';
-      setOtpError(errMsg);
-      setSafeAnimation('error');
-      setTimeout(() => setSafeAnimation('idle'), 900);
-    } finally {
-      setIsVerifying(false);
-    }
-  };
-
-  const handleDigitChange = (index: number, value: string) => {
-    const cleanDigits = value.replace(/\D/g, '');
-    if (cleanDigits.length > 1) {
-      const newDigits = [...digits];
-      const slice = cleanDigits.slice(0, 6);
-      for (let i = 0; i < slice.length; i++) {
-        newDigits[i] = slice[i];
-      }
-      setDigits(newDigits);
-      setOtpError(null);
-      const nextFocus = Math.min(slice.length, 5);
-      digitInputRefs.current[nextFocus]?.focus();
-      if (slice.length === 6) {
-        executeVerification(slice);
-      }
-      return;
-    }
-
-    const singleDigit = cleanDigits.slice(-1);
-    const newDigits = [...digits];
-    newDigits[index] = singleDigit;
-    setDigits(newDigits);
-    setOtpError(null);
-
-    if (singleDigit && index < 5) {
-      digitInputRefs.current[index + 1]?.focus();
-    }
-
-    const fullCode = newDigits.join('');
-    if (fullCode.length === 6 && newDigits.every((d) => d !== '')) {
-      executeVerification(fullCode);
-    }
-  };
-
-  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace') {
-      if (!digits[index] && index > 0) {
-        const newDigits = [...digits];
-        newDigits[index - 1] = '';
-        setDigits(newDigits);
-        digitInputRefs.current[index - 1]?.focus();
-      }
-    } else if (e.key === 'ArrowLeft' && index > 0) {
-      digitInputRefs.current[index - 1]?.focus();
-    } else if (e.key === 'ArrowRight' && index < 5) {
-      digitInputRefs.current[index + 1]?.focus();
-    }
-  };
-
-  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    e.preventDefault();
-    const pastedText = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    if (!pastedText) return;
-
-    const newDigits = ['', '', '', '', '', ''];
-    for (let i = 0; i < pastedText.length; i++) {
-      newDigits[i] = pastedText[i];
-    }
-    setDigits(newDigits);
-    setOtpError(null);
-
-    const nextIndex = Math.min(pastedText.length, 5);
-    digitInputRefs.current[nextIndex]?.focus();
-
-    if (pastedText.length === 6) {
-      executeVerification(pastedText);
-    }
-  };
-
-  // Lock session manually
-  const handleLockSession = () => {
-    setIs2FAUnlocked(false);
-    setOtpRequested(false);
-    setDigits(['', '', '', '', '', '']);
-    setToastMessage({
-      text: 'Sesión financiera bloqueada. Se requerirá autenticación 2FA para el próximo ingreso.',
-    });
-    setTimeout(() => setToastMessage(null), 3500);
-  };
+  const [toastMessage, setToastMessage] = useState<{ text: string } | null>(null);
+  const showToast = (text: string) => setToastMessage({ text });
 
   // =========================================================================
   // 2. OFFICE EMPLOYEES & PAYROLL MANAGEMENT (PERSISTENT)
   // =========================================================================
-  const [employees, setEmployees] = useState<OfficeEmployee[]>(() => {
-    try {
-      const saved = localStorage.getItem('radar_office_employees_v1');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {
-      console.error('Error loading saved employees', e);
-    }
-    return DEFAULT_EMPLOYEES;
-  });
-
-  // Save employees changes to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('radar_office_employees_v1', JSON.stringify(employees));
-    } catch (e) {
-      console.error('Error saving employees', e);
-    }
-  }, [employees]);
+  const finance = useFinanceState(true);
+  const income = useFinanceMovements(true);
+  const employees = finance.state?.employees ?? [];
+  const recurringExpenses = finance.state?.recurringExpenses ?? [];
+  const otherExpenses = finance.state?.otherExpenses ?? [];
 
   // Modal State for Employee Management
   const [isEmployeesModalOpen, setIsEmployeesModalOpen] = useState(false);
@@ -619,7 +196,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
     role: '',
   });
 
-  const handleSaveEmployee = (e: React.FormEvent) => {
+  const handleSaveEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
     const salary = parseFloat(employeeForm.weeklySalary);
     if (!employeeForm.name.trim() || isNaN(salary) || salary <= 0) {
@@ -629,8 +206,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
 
     if (editingEmployeeId) {
       // Update existing employee
-      setEmployees(
-        employees.map((emp) =>
+      if (!await finance.save({ employees: employees.map((emp) =>
           emp.id === editingEmployeeId
             ? {
                 ...emp,
@@ -639,19 +215,18 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
                 role: employeeForm.role.trim() || undefined,
               }
             : emp
-        )
-      );
+        ) })) return;
       showToast(`Empleado "${employeeForm.name}" actualizado.`);
       setEditingEmployeeId(null);
     } else {
       // Add new employee
       const newEmp: OfficeEmployee = {
-        id: `EMP-${Date.now().toString().slice(-4)}`,
+        id: `EMP-${crypto.randomUUID()}`,
         name: employeeForm.name.trim(),
         weeklySalary: salary,
         role: employeeForm.role.trim() || 'Oficina / Personal',
       };
-      setEmployees([...employees, newEmp]);
+      if (!await finance.save({ employees: [...employees, newEmp] })) return;
       showToast(`Empleado "${newEmp.name}" registrado en la nómina.`);
     }
 
@@ -667,9 +242,9 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
     });
   };
 
-  const handleDeleteEmployee = (id: string, name: string) => {
+  const handleDeleteEmployee = async (id: string, name: string) => {
     if (confirm(`¿Eliminar al empleado "${name}" de la nómina semanal?`)) {
-      setEmployees(employees.filter((emp) => emp.id !== id));
+      if (!await finance.save({ employees: employees.filter((emp) => emp.id !== id) })) return;
       if (editingEmployeeId === id) {
         setEditingEmployeeId(null);
         setEmployeeForm({ name: '', weeklySalary: '', role: '' });
@@ -685,33 +260,12 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
 
   // Total Weekly Payroll Sum
   const totalPayrollFixed = useMemo(() => {
-    return employees.reduce((sum, e) => sum + e.weeklySalary, 0);
+    return sumMoney(employees.map((e) => e.weeklySalary));
   }, [employees]);
 
   // =========================================================================
   // 2.2 RECURRING EXPENSES MANAGEMENT (ALQUILER, SERVICIOS, ETC.)
   // =========================================================================
-  const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>(() => {
-    try {
-      const saved = localStorage.getItem('radar_recurring_expenses_v1');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {
-      console.error('Error loading saved recurring expenses', e);
-    }
-    return DEFAULT_RECURRING_EXPENSES;
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('radar_recurring_expenses_v1', JSON.stringify(recurringExpenses));
-    } catch (e) {
-      console.error('Error saving recurring expenses', e);
-    }
-  }, [recurringExpenses]);
-
   const [isRecurringModalOpen, setIsRecurringModalOpen] = useState(false);
   const [editingRecurringId, setEditingRecurringId] = useState<string | null>(null);
   const [recurringForm, setRecurringForm] = useState<{
@@ -736,7 +290,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
     paymentMethod: 'Transferencia',
   });
 
-  const handleSaveRecurring = (e: React.FormEvent) => {
+  const handleSaveRecurring = async (e: React.FormEvent) => {
     e.preventDefault();
     const amount = parseFloat(recurringForm.amount);
     if (!recurringForm.name.trim() || isNaN(amount) || amount <= 0) {
@@ -747,8 +301,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
     const day = parseInt(recurringForm.monthlyDay, 10) || 30;
 
     if (editingRecurringId) {
-      setRecurringExpenses(
-        recurringExpenses.map((r) =>
+      if (!await finance.save({ recurringExpenses: recurringExpenses.map((r) =>
           r.id === editingRecurringId
             ? {
                 ...r,
@@ -763,13 +316,12 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
                 paymentMethod: recurringForm.paymentMethod,
               }
             : r
-        )
-      );
+        ) })) return;
       showToast(`Gasto recurrente "${recurringForm.name}" actualizado.`);
       setEditingRecurringId(null);
     } else {
       const newRec: RecurringExpense = {
-        id: `REC-${Date.now().toString().slice(-4)}`,
+        id: `REC-${crypto.randomUUID()}`,
         name: recurringForm.name.trim(),
         category: recurringForm.category,
         amount,
@@ -780,7 +332,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
         notes: recurringForm.notes.trim() || undefined,
         paymentMethod: recurringForm.paymentMethod,
       };
-      setRecurringExpenses([...recurringExpenses, newRec]);
+      if (!await finance.save({ recurringExpenses: [...recurringExpenses, newRec] })) return;
       showToast(`Gasto recurrente "${newRec.name}" programado exitosamente.`);
     }
 
@@ -812,9 +364,9 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
     });
   };
 
-  const handleDeleteRecurring = (id: string, name: string) => {
+  const handleDeleteRecurring = async (id: string, name: string) => {
     if (confirm(`¿Eliminar la regla de gasto recurrente "${name}"?`)) {
-      setRecurringExpenses(recurringExpenses.filter((r) => r.id !== id));
+      if (!await finance.save({ recurringExpenses: recurringExpenses.filter((r) => r.id !== id) })) return;
       if (editingRecurringId === id) {
         setEditingRecurringId(null);
       }
@@ -822,10 +374,10 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
     }
   };
 
-  const handleToggleRecurringActive = (id: string) => {
-    setRecurringExpenses(
-      recurringExpenses.map((r) => (r.id === id ? { ...r, active: !r.active } : r))
-    );
+  const handleToggleRecurringActive = async (id: string) => {
+    await finance.save({
+      recurringExpenses: recurringExpenses.map((r) => (r.id === id ? { ...r, active: !r.active } : r)),
+    });
   };
 
   // =========================================================================
@@ -834,15 +386,14 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
   const [activeTab, setActiveTab] = useState<'official' | 'sales' | 'deliveries' | 'general'>('official');
 
   // Compute Current Running Week Boundary (Monday to Sunday)
-  const currentWeekRange = useMemo(() => {
-    return getWeekRange(new Date());
-  }, []);
+  const [weekOffset, setWeekOffset] = useState(0);
+  const currentWeekRange = getFinanceWeekRange(new Date(), weekOffset);
 
   const weekRangeLabel = useMemo(() => {
     const { start, end } = currentWeekRange;
-    const startStr = `${start.getDate().toString().padStart(2, '0')} ${start.toLocaleDateString('es-ES', { month: 'short' })}`;
-    const endStr = `${end.getDate().toString().padStart(2, '0')} ${end.toLocaleDateString('es-ES', { month: 'short' })} ${end.getFullYear()}`;
-    return `Semana Actual (${startStr} - ${endStr})`;
+    const startStr = start.toLocaleDateString('es-ES', { timeZone: FINANCE_TIME_ZONE, day: '2-digit', month: 'short' });
+    const endStr = end.toLocaleDateString('es-ES', { timeZone: FINANCE_TIME_ZONE, day: '2-digit', month: 'short', year: 'numeric' });
+    return `Semana ${weekOffset === 0 ? 'Actual' : 'Seleccionada'} (${startStr} - ${endStr})`;
   }, [currentWeekRange]);
 
   // Recurring expenses due in the current running week (e.g. Alquiler de Local)
@@ -851,11 +402,11 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
   }, [recurringExpenses, currentWeekRange]);
 
   const totalDueRecurringExpenses = useMemo(() => {
-    return dueRecurringExpensesThisWeek.reduce((sum, exp) => sum + exp.amount, 0);
+    return sumMoney(dueRecurringExpensesThisWeek.map((exp) => exp.amount));
   }, [dueRecurringExpensesThisWeek]);
 
   // Operational expenses (excluding the base payroll employees which are dynamic)
-  const [otherExpenses, setOtherExpenses] = useState<ExpenseItem[]>([]);
+  const weeklyOtherExpenses = otherExpenses.filter((expense) => isDateInWeek(expense.date, currentWeekRange));
 
   // Modal State for New Operational Expense
   const [isNewExpenseModalOpen, setIsNewExpenseModalOpen] = useState(false);
@@ -870,7 +421,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
     description: '',
     category: 'Gastos Administrativos',
     amount: '',
-    date: new Date().toISOString().split('T')[0],
+    date: financeDateKey(new Date()),
     paymentMethod: 'Transferencia',
     receiptNr: '',
   });
@@ -881,47 +432,24 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
 
   // Paid Sales of the current running week:
   const weeklySalesOrders = useMemo(() => {
-    return orders.filter((o) => {
-      if (
-        o.status === 'cotizacion' ||
-        o.status === 'cancelado' ||
-        o.status === 'archivado' ||
-        o.status === 'solicitud_reembolso'
-      ) {
-        return false;
-      }
-
-      const isPaidSaleStatus =
-        o.status === 'pagado' ||
-        o.status === 'en_preparacion' ||
-        o.status === 'listo_despacho' ||
-        o.status === 'listo_retiro' ||
-        o.status === 'en_camino' ||
-        o.status === 'entregado';
-
-      if (!isPaidSaleStatus) return false;
-
-      const dateToCheck = o.createdAtIso || o.createdAt;
-      return isDateInWeek(dateToCheck, currentWeekRange);
-    });
-  }, [orders, currentWeekRange]);
+    const orderIds = new Set(movementsInPeriod(income.movements, currentWeekRange)
+      .map((movement) => movement.orderId));
+    return orders.filter((order) => orderIds.has(order.id));
+  }, [orders, income.movements, currentWeekRange]);
 
   // Delivered Parts of the current running week:
   const weeklyDeliveriesOrders = useMemo(() => {
     return orders.filter((o) => {
       if (o.status !== 'entregado') return false;
-      const dateToCheck = o.deliveredAt || o.createdAtIso || o.createdAt;
+      const dateToCheck = o.deliveredAt;
       return isDateInWeek(dateToCheck, currentWeekRange);
     });
   }, [orders, currentWeekRange]);
 
   // Mathematical aggregates for Paid Sales
   const totalSalesVolume = useMemo(() => {
-    return weeklySalesOrders.reduce(
-      (sum, o) => sum + (o.financials?.total || o.financials?.partPrice || 0),
-      0
-    );
-  }, [weeklySalesOrders]);
+    return movementIncome(movementsInPeriod(income.movements, currentWeekRange));
+  }, [income.movements, currentWeekRange]);
 
   const averageSalesTicket = useMemo(() => {
     if (weeklySalesOrders.length === 0) return 0;
@@ -930,24 +458,19 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
 
   // Mathematical aggregates for Delivered Parts
   const totalDeliveredCollected = useMemo(() => {
-    return weeklyDeliveriesOrders.reduce(
-      (sum, o) => sum + (o.financials?.total || o.financials?.partPrice || 0),
-      0
-    );
+    return sumMoney(weeklyDeliveriesOrders.map((o) => o.financials?.partPrice ?? 0));
   }, [weeklyDeliveriesOrders]);
 
   // Office delivered volume eligible for office commission (strictly excludes yard sales)
   const totalOfficeDeliveredForCommission = useMemo(() => {
-    return weeklyDeliveriesOrders
-      .filter((o) => !o.isYardSale && o.advisorRole !== 'vendedor_yarda')
-      .reduce((sum, o) => sum + (o.financials?.total || o.financials?.partPrice || 0), 0);
+    return commissionBase(weeklyDeliveriesOrders);
   }, [weeklyDeliveriesOrders]);
 
   // Yard delivered volume (exempt from office commissions)
   const totalYardDeliveredVolume = useMemo(() => {
     return weeklyDeliveriesOrders
       .filter((o) => Boolean(o.isYardSale || o.advisorRole === 'vendedor_yarda'))
-      .reduce((sum, o) => sum + (o.financials?.total || o.financials?.partPrice || 0), 0);
+      .reduce((sum, o) => sum + (o.financials?.partPrice ?? 0), 0);
   }, [weeklyDeliveriesOrders]);
 
   const averageDeliveryValue = useMemo(() => {
@@ -957,33 +480,33 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
 
   // Manager Commission = 2% of delivered parts generated by office staff (excludes yard sales)
   const managerCommission = useMemo(() => {
-    return totalOfficeDeliveredForCommission * 0.02;
-  }, [totalOfficeDeliveredForCommission]);
+    return commissionAmount(weeklyDeliveriesOrders);
+  }, [weeklyDeliveriesOrders]);
 
   // Total Other Operational Expenses
   const totalOtherExpenses = useMemo(() => {
-    return otherExpenses.reduce((sum, exp) => sum + exp.amount, 0);
-  }, [otherExpenses]);
+    return sumMoney(weeklyOtherExpenses.map((exp) => exp.amount));
+  }, [weeklyOtherExpenses]);
 
   // Total Office Outflows = Total Payroll + Due Recurring Expenses + Other Expenses + 2% Manager Commission
   const totalExpensesWithCommission = useMemo(() => {
-    return totalPayrollFixed + totalDueRecurringExpenses + totalOtherExpenses + managerCommission;
+    return sumMoney([totalPayrollFixed, totalDueRecurringExpenses, totalOtherExpenses, managerCommission]);
   }, [totalPayrollFixed, totalDueRecurringExpenses, totalOtherExpenses, managerCommission]);
 
   // Weekly Net Balance = Total Delivered Income - Total Outflows
   const netWeeklyBalance = useMemo(() => {
-    return totalDeliveredCollected - totalExpensesWithCommission;
-  }, [totalDeliveredCollected, totalExpensesWithCommission]);
+    return sumMoney([totalSalesVolume, -totalExpensesWithCommission]);
+  }, [totalSalesVolume, totalExpensesWithCommission]);
 
   // Total a pagar in Tab 1 (Official Format) = Total Employee Salaries + Due Recurring Expenses + 2% Manager Commission
   const totalOfficialPayout = useMemo(() => {
-    return totalPayrollFixed + totalDueRecurringExpenses + managerCommission;
+    return sumMoney([totalPayrollFixed, totalDueRecurringExpenses, managerCommission]);
   }, [totalPayrollFixed, totalDueRecurringExpenses, managerCommission]);
 
   // Combined Expenses List for Tab 4 (Relación General)
   // Sorted from highest salary/expense to lowest (de mayor a menor)
   const allGeneralConcepts = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = financeDateKey(currentWeekRange.start);
 
     // 1. Employee salaries (Weekly recurring payroll, sorted highest to lowest)
     const employeeRows = sortedEmployees.map((emp) => ({
@@ -1016,7 +539,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
     }));
 
     // 3. Other ad-hoc operational expenses
-    const otherRows = [...otherExpenses]
+    const otherRows = [...weeklyOtherExpenses]
       .sort((a, b) => b.amount - a.amount)
       .map((exp) => ({
         ...exp,
@@ -1028,10 +551,10 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
       }));
 
     return [...employeeRows, ...recurringRows, ...otherRows];
-  }, [sortedEmployees, dueRecurringExpensesThisWeek, otherExpenses]);
+  }, [sortedEmployees, dueRecurringExpensesThisWeek, weeklyOtherExpenses, currentWeekRange]);
 
   // Handle Add Operational Expense Submit
-  const handleAddExpenseSubmit = (e: React.FormEvent) => {
+  const handleAddExpenseSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const parsedAmount = parseFloat(newExpenseForm.amount);
     if (!newExpenseForm.description.trim() || isNaN(parsedAmount) || parsedAmount <= 0) {
@@ -1040,7 +563,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
     }
 
     const newExpense: ExpenseItem = {
-      id: `EXP-${Math.floor(100 + Math.random() * 900)}`,
+      id: `EXP-${crypto.randomUUID()}`,
       description: newExpenseForm.description.trim(),
       category: newExpenseForm.category,
       amount: parsedAmount,
@@ -1049,22 +572,22 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
       receiptNr: newExpenseForm.receiptNr.trim() || undefined,
     };
 
-    setOtherExpenses([newExpense, ...otherExpenses]);
+    if (!await finance.save({ otherExpenses: [newExpense, ...otherExpenses] })) return;
     setIsNewExpenseModalOpen(false);
     setNewExpenseForm({
       description: '',
       category: 'Gastos Administrativos',
       amount: '',
-      date: new Date().toISOString().split('T')[0],
+      date: financeDateKey(new Date()),
       paymentMethod: 'Transferencia',
       receiptNr: '',
     });
     showToast(`Gasto "${newExpense.description}" registrado exitosamente.`);
   };
 
-  const handleDeleteOtherExpense = (id: string) => {
+  const handleDeleteOtherExpense = async (id: string) => {
     if (confirm('¿Está seguro de eliminar este registro de gasto operativo?')) {
-      setOtherExpenses(otherExpenses.filter((e) => e.id !== id));
+      if (!await finance.save({ otherExpenses: otherExpenses.filter((e) => e.id !== id) })) return;
       showToast('Registro de gasto eliminado.');
     }
   };
@@ -1072,20 +595,27 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   const handleExportPdf = async () => {
+    if (!finance.state || (['sales', 'general'].includes(activeTab) && !income.loaded)) {
+      showToast('No se puede exportar: faltan datos financieros del servidor.');
+      return;
+    }
     setIsGeneratingPdf(true);
     try {
       const dateStr = new Date().toISOString().slice(0, 10);
       if (activeTab === 'sales') {
         const bytes = await generateWeeklySalesPdf({
-          orders: weeklySalesOrders,
+          orders: weeklySalesOrders.map((order) => ({
+            ...order,
+            financials: { ...order.financials, partPrice: 0, total: movementIncome(movementsInPeriod(income.movements, currentWeekRange).filter((movement) => movement.orderId === order.id)) },
+          })),
           totalSales: totalSalesVolume,
-          weekLabel: `Semana Actual · ${weeklySalesOrders.length} ventas`,
+          weekLabel: `${weekRangeLabel} · Movimientos netos, no valor de venta`,
         });
         downloadPdfBytes(bytes, `ventas_semana_${dateStr}.pdf`);
         showToast('📄 PDF de Ventas descargado con éxito.');
       } else if (activeTab === 'general') {
         const bytes = await generateGeneralRelationPdf({
-          income: totalDeliveredCollected,
+          income: totalSalesVolume,
           operationalCosts: totalExpensesWithCommission,
           netBalance: netWeeklyBalance,
           commission: managerCommission,
@@ -1096,14 +626,16 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
             method: e.paymentMethod,
             amount: e.amount,
           })),
-          weekLabel: 'Relación General de Entregas y Gastos Operativos',
+          weekLabel: `${weekRangeLabel} · Proyección con reglas vigentes, no cierre histórico`,
         });
         downloadPdfBytes(bytes, `relacion_general_semanal_${dateStr}.pdf`);
         showToast('📄 PDF de Relación General descargado con éxito.');
       } else {
         // 'official' or 'deliveries'
         const bytes = await generateOfficialDeliveriesPdf({
-          orders: weeklyDeliveriesOrders,
+          orders: weeklyDeliveriesOrders.map((order) => ({
+            ...order, financials: { ...order.financials, total: order.financials.partPrice ?? 0 },
+          })),
           commissionPercentage: 2,
           commissionAmount: managerCommission,
           commissionNote: totalYardDeliveredVolume > 0 ? `Excluye ventas yarda ($${totalYardDeliveredVolume.toFixed(2)})` : undefined,
@@ -1111,7 +643,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
           recurringExpenses: dueRecurringExpensesThisWeek,
           totalPayout: totalOfficialPayout,
           subtotalDeliveries: totalDeliveredCollected,
-          weekLabel: 'Relación de Entregas Semanal y Liquidación',
+          weekLabel: `${weekRangeLabel} · Solo precio de pieza, no comprobante de cobro`,
         });
         downloadPdfBytes(bytes, `formato_oficial_entregas_${dateStr}.pdf`);
         showToast('📄 Formato Oficial PDF descargado con éxito.');
@@ -1126,452 +658,35 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
 
   const handlePrint = handleExportPdf;
 
-  // =========================================================================
-  // 5. RENDER 2FA LOCK SCREEN IF LOCKED (CYBERPUNK NEON GLASSMORPHISM)
-  // =========================================================================
-  if (!is2FAUnlocked) {
-    const isCodeComplete = digits.every((d) => d !== '');
-
-    return (
-      <div className="flex items-center justify-center min-h-[75vh] p-3 sm:p-6 animate-fade-in relative overflow-hidden">
-        {/* Floating WhatsApp Simulation Toast */}
-        {toastMessage && (
-          <div className="fixed top-6 sm:top-8 right-6 z-50 max-w-md w-full sm:w-auto bg-[#041a14]/95 text-white font-medium text-xs py-3.5 px-5 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8),0_0_30px_rgba(16,185,129,0.35)] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-bounce border-2 border-emerald-500/60 backdrop-blur-2xl">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center text-emerald-400 shrink-0 shadow-[0_0_12px_rgba(16,185,129,0.4)]">
-                <span className="material-symbols-outlined text-[20px]">mark_chat_read</span>
-              </div>
-              <div className="text-left">
-                <div className="text-[10px] font-mono uppercase tracking-wider text-emerald-400 font-bold">
-                  📲 Notificación Wasender 2FA
-                </div>
-                <div className="text-xs text-slate-200 mt-0.5">
-                  {toastMessage.text}{' '}
-                  {toastMessage.code && (
-                    <span className="font-mono font-black text-emerald-300 text-sm tracking-widest bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-500/40 ml-1">
-                      {toastMessage.code}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {toastMessage.code && (
-              <button
-                type="button"
-                onClick={() => handleAutoFillCode(toastMessage.code!)}
-                className="w-full sm:w-auto mt-2 sm:mt-0 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 text-slate-950 font-black text-[11px] tracking-wide shrink-0 transition-transform active:scale-95 shadow-[0_0_15px_rgba(16,185,129,0.5)] cursor-pointer"
-              >
-                ⚡ Insertar PIN
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Ambient Neon Backlight Orbs */}
-        <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-cyan-500/12 rounded-full blur-[60px] pointer-events-none" />
-        <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-96 h-96 bg-emerald-500/12 rounded-full blur-[60px] pointer-events-none" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[32rem] h-[32rem] bg-blue-600/10 rounded-full blur-[60px] pointer-events-none" />
-
-        {/* Main Cyber Glassmorphic 2FA Card */}
-        <div className="relative max-w-lg w-full rounded-[24px] sm:rounded-[30px] bg-[#070c18]/92 backdrop-blur-2xl border border-cyan-500/35 p-5 sm:p-8 max-h-[min(94vh,680px)] overflow-y-auto custom-scrollbar shadow-[0_25px_70px_rgba(0,0,0,0.85),0_0_60px_rgba(6,182,212,0.18),inset_0_1px_2px_rgba(255,255,255,0.15)] flex flex-col items-center text-center">
-          <div className="absolute top-0 inset-x-0 h-[2.5px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_18px_#22d3ee]" />
-
-          <div className="relative mb-5 flex items-center justify-center">
-            <div className="absolute -inset-4 rounded-full border border-dashed border-cyan-500/30 animate-cyber-orbit pointer-events-none" />
-            <div className="absolute -inset-7 rounded-full border border-dotted border-emerald-400/25 animate-cyber-orbit-reverse pointer-events-none" />
-            <div className="absolute inset-0 rounded-3xl bg-cyan-500/20 blur-xl animate-pulse" />
-
-            <div
-              className={`relative w-22 h-22 rounded-3xl bg-gradient-to-br from-[#0c1a30] via-[#060c18] to-[#040812] border-2 border-cyan-400/60 flex items-center justify-center text-cyan-400 shadow-[0_0_35px_rgba(6,182,212,0.4),inset_0_0_20px_rgba(6,182,212,0.25)] overflow-hidden transition-all duration-300 ${
-                safeAnimation === 'spin' ? 'rotate-180 scale-105 border-emerald-400 text-emerald-400' : ''
-              } ${safeAnimation === 'unlock' ? 'border-emerald-400 text-emerald-400 scale-110 shadow-[0_0_40px_rgba(16,185,129,0.6)]' : ''} ${
-                safeAnimation === 'error' ? 'animate-shake border-red-500 text-red-400 shadow-[0_0_35px_rgba(239,68,68,0.5)]' : ''
-              }`}
-            >
-              <div className="absolute inset-x-0 h-[2px] bg-cyan-400 shadow-[0_0_10px_#22d3ee] animate-cyber-scan pointer-events-none" />
-              <span className="material-symbols-outlined text-[42px] drop-shadow-[0_0_12px_rgba(34,211,238,0.8)]">
-                {safeAnimation === 'unlock' ? 'lock_open' : 'security'}
-              </span>
-            </div>
-          </div>
-
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#040b17]/90 border border-cyan-400/40 text-[10.5px] font-mono font-bold tracking-[0.22em] text-cyan-300 uppercase mb-3 shadow-[0_0_15px_rgba(6,182,212,0.25)]">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-ping" />
-            <span>AUTENTICACIÓN EN DOS PASOS (2FA)</span>
-          </div>
-
-          <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)]">
-            Relación Semanal & Finanzas
-          </h2>
-
-          <p className="text-xs text-[#94a3b8] mt-1.5 leading-relaxed max-w-sm">
-            {authChannel === 'whatsapp'
-              ? 'Bóveda financiera protegida de Radar 3.0. Para desbloquear el acceso, ingresa el PIN de 6 dígitos transmitido por WhatsApp al Super Admin (expira en 1 minuto).'
-              : authChannel === 'totp'
-              ? 'Bóveda financiera protegida de Radar 3.0. Abre tu app Google Authenticator o Microsoft Authenticator e ingresa el código de 6 dígitos (respaldo 100% offline).'
-              : 'Bóveda financiera protegida de Radar 3.0. Ingresa uno de tus 8 códigos de seguridad de emergencia guardados (un solo uso, 100% offline).'}
-          </p>
-
-          {/* Multi-Channel Switcher (WhatsApp, Google Authenticator, 8 Códigos de Respaldo) */}
-          <div className="w-full grid grid-cols-3 gap-1.5 p-1 bg-[#050b16]/90 border border-cyan-500/30 rounded-2xl mt-5 mb-4 shadow-[inset_0_0_15px_rgba(0,0,0,0.6)]">
-            <button
-              type="button"
-              onClick={() => {
-                setAuthChannel('whatsapp');
-                setOtpError(null);
-              }}
-              className={`py-2 px-2 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                authChannel === 'whatsapp'
-                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
-                  : 'text-[#94a3b8] hover:text-white hover:bg-slate-800/40'
-              }`}
-            >
-              <span className="material-symbols-outlined text-[16px]">chat</span>
-              <span className="truncate">WhatsApp</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setAuthChannel('totp');
-                setOtpError(null);
-              }}
-              className={`py-2 px-2 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                authChannel === 'totp'
-                  ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.3)]'
-                  : 'text-[#94a3b8] hover:text-white hover:bg-slate-800/40'
-              }`}
-            >
-              <span className="material-symbols-outlined text-[16px]">phonelink_lock</span>
-              <span className="truncate">Authenticator</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setAuthChannel('backup');
-                setOtpError(null);
-              }}
-              className={`py-2 px-2 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                authChannel === 'backup'
-                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
-                  : 'text-[#94a3b8] hover:text-white hover:bg-slate-800/40'
-              }`}
-            >
-              <span className="material-symbols-outlined text-[16px]">key</span>
-              <span className="truncate">8 Códigos</span>
-            </button>
-          </div>
-
-          {authChannel === 'whatsapp' ? (
-            /* WhatsApp Transmission Pod */
-            <div className="w-full bg-[#050b16]/95 border border-cyan-500/30 hover:border-cyan-400/50 rounded-2xl p-4 mb-4 flex items-center justify-between gap-3 text-xs shadow-[inset_0_0_20px_rgba(0,0,0,0.7)] transition-all">
-              <div className="flex items-center gap-3 text-left">
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-400/40 flex items-center justify-center text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)] shrink-0">
-                  <span className="material-symbols-outlined text-[22px]">chat</span>
-                </div>
-                <div>
-                  <span className="text-[10px] uppercase font-mono font-bold text-emerald-400/90 block tracking-wider">
-                    CANAL SEGURO WHATSAPP
-                  </span>
-                  <strong className="text-white font-mono text-sm tracking-wider drop-shadow-[0_0_8px_rgba(255,255,255,0.4)]">
-                    +58 412-***7933
-                  </strong>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleRequestOTP}
-                disabled={otpCooldown > 0 || isRequestingOtp}
-                className={`py-2 px-3.5 rounded-xl text-xs font-black tracking-wide transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                  otpCooldown > 0 || isRequestingOtp
-                    ? 'bg-[#0f172a] text-[#64748b] cursor-not-allowed border border-[#1e293b]'
-                    : 'bg-gradient-to-r from-emerald-400 to-cyan-500 hover:from-emerald-300 hover:to-cyan-400 text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.4)] hover:shadow-[0_0_25px_rgba(34,211,238,0.6)]'
-                }`}
-              >
-                <span className="material-symbols-outlined text-[16px]">
-                  {isRequestingOtp ? 'sync' : otpCooldown > 0 ? 'hourglass_top' : 'send'}
-                </span>
-                <span>
-                  {isRequestingOtp
-                    ? 'Enviando...'
-                    : otpCooldown > 0
-                    ? `${otpCooldown}s`
-                    : 'Solicitar Código'}
-                </span>
-              </button>
-            </div>
-          ) : authChannel === 'totp' ? (
-            /* Google Authenticator (TOTP) Backup Pod */
-            <div className="w-full bg-[#050b16]/95 border border-cyan-500/40 hover:border-cyan-400/60 rounded-2xl p-4 mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs shadow-[inset_0_0_20px_rgba(0,0,0,0.7)] transition-all animate-fade-in">
-              <div className="flex items-center gap-3 text-left">
-                <div className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-400/40 flex items-center justify-center text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.3)] shrink-0">
-                  <span className="material-symbols-outlined text-[22px]">phonelink_lock</span>
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] uppercase font-mono font-bold text-cyan-400 block tracking-wider">
-                      RESPALDO OFFLINE TOTP
-                    </span>
-                    <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                      SIN WHATSAPP
-                    </span>
-                  </div>
-                  <p className="text-slate-300 font-mono text-xs mt-0.5">
-                    Abre tu app Google Authenticator o Microsoft Authenticator e ingresa los 6 dígitos.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1.5 text-[11px] font-mono text-cyan-300 bg-cyan-950/60 border border-cyan-500/40 px-3 py-1.5 rounded-xl shrink-0">
-                <span className="material-symbols-outlined text-[15px] text-cyan-400">verified_user</span>
-                <span>6 dígitos</span>
-              </div>
-            </div>
-          ) : (
-            /* Backup Codes Emergency Pod */
-            <div className="w-full bg-[#050b16]/95 border border-amber-500/40 hover:border-amber-400/60 rounded-2xl p-4 mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs shadow-[inset_0_0_20px_rgba(0,0,0,0.7)] transition-all animate-fade-in">
-              <div className="flex items-center gap-3 text-left">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-400/40 flex items-center justify-center text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.3)] shrink-0">
-                  <span className="material-symbols-outlined text-[22px]">key</span>
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] uppercase font-mono font-bold text-amber-400 block tracking-wider">
-                      CÓDIGOS DE EMERGENCIA
-                    </span>
-                    <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                      8 CÓDIGOS OFFLINE
-                    </span>
-                  </div>
-                  <p className="text-slate-300 font-mono text-xs mt-0.5">
-                    Ingresa uno de tus 8 códigos de respaldo guardados de un solo uso.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1.5 text-[11px] font-mono text-amber-300 bg-amber-950/60 border border-amber-500/40 px-3 py-1.5 rounded-xl shrink-0">
-                <span className="material-symbols-outlined text-[15px] text-amber-400">vpn_key</span>
-                <span>8 dígitos</span>
-              </div>
-            </div>
-          )}
-
-          {/* Form: PIN or Emergency Code */}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (authChannel === 'backup') {
-                executeVerification(backupCodeInput);
-              } else {
-                executeVerification(digits.join(''));
-              }
-            }}
-            className="w-full"
-          >
-            {authChannel === 'backup' ? (
-              <div className="my-3 space-y-2 text-left">
-                <label className="text-[11px] font-mono uppercase tracking-wider text-amber-300/90 font-bold block">
-                  Código de Seguridad de Respaldo (8 dígitos)
-                </label>
-                <div className="relative flex items-center">
-                  <input
-                    type="text"
-                    value={backupCodeInput}
-                    onChange={(e) => {
-                      setBackupCodeInput(e.target.value.toUpperCase());
-                      setOtpError(null);
-                    }}
-                    placeholder="Ej: 4829-1053 o 48291053"
-                    maxLength={14}
-                    className="w-full text-center text-lg sm:text-xl font-mono font-black tracking-widest bg-[#050b16] border-2 border-amber-500/50 focus:border-amber-400 rounded-2xl py-3 px-14 text-amber-200 outline-none transition-all shadow-[0_0_20px_rgba(245,158,11,0.2)] focus:shadow-[0_0_30px_rgba(245,158,11,0.4)] placeholder:text-slate-600 placeholder:text-xs placeholder:font-normal placeholder:tracking-normal"
-                    autoFocus
-                  />
-                  {navigator?.clipboard?.readText && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          const text = await navigator.clipboard.readText();
-                          if (text) {
-                            setBackupCodeInput(text.trim().toUpperCase());
-                            setOtpError(null);
-                          }
-                        } catch {
-                          // clipboard permission
-                        }
-                      }}
-                      className="absolute right-3 py-1 px-2.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-[10px] font-mono font-bold border border-amber-500/30 cursor-pointer active:scale-95"
-                      title="Pegar código copiado"
-                    >
-                      Pegar
-                    </button>
-                  )}
-                </div>
-                <p className="text-[11px] font-mono text-slate-400">
-                  💡 Cada código es de un solo uso. No requiere internet en tu celular ni WhatsApp activo.
-                </p>
-              </div>
-            ) : (
-              <div>
-                <div className="mb-2 text-left flex items-center justify-between">
-                  <label className="text-[11px] font-mono uppercase tracking-wider text-cyan-300/90 font-bold">
-                    {authChannel === 'whatsapp' ? 'PIN de Seguridad (6 dígitos)' : 'Código Authenticator (6 dígitos)'}
-                  </label>
-                  {authChannel === 'whatsapp' && (otpRequested || otpCooldown > 0) ? (
-                    <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1 font-bold">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      PIN transmitido (Válido 1 min)
-                    </span>
-                  ) : authChannel === 'totp' ? (
-                    <span className="text-[10px] text-cyan-400 font-mono flex items-center gap-1 font-bold">
-                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                      Actualiza cada 30 segundos
-                    </span>
-                  ) : null}
-                </div>
-
-                <div className="flex items-center justify-between gap-1.5 sm:gap-2.5 my-3">
-                  {digits.map((digit, idx) => (
-                    <React.Fragment key={idx}>
-                      {idx === 3 && (
-                        <div className="text-cyan-400/60 font-mono font-bold text-xl select-none px-0.5 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]">
-                          •
-                        </div>
-                      )}
-                      <input
-                        ref={(el) => (digitInputRefs.current[idx] = el)}
-                        type="text"
-                        inputMode="numeric"
-                        autoComplete="one-time-code"
-                        maxLength={1}
-                        value={digit}
-                        onChange={(e) => handleDigitChange(idx, e.target.value)}
-                        onKeyDown={(e) => handleKeyDown(idx, e)}
-                        onPaste={handlePaste}
-                        className={`w-11 h-14 sm:w-13 sm:h-16 rounded-2xl text-center font-mono text-2xl font-black transition-all outline-none ${
-                          digit
-                            ? 'bg-[#0a1830] border-2 border-cyan-400 text-cyan-300 shadow-[0_0_20px_rgba(34,211,238,0.45),inset_0_0_12px_rgba(34,211,238,0.2)]'
-                            : 'bg-[#040814] border border-cyan-500/25 text-white focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30 focus:shadow-[0_0_15px_rgba(34,211,238,0.3)]'
-                        } ${
-                          otpError
-                            ? 'border-red-500 text-red-400 shadow-[0_0_20px_rgba(239,68,68,0.35)] bg-red-950/20'
-                            : ''
-                        }`}
-                      />
-                    </React.Fragment>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {otpError && (
-              <div className="my-3 p-3 bg-red-500/15 border border-red-500/40 rounded-2xl text-xs text-red-200 flex items-center gap-2.5 text-left animate-shake shadow-[0_0_20px_rgba(239,68,68,0.2)]">
-                <span className="material-symbols-outlined text-[19px] text-red-400 shrink-0">error</span>
-                <span className="font-mono">{otpError}</span>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={
-                authChannel === 'backup'
-                  ? backupCodeInput.replace(/[\s-]/g, '').length < 8 || isVerifying
-                  : !isCodeComplete || isVerifying
-              }
-              className={`w-full mt-4 text-slate-950 font-black tracking-wider uppercase text-xs py-3.5 px-5 rounded-2xl transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-[0.98] ${
-                authChannel === 'backup'
-                  ? 'bg-gradient-to-r from-amber-400 via-orange-400 to-yellow-300 hover:from-amber-300 hover:to-yellow-200 shadow-[0_0_30px_rgba(245,158,11,0.45)]'
-                  : 'bg-gradient-to-r from-cyan-400 via-blue-500 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 shadow-[0_0_30px_rgba(6,182,212,0.45)] hover:shadow-[0_0_40px_rgba(16,185,129,0.6)]'
-              }`}
-            >
-              {isVerifying ? (
-                <>
-                  <span className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                  <span>AUTENTICANDO ACCESO...</span>
-                </>
-              ) : (
-                <>
-                  <span className="material-symbols-outlined text-[20px]">
-                    {authChannel === 'backup' ? 'vpn_key' : 'verified_user'}
-                  </span>
-                  <span>VERIFICAR Y DESBLOQUEAR</span>
-                </>
-              )}
-            </button>
-
-            {/* Alternative Methods Quick Links */}
-            <div className="mt-3.5 flex flex-wrap items-center justify-center gap-3 text-center">
-              {authChannel !== 'whatsapp' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthChannel('whatsapp');
-                    setOtpError(null);
-                  }}
-                  className="text-[11px] font-mono text-emerald-400/90 hover:text-emerald-200 underline underline-offset-2 transition-colors cursor-pointer"
-                >
-                  💬 Solicitar por WhatsApp
-                </button>
-              )}
-
-              {authChannel !== 'totp' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthChannel('totp');
-                    setOtpError(null);
-                  }}
-                  className="text-[11px] font-mono text-cyan-400/90 hover:text-cyan-200 underline underline-offset-2 transition-colors cursor-pointer"
-                >
-                  🛡️ Usar Google Authenticator
-                </button>
-              )}
-
-              {authChannel !== 'backup' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthChannel('backup');
-                    setOtpError(null);
-                  }}
-                  className="text-[11px] font-mono text-amber-400/90 hover:text-amber-200 underline underline-offset-2 transition-colors cursor-pointer"
-                >
-                  🔑 Usar Código de Respaldo (8 códigos)
-                </button>
-              )}
-            </div>
-
-            {onBackToDashboard && (
-              <div className="mt-2 text-center">
-                <button
-                  type="button"
-                  onClick={onBackToDashboard}
-                  className="text-[11px] font-medium text-[#94a3b8] hover:text-cyan-300 transition-colors cursor-pointer inline-flex items-center gap-1.5"
-                >
-                  <span className="material-symbols-outlined text-[14px]">arrow_back</span>
-                  <span>Volver al Dashboard Principal</span>
-                </button>
-              </div>
-            )}
-          </form>
-
-          <div className="mt-6 pt-4 border-t border-cyan-500/15 w-full flex items-center justify-center gap-2 text-[10px] font-mono text-cyan-400/60 uppercase tracking-widest">
-            <span className="material-symbols-outlined text-[14px] text-emerald-400">lock</span>
-            <span>SHA-256 E2EE • PROTOCOLO RADAR V3 2FA</span>
-          </div>
-        </div>
-      </div>
-    );
+  if (!finance.state) {
+    return <div className="radar-view space-y-4 p-6 text-slate-200">
+      {finance.error
+        ? <p>La autorización y disponibilidad del estado financiero se verifican en el servidor.</p>
+        : <p>Validando acceso administrativo con el servidor…</p>}
+      <p role={finance.error ? 'alert' : 'status'}>{finance.error || 'Cargando estado financiero del servidor…'}</p>
+      <p>No se crearán datos ni se guardarán listas vacías durante la carga.</p>
+      <button type="button" onClick={() => void finance.reload()}>Volver a cargar</button>
+    </div>;
   }
-
-  // =========================================================================
-  // 6. RENDER FULL FINANCIAL DASHBOARD (UNLOCKED)
-  // =========================================================================
   return (
     <div className="radar-view space-y-6 pb-16">
+      <div className="text-sm text-slate-200 space-y-2 print:hidden">
+        {finance.error && <p role="alert" className="text-red-300">{finance.error}</p>}
+        {income.error && <p role="alert" className="text-red-300">Ingresos no disponibles: {income.error}</p>}
+        {finance.saving && <p role="status">Guardando en servidor…</p>}
+        <div className="flex flex-wrap gap-3">
+          <button type="button" disabled={finance.saving} onClick={() => void finance.reload()}>Recargar estado</button>
+          <button type="button" onClick={() => void income.refresh()}>Recargar ingresos</button>
+          {finance.state && !employees.length && !recurringExpenses.length && !otherExpenses.length && (
+            <button type="button" disabled={finance.saving} onClick={() => void finance.importLegacy()}>
+              Importar datos locales anteriores…
+            </button>
+          )}
+          <button type="button" onClick={() => setWeekOffset((offset) => offset - 1)}>← Semana anterior</button>
+          <button type="button" disabled={weekOffset === 0} onClick={() => setWeekOffset((offset) => Math.min(0, offset + 1))}>Semana siguiente →</button>
+          <button type="button" onClick={() => setWeekOffset(0)}>Semana actual</button>
+        </div>
+      </div>
       {/* Toast Feedback */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-[#10b981] text-[#042f2e] font-bold text-xs py-3 px-5 rounded-xl shadow-[0_10px_25px_rgba(16,185,129,0.4)] flex items-center gap-2.5 animate-bounce print:hidden">
@@ -1622,6 +737,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
           {/* Manage Employees / Payroll Button */}
           <button
             onClick={() => setIsEmployeesModalOpen(true)}
+            disabled={!finance.state || finance.saving}
             className="bg-[#0b1329] hover:bg-[#1e293b] text-[#38bdf8] font-bold text-xs py-2 px-3.5 rounded-xl border border-[#0284c7]/40 transition-all cursor-pointer shadow-sm flex items-center gap-1.5"
           >
             <span className="material-symbols-outlined text-[18px]">group</span>
@@ -1631,6 +747,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
           {/* Manage Recurring Expenses Button */}
           <button
             onClick={() => setIsRecurringModalOpen(true)}
+            disabled={!finance.state || finance.saving}
             className="bg-[#0b1329] hover:bg-[#1e293b] text-[#fbbf24] font-bold text-xs py-2 px-3.5 rounded-xl border border-[#f59e0b]/40 transition-all cursor-pointer shadow-sm flex items-center gap-1.5"
           >
             <span className="material-symbols-outlined text-[18px]">event_repeat</span>
@@ -1640,7 +757,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
           {/* Print PDF Button */}
           <button
             onClick={handleExportPdf}
-            disabled={isGeneratingPdf}
+            disabled={isGeneratingPdf || !finance.state || finance.saving}
             className="bg-[#1e293b] hover:bg-[#334155] text-white font-bold text-xs py-2 px-3.5 rounded-xl border border-[#334155] transition-all cursor-pointer shadow-sm flex items-center gap-1.5 disabled:opacity-50"
           >
             <span className="material-symbols-outlined text-[18px]">
@@ -1660,25 +777,6 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
             </button>
           )}
 
-          {/* 2FA Security & Offline Backup Settings */}
-          <button
-            type="button"
-            onClick={() => handleOpenTotpModal('codes')}
-            title="Seguridad 2FA, Códigos de Respaldo y Authenticator"
-            className="bg-amber-950/40 hover:bg-amber-500/20 text-amber-300 font-bold text-xs py-2 px-3.5 rounded-xl border border-amber-500/30 transition-all cursor-pointer shadow-sm flex items-center gap-1.5"
-          >
-            <span className="material-symbols-outlined text-[18px]">verified_user</span>
-            <span className="hidden sm:inline">Seguridad 2FA</span>
-          </button>
-
-          {/* Lock Session Button */}
-          <button
-            onClick={handleLockSession}
-            title="Bloquear Bóveda 2FA"
-            className="p-2 rounded-xl bg-[#ef4444]/10 hover:bg-[#ef4444]/20 text-[#f87171] border border-[#ef4444]/30 transition-colors cursor-pointer flex items-center justify-center"
-          >
-            <span className="material-symbols-outlined text-[18px]">lock</span>
-          </button>
         </div>
       </div>
 
@@ -1841,7 +939,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
                     </tr>
                   ) : (
                     weeklyDeliveriesOrders.map((order) => {
-                      const price = order.financials?.total || order.financials?.partPrice || 0;
+                      const price = order.financials?.partPrice ?? 0;
                       const isYard = Boolean(order.isYardSale || order.advisorRole === 'vendedor_yarda');
                       return (
                         <tr key={order.id} className="hover:bg-[#1e293b]/50 transition-colors print:hover:bg-transparent">
@@ -1959,13 +1057,13 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
             <div className="bg-[#0f172a] border border-[#10b981]/30 rounded-2xl p-5 flex items-center justify-between shadow-lg relative overflow-hidden">
               <div className="space-y-1">
                 <span className="text-[10px] font-bold text-[#94a3b8] uppercase tracking-wider block">
-                  TOTAL VENTAS PAGADAS
+                  INGRESOS NETOS REGISTRADOS
                 </span>
                 <div className="text-3xl font-black font-mono text-[#10b981]">
-                  ${totalSalesVolume.toFixed(2)}
+                  {income.loaded ? `$${totalSalesVolume.toFixed(2)}` : 'No disponible'}
                 </div>
                 <p className="text-[11px] text-[#64748b]">
-                  Órdenes pagadas en la semana actual
+                  Pagos menos reembolsos de la semana seleccionada
                 </p>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-[#10b981]/15 border border-[#10b981]/30 flex items-center justify-center text-[#10b981] shrink-0">
@@ -1977,7 +1075,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
             <div className="bg-[#0f172a] border border-[#388bfd]/30 rounded-2xl p-5 flex items-center justify-between shadow-lg relative overflow-hidden">
               <div className="space-y-1">
                 <span className="text-[10px] font-bold text-[#94a3b8] uppercase tracking-wider block">
-                  CANTIDAD DE VENTAS
+                  ÓRDENES CON MOVIMIENTOS
                 </span>
                 <div className="text-3xl font-black font-mono text-[#388bfd]">
                   {weeklySalesOrders.length}
@@ -2048,12 +1146,12 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
                   {weeklySalesOrders.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="py-10 text-center text-xs text-[#94a3b8] italic">
-                        No se registran ventas pagadas en el rango de la semana actual.
+                        {income.loaded ? 'No hay movimientos fechados para órdenes de esta semana.' : 'Movimientos no disponibles.'}
                       </td>
                     </tr>
                   ) : (
                     weeklySalesOrders.map((order) => {
-                      const amount = order.financials?.total || order.financials?.partPrice || 0;
+                      const amount = movementIncome(movementsInPeriod(income.movements, currentWeekRange).filter((movement) => movement.orderId === order.id));
                       const isYard = Boolean(order.isYardSale || order.advisorRole === 'vendedor_yarda');
                       return (
                         <tr key={order.id} className="hover:bg-[#1e293b]/40 transition-colors">
@@ -2093,10 +1191,10 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
               {/* Subtotal Row */}
               <div className="bg-[#0b1329] border-t border-[#1e293b] py-3.5 px-6 flex items-center justify-end gap-3 text-xs">
                 <span className="font-bold text-[#94a3b8] uppercase tracking-wider">
-                  Subtotal Ventas:
+                  Ingreso neto registrado:
                 </span>
                 <span className="font-mono font-black text-sm text-[#10b981]">
-                  $ {totalSalesVolume.toFixed(2)}
+                  {income.loaded ? `$${totalSalesVolume.toFixed(2)}` : 'No disponible'}
                 </span>
               </div>
             </div>
@@ -2115,13 +1213,13 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
             <div className="bg-[#0f172a] border border-[#388bfd]/30 rounded-2xl p-5 flex items-center justify-between shadow-lg relative overflow-hidden">
               <div className="space-y-1">
                 <span className="text-[10px] font-bold text-[#94a3b8] uppercase tracking-wider block">
-                  TOTAL RECAUDADO POR ENTREGAS
+                  VALOR DE PIEZAS ENTREGADAS
                 </span>
                 <div className="text-3xl font-black font-mono text-[#388bfd]">
                   ${totalDeliveredCollected.toFixed(2)}
                 </div>
                 <p className="text-[11px] text-[#64748b]">
-                  Monto cobrado de repuestos entregados
+                  Precio registrado de piezas entregadas (no equivale a cobros)
                 </p>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-[#388bfd]/15 border border-[#388bfd]/30 flex items-center justify-center text-[#388bfd] shrink-0">
@@ -2197,7 +1295,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
                     </tr>
                   ) : (
                     weeklyDeliveriesOrders.map((order) => {
-                      const total = order.financials?.total || order.financials?.partPrice || 0;
+                      const total = order.financials?.partPrice ?? 0;
                       const down = order.financials?.downPayment || 0;
                       const remaining = Math.max(0, total - down);
 
@@ -2261,10 +1359,10 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
             <div className="bg-[#0f172a] border border-[#10b981]/30 rounded-2xl p-5 flex items-center justify-between shadow-lg relative overflow-hidden">
               <div className="space-y-1">
                 <span className="text-[10px] font-bold text-[#94a3b8] uppercase tracking-wider block">
-                  INGRESOS POR ENTREGAS
+                  INGRESOS NETOS REGISTRADOS
                 </span>
                 <div className="text-3xl font-black font-mono text-[#10b981]">
-                  ${totalDeliveredCollected.toFixed(2)}
+                  {income.loaded ? `$${totalSalesVolume.toFixed(2)}` : 'No disponible'}
                 </div>
                 <p className="text-[11px] text-[#64748b]">Semana en curso</p>
               </div>
@@ -2302,10 +1400,10 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
                 <div className={`text-3xl font-black font-mono ${
                   netWeeklyBalance >= 0 ? 'text-[#10b981]' : 'text-[#ef4444]'
                 }`}>
-                  {netWeeklyBalance >= 0 ? `$${netWeeklyBalance.toFixed(2)}` : `-$${Math.abs(netWeeklyBalance).toFixed(2)}`}
+                  {income.loaded ? (netWeeklyBalance >= 0 ? `$${netWeeklyBalance.toFixed(2)}` : `-$${Math.abs(netWeeklyBalance).toFixed(2)}`) : 'No disponible'}
                 </div>
                 <p className="text-[11px] text-[#64748b]">
-                  {netWeeklyBalance >= 0 ? 'Superávit Semanal' : 'Déficit Semanal'}
+                  {income.loaded ? 'Proyección: ingresos menos costos configurados' : 'Faltan datos de ingresos'}
                 </p>
               </div>
               <div className={`w-12 h-12 rounded-2xl ${
@@ -2362,7 +1460,7 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
                       <span>Comisiones y Bonificaciones</span>
                     </td>
                     <td className="py-3.5 px-4 font-bold text-white">
-                      Comisión Fija del Gerente (2% de ${totalDeliveredCollected.toFixed(2)})
+                      Comisión Fija del Gerente (2% de piezas de oficina: ${totalOfficeDeliveredForCommission.toFixed(2)})
                     </td>
                     <td className="py-3.5 px-4">
                       <span className="px-2.5 py-1 rounded-full bg-[#f59e0b]/15 border border-[#f59e0b]/30 text-[#fbbf24] text-[10.5px] font-mono font-medium">
@@ -3225,250 +2323,6 @@ export const WeeklyRelationView: React.FC<WeeklyRelationViewProps> = ({
         </div>
       )}
 
-      {/* Modal Configuración Respaldo: Google Authenticator & 8 Códigos de Seguridad (Solo accesible post-autenticación) */}
-      {isTotpModalOpen &&
-        createPortal(
-          <div
-            className="fixed inset-0 z-[99999] flex items-center justify-center p-3 sm:p-4 md:p-6 bg-slate-950/85 backdrop-blur-md animate-fade-in overflow-y-auto"
-            onClick={() => setIsTotpModalOpen(false)}
-          >
-            <div
-              className="relative w-full max-w-lg bg-[#070c18] border-2 border-cyan-500/50 rounded-3xl p-5 sm:p-6 shadow-[0_0_50px_rgba(6,182,212,0.35)] text-center overflow-hidden flex flex-col items-center"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Laser top bar */}
-              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-cyan-400 via-emerald-400 to-amber-400 shadow-[0_0_15px_#22d3ee]" />
-
-              <div className="w-full flex items-center justify-between pb-3 mb-3 border-b border-cyan-500/20">
-                <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-cyan-400 text-[22px]">security</span>
-                  <h3 className="text-sm sm:text-base font-black text-white font-mono uppercase tracking-wide">
-                    Configuración 2FA & Códigos de Emergencia
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsTotpModalOpen(false)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors cursor-pointer"
-                >
-                  <span className="material-symbols-outlined text-[18px]">close</span>
-                </button>
-              </div>
-
-              {/* Tabs: Google Authenticator vs 8 Códigos de Respaldo */}
-              <div className="grid grid-cols-2 gap-2 w-full mb-4">
-                <button
-                  type="button"
-                  onClick={() => setTotpModalTab('qr')}
-                  className={`py-2 px-3 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                    totpModalTab === 'qr'
-                      ? 'bg-cyan-500/25 border border-cyan-400/60 text-cyan-200 shadow-[0_0_15px_rgba(6,182,212,0.3)]'
-                      : 'bg-slate-900/60 border border-slate-700/40 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <span className="material-symbols-outlined text-[16px]">qr_code_2</span>
-                  <span>Google Authenticator</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setTotpModalTab('codes')}
-                  className={`py-2 px-3 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                    totpModalTab === 'codes'
-                      ? 'bg-amber-500/25 border border-amber-400/60 text-amber-200 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
-                      : 'bg-slate-900/60 border border-slate-700/40 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <span className="material-symbols-outlined text-[16px]">key</span>
-                  <span>8 Códigos de Emergencia</span>
-                </button>
-              </div>
-
-              {isLoadingTotp ? (
-                <div className="py-12 flex flex-col items-center gap-3">
-                  <div className="w-8 h-8 border-3 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-                  <span className="text-xs font-mono text-cyan-300">Cargando configuración segura...</span>
-                </div>
-              ) : totpSetupData ? (
-                totpModalTab === 'qr' ? (
-                  /* Tab 1: Google Authenticator QR */
-                  <div className="w-full space-y-4 animate-fade-in">
-                    <p className="text-xs text-slate-300 font-mono leading-relaxed text-left">
-                      Escanea este código QR con la app <strong>Google Authenticator</strong> o <strong>Microsoft Authenticator</strong> en tu celular. Funciona 100% sin internet y sin WhatsApp.
-                    </p>
-
-                    {/* QR Code Container */}
-                    <div className="bg-white p-3 rounded-2xl inline-block shadow-[0_0_25px_rgba(255,255,255,0.2)] border-2 border-cyan-400 mx-auto">
-                      <img
-                        src={totpSetupData.qrCodeDataUrl}
-                        alt="Código QR Google Authenticator"
-                        className="w-48 h-48 sm:w-52 sm:h-52 mx-auto block rounded-lg"
-                      />
-                    </div>
-
-                    {/* Manual Secret Key */}
-                    <div className="bg-[#050b16] border border-cyan-500/30 rounded-xl p-2.5 text-left">
-                      <span className="text-[10px] font-mono text-cyan-400 uppercase font-bold block mb-1">
-                        O ingresa esta clave manualmente en la app:
-                      </span>
-                      <div className="flex items-center justify-between gap-2">
-                        <code className="font-mono text-xs font-bold text-white tracking-widest break-all select-all">
-                          {totpSetupData.secret}
-                        </code>
-                        <button
-                          type="button"
-                          onClick={handleCopyTotpSecret}
-                          className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-xs font-mono font-bold border border-cyan-500/40 shrink-0 cursor-pointer active:scale-95 transition-all"
-                        >
-                          {copiedTotpSecret ? '¡Copiado!' : 'Copiar'}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* 3 Step Instruction */}
-                    <div className="bg-cyan-950/30 border border-cyan-500/20 rounded-xl p-3 text-left space-y-1 text-[11px] font-mono text-slate-300">
-                      <div className="flex items-start gap-2">
-                        <strong className="text-cyan-400 font-bold">1.</strong>
-                        <span>Abre <strong>Google Authenticator</strong> en tu celular.</span>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <strong className="text-cyan-400 font-bold">2.</strong>
-                        <span>Presiona el botón <strong>'+'</strong> y elige <strong>Escanear código QR</strong>.</span>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <strong className="text-cyan-400 font-bold">3.</strong>
-                        <span>Apunta la cámara a la pantalla. ¡Listo! Ya tienes tus códigos de 6 dígitos.</span>
-                      </div>
-                    </div>
-
-                    {/* Modal Buttons */}
-                    <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={handleResetTotpSecret}
-                        disabled={isResettingTotp}
-                        className="w-full sm:w-auto py-2.5 px-3 rounded-xl border border-rose-500/40 hover:bg-rose-500/20 text-rose-300 text-xs font-mono font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                        title="Genera una nueva clave si perdiste acceso a tu teléfono anterior"
-                      >
-                        <span className="material-symbols-outlined text-[15px]">refresh</span>
-                        <span>{isResettingTotp ? 'Regenerando...' : 'Regenerar QR'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setIsTotpModalOpen(false)}
-                        className="w-full flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 text-xs font-mono font-black uppercase tracking-wider transition-all cursor-pointer shadow-[0_0_20px_rgba(6,182,212,0.4)] active:scale-95"
-                      >
-                        Cerrar Configuración
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  /* Tab 2: 8 Backup Codes */
-                  <div className="w-full space-y-3.5 animate-fade-in">
-                    <p className="text-xs text-slate-300 font-mono leading-relaxed text-left">
-                      Estos <strong>8 códigos de seguridad</strong> te permiten acceder de emergencia si no puedes recibir WhatsApp ni tienes tu celular a mano. <strong>Cada código funciona una sola vez.</strong>
-                    </p>
-
-                    {/* 8 Codes Grid */}
-                    <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto p-1">
-                      {(totpSetupData.backupCodes || []).map((codeItem, idx) => (
-                        <div
-                          key={idx}
-                          className={`p-2.5 rounded-xl border flex items-center justify-between gap-1.5 transition-all ${
-                            codeItem.used
-                              ? 'bg-slate-900/40 border-slate-700/40 text-slate-500'
-                              : 'bg-[#050b16] border-amber-500/40 hover:border-amber-400 text-amber-200 shadow-[0_0_10px_rgba(245,158,11,0.1)]'
-                          }`}
-                        >
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="text-[10px] font-mono text-slate-500 font-bold">{idx + 1}.</span>
-                            <span
-                              className={`font-mono text-xs sm:text-sm font-black tracking-wider select-all ${
-                                codeItem.used ? 'line-through opacity-60' : ''
-                              }`}
-                            >
-                              {codeItem.code}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-1 shrink-0">
-                            {codeItem.used ? (
-                              <span className="px-1.5 py-0.5 rounded text-[8px] font-mono font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                                USADO
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleCopySingleBackupCode(codeItem.code, idx)}
-                                className="p-1 rounded hover:bg-amber-500/20 text-amber-300 transition-colors cursor-pointer"
-                                title="Copiar este código"
-                              >
-                                <span className="material-symbols-outlined text-[15px]">
-                                  {copiedCodeIndex === idx ? 'done' : 'content_copy'}
-                                </span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Copy All & Download Actions */}
-                    <div className="grid grid-cols-2 gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={handleCopyAllBackupCodes}
-                        className="py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-mono font-bold border border-amber-500/40 transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
-                      >
-                        <span className="material-symbols-outlined text-[15px]">
-                          {copiedAllBackupCodes ? 'done_all' : 'copy_all'}
-                        </span>
-                        <span>{copiedAllBackupCodes ? '¡Copiados!' : 'Copiar los 8'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={handleDownloadBackupCodes}
-                        className="py-2 px-3 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-white text-xs font-mono font-bold border border-slate-600 transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
-                      >
-                        <span className="material-symbols-outlined text-[15px]">download</span>
-                        <span>Descargar .TXT</span>
-                      </button>
-                    </div>
-
-                    {/* Modal Footer Buttons */}
-                    <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={handleResetBackupCodes}
-                        disabled={isResettingBackupCodes}
-                        className="w-full sm:w-auto py-2.5 px-3 rounded-xl border border-rose-500/40 hover:bg-rose-500/20 text-rose-300 text-xs font-mono font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                        title="Invalida los códigos actuales y genera 8 nuevos"
-                      >
-                        <span className="material-symbols-outlined text-[15px]">refresh</span>
-                        <span>{isResettingBackupCodes ? 'Regenerando...' : 'Regenerar 8'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => setIsTotpModalOpen(false)}
-                        className="w-full flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 text-xs font-mono font-black uppercase tracking-wider transition-all cursor-pointer shadow-[0_0_20px_rgba(245,158,11,0.4)] active:scale-95"
-                      >
-                        Cerrar y Guardar Códigos
-                      </button>
-                    </div>
-                  </div>
-                )
-              ) : (
-                <div className="py-6 text-xs text-rose-400 font-mono">
-                  Error al cargar configuración. Intenta nuevamente.
-                </div>
-              )}
-            </div>
-          </div>,
-          document.body
-        )}
     </div>
   );
 };

@@ -1,185 +1,67 @@
 import { describe, expect, it } from 'vitest';
 import {
-  OfficeEmployee,
-  RecurringExpense,
-  getMonthlyRecurringDueWeek,
-  getWeekRange,
-  isRecurringExpenseDueInWeek,
+  OfficeEmployee, RecurringExpense, getMonthlyRecurringDueWeek,
+  getWeekRange, isRecurringExpenseDueInWeek,
 } from '../src/components/WeeklyRelationView';
+import { commissionAmount, financeDateKey, sumMoney } from '../src/utils/finance';
+import type { Order } from '../src/types';
 
-describe('Weekly Relation Financial Engine & Salary Sorting', () => {
-  it('sorts employee salaries from highest to lowest (de mayor a menor de arriba a abajo)', () => {
-    const rawEmployees: OfficeEmployee[] = [
-      { id: 'EMP-01', name: 'Juan', weeklySalary: 50.0, role: 'Asesor Saul Motors' },
-      { id: 'EMP-02', name: 'Williana', weeklySalary: 90.0, role: 'Asesor Peddle' },
-      { id: 'EMP-03', name: 'Maggie', weeklySalary: 75.0, role: 'Asesor Wheelzy' },
-      { id: 'EMP-04', name: 'Douglas', weeklySalary: 150.0, role: 'Supervisor' },
-      { id: 'EMP-05', name: 'Favio', weeklySalary: 120.0, role: 'Asesor Comercial' },
-      { id: 'EMP-06', name: 'Darrel', weeklySalary: 75.0, role: 'Asesor Comercial' },
-      { id: 'EMP-07', name: 'Samuel Rincon', weeklySalary: 75.0, role: 'Dispatcher RCAT' },
-      { id: 'EMP-08', name: 'Jose Puche', weeklySalary: 75.0, role: 'Marketing' },
-    ];
-
-    const sorted = [...rawEmployees].sort((a, b) => b.weeklySalary - a.weeklySalary);
-
-    expect(sorted[0].name).toBe('Douglas');
-    expect(sorted[0].weeklySalary).toBe(150.0);
-
-    expect(sorted[1].name).toBe('Favio');
-    expect(sorted[1].weeklySalary).toBe(120.0);
-
-    expect(sorted[2].name).toBe('Williana');
-    expect(sorted[2].weeklySalary).toBe(90.0);
-
-    // Mid earners at $75
-    const mid75 = sorted.filter((e) => e.weeklySalary === 75.0);
-    expect(mid75.length).toBe(4);
-
-    // Lowest earner at the bottom
-    expect(sorted[sorted.length - 1].name).toBe('Juan');
-    expect(sorted[sorted.length - 1].weeklySalary).toBe(50.0);
-
-    // Verify every element is >= the next element
-    for (let i = 0; i < sorted.length - 1; i++) {
-      expect(sorted[i].weeklySalary).toBeGreaterThanOrEqual(sorted[i + 1].weeklySalary);
-    }
-  });
-
-  it('calculates the 2% manager commission and total payroll correctly', () => {
-    const deliveredTotal = 12500;
-    const managerCommission = deliveredTotal * 0.02;
-    expect(managerCommission).toBe(250);
-
+describe('Weekly relation financial engine', () => {
+  it('sorts salaries highest to lowest and sums payroll in cents', () => {
     const employees: OfficeEmployee[] = [
-      { id: 'EMP-01', name: 'Douglas', weeklySalary: 150.0 },
-      { id: 'EMP-02', name: 'Favio', weeklySalary: 120.0 },
-      { id: 'EMP-03', name: 'Williana', weeklySalary: 90.0 },
-      { id: 'EMP-04', name: 'Maggie', weeklySalary: 75.0 },
+      { id: '1', name: 'A', weeklySalary: 50 },
+      { id: '2', name: 'B', weeklySalary: 90 },
+      { id: '3', name: 'C', weeklySalary: 75 },
+      { id: '4', name: 'D', weeklySalary: 150 },
+      { id: '5', name: 'E', weeklySalary: 120 },
+      { id: '6', name: 'F', weeklySalary: 75 },
+      { id: '7', name: 'G', weeklySalary: 75 },
+      { id: '8', name: 'H', weeklySalary: 75 },
     ];
-
-    const totalPayroll = employees.reduce((acc, emp) => acc + emp.weeklySalary, 0);
-    expect(totalPayroll).toBe(435);
-
-    const totalOfficialPayout = totalPayroll + managerCommission;
-    expect(totalOfficialPayout).toBe(685);
+    const sorted = [...employees].sort((a, b) => b.weeklySalary - a.weeklySalary);
+    expect(sorted.map((employee) => employee.weeklySalary)).toEqual([150, 120, 90, 75, 75, 75, 75, 50]);
+    expect(sumMoney(employees.map((employee) => employee.weeklySalary))).toBe(710);
+    expect(commissionAmount([{ status: 'entregado', financials: { partPrice: 12500, total: 13000 } } as Order])).toBe(250);
   });
 });
 
-describe('Recurring Expenses Due Date & Weekend Anticipation Rules', () => {
-  it('advances monthly recurring expense to previous week when due day is Friday (e.g. Oct 30, 2026 is Friday)', () => {
-    // October 2026: Month is 9 (0-indexed)
-    // Oct 30, 2026 is Friday (getDay() === 5)
-    const result = getMonthlyRecurringDueWeek(2026, 9, 30, true);
-
-    expect(result.rawDueDate.getDate()).toBe(30);
-    expect(result.rawDueDate.getDay()).toBe(5); // Friday
-    expect(result.wasAdvanced).toBe(true);
-
-    // Normal week for Oct 30, 2026 is Oct 26 (Mon) to Nov 1 (Sun)
-    // Shifted week is Oct 19 (Mon) to Oct 25 (Sun)
-    expect(result.start.getDate()).toBe(19);
-    expect(result.start.getMonth()).toBe(9); // October
-    expect(result.end.getDate()).toBe(25);
-    expect(result.end.getMonth()).toBe(9);
+describe('Recurring expenses use New York calendar weeks', () => {
+  it.each([
+    { year: 2026, month: 9, day: 30, due: '2026-10-30', start: '2026-10-19T04:00:00.000Z', end: '2026-10-26T03:59:59.999Z', advanced: true },
+    { year: 2026, month: 9, day: 31, due: '2026-10-31', start: '2026-10-19T04:00:00.000Z', end: '2026-10-26T03:59:59.999Z', advanced: true },
+    { year: 2026, month: 4, day: 31, due: '2026-05-31', start: '2026-05-18T04:00:00.000Z', end: '2026-05-25T03:59:59.999Z', advanced: true },
+    { year: 2026, month: 5, day: 30, due: '2026-06-30', start: '2026-06-29T04:00:00.000Z', end: '2026-07-06T03:59:59.999Z', advanced: false },
+    { year: 2026, month: 1, day: 30, due: '2026-02-28', start: '2026-02-16T05:00:00.000Z', end: '2026-02-23T04:59:59.999Z', advanced: true },
+  ])('clamps/advances due date $due into its exact Monday–Sunday week', ({ year, month, day, due, start, end, advanced }) => {
+    const result = getMonthlyRecurringDueWeek(year, month, day, true);
+    expect(financeDateKey(result.rawDueDate)).toBe(due);
+    expect(result.wasAdvanced).toBe(advanced);
+    expect(result.start.toISOString()).toBe(start);
+    expect(result.end.toISOString()).toBe(end);
+    expect(new Date(`${financeDateKey(result.start)}T12:00:00Z`).getUTCDay()).toBe(1);
+    expect(new Date(`${financeDateKey(result.end)}T12:00:00Z`).getUTCDay()).toBe(0);
   });
 
-  it('advances monthly recurring expense to previous week when due day is Saturday (e.g. Oct 31, 2026 is Saturday)', () => {
-    // Oct 31, 2026 is Saturday (getDay() === 6)
-    const result = getMonthlyRecurringDueWeek(2026, 9, 31, true);
-
-    expect(result.rawDueDate.getDate()).toBe(31);
-    expect(result.rawDueDate.getDay()).toBe(6); // Saturday
-    expect(result.wasAdvanced).toBe(true);
-
-    // Shifted week is Oct 19 (Mon) to Oct 25 (Sun)
-    expect(result.start.getDate()).toBe(19);
-    expect(result.end.getDate()).toBe(25);
-  });
-
-  it('advances monthly recurring expense to previous week when due day is Sunday (e.g. May 31, 2026 is Sunday)', () => {
-    // May 2026 (month index 4), May 31 is Sunday (getDay() === 0)
-    const result = getMonthlyRecurringDueWeek(2026, 4, 31, true);
-
-    expect(result.rawDueDate.getDate()).toBe(31);
-    expect(result.rawDueDate.getDay()).toBe(0); // Sunday
-    expect(result.wasAdvanced).toBe(true);
-
-    // Normal week is May 25 - May 31
-    // Shifted week is May 18 - May 24
-    expect(result.start.getDate()).toBe(18);
-    expect(result.end.getDate()).toBe(24);
-  });
-
-  it('does NOT advance monthly recurring expense when due day is Monday-Thursday (e.g. June 30, 2026 is Tuesday)', () => {
-    // June 2026 (month index 5), June 30 is Tuesday (getDay() === 2)
-    const result = getMonthlyRecurringDueWeek(2026, 5, 30, true);
-
-    expect(result.rawDueDate.getDate()).toBe(30);
-    expect(result.rawDueDate.getDay()).toBe(2); // Tuesday
+  it('does not anticipate a Friday when anticipation is explicitly disabled', () => {
+    const result = getMonthlyRecurringDueWeek(2026, 9, 30, false);
     expect(result.wasAdvanced).toBe(false);
-
-    // Week containing June 30 is June 29 (Mon) - July 5 (Sun)
-    expect(result.start.getDate()).toBe(29);
-    expect(result.start.getMonth()).toBe(5); // June
-    expect(result.end.getDate()).toBe(5);
-    expect(result.end.getMonth()).toBe(6); // July
+    expect(result.start.toISOString()).toBe('2026-10-26T04:00:00.000Z');
+    expect(result.end.toISOString()).toBe('2026-11-02T04:59:59.999Z');
   });
 
-  it('clamps to the last day of the month for shorter months like February (e.g. Feb 28)', () => {
-    // Feb 2026 (month index 1, 28 days)
-    // Feb 28, 2026 is Saturday (getDay() === 6)
-    const result = getMonthlyRecurringDueWeek(2026, 1, 30, true);
-
-    expect(result.rawDueDate.getDate()).toBe(28); // Clamped to 28
-    expect(result.rawDueDate.getDay()).toBe(6); // Saturday
-    expect(result.wasAdvanced).toBe(true);
-
-    // Normal week for Feb 28 is Feb 23 - Mar 1
-    // Shifted week is Feb 16 - Feb 22
-    expect(result.start.getDate()).toBe(16);
-    expect(result.end.getDate()).toBe(22);
-  });
-
-  it('evaluates isRecurringExpenseDueInWeek correctly for weekly and monthly expenses', () => {
-    const weeklyEmployeeExpense: RecurringExpense = {
-      id: 'REC-EMP',
-      name: 'Nómina Semanal Operativa',
-      category: 'Nómina / Pago de Empleados',
-      amount: 710.0,
-      frequency: 'weekly',
-      active: true,
-      paymentMethod: 'Transferencia',
+  it('evaluates weekly, monthly and paused rules against the selected week', () => {
+    const weekly: RecurringExpense = {
+      id: 'weekly', name: 'Payroll', category: 'Nómina / Pago de Empleados',
+      amount: 710, frequency: 'weekly', active: true, paymentMethod: 'Transferencia',
     };
-
-    const targetWeek = getWeekRange(new Date(2026, 9, 21)); // Oct 19 - Oct 25, 2026
-
-    // Weekly expense is always due
-    expect(isRecurringExpenseDueInWeek(weeklyEmployeeExpense, targetWeek)).toBe(true);
-
-    const monthlyRent: RecurringExpense = {
-      id: 'REC-01',
-      name: 'Alquiler de Local / Galpón y Oficina',
-      category: 'Alquiler de Oficina / Patio',
-      amount: 350.0,
-      frequency: 'monthly',
-      monthlyDay: 30,
-      advanceIfWeekend: true,
-      active: true,
-      paymentMethod: 'Transferencia',
+    const monthly: RecurringExpense = {
+      id: 'monthly', name: 'Rent', category: 'Alquiler de Oficina / Patio', amount: 350,
+      frequency: 'monthly', monthlyDay: 30, advanceIfWeekend: true, active: true, paymentMethod: 'Transferencia',
     };
-
-    // In Oct 19 - Oct 25 week, Oct 30 is Friday so it advances to Oct 19 - Oct 25
-    expect(isRecurringExpenseDueInWeek(monthlyRent, targetWeek)).toBe(true);
-
-    // In earlier week Oct 5 - Oct 11, it is not due
-    const earlierWeek = getWeekRange(new Date(2026, 9, 7));
-    expect(isRecurringExpenseDueInWeek(monthlyRent, earlierWeek)).toBe(false);
-
-    // Paused expense is not due
-    const pausedExpense: RecurringExpense = {
-      ...monthlyRent,
-      active: false,
-    };
-    expect(isRecurringExpenseDueInWeek(pausedExpense, targetWeek)).toBe(false);
+    const target = getWeekRange(new Date('2026-10-21T16:00:00Z'));
+    expect(isRecurringExpenseDueInWeek(weekly, target)).toBe(true);
+    expect(isRecurringExpenseDueInWeek(monthly, target)).toBe(true);
+    expect(isRecurringExpenseDueInWeek(monthly, getWeekRange(new Date('2026-10-07T16:00:00Z')))).toBe(false);
+    expect(isRecurringExpenseDueInWeek({ ...monthly, active: false }, target)).toBe(false);
   });
 });

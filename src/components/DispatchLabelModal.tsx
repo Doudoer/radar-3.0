@@ -1,5 +1,6 @@
 import React from 'react';
 import { Order } from '../types';
+import { OrderQr } from './DispatchLabelView';
 
 interface DispatchLabelModalProps {
   isOpen: boolean;
@@ -57,19 +58,17 @@ export const DispatchLabelModal: React.FC<DispatchLabelModalProps> = ({
           <div className="w-[360px] bg-white text-slate-900 p-5 rounded-lg border-2 border-black flex flex-col gap-3 font-sans shadow-2xl">
             {/* Top Bar */}
             <div className="flex justify-between items-center border-b-2 border-black pb-2">
-              <span className="font-black text-lg tracking-tight text-slate-950">RADAR LOGISTICS</span>
+              <span className="font-black text-lg tracking-tight text-slate-950">Empresa: Sin registrar</span>
               <span className="font-mono font-bold text-xs bg-black text-white px-2 py-0.5 rounded">
                 {order.deliveryType === 'envio_domicilio' ? 'ENVÍO EXPRESS' : 'RETIRO TIENDA'}
               </span>
             </div>
 
-            {/* Order Code & Barcode Simulation */}
+            {/* Order identifier QR */}
             <div className="flex flex-col items-center justify-center py-2 border-b-2 border-black">
-              <div className="flex items-center gap-0.5 tracking-tighter text-3xl font-mono scale-y-125 my-1 select-none text-slate-950">
-                ||| | |||| | || |||| | ||| |||| | |||
-              </div>
+              <OrderQr order={order} />
               <span className="font-mono font-black text-xl tracking-wider text-slate-950">{order.code}</span>
-              <span className="text-[10px] font-mono text-slate-600 font-bold">STOCK #{order.stockNumber || 'STK-2026-098'}</span>
+              <span className="text-[10px] font-mono text-slate-600 font-bold">STOCK: {order.stockNumber || 'Sin registrar'}</span>
             </div>
 
             {/* Recipient info */}
@@ -79,7 +78,7 @@ export const DispatchLabelModal: React.FC<DispatchLabelModalProps> = ({
               {order.customer.company && <p className="font-semibold text-slate-700">{order.customer.company}</p>}
               <p className="text-slate-800 font-mono">Tel: {order.customer.phone}</p>
               <p className="text-slate-800 mt-1 font-medium">
-                {order.customer.shippingAddress || order.customer.location}
+                {order.customer.shippingAddress || order.customer.address_shipping || order.customer.location || 'Sin registrar'}
               </p>
             </div>
 
@@ -96,12 +95,12 @@ export const DispatchLabelModal: React.FC<DispatchLabelModalProps> = ({
             {/* Bottom Status & Core Notice */}
             <div className="flex justify-between items-center text-[10px] pt-1">
               <div>
-                <span className="font-bold block text-slate-900">GARANTÍA: {order.warrantyDays || 60} DÍAS</span>
+                <span className="font-bold block text-slate-900">GARANTÍA: {order.warrantyDays == null ? 'Sin registrar' : `${order.warrantyDays} DÍAS`}</span>
                 <span className="text-slate-600">Asesor: {order.advisor}</span>
               </div>
               <div className="text-right">
                 <span className="font-mono font-bold text-xs block text-slate-900">
-                  {order.coreFee && order.coreFee > 0 ? `CORE: $${order.coreFee.toFixed(2)}` : 'SIN CORE'}
+                  {order.financials.coreFee == null ? 'CORE: Sin registrar' : `CORE: $${order.financials.coreFee.toFixed(2)}`}
                 </span>
                 <span className="text-slate-500 font-mono text-[9px]">RADAR-3.0-CYBER</span>
               </div>

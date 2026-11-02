@@ -6,7 +6,7 @@ export const useTheme = () => {
   const [theme, setThemeState] = useState<Theme>(() => {
     const saved = localStorage.getItem('radar_theme');
     if (saved === 'light' || saved === 'dark') return saved;
-    return 'dark'; // Default to Cyberpunk Dark
+    return 'light';
   });
 
   const applyTheme = useCallback((newTheme: Theme) => {

@@ -103,7 +103,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
   }
 
   return (
-    <main className="flex min-h-screen min-h-[100dvh] items-center justify-center bg-[#050811] px-4 py-6 sm:py-8 text-[#dfe2ef] relative overflow-y-auto custom-scrollbar cyber-grid-bg transition-opacity duration-300">
+    <main className="horizon-login flex min-h-screen min-h-[100dvh] items-center justify-center bg-[#050811] px-4 py-6 sm:py-8 text-[#dfe2ef] relative overflow-y-auto custom-scrollbar transition-opacity duration-300">
       {/* Top right theme toggle */}
       <button
         type="button"
@@ -243,7 +243,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
         {/* Footer Security Matrix */}
         <div className="mt-6 pt-4 border-t border-cyan-500/15 w-full flex items-center justify-center gap-2 text-[10px] font-mono text-cyan-400/70 uppercase tracking-widest">
           <span className="material-symbols-outlined text-[14px] text-emerald-400">verified_user</span>
-          <span>SHA-256 E2EE • PROTOCOLO RADAR V3</span>
+          <span>SESIÓN HTTPONLY • ACCESO AUTENTICADO</span>
         </div>
 
         {/* Copyright Notice */}

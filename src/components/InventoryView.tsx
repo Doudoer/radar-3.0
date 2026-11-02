@@ -3,6 +3,7 @@ import { InventoryPart, PrefillOrderData } from '../types';
 import { inventoryApi } from '../services/inventoryApi';
 import { MAKE_MODEL_MAP } from '../data/vehicleData';
 import { InventoryPrintModal } from './InventoryPrintModal';
+import { filterInventory } from '../utils/inventoryExport';
 
 interface InventoryViewProps {
   onOpenNewOrderWithPart?: (prefill: PrefillOrderData) => void;
@@ -17,6 +18,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const exportInventory = async (filtered: boolean) => {
+    setIsExporting(true);
+    setErrorMessage(null);
+    try {
+      await inventoryApi.download(filtered ? { query: searchQuery, type: typeFilter, status: statusFilter } : {});
+      showToast('Inventario CSV descargado. Puedes importarlo en Google Sheets.');
+    } catch (reason) {
+      setErrorMessage(reason instanceof Error ? reason.message : 'No se pudo descargar el inventario.');
+    } finally { setIsExporting(false); }
+  };
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState('');
@@ -204,7 +216,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   };
 
   useEffect(() => {
-    fetchInventory();
+    void fetchInventory();
+    const refresh = () => { void fetchInventory(); };
+    window.addEventListener('radar:inventory-updated', refresh);
+    window.addEventListener('radar:data-changed', refresh);
+    return () => {
+      window.removeEventListener('radar:inventory-updated', refresh);
+      window.removeEventListener('radar:data-changed', refresh);
+    };
   }, []);
 
   // Quick stats
@@ -219,41 +238,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   }, [items]);
 
   // Filtered items
-  const filteredItems = useMemo(() => {
-    return items.filter((item) => {
-      if (typeFilter !== 'all' && item.partType !== typeFilter) return false;
-      if (statusFilter !== 'all' && (item.status || 'disponible').toLowerCase() !== statusFilter) return false;
-      if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase();
-        const matchBrand = item.brand?.toLowerCase().includes(query);
-        const matchModel = item.model?.toLowerCase().includes(query);
-        const matchYear =
-          String(item.year || '').toLowerCase().includes(query) ||
-          String(item.yearFrom || '').toLowerCase().includes(query) ||
-          String(item.yearTo || '').toLowerCase().includes(query);
-        const matchType = item.partType?.toLowerCase().includes(query);
-        const matchVin = item.vin?.toLowerCase().includes(query);
-        const matchPallet = item.palletNumber?.toLowerCase().includes(query);
-        const matchSpecs = item.engineSpecs?.toLowerCase().includes(query);
-        const matchNotes = item.notes?.toLowerCase().includes(query);
-        const matchStatus = item.status?.toLowerCase().includes(query);
-        if (
-          !matchBrand &&
-          !matchModel &&
-          !matchYear &&
-          !matchType &&
-          !matchVin &&
-          !matchPallet &&
-          !matchSpecs &&
-          !matchNotes &&
-          !matchStatus
-        ) {
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [items, typeFilter, statusFilter, searchQuery]);
+  const filteredItems = useMemo(() => filterInventory(items, {
+    query: searchQuery, type: typeFilter, status: statusFilter,
+  }), [items, typeFilter, statusFilter, searchQuery]);
 
   // Open Create Form
   const handleOpenCreate = () => {
@@ -387,11 +374,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     const prefill: PrefillOrderData = {
       make: item.brand,
       model: item.model,
-      year: parseInt(item.year, 10) || 2020,
+      year: parseInt(item.year, 10) || undefined,
       mainPart: item.partType || 'Motor',
       productSpecs: item.engineSpecs || '',
       notes: item.notes || '',
-      partPrice: 1000,
+      partPrice: item.price ?? 0,
+      inventoryPartId: Number(item.id),
       warrantyDays: 60,
     };
     onOpenNewOrderWithPart(prefill);
@@ -437,6 +425,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2.5 flex-wrap justify-end">
+            <button type="button" onClick={() => void exportInventory(false)} disabled={loading || isExporting}
+              className="horizon-primary px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
+              <span className="material-symbols-outlined text-[18px]">download</span>
+              {isExporting ? 'Descargando…' : 'Descargar inventario CSV'}
+            </button>
+            <button type="button" onClick={() => void exportInventory(true)} disabled={loading || isExporting}
+              className="px-3 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 disabled:opacity-50"
+              title="Descargar solo la búsqueda y filtros actuales, compatible con Google Sheets">
+              Descargar resultados filtrados
+            </button>
             <button
               type="button"
               onClick={fetchInventory}
@@ -1291,6 +1289,18 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   </div>
                 </div>
 
+                <div>
+                  <label className="text-xs font-bold block mb-1">Precio de venta ($)</label>
+                  <input type="number" min="0" step="0.01" value={editingItem.price ?? ''}
+                    onChange={event => setEditingItem({ ...editingItem, price: Number(event.target.value) })}
+                    className="w-full rounded-xl border p-2.5 bg-transparent" />
+                </div>
+                {userRole.toLowerCase() === 'admin' && <div>
+                  <label className="text-xs font-bold block mb-1">Costo de adquisición ($)</label>
+                  <input type="number" min="0" step="0.01" value={editingItem.cost ?? ''}
+                    onChange={event => setEditingItem({ ...editingItem, cost: Number(event.target.value) })}
+                    className="w-full rounded-xl border p-2.5 bg-transparent" />
+                </div>}
                 {/* 9. Nota Extra / Observaciones */}
                 <div className="sm:col-span-2">
                   <label className="text-[11px] text-slate-700 dark:text-slate-300 font-bold block mb-1 flex items-center gap-1.5">

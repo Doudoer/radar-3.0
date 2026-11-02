@@ -14,18 +14,31 @@ const getBearerToken = (request: IncomingMessage) => {
 const getCookieToken = (request: IncomingMessage) => {
   const cookies = request.headers.cookie || '';
   const sessionCookie = cookies.split(';').map((part) => part.trim()).find((part) => part.startsWith('radar_session='));
-  return sessionCookie ? decodeURIComponent(sessionCookie.slice('radar_session='.length)) : '';
+  if (!sessionCookie) return '';
+  try {
+    return decodeURIComponent(sessionCookie.slice('radar_session='.length));
+  } catch {
+    return '';
+  }
 };
+
+export const getSessionToken = (request: IncomingMessage) => getBearerToken(request) || getCookieToken(request);
 
 export const verifyToken = (request: IncomingMessage) => {
   if (!jwtSecret) return null;
-  const token = getBearerToken(request) || getCookieToken(request);
+  const token = getSessionToken(request);
   if (!token) return null;
   try {
-    return jwt.verify(token, jwtSecret) as Claims;
+    const claims = jwt.verify(token, jwtSecret, { algorithms: ['HS256'] });
+    return typeof claims !== 'string' && claims.sub && Number.isFinite(claims.exp) ? claims as Claims : null;
   } catch {
     return null;
   }
+};
+
+export const appendCookie = (response: ServerResponse, cookie: string) => {
+  const previous = response.getHeader('Set-Cookie');
+  response.setHeader('Set-Cookie', previous ? [...(Array.isArray(previous) ? previous.map(String) : [String(previous)]), cookie] : cookie);
 };
 
 export const roleIs = (claims: Claims | null, ...roles: string[]) =>
@@ -68,40 +81,30 @@ setInterval(() => {
 export const userIsActive = async (claims: Claims) => {
   if (!claims.sub) return false;
   try {
-    const [rows] = await pool.query<Array<{ active: number; password_changed_at?: Date | null } & import('mysql2/promise').RowDataPacket>>(
-      'SELECT active, password_changed_at FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+    const [rows] = await pool.query<Array<{ active: number; role: string; session_version: number; permissions: unknown } & import('mysql2/promise').RowDataPacket>>(
+      'SELECT active, role, permissions, session_version FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
       [claims.sub]
     );
     const user = rows[0];
     if (!user || !user.active) return false;
-
-    // Solo si se cambió explícitamente la contraseña después de emitir el token, revocar la sesión
-    if (user.password_changed_at && claims.iat) {
-      const issuedAt = Number(claims.iat) * 1000;
-      const changedAt = new Date(user.password_changed_at).getTime();
-      if (changedAt > issuedAt + 2000) {
-        return false;
-      }
-    }
+    if (Number(claims.sessionVersion ?? 1) !== Number(user.session_version)) return false;
+    claims.sessionVersion = Number(user.session_version);
+    claims.role = user.role;
+    claims.permissions = user.permissions;
 
     return true;
-  } catch {
-    // Fallback de compatibilidad
-    const [rows] = await pool.query<Array<{ active: number } & import('mysql2/promise').RowDataPacket>>(
-      'SELECT active FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
-      [claims.sub]
-    );
-    const user = rows[0];
-    return Boolean(user && user.active);
+  } catch (error) {
+    console.error('[Authentication] No fue posible verificar la sesión:', error);
+    throw Object.assign(new Error('No fue posible verificar la sesión'), { statusCode: 503 });
   }
 };
 
 export const setSessionCookie = (response: ServerResponse, token: string) => {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  response.setHeader('Set-Cookie', `radar_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800${secure}`);
+  appendCookie(response, `radar_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800${secure}`);
 };
 
 export const clearSessionCookie = (response: ServerResponse) => {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  response.setHeader('Set-Cookie', `radar_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
+  appendCookie(response, `radar_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
 };

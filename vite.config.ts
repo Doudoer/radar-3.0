@@ -4,6 +4,7 @@ import { defineConfig } from 'vite';
 
 export default defineConfig(() => {
   return {
+    envPrefix: ['VITE_API_URL'],
     plugins: [react()],
     resolve: {
       alias: {

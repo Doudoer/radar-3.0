@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
-import { Order, OrderStatus } from '../types';
+import React, { useRef, useState } from 'react';
+import { Order } from '../types';
 import { apiFetch } from '../services/apiFetch';
 
 interface RefundModalProps {
   isOpen: boolean;
   onClose: () => void;
   order: Order;
-  onUpdateOrder?: (updatedOrder: Order) => void;
+  onUpdateOrder?: (updatedOrder: Order) => Promise<Order | void>;
   onSuccessToast?: (msg: string) => void;
 }
 
@@ -31,6 +31,8 @@ export const RefundModal: React.FC<RefundModalProps> = ({
   const [customReason, setCustomReason] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
+  const idempotencyKeyRef = useRef<string | null>(null);
+  const submittingRef = useRef(false);
 
   if (!isOpen) return null;
 
@@ -52,6 +54,7 @@ export const RefundModal: React.FC<RefundModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
     setError('');
 
     const finalAmount = calculateEffectiveAmount();
@@ -67,16 +70,15 @@ export const RefundModal: React.FC<RefundModalProps> = ({
     }
 
     setIsSubmitting(true);
+    submittingRef.current = true;
 
     try {
-      // Numerical order ID fallback
-      const numericOrderId = parseInt(String(order.id).replace(/\D/g, ''), 10) || 1;
-
       const response = await apiFetch('/refunds', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          orderId: numericOrderId,
+          orderId: order.id,
+          idempotencyKey: (idempotencyKeyRef.current ??= crypto.randomUUID()),
           amount: finalAmount,
           amountType,
           paymentMethod,
@@ -92,16 +94,7 @@ export const RefundModal: React.FC<RefundModalProps> = ({
 
       const createdRefund = await response.json();
 
-      // Update Order Status locally and through handler
-      if (onUpdateOrder) {
-        onUpdateOrder({
-          ...order,
-          status: 'solicitud_reembolso' as OrderStatus,
-          notes: order.notes
-            ? `${order.notes}\n[${new Date().toLocaleDateString('es-MX')}] Solicitud de reembolso ${createdRefund.id || ''} por $${finalAmount.toFixed(2)} (${paymentMethod}). Motivo: ${finalReason}`
-            : `Solicitud de reembolso ${createdRefund.id || ''} por $${finalAmount.toFixed(2)} (${paymentMethod}). Motivo: ${finalReason}`,
-        });
-      }
+      window.dispatchEvent(new Event('radar:data-changed'));
 
       if (onSuccessToast) {
         onSuccessToast(
@@ -113,6 +106,7 @@ export const RefundModal: React.FC<RefundModalProps> = ({
     } catch (err: any) {
       setError(err.message || 'Error inesperado al conectar con el servidor');
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };

@@ -82,6 +82,14 @@ describe('DailyFollowupBriefingModal', () => {
     expect(html).toContain('Registrar Llamada');
     expect(html).toContain('Regla Operativa');
     expect(html).toContain('Actualizar');
+    expect(html).toContain('horizon-followup-portal');
+    expect(html).toContain('horizon-followup-panel');
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('aria-labelledby="daily-followup-title"');
+    expect(html).toContain('horizon-followup-primary');
+    expect(html).not.toContain('ALERTA DE SESIÓN');
+    expect(html).not.toContain('animate-pulse');
+    expect((html.match(/>Actualizar<\/span>/g) || [])).toHaveLength(1);
   });
 
   it('renders empty celebration state when no pending items', () => {

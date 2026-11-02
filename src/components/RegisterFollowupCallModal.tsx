@@ -308,7 +308,7 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
 
   const modalContent = (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/80 dark:bg-black/85 backdrop-blur-md animate-fade-in overflow-y-auto"
+      className="horizon-followup-portal fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 md:p-6 overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-label="Registrar llamada de seguimiento"
@@ -319,13 +319,9 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
       }}
     >
       <div
-        className="cyber-card relative w-full max-w-lg max-h-[min(90vh,760px)] my-auto flex flex-col shadow-2xl rounded-2xl overflow-hidden border border-cyan-500/40 bg-[var(--bg-card)] text-[var(--text-primary)]"
+        className="horizon-followup-panel relative w-full max-w-lg max-h-[min(90dvh,760px)] my-auto flex flex-col rounded-3xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Laser Hairline Header Accent */}
-        {/* Laser Hairline Header Accent */}
-        <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-20" />
-
         {/* Modal Header */}
         <div className="px-4 sm:px-5 py-3.5 border-b border-cyan-500/25 bg-[var(--bg-card-subtle)] flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3 min-w-0">

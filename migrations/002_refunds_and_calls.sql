@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS refund_requests (
   id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  order_id INT NOT NULL,
+  order_id INT UNSIGNED NOT NULL,
   amount DECIMAL(12,2) NOT NULL DEFAULT 0,
   amount_type VARCHAR(40) NOT NULL DEFAULT 'downpayment',
   payment_method VARCHAR(40) NOT NULL DEFAULT 'Zelle',
@@ -17,4 +17,3 @@ CREATE TABLE IF NOT EXISTS refund_requests (
   INDEX refund_requests_deleted (deleted_at),
   CONSTRAINT refund_requests_order_fk FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-

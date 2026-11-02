@@ -23,6 +23,14 @@ import {
 
 
 describe('server input schemas', () => {
+  it('rejects bcrypt truncation, executable avatars and malformed file encodings', () => {
+    expect(userCreateSchema.safeParse({ name: 'User', email: 'user@test.invalid', password: 'Aa1!' + 'a'.repeat(69) }).success).toBe(false);
+    expect(userCreateSchema.safeParse({ name: 'User', email: 'user@test.invalid', password: 'Aa1!' + 'é'.repeat(35) }).success).toBe(false);
+    for (const avatar_url of ['javascript:alert(1)', 'data:image/svg+xml;base64,PHN2Zz4=', 'http://insecure.invalid/photo.png']) {
+      expect(userProfileUpdateSchema.safeParse({ name: 'User', email: 'user@test.invalid', avatar_url }).success).toBe(false);
+    }
+    expect(uploadPayloadSchema.safeParse({ filename: 'test.png', contentType: 'image/png', base64: '%%%%' }).success).toBe(false);
+  });
   it('normalizes valid login credentials', () => {
     expect(loginSchema.parse({ email: '  ADMIN@example.com ', password: 'secret' })).toEqual({
       email: 'ADMIN@example.com',
@@ -79,6 +87,7 @@ describe('server input schemas', () => {
 
   it('validates refund request schema', () => {
     const refund = refundCreateSchema.parse({
+      idempotencyKey: '4a59918a-16a2-42d2-8b7b-65c859914470',
       orderId: '42',
       amount: '350.50',
       amountType: 'downpayment',
@@ -413,5 +422,3 @@ describe('server input schemas', () => {
     expect(() => verifyOtpSchema.parse({ code: '' })).toThrow();
   });
 });
-
-

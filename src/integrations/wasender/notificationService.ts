@@ -1,5 +1,7 @@
-import type { Pool, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
+import type { Pool, PoolConnection, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { WasenderClient, formatWasenderPhone } from './client';
+import { deliver, DeliveryPayload } from '../../server/outbox';
+import { runScheduledJob } from '../../server/scheduledJobs';
 import {
   NotificationChannelConfig,
   NotificationChannelKey,
@@ -88,8 +90,6 @@ export async function getNotificationConfig(
   pool: Pool,
   wasender: WasenderClient
 ): Promise<NotificationConfigResponse> {
-  await ensureNotificationTables(pool);
-
   // 1. Fetch channels from DB
   const [channelRows] = await pool.query<RowDataPacket[]>(
     'SELECT * FROM whatsapp_notification_settings ORDER BY id ASC'
@@ -192,7 +192,6 @@ export async function updateNotificationChannels(
   pool: Pool,
   channels: NotificationChannelConfig[]
 ): Promise<void> {
-  await ensureNotificationTables(pool);
 
   for (const ch of channels) {
     const isBackupChannel = ch.key === 'RESPALDO_AUTOMATICO';
@@ -221,7 +220,6 @@ export async function createExternalContact(
   pool: Pool,
   contact: Omit<ExternalContact, 'id' | 'createdAt' | 'updatedAt'>
 ): Promise<ExternalContact> {
-  await ensureNotificationTables(pool);
 
   const [result] = await pool.query<ResultSetHeader>(
     `INSERT INTO whatsapp_external_contacts (name, phone, label, notes, is_active, subscribed_channels)
@@ -247,7 +245,6 @@ export async function updateExternalContact(
   id: number,
   contact: Partial<ExternalContact>
 ): Promise<void> {
-  await ensureNotificationTables(pool);
 
   const fields: string[] = [];
   const values: any[] = [];
@@ -284,7 +281,6 @@ export async function updateExternalContact(
 }
 
 export async function deleteExternalContact(pool: Pool, id: number): Promise<void> {
-  await ensureNotificationTables(pool);
   await pool.query('DELETE FROM whatsapp_external_contacts WHERE id = ?', [id]);
 }
 
@@ -316,7 +312,6 @@ export async function resolveRecipientsForEvent(
     orderStatus?: string;
   } = {}
 ): Promise<ResolveRecipientsResult> {
-  await ensureNotificationTables(pool);
 
   // Fetch channel rule
   const [channelRows] = await pool.query<RowDataPacket[]>(
@@ -630,6 +625,17 @@ export async function resolveRecipientsForEvent(
 /**
  * Dispatches a notification across all resolved recipients for a given channel.
  */
+export async function queueSystemNotification(
+  connection: PoolConnection,
+  eventKey: NotificationChannelKey,
+  messageText: string,
+  context: Parameters<typeof dispatchSystemNotification>[4] = {},
+) {
+  await connection.execute('INSERT INTO notification_outbox (payload) VALUES (?)', [
+    JSON.stringify({ kind: 'event', eventKey, messageText, context }),
+  ]);
+}
+
 export async function dispatchSystemNotification(
   pool: Pool,
   wasender: WasenderClient,
@@ -643,6 +649,7 @@ export async function dispatchSystemNotification(
     mediaUrl?: string;
     mediaType?: 'image' | 'file';
     mediaFilename?: string;
+    outboxEventId?: number;
   } = {}
 ): Promise<{
   ok: boolean;
@@ -654,6 +661,9 @@ export async function dispatchSystemNotification(
   skippedReason?: string;
   deliveryResults: Array<{ phone: string; name: string; success: boolean; data?: any; error?: string }>;
 }> {
+  if (!wasender.configured) {
+    return { ok:false, channelKey:eventKey, channelName:eventKey, totalResolved:0, dispatchedCount:0, recipients:[], skippedReason:'Integración deshabilitada o sin credencial', deliveryResults:[] };
+  }
   const resolution = await resolveRecipientsForEvent(pool, eventKey, context);
 
   if (!resolution.allowed || resolution.recipients.length === 0) {
@@ -684,27 +694,15 @@ export async function dispatchSystemNotification(
       await sleep(5100);
     }
 
+    const delivery: DeliveryPayload = { to: recipient.phone, text: messageText, mediaUrl: context.mediaUrl, mediaType: context.mediaType, filename: context.mediaFilename };
+    const [queued] = await pool.execute<ResultSetHeader>(
+      "INSERT IGNORE INTO notification_outbox (payload,status,attempts,available_at,dedupe_key) VALUES (?,'processing',1,UTC_TIMESTAMP()+INTERVAL 5 MINUTE,?)",
+      [JSON.stringify(delivery), context.outboxEventId ? `${context.outboxEventId}:${eventKey}:${recipient.phone}` : null],
+    );
+    if (!queued.affectedRows) continue;
     try {
-      let res;
-      if (context.mediaUrl && context.mediaType === 'image') {
-        res = await wasender.sendImage({
-          to: recipient.phone,
-          url: context.mediaUrl,
-          caption: messageText,
-        });
-      } else if (context.mediaUrl && context.mediaType === 'file') {
-        res = await wasender.sendFile({
-          to: recipient.phone,
-          url: context.mediaUrl,
-          caption: messageText,
-          filename: context.mediaFilename || 'archivo.sql',
-        });
-      } else {
-        res = await wasender.sendText({
-          to: recipient.phone,
-          text: messageText,
-        });
-      }
+      const res = await deliver(wasender, delivery);
+      await pool.execute("UPDATE notification_outbox SET status='sent' WHERE id=?", [queued.insertId]);
 
       dispatchedCount++;
       console.log(`[Wasender Dispatch] ✅ Notificación enviada exitosamente a ${recipient.name} (${recipient.phone})`);
@@ -717,6 +715,7 @@ export async function dispatchSystemNotification(
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Error desconocido al transmitir vía Wasender';
       console.error(`[Wasender Dispatch] ❌ Error enviando a ${recipient.name} (${recipient.phone}):`, errMsg);
+      await pool.execute("UPDATE notification_outbox SET status='retry',last_error=?,available_at=UTC_TIMESTAMP()+INTERVAL 1 MINUTE WHERE id=?", [errMsg, queued.insertId]);
       deliveryResults.push({
         phone: recipient.phone,
         name: recipient.name,
@@ -779,7 +778,7 @@ export async function buildDailyClaimsReportData(pool: Pool): Promise<ListaRecla
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
-    timeZone: 'America/Caracas',
+    timeZone: 'America/New_York',
   }).format(new Date());
 
   return {
@@ -816,12 +815,16 @@ export function startDailyClaimsReportScheduler(pool: Pool, wasender: WasenderCl
 
       const todayStr = `${year}-${month}-${day}`;
 
-      if (hour === '08' && minute === '00' && lastDispatchedDate !== todayStr) {
-        lastDispatchedDate = todayStr;
+      if (Number(hour) >= 8 && lastDispatchedDate !== todayStr && wasender.configured) {
+        await runScheduledJob(pool, `claims-report:${todayStr}`, async () => {
         console.log(`[Daily Claims Scheduler] ⏰ Ejecutando reporte diario de reclamos (08:00 AM Eastern Time)...`);
         const reportData = await buildDailyClaimsReportData(pool);
         const reportMsg = formatListaReclamosMessage(reportData);
-        await dispatchSystemNotification(pool, wasender, 'LISTA_RECLAMOS', reportMsg);
+        await pool.execute('INSERT IGNORE INTO notification_outbox (payload,dedupe_key) VALUES (?,?)', [
+          JSON.stringify({ kind:'event', eventKey:'LISTA_RECLAMOS', messageText:reportMsg, context:{} }), `claims-report:${todayStr}`,
+        ]);
+        });
+        lastDispatchedDate = todayStr;
       }
     } catch (err) {
       console.error('[Daily Claims Scheduler] Error en chequeo de reporte diario:', err);

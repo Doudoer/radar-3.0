@@ -14,7 +14,7 @@ export const getClaims = async () => {
   const [rows] = await pool.query<RowDataPacket[]>(`
     SELECT cl.*, o.order_code, o.vin_nr, o.brand, o.model, o.year, o.product_type, o.product_specs, o.stock_nr,
       o.status AS order_status, o.warranty_days, c.first_name, c.last_name, c.phone, c.email, u.name AS advisor,
-      (SELECT so.status FROM status_orders so WHERE so.order_id = cl.order_id AND so.status <> 'Reclamo' ORDER BY so.created_at DESC, so.id DESC LIMIT 1) AS previous_status
+      (SELECT so.status FROM status_orders so WHERE so.order_id = cl.order_id AND so.created_at <= cl.created_at AND so.status <> 'Reclamo' ORDER BY so.created_at DESC, so.id DESC LIMIT 1) AS previous_status
     FROM claims cl
     LEFT JOIN orders o ON o.id = cl.order_id
     LEFT JOIN customers c ON c.id = o.customer_id
@@ -69,7 +69,7 @@ export const getClaims = async () => {
       type: 'Reclamo de orden',
       priority: 'Media' as const,
       status: mapClaimStatus(row.status || ''),
-      previousOrderStatus: statusFromDatabase(row.previous_status || (row.order_status === 'Reclamo' ? 'entregado' : row.order_status) || 'entregado'),
+      previousOrderStatus: row.previous_order_status || row.previous_status ? statusFromDatabase(row.previous_order_status || row.previous_status) : undefined,
       advisor: row.advisor || 'Sin asignar',
       createdAt: row.created_at,
       resolvedAt: ['Resolved', 'Denied'].includes(mapClaimStatus(row.status || '')) ? row.updated_at : undefined,

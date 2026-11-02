@@ -54,6 +54,8 @@ export const SearchModal: React.FC<SearchModalProps> = ({
     { id: 'dashboard', label: 'Panorama General (Dashboard)', icon: 'dashboard' },
     { id: 'taller', label: 'Lista de Órdenes', icon: 'inventory_2' },
     { id: 'crm', label: 'CRM Ventas & Clientes VIP', icon: 'person_search' },
+    { id: 'reclamos', label: 'Reclamos', icon: 'error_outline' },
+    { id: 'reembolsos', label: 'Reembolsos', icon: 'currency_exchange' },
     ...(isSuperAdmin
       ? [{ id: 'finanzas' as NavScreen, label: 'Finanzas & Relación Semanal', icon: 'payments' }]
       : []),

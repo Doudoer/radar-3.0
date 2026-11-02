@@ -1,5 +1,6 @@
 import { InventoryPart } from '../types';
 import { apiFetch } from './apiFetch';
+import type { InventoryFilters } from '../utils/inventoryExport';
 
 const request = async <T>(path: string, options?: RequestInit): Promise<T> => {
   const response = await apiFetch(path, options);
@@ -12,6 +13,27 @@ const request = async <T>(path: string, options?: RequestInit): Promise<T> => {
 };
 
 export const inventoryApi = {
+  download: async (filters: InventoryFilters = {}) => {
+    const query = new URLSearchParams({
+      query: filters.query || '', type: filters.type || 'all', status: filters.status || 'all',
+    });
+    const response = await apiFetch(`/inventory/export.csv?${query}`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'No se pudo descargar el inventario.');
+    }
+    if (!response.headers.get('Content-Type')?.startsWith('text/csv')) throw new Error('El servidor no devolvió un archivo CSV.');
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    try {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `inventario-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+    } finally { URL.revokeObjectURL(url); }
+  },
   list: () => request<InventoryPart[]>('/inventory'),
   get: (id: string | number) => request<InventoryPart>(`/inventory/${id}`),
   create: (data: Partial<InventoryPart>) =>

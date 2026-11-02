@@ -1,0 +1,119 @@
+name: radar-desktop
+
+services:
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: radar_v3
+      MARIADB_USER: radar_local
+      MARIADB_PASSWORD: radar_desktop_only
+      MARIADB_ROOT_PASSWORD: radar_desktop_root_only
+    volumes:
+      - database:/var/lib/mysql
+      - ./deploy/desktop-runtime-grants.sql:/docker-entrypoint-initdb.d/10-runtime-grants.sql:ro
+    networks:
+      - isolated
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build: .
+    image: radar-desktop-app:local
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment: &local_app_environment
+      NODE_ENV: development
+      PORT: "3000"
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: radar_v3
+      DB_USER: radar_local
+      DB_PASSWORD: radar_desktop_only
+      JWT_SECRET: radar-desktop-only-session-key-not-valid-in-production-2026
+      APP_URL: http://127.0.0.1:3000
+      CORS_ORIGIN: http://127.0.0.1:3000
+      TRUST_PROXY: "1"
+      WASENDER_BASE_URL: http://127.0.0.1:9
+      WASENDER_ENABLED: "false"
+    volumes:
+      - uploads:/app/uploads
+      - app_backups:/app/backups
+    networks:
+      - isolated
+    depends_on:
+      db:
+        condition: service_healthy
+
+  migrate:
+    image: radar-desktop-app:local
+    profiles: ["tools"]
+    environment:
+      <<: *local_app_environment
+      DB_USER: root
+      DB_PASSWORD: radar_desktop_root_only
+    entrypoint: ["node", "dist/migrate.js"]
+    command: []
+    networks:
+      - isolated
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:80"
+    configs:
+      - source: local_proxy
+        target: /etc/nginx/nginx.conf
+    networks:
+      - ingress
+      - isolated
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+networks:
+  ingress:
+  isolated:
+    internal: true
+
+configs:
+  local_proxy:
+    content: |
+      events {}
+      http {
+        server {
+          listen 80;
+          client_max_body_size 15m;
+          server_tokens off;
+          location / {
+            proxy_pass http://app:3000;
+            proxy_set_header Host $$http_host;
+            proxy_set_header X-Real-IP $$remote_addr;
+            proxy_set_header X-Forwarded-For $$remote_addr;
+            proxy_set_header X-Forwarded-Proto $$scheme;
+          }
+        }
+      }
+
+volumes:
+  database:
+  uploads:
+  app_backups:

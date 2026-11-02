@@ -1,133 +1,60 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { loadEnvFile } from 'node:process';
 
-interface CheckItem {
-  category: string;
-  name: string;
-  status: 'PASS' | 'WARN' | 'FAIL';
-  detail: string;
-}
-
-const runSecurityCheck = () => {
-  const checks: CheckItem[] = [];
-  const projectRoot = process.cwd();
-
-  console.log('\n======================================================');
-  console.log(' 🛡️  RADAR 3.0 - DIAGNÓSTICO DE SEGURIDAD DEL ENTORNO');
-  console.log('======================================================\n');
-
-  // 1. Check .gitignore for .env protection
-  const gitignorePath = path.join(projectRoot, '.gitignore');
-  if (fs.existsSync(gitignorePath)) {
-    const gitignoreContent = fs.readFileSync(gitignorePath, 'utf8');
-    if (gitignoreContent.includes('.env*') || gitignoreContent.includes('.env')) {
-      checks.push({
-        category: 'Secretos e Higiene de Repositorio',
-        name: 'Protección de archivo .env en .gitignore',
-        status: 'PASS',
-        detail: 'El archivo .env está correctamente excluido del control de versiones git.',
-      });
-    } else {
-      checks.push({
-        category: 'Secretos e Higiene de Repositorio',
-        name: 'Protección de archivo .env en .gitignore',
-        status: 'FAIL',
-        detail: 'El archivo .env NO está en .gitignore. Riesgo crítico de filtración de claves.',
-      });
-    }
-  }
-
-  // 2. Check JWT_SECRET strength
-  const jwtSecret = process.env.JWT_SECRET || '';
-  if (!jwtSecret) {
-    checks.push({
-      category: 'Autenticación y Criptografía',
-      name: 'Clave Secreta JWT_SECRET',
-      status: process.env.NODE_ENV === 'production' ? 'FAIL' : 'WARN',
-      detail: 'JWT_SECRET no está definido en las variables de entorno.',
-    });
-  } else if (jwtSecret.length < 32) {
-    checks.push({
-      category: 'Autenticación y Criptografía',
-      name: 'Longitud y Entropía de JWT_SECRET',
-      status: 'WARN',
-      detail: `JWT_SECRET tiene ${jwtSecret.length} caracteres. Se recomiendan mínimo 32 a 64 caracteres criptográficos.`,
-    });
-  } else {
-    checks.push({
-      category: 'Autenticación y Criptografía',
-      name: 'Longitud y Entropía de JWT_SECRET',
-      status: 'PASS',
-      detail: `JWT_SECRET cuenta con longitud segura (${jwtSecret.length} caracteres).`,
-    });
-  }
-
-  // 3. Check Database User (Least Privilege)
-  const dbUser = process.env.DB_USER || 'radar_app';
-  if (dbUser.toLowerCase() === 'root' && process.env.NODE_ENV === 'production') {
-    checks.push({
-      category: 'Base de Datos (Menor Privilegio)',
-      name: 'Cuenta de Usuario MySQL',
-      status: 'WARN',
-      detail: 'Se está usando la cuenta "root" en producción. Se recomienda usar "radar_app" con permisos DML limitados.',
-    });
-  } else {
-    checks.push({
-      category: 'Base de Datos (Menor Privilegio)',
-      name: 'Cuenta de Usuario MySQL',
-      status: 'PASS',
-      detail: `Cuenta de conexión configurada como "${dbUser}".`,
-    });
-  }
-
-  // 4. Check Uploads & Backups Directories
-  const uploadsDir = path.join(projectRoot, 'uploads');
-  const backupsDir = path.join(projectRoot, 'backups');
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-  }
-  if (!fs.existsSync(backupsDir)) {
-    fs.mkdirSync(backupsDir, { recursive: true });
-  }
-  checks.push({
-    category: 'Manejo de Archivos y Respaldos',
-    name: 'Directorios Operativos de Almacenamiento',
-    status: 'PASS',
-    detail: 'Directorios uploads/ y backups/ inicializados correctamente con rutas aisladas.',
-  });
-
-  // 5. Check NODE_ENV and SSL/CORS
-  const nodeEnv = process.env.NODE_ENV || 'development';
-  checks.push({
-    category: 'Entorno de Ejecución',
-    name: 'Modo del Servidor (NODE_ENV)',
-    status: 'PASS',
-    detail: `Servidor configurado en modo "${nodeEnv}". Cookies Secure y HSTS se activan en producción.`,
-  });
-
-  // Print results
-  let passCount = 0;
-  let warnCount = 0;
-  let failCount = 0;
-
-  for (const check of checks) {
-    const symbol = check.status === 'PASS' ? '✅' : check.status === 'WARN' ? '⚠️' : '❌';
-    if (check.status === 'PASS') passCount++;
-    if (check.status === 'WARN') warnCount++;
-    if (check.status === 'FAIL') failCount++;
-
-    console.log(`[${check.category}]`);
-    console.log(` ${symbol} ${check.name} [${check.status}]`);
-    console.log(`    ↳ ${check.detail}\n`);
-  }
-
-  console.log('------------------------------------------------------');
-  console.log(` Resumen: ${passCount} Aprobados | ${warnCount} Advertencias | ${failCount} Críticos`);
-  console.log('======================================================\n');
-
-  if (failCount > 0 && process.env.NODE_ENV === 'production') {
-    process.exit(1);
-  }
+if (fs.existsSync('.env')) loadEnvFile('.env');
+const production = process.env.NODE_ENV === 'production';
+let failures = 0;
+const check = (status: 'PASS' | 'WARN' | 'FAIL', name: string) => {
+  console.log(`${status} ${name}`);
+  if (status === 'FAIL') failures++;
 };
-
-runSecurityCheck();
+const ignored = fs.existsSync('.gitignore') ? fs.readFileSync('.gitignore', 'utf8') : '';
+check(ignored.includes('.env*') && ignored.includes('backups/') && ignored.includes('uploads/') ? 'PASS' : 'FAIL',
+  'Entornos, respaldos y adjuntos excluidos de Git (no demuestra limpieza del historial)');
+check('WARN',
+  fs.existsSync('.git') ? 'Historial Git disponible: requiere escaneo independiente de todas las referencias' : 'Sin historial Git: no se puede certificar ausencia de secretos en commits');
+check(production ? 'PASS' : 'WARN', production ? 'NODE_ENV=production' : 'Modo local: HTTP permitido; no utilizar esta configuracion en Internet');
+const secret = process.env.JWT_SECRET || '';
+check(secret.length >= 32 && !/desktop-only|change.?me|replace.?me|example/i.test(secret) ? 'PASS' : production ? 'FAIL' : 'WARN',
+  'JWT_SECRET: longitud y ausencia de marcadores de ejemplo; la entropia no se puede certificar por longitud');
+check(process.env.DB_USER && process.env.DB_USER.toLowerCase() !== 'root' ? 'PASS' : production ? 'FAIL' : 'WARN',
+  'Usuario de base de datos no root; comprobar GRANTS DML en el servidor');
+check(process.env.DB_PASSWORD ? 'PASS' : production ? 'FAIL' : 'WARN', 'Contraseña de base de datos configurada (valor omitido)');
+for (const name of ['APP_URL', 'CORS_ORIGIN']) {
+  const value = process.env[name];
+  let valid = false;
+  try {
+    const url = new URL(value || '');
+    valid = url.origin === value && (url.protocol === 'https:' || !production && url.protocol === 'http:');
+  } catch { valid = false; }
+  check(valid || name === 'CORS_ORIGIN' && !value ? 'PASS' : production ? 'FAIL' : 'WARN', `${name}: origen exacto sin comodines ni rutas`);
+}
+check(process.env.TRUST_PROXY === '1' ? 'WARN' : 'PASS',
+  process.env.TRUST_PROXY === '1' ? 'TRUST_PROXY=1: restringir ingreso a Node al proxy confiable y sobrescribir cabeceras' : 'No se confia en cabeceras reenviadas');
+check(process.env.WASENDER_FORCE_TEST_RECIPIENT === 'true' ? 'WARN' : 'PASS', 'El modo de destinatario de prueba no permite OTP WhatsApp');
+for (const file of fs.readdirSync('.').filter(name => /^\.env(?:\.|$)/.test(name) && name !== '.env.example')) {
+  check((fs.statSync(file).mode & 0o077) === 0 ? 'PASS' : 'WARN', `Permisos privados del archivo ${file} (recomendado 600)`);
+}
+const files: string[] = [];
+function walk(directory: string) {
+  if (!fs.existsSync(directory)) return;
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const file = path.join(directory, entry.name);
+    if (entry.isDirectory()) walk(file);
+    else if (/\.(tsx?|jsx?|html|json)$/.test(file)) files.push(file);
+  }
+}
+walk('src');
+walk('dist/assets');
+const secretPattern = /AIza[0-9A-Za-z_-]{30,}|sk_live_[0-9A-Za-z]+|AKIA[0-9A-Z]{16}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/;
+for (const file of files) {
+  const content = fs.readFileSync(file, 'utf8');
+  if (secretPattern.test(content)) check('FAIL', `Patron de secreto detectado en ${file}; contenido omitido`);
+  if (!file.includes('/server/') && !file.includes('/integrations/') && /import\.meta\.env\.VITE_(?!API_URL\b)[A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD)/.test(content)) {
+    check('FAIL', `Variable publica sensible en ${file}; contenido omitido`);
+  }
+}
+check('WARN', 'Escaneo por patrones no exhaustivo: revisar proveedores, archivos excluidos e historial antes del despliegue');
+console.log(`Diagnostico local terminado: ${failures} fallos. No sustituye pruebas HTTP ni una auditoria externa.`);
+process.exitCode = failures ? 1 : 0;

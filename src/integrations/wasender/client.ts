@@ -30,7 +30,6 @@ export function formatWasenderPhone(phone: string): string {
   return '+' + cleaned;
 }
 
-const DEFAULT_WASENDER_API_KEY = '0c4608ba493e8a32348c0dd71da85489855ed6ca74f648694f46947db0b4041c';
 const DEFAULT_WASENDER_BASE_URL = 'https://wasenderapi.com';
 
 export class WasenderClient {
@@ -43,10 +42,10 @@ export class WasenderClient {
 
   constructor(options: WasenderClientOptions = {}) {
     this.baseUrl = trimSlash(options.baseUrl || process.env.WASENDER_BASE_URL || DEFAULT_WASENDER_BASE_URL);
-    this.apiKey = (options.apiKey || process.env.WASENDER_API_KEY || DEFAULT_WASENDER_API_KEY).trim();
+    this.apiKey = (options.apiKey ?? process.env.WASENDER_API_KEY ?? '').trim();
     this.deviceId = options.deviceId || process.env.WASENDER_DEVICE_ID;
     this.sendTextPath = options.sendTextPath || process.env.WASENDER_SEND_TEXT_PATH || '/api/send-message';
-    this.testPhone = options.testPhone || process.env.WASENDER_TEST_PHONE || '584127307933';
+    this.testPhone = options.testPhone ?? process.env.WASENDER_TEST_PHONE ?? '';
     this.forceTestRecipient =
       options.forceTestRecipient !== undefined
         ? options.forceTestRecipient
@@ -54,7 +53,7 @@ export class WasenderClient {
   }
 
   get configured(): boolean {
-    return Boolean(this.baseUrl && this.apiKey);
+    return process.env.WASENDER_ENABLED?.trim().toLowerCase() !== 'false' && Boolean(this.baseUrl && this.apiKey);
   }
 
   get isTestMode(): boolean {
@@ -88,6 +87,9 @@ export class WasenderClient {
   private static queuePromise: Promise<unknown> = Promise.resolve();
 
   private enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    if (!this.configured) {
+      return Promise.reject(new WasenderError('Wasender está deshabilitado o no tiene credenciales configuradas', 'CONFIGURATION'));
+    }
     const execute = async () => {
       const minGapMs = 5300;
       const now = Date.now();

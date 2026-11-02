@@ -59,8 +59,6 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
 
   if (!isOpen) return null;
 
-  const isSuperAdmin = userRole === 'admin';
-
   // Get unique advisors from items for filter
   const advisorList = Array.from(new Set(pendingItems.map((i) => i.advisor).filter(Boolean)));
 
@@ -90,27 +88,24 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
   };
 
   const modalContent = (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 md:p-6 bg-slate-950/85 backdrop-blur-md animate-fade-in overflow-y-auto">
-      <div className="relative w-full max-w-4xl max-h-[92vh] flex flex-col bg-[#070d1e] border-2 border-cyan-500/50 rounded-2xl shadow-[0_0_50px_rgba(6,182,212,0.35)] overflow-hidden">
-        {/* Glowing top line */}
-        <div className="h-1.5 w-full bg-gradient-to-r from-rose-500 via-amber-400 to-cyan-400 shadow-[0_0_15px_#22d3ee]" />
-
+    <div className="horizon-followup-portal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 md:p-6">
+      <div role="dialog" aria-modal="true" aria-labelledby="daily-followup-title" aria-describedby="daily-followup-description" className="horizon-followup-panel relative w-full max-w-5xl max-h-[92dvh] flex flex-col rounded-3xl overflow-hidden">
         {/* Modal Header */}
-        <div className="px-4 py-3.5 sm:px-6 sm:py-4 bg-[#0a142c] border-b border-cyan-500/25 flex flex-wrap items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500/30 to-amber-500/30 border border-amber-400/50 flex items-center justify-center text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.3)] shrink-0">
-              <span className="material-symbols-outlined text-[24px] animate-pulse">phone_in_talk</span>
+        <div className="horizon-followup-header px-4 py-4 sm:px-6 sm:py-5 flex items-start justify-between gap-3 shrink-0">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="horizon-followup-icon w-11 h-11 rounded-2xl flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-[24px]">phone_in_talk</span>
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-black text-white tracking-wide uppercase font-mono">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 id="daily-followup-title" className="text-base sm:text-xl font-bold">
                   Seguimiento Post-Entrega Obligatorio
                 </h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse">
-                  ALERTA DE SESIÓN
+                <span className="horizon-followup-required px-2.5 py-1 rounded-full text-[10px] font-bold">
+                  Atención requerida
                 </span>
               </div>
-              <p className="text-xs text-slate-300 font-mono mt-0.5">
+              <p id="daily-followup-description" className="text-xs text-slate-400 mt-1 leading-relaxed">
                 Garantía Temprana (14 Días) • Atención por llamada o mensaje de texto (WhatsApp/SMS) asignada al asesor de venta
               </p>
             </div>
@@ -119,20 +114,10 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={handleManualRefresh}
-              disabled={isRefreshing}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-cyan-950/40 hover:bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 hover:text-white text-xs font-mono font-bold transition-all active:scale-95 disabled:opacity-50 cursor-pointer shadow-[0_0_10px_rgba(6,182,212,0.15)]"
-              title="Actualizar lista de seguimientos ahora"
-            >
-              <span className={`material-symbols-outlined text-[16px] ${isRefreshing ? 'animate-spin text-cyan-400' : 'text-cyan-400'}`}>refresh</span>
-              <span className="hidden sm:inline">{isRefreshing ? 'Actualizando...' : 'Actualizar'}</span>
-            </button>
-
-            <button
-              type="button"
               onClick={onClose}
               className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors cursor-pointer"
               title="Cerrar (Permanecerá accesible en barra superior)"
+              aria-label="Cerrar seguimiento post-entrega"
             >
               <span className="material-symbols-outlined text-[20px]">close</span>
             </button>
@@ -140,39 +125,40 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
         </div>
 
         {/* Operational Filter & KPI Bar */}
-        <div className="px-4 py-3 sm:px-6 bg-[#040816] border-b border-cyan-500/20 flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="horizon-followup-toolbar px-4 py-4 sm:px-6 flex flex-wrap items-center justify-between gap-4 shrink-0">
           {/* Quick Metrics */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs font-mono font-bold shadow-[0_0_10px_rgba(244,63,94,0.2)]">
+          <div className="horizon-followup-metrics grid grid-cols-3 gap-2 w-full sm:w-auto">
+            <div className="horizon-followup-metric flex items-center gap-1.5 px-3 py-2.5 rounded-2xl text-xs" data-urgency="atrasada">
               <span className="material-symbols-outlined text-[16px] text-rose-400">error</span>
               <span>Atrasadas:</span>
-              <strong className="text-white text-sm font-black">{overdueCount}</strong>
+              <strong className="text-lg font-bold">{overdueCount}</strong>
             </div>
 
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-300 text-xs font-mono font-bold">
+            <div className="horizon-followup-metric flex items-center gap-1.5 px-3 py-2.5 rounded-2xl text-xs" data-urgency="hoy">
               <span className="material-symbols-outlined text-[16px] text-amber-400">schedule</span>
-              <span>Llamar Hoy:</span>
-              <strong className="text-white text-sm font-black">{todayCount}</strong>
+              <span>Hoy:</span>
+              <strong className="text-lg font-bold">{todayCount}</strong>
             </div>
 
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-cyan-950/40 border border-cyan-500/30 text-cyan-300 text-xs font-mono font-bold">
+            <div className="horizon-followup-metric flex items-center gap-1.5 px-3 py-2.5 rounded-2xl text-xs" data-urgency="proxima">
               <span className="material-symbols-outlined text-[16px] text-cyan-400">event</span>
               <span>Próximas:</span>
-              <strong className="text-white text-sm font-black">{upcomingCount}</strong>
+              <strong className="text-lg font-bold">{upcomingCount}</strong>
             </div>
           </div>
 
           {/* Controls: Advisor Selector / Filter + Primary Refresh Button */}
-          <div className="flex items-center gap-2.5">
-            <div className="flex items-center gap-1.5">
-              <label className="text-xs font-mono text-slate-400 flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              <label htmlFor="followup-advisor" className="text-xs text-slate-400 flex items-center gap-1">
                 <span className="material-symbols-outlined text-[15px] text-cyan-400">person</span>
                 <span className="hidden sm:inline">Asesor:</span>
               </label>
               <select
+                id="followup-advisor"
                 value={advisorFilter}
                 onChange={(e) => setAdvisorFilter(e.target.value)}
-                className="bg-[#0b162c] border border-cyan-500/40 text-cyan-200 text-xs font-mono rounded-lg px-2.5 py-1 focus:outline-none focus:border-cyan-400 cursor-pointer"
+                className="min-w-0 w-full sm:w-auto text-xs rounded-xl px-3 py-2.5 cursor-pointer"
               >
                 <option value="all">Todas las Órdenes ({pendingItems.length})</option>
                 {currentUserName && (
@@ -190,7 +176,7 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
               type="button"
               onClick={handleManualRefresh}
               disabled={isRefreshing}
-              className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-cyan-500/25 via-blue-500/25 to-emerald-500/20 hover:from-cyan-500/35 hover:to-emerald-500/30 border border-cyan-400/60 hover:border-cyan-300 text-cyan-200 hover:text-white rounded-lg text-xs font-mono font-bold transition-all shadow-[0_0_15px_rgba(6,182,212,0.25)] active:scale-95 disabled:opacity-50 cursor-pointer"
+              className="horizon-followup-secondary inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold disabled:opacity-50 cursor-pointer"
               title="Actualizar lista de órdenes de seguimiento ahora"
             >
               <span className={`material-symbols-outlined text-[16px] ${isRefreshing ? 'animate-spin text-cyan-300' : 'text-cyan-400'}`}>
@@ -202,7 +188,7 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
         </div>
 
         {/* Scrollable List of Pending Followups */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 custom-scrollbar">
+        <div className="horizon-followup-list flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-4 custom-scrollbar">
           {filteredItems.length === 0 ? (
             <div className="p-8 text-center bg-cyan-950/20 border border-cyan-500/30 rounded-xl">
               <span className="material-symbols-outlined text-[48px] text-emerald-400 mb-2">verified</span>
@@ -219,13 +205,7 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
               return (
                 <div
                   key={item.orderId}
-                  className={`p-3.5 sm:p-4 rounded-xl border transition-all duration-200 ${
-                    isOverdue
-                      ? 'bg-rose-950/25 border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.15)] hover:border-rose-400'
-                      : isToday
-                      ? 'bg-amber-950/25 border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.15)] hover:border-amber-400'
-                      : 'bg-[#081226]/80 border-cyan-500/30 hover:border-cyan-400'
-                  }`}
+                  className="horizon-followup-item p-4 sm:p-5 rounded-2xl"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     {/* Left details */}
@@ -233,15 +213,10 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
                       <div className="flex flex-wrap items-center gap-2">
                         <strong className="text-sm font-mono font-black text-white">{item.orderCode}</strong>
                         <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold tracking-wider uppercase ${
-                            isOverdue
-                              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/50'
-                              : isToday
-                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50'
-                              : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                          }`}
+                          className="horizon-followup-badge px-2.5 py-1 rounded-full text-[10px] font-semibold"
+                          data-urgency={item.urgency}
                         >
-                          {isOverdue ? '🚨 ATRASADA' : isToday ? '🟡 LLAMAR HOY' : '⏳ PRÓXIMA'}
+                          {isOverdue ? 'ATRASADA' : isToday ? 'LLAMAR HOY' : 'PRÓXIMA'}
                         </span>
                         <span className="text-[11px] font-mono text-cyan-300 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-500/30">
                           Día {item.daysSinceDelivery} de 14
@@ -331,11 +306,11 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
                     </div>
 
                     {/* Right Action Buttons */}
-                    <div className="flex sm:flex-col items-center sm:items-end gap-2 shrink-0 pt-2 sm:pt-0">
+                    <div className="horizon-followup-actions flex flex-wrap sm:flex-col items-center sm:items-end gap-2 shrink-0 pt-2 sm:pt-0">
                       <button
                         type="button"
                         onClick={() => handleOpenCallModal(item)}
-                        className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 text-xs font-mono font-black shadow-[0_0_12px_rgba(6,182,212,0.35)] transition-all cursor-pointer active:scale-95"
+                        className="horizon-followup-primary w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold cursor-pointer"
                       >
                         <span className="material-symbols-outlined text-[16px]">phone_callback</span>
                         <span>Registrar Llamada / SMS</span>
@@ -361,7 +336,7 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
         </div>
 
         {/* Modal Footer Instructions & Dismiss */}
-        <div className="px-4 py-3 sm:px-6 bg-[#040816] border-t border-cyan-500/20 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
+        <div className="horizon-followup-footer px-4 py-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2 text-xs font-mono text-slate-400 text-center sm:text-left">
             <span className="material-symbols-outlined text-[18px] text-amber-400 shrink-0">info</span>
             <span>
@@ -372,19 +347,8 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
           <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end shrink-0">
             <button
               type="button"
-              onClick={handleManualRefresh}
-              disabled={isRefreshing}
-              className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-cyan-950/40 hover:bg-cyan-500/20 border border-cyan-500/40 hover:border-cyan-300 text-cyan-300 hover:text-white text-xs font-mono font-bold transition-all active:scale-95 disabled:opacity-50 cursor-pointer shadow-[0_0_12px_rgba(6,182,212,0.15)]"
-              title="Refrescar órdenes de seguimiento ahora"
-            >
-              <span className={`material-symbols-outlined text-[16px] ${isRefreshing ? 'animate-spin text-cyan-400' : 'text-cyan-400'}`}>refresh</span>
-              <span>{isRefreshing ? 'Actualizando...' : 'Actualizar'}</span>
-            </button>
-
-            <button
-              type="button"
               onClick={onClose}
-              className="w-full sm:w-auto px-4 py-1.5 rounded-xl bg-[#0b162c] hover:bg-[#12244a] border border-cyan-500/40 text-slate-200 hover:text-white text-xs font-mono font-bold transition-all cursor-pointer shrink-0"
+              className="horizon-followup-secondary w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-semibold cursor-pointer shrink-0"
             >
               Continuar a RADAR
             </button>

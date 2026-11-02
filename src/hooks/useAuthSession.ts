@@ -66,11 +66,11 @@ export const useAuthSession = () => {
 
   const logout = useCallback(async () => {
     try {
-      await apiFetch('/auth/logout', { method: 'POST' });
-    } catch {
-      // ignore
-    } finally {
+      const response = await apiFetch('/auth/logout', { method: 'POST' });
+      if (!response.ok && response.status !== 401) throw new Error('El servidor no pudo revocar la sesion');
       handleUnauthorized();
+    } catch (error) {
+      window.alert(error instanceof Error ? `No se pudo cerrar la sesion: ${error.message}` : 'No se pudo cerrar la sesion. Intenta de nuevo.');
     }
   }, [handleUnauthorized]);
 

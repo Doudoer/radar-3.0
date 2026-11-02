@@ -1,46 +1,11 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { loadEnvFile } from 'node:process';
 import { createPool } from 'mysql2/promise';
 
-// Native or fallback .env loader for production environments
-try {
-  if (typeof (process as any).loadEnvFile === 'function') {
-    (process as any).loadEnvFile();
-  }
-} catch {
-  // If native loader fails (e.g. older node or cwd differences), load manually
-  try {
-    const candidatePaths = [
-      path.resolve(process.cwd(), '.env'),
-      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.env'),
-      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env'),
-    ];
-    for (const envPath of candidatePaths) {
-      if (existsSync(envPath)) {
-        const content = readFileSync(envPath, 'utf-8');
-        for (const line of content.split('\n')) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed.startsWith('#')) continue;
-          const eqIdx = trimmed.indexOf('=');
-          if (eqIdx > 0) {
-            const k = trimmed.slice(0, eqIdx).trim();
-            let v = trimmed.slice(eqIdx + 1).trim();
-            if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
-              v = v.slice(1, -1);
-            }
-            if (!process.env[k]) {
-              process.env[k] = v;
-            }
-          }
-        }
-        break;
-      }
-    }
-  } catch {
-    // Ignore
-  }
-}
+const envPath = path.resolve(process.cwd(), '.env');
+if (existsSync(envPath)) loadEnvFile(envPath);
 
 export const port = Number(process.env.PORT || process.env.API_PORT || 3000);
 const runtimeDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -50,16 +15,18 @@ export const frontendRoot = path.basename(runtimeDirectory) === 'dist'
 export const maxBodyBytes = 1024 * 1024;
 
 export const allowedOrigins = new Set([
-  'http://localhost:3000',
-  'http://localhost:4173',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:4173',
+  ...(process.env.NODE_ENV === 'production' ? [] : [
+    'http://localhost:3000',
+    'http://localhost:4173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:4173',
+  ]),
   process.env.CORS_ORIGIN,
   process.env.APP_URL,
 ].filter(Boolean));
 
 export const isAllowedLocalOrigin = (origin?: string) =>
-  typeof origin === 'string' && /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+  process.env.NODE_ENV !== 'production' && typeof origin === 'string' && /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
 
 export const pool = createPool({
   host: process.env.DB_HOST || '127.0.0.1',
@@ -73,11 +40,24 @@ export const pool = createPool({
 });
 
 if (process.env.NODE_ENV === 'production') {
-  for (const variable of ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'JWT_SECRET']) {
+  for (const variable of ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'JWT_SECRET', 'APP_URL']) {
     if (!process.env[variable]) throw new Error(`${variable} es obligatorio en produccion`);
   }
   if ((process.env.JWT_SECRET || '').length < 32) {
     throw new Error('JWT_SECRET debe tener al menos 32 caracteres en producción');
+  }
+  if (/desktop-only|change.?me|replace.?me|example|your[-_ ]?secret/i.test(process.env.JWT_SECRET || '')) {
+    throw new Error('JWT_SECRET no puede ser una clave de ejemplo o desarrollo en produccion');
+  }
+  if (process.env.DB_USER?.toLowerCase() === 'root') throw new Error('No uses root como usuario de la aplicacion');
+  for (const origin of allowedOrigins) {
+    const url = new URL(origin!);
+    if (url.protocol !== 'https:' || url.origin !== origin || url.username || url.password) {
+      throw new Error('APP_URL y CORS_ORIGIN deben ser origenes HTTPS exactos en produccion');
+    }
+  }
+  if (['--inspect', '--inspect-brk', '--debug'].some(flag => process.execArgv.some(arg => arg.startsWith(flag)) || process.env.NODE_OPTIONS?.includes(flag))) {
+    throw new Error('El depurador no esta permitido en produccion');
   }
 }
 

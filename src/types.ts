@@ -3,6 +3,7 @@ export type NavScreen =
   | 'ordenes'
   | 'clientes'
   | 'reclamos'
+  | 'reembolsos'
   | 'inventario'
   | 'mis_operaciones'
   | 'relacion_semanal'
@@ -114,6 +115,10 @@ export interface AuctionLink {
 }
 
 export interface Order {
+  version?: number;
+  inventoryPartId?: string | number;
+  inventoryAvailability?: InventoryAvailability;
+  idempotencyKey?: string;
   id: string; // e.g. "ORD-2026-0142" o "ORD-516560"
   code: string;
   createdAt: string;
@@ -197,6 +202,8 @@ export interface ActivityItem {
 }
 
 export interface PrefillOrderData {
+  customerId?: number;
+  inventoryPartId?: string | number;
   make?: string;
   model?: string;
   year?: number;
@@ -283,6 +290,8 @@ export interface RefundRequest {
 }
 
 export interface InventoryPart {
+  price?: number;
+  cost?: number;
   id: string;
   year: string;
   brand: string;
@@ -299,6 +308,20 @@ export interface InventoryPart {
   createdAt?: string;
   updatedAt?: string;
   soldAt?: string | null; // Fecha y hora en que la pieza fue vendida / salió de disponibles
+}
+
+export interface InventoryCandidate {
+  part: Omit<InventoryPart, 'cost'>;
+  level: 'matching' | 'possible';
+  reasons: string[];
+  pendingChecks: string[];
+}
+
+export interface InventoryAvailability {
+  state: 'linked' | 'available' | 'possible' | 'reserved' | 'none' | 'incomplete';
+  availableCount: number;
+  candidates: InventoryCandidate[];
+  linkedPart?: Omit<InventoryPart, 'cost'>;
 }
 
 // Seguimiento Post-Entrega (Garantía Temprana 14 Días)
@@ -344,4 +367,3 @@ export interface PendingFollowupItem {
   lastFollowup?: OrderDeliveryFollowup | null;
   totalCalls: number;
 }
-

@@ -1,25 +1,49 @@
 import { Order } from '../types';
 import { apiFetch } from './apiFetch';
 
-const request = async <T>(path: string, options?: RequestInit): Promise<T> => {
-  const response = await apiFetch(path, options);
+const readResponse = async <T>(response: Response): Promise<T> => {
   if (response.status === 401) throw new Error('Sesión expirada');
-  if (!response.ok) throw new Error('No fue posible guardar los cambios en radar_db.');
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.message || body.error || (response.status === 409
+      ? 'La orden cambió. Actualiza los datos antes de volver a guardar.'
+      : 'No fue posible guardar los cambios en radar_db.'));
+  }
   return response.json() as Promise<T>;
 };
+const request = async <T>(path: string, options?: RequestInit): Promise<T> =>
+  readResponse<T>(await apiFetch(path, options));
 
 export const ordersApi = {
-  list: () => request<Order[]>('/orders'),
+  list: async (): Promise<Order[]> => {
+    const orders: Order[] = [];
+    let offset = 0;
+    for (;;) {
+      const response = await apiFetch(`/orders?limit=1000&offset=${offset}`);
+      const page = await readResponse<Order[]>(response);
+      orders.push(...page);
+      const next = response.headers.get('X-Next-Offset');
+      if (next === null || next === '') break;
+      const nextOffset = Number(next);
+      if (!Number.isSafeInteger(nextOffset) || nextOffset <= offset) throw new Error('Paginación de órdenes inválida.');
+      offset = nextOffset;
+    }
+    return orders;
+  },
+  get: (orderId: string | number) => request<Order>(`/orders/${orderId}`),
+  linkInventory: (orderId: string, inventoryPartId: number, version: number) =>
+    request<Order>(`/orders/${orderId}/inventory`, {
+      method: 'POST', body: JSON.stringify({ inventoryPartId, version, confirmedCompatibility: true }),
+    }),
   create: (order: Order) => request<Order>('/orders', { method: 'POST', body: JSON.stringify(order) }),
   update: (order: Order) => request<Order>(`/orders/${order.id}`, { method: 'PUT', body: JSON.stringify(order) }),
-  requestDeliveryDateOtp: (orderId: string | number) =>
-    request<{ ok: boolean; dispatched: boolean; message: string; targetPhoneMasked?: string; warning?: string }>(
-      `/orders/${orderId}/delivery-date/request-otp`,
-      { method: 'POST' }
-    ),
-  updateDeliveryDate: (orderId: string | number, payload: { deliveredAt: string; otpCode: string; reason?: string }) =>
-    request<{ ok: boolean; deliveredAt: string; message: string }>(
+  updateDeliveryDate: (orderId: string | number, payload: { deliveredAt: string; version?: number; reason: string }) => {
+    if (!Number.isSafeInteger(payload.version) || Number(payload.version) < 1) {
+      return Promise.reject(new Error('Actualiza la orden para obtener su versión antes de modificar la fecha.'));
+    }
+    return request<{ ok: boolean; deliveredAt: string; message: string }>(
       `/orders/${orderId}/delivery-date`,
-      { method: 'PUT', body: JSON.stringify(payload) }
-    ),
+      { method: 'PUT', body: JSON.stringify({ deliveredAt: payload.deliveredAt, version: payload.version, reason: payload.reason }) }
+    );
+  },
 };

@@ -1,14 +1,13 @@
 import React, { Component, useState, useEffect, useMemo, useRef, useCallback, type ErrorInfo, type ReactNode } from 'react';
 import { Order, OrderStatus, PrefillOrderData, Customer } from '../types';
 import { MAKE_MODEL_MAP } from '../data/vehicleData';
-import { DeliveryDateOtpModal } from './DeliveryDateOtpModal';
 import { apiFetch } from '../services/apiFetch';
 
 interface NewOrderModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreateOrder: (newOrder: Order) => void;
-  onUpdateOrder?: (order: Order) => void;
+  onCreateOrder: (newOrder: Order) => Promise<Order | void>;
+  onUpdateOrder?: (order: Order) => Promise<Order | void>;
   editingOrder?: Order | null;
   initialPrefillData?: PrefillOrderData | null;
   existingCustomers?: Customer[];
@@ -110,12 +109,15 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
   currentUserName,
 }) => {
   const defaultAdvisor = currentUserName || currentUser?.name || 'Operador';
-  const isSuperAdmin = currentUser?.role?.toLowerCase() === 'admin' || (typeof window !== 'undefined' && sessionStorage.getItem('radar_authenticated') === 'true' && currentUser?.role?.toLowerCase() === 'admin');
-  const [isDeliveryDateOtpModalOpen, setIsDeliveryDateOtpModalOpen] = useState<boolean>(false);
+  const isSuperAdmin = currentUser?.role?.toLowerCase() === 'admin';
   const [deliveredAtDate, setDeliveredAtDate] = useState<string | undefined>(editingOrder?.deliveredAt);
   // Stepper State (1: Vehículo & Pieza, 2: Datos del Cliente, 3: Finanzas & Envío)
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [stepError, setStepError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
+  const idempotencyKeyRef = useRef<string | null>(null);
+  const inventoryPartIdRef = useRef<string | number | undefined>(initialPrefillData?.inventoryPartId);
 
   // 1. Customer Dimensions & CRM Selection State
   const [clientMode, setClientMode] = useState<'search' | 'manual'>('search');
@@ -331,6 +333,9 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
   });
 
   const saveOrderDraft = useCallback((draft: Record<string, unknown>) => {
+    draft = { ...draft, idempotencyKey: (idempotencyKeyRef.current ??= crypto.randomUUID()),
+      inventoryPartId: draft.inventoryPartId ?? inventoryPartIdRef.current,
+      selectedCustomerId: draft.selectedCustomerId ?? initialPrefillData?.customerId };
     try {
       inMemoryOrderDraft = { ...draft };
       const serialized = JSON.stringify(draft);
@@ -339,7 +344,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
     } catch {
       // ignore quota errors
     }
-  }, []);
+  }, [initialPrefillData?.customerId]);
 
   const loadOrderDraft = useCallback((): Record<string, any> | null => {
     try {
@@ -369,21 +374,25 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
         storageDraft = draftSession || draftLocal;
       }
 
+      let restored = inMemoryOrderDraft || storageDraft || null;
       if (inMemoryOrderDraft && storageDraft) {
         const timeMem = Number(inMemoryOrderDraft.savedAt) || 0;
         const timeStore = Number(storageDraft.savedAt) || 0;
-        return timeMem >= timeStore
+        restored = timeMem >= timeStore
           ? { ...storageDraft, ...inMemoryOrderDraft }
           : { ...inMemoryOrderDraft, ...storageDraft };
       }
 
-      return inMemoryOrderDraft || storageDraft || null;
+      if (restored?.idempotencyKey) idempotencyKeyRef.current = restored.idempotencyKey;
+      if (restored?.inventoryPartId) inventoryPartIdRef.current = restored.inventoryPartId;
+      return restored;
     } catch {
       return null;
     }
   }, []);
 
   const clearOrderDraft = useCallback(() => {
+    idempotencyKeyRef.current = null;
     inMemoryOrderDraft = null;
     try {
       if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(DRAFT_STORAGE_KEY);
@@ -574,7 +583,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
       setDeliveryFee(String(editingOrder.financials.deliveryFee ?? 0));
       setCoreFee(String(editingOrder.financials.coreFee ?? 0));
       setDeliveryType(editingOrder.deliveryType || 'retiro_tienda');
-      setWarrantyDays(editingOrder.warrantyDays || 60);
+      setWarrantyDays(editingOrder.warrantyDays ?? 60);
       setStatus(editingOrder.status);
       setDeliveredAtDate(editingOrder.deliveredAt);
       setAdvisor(editingOrder.advisor || defaultAdvisor);
@@ -585,6 +594,12 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
     } else if (initialPrefillData) {
       // First check if there is an in-progress draft so we never wipe user-typed modifications
       const draft = loadOrderDraft();
+      inventoryPartIdRef.current = initialPrefillData.inventoryPartId ?? draft?.inventoryPartId;
+      const prefilledCustomerId = draft?.selectedCustomerId ?? initialPrefillData.customerId;
+      if (prefilledCustomerId) {
+        setSelectedCustomerId(String(prefilledCustomerId));
+        activeFormRef.current.selectedCustomerId = String(prefilledCustomerId);
+      }
       if (draft && typeof draft === 'object') {
         setHasRestoredDraft(true);
       }
@@ -624,7 +639,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
         setPartPrice(resolvedPrice);
         activeFormRef.current.partPrice = resolvedPrice;
         const autoDays = calculateAutoWarranty(parseFloat(resolvedPrice) || 0);
-        const resolvedWarranty = draft?.warrantyDays || initialPrefillData.warrantyDays || autoDays;
+        const resolvedWarranty = draft?.warrantyDays ?? initialPrefillData.warrantyDays ?? autoDays;
         setWarrantyDays(resolvedWarranty);
         activeFormRef.current.warrantyDays = resolvedWarranty;
       }
@@ -636,7 +651,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
         const match = existingCustomers.find((c) =>
           String(c?.name || `${c?.first_name || ''} ${c?.last_name || ''}`.trim()).toLowerCase() === String(cName || '').toLowerCase()
         );
-        if (match) {
+        if (match && !prefilledCustomerId) {
           setSelectedCustomerId(match.id);
           const lang = match.language || 'es';
           setCustomerLanguage(lang);
@@ -1056,7 +1071,8 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (savingRef.current) return;
     if (!vehicleYear) {
       setCurrentStep(1);
       setStepError('El año del vehículo es obligatorio.');
@@ -1112,6 +1128,11 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
       setStepError('El depósito core fee es obligatorio.');
       return;
     }
+    if (status === 'pagado' && numDown !== grossSubtotal) {
+      setCurrentStep(3);
+      setStepError('Pagado exige saldo totalmente liquidado. Registra el cobro real antes de guardar.');
+      return;
+    }
     if (deliveryType === 'envio_domicilio' && !shippingAddress.trim()) {
       setCurrentStep(3);
       setStepError('La dirección de envío es obligatoria cuando la entrega es a domicilio.');
@@ -1131,6 +1152,8 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
     const savedOrder: Order = {
       ...(editingOrder || {}),
       id: editingOrder?.id || code,
+      inventoryPartId: editingOrder?.inventoryPartId ?? inventoryPartIdRef.current,
+      idempotencyKey: editingOrder ? undefined : (idempotencyKeyRef.current ??= crypto.randomUUID()),
       code: code,
       createdAt: editingOrder?.createdAt || 'Hoy, ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       advisor: advisor || editingOrder?.advisor || currentUser?.name || currentUserName || 'Operador',
@@ -1147,7 +1170,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
       saleNotified: status === 'pagado',
       customerLanguage: customerLanguage,
       customer: {
-        id: selectedCustomerId || undefined,
+        id: selectedCustomerId || (initialPrefillData?.customerId ? String(initialPrefillData.customerId) : undefined),
         name: customerName.trim(),
         company: selectedCustomerObj?.company || (customerType === 'Empresa' || customerType === 'Flota Mantenimiento' || customerType === 'Taller Mecánico' ? customerName.trim() : undefined),
         type: customerType,
@@ -1187,14 +1210,26 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
       notes: notes.trim(),
     };
 
-    if (editingOrder && onUpdateOrder) {
-      onUpdateOrder(savedOrder);
-    } else {
-      onCreateOrder(savedOrder);
-      clearOrderDraft();
+    savingRef.current = true;
+    setIsSaving(true);
+    setStepError(null);
+    try {
+      if (editingOrder) {
+        if (!onUpdateOrder) throw new Error('No hay un guardado disponible para esta orden.');
+        await onUpdateOrder(savedOrder);
+      } else {
+        await onCreateOrder(savedOrder);
+        clearOrderDraft();
+        idempotencyKeyRef.current = null;
+      }
+      setHasRestoredDraft(false);
+      onClose();
+    } catch (error) {
+      setStepError(error instanceof Error ? error.message : 'No se pudo guardar la orden. El borrador se conserva.');
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
     }
-    setHasRestoredDraft(false);
-    onClose();
   };
 
   const stepsConfig = [
@@ -2517,21 +2552,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                   </div>
 
                   <div>
-                    {isSuperAdmin ? (
-                      <button
-                        type="button"
-                        onClick={() => setIsDeliveryDateOtpModalOpen(true)}
-                        className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-[0_0_12px_rgba(245,158,11,0.2)] active:scale-95"
-                      >
-                        <span className="material-symbols-outlined text-[15px]">verified</span>
-                        <span>Modificar con 2FA WhatsApp</span>
-                      </button>
-                    ) : (
-                      <span className="text-[11px] font-mono text-slate-400 bg-slate-800/40 px-2.5 py-1 rounded-lg border border-slate-700/40 flex items-center gap-1">
-                        <span className="material-symbols-outlined text-[13px]">lock</span>
-                        <span>Modificación restringida a Super Admin</span>
-                      </span>
-                    )}
+                    <span className="text-xs text-slate-400">La fecha se modifica desde el detalle de la orden, por un administrador.</span>
                   </div>
                 </div>
               )}
@@ -2596,10 +2617,11 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                 <button
                   type="button"
                   onClick={handleSubmit}
+                  disabled={isSaving}
                   className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black transition-all shadow-[0_0_20px_rgba(16,185,129,0.4)] cursor-pointer active:scale-95 flex items-center gap-1.5 text-xs"
                 >
                   <span className="material-symbols-outlined text-[16px]">check_circle</span>
-                  <span>{editingOrder ? 'Guardar Cambios' : 'Guardar y Aperturar'}</span>
+                  <span>{isSaving ? 'Guardando…' : editingOrder ? 'Guardar Cambios' : 'Guardar y Aperturar'}</span>
                 </button>
               )}
             </div>
@@ -2607,19 +2629,6 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
         </form>
       </div>
 
-      {editingOrder && (
-        <DeliveryDateOtpModal
-          isOpen={isDeliveryDateOtpModalOpen}
-          onClose={() => setIsDeliveryDateOtpModalOpen(false)}
-          order={editingOrder}
-          onSuccess={(newDeliveredAt) => {
-            setDeliveredAtDate(newDeliveredAt);
-            if (editingOrder) {
-              editingOrder.deliveredAt = newDeliveredAt;
-            }
-          }}
-        />
-      )}
     </div>
   );
 };
@@ -2632,5 +2641,3 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = (props) => {
     </ModalErrorBoundary>
   );
 };
-
-

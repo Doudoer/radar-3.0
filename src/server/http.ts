@@ -6,7 +6,7 @@ import { frontendRoot, maxBodyBytes } from './config';
 
 export const readBody = async (request: IncomingMessage, maxBytes: number = maxBodyBytes) => {
   const contentType = String(request.headers['content-type'] || '').toLowerCase();
-  if (!contentType.startsWith('application/json')) {
+  if (contentType.split(';')[0].trim() !== 'application/json') {
     throw Object.assign(new Error('Content-Type debe ser application/json'), { statusCode: 415 });
   }
   const contentLength = Number(request.headers['content-length'] || 0);
@@ -42,7 +42,7 @@ export const sendJson = (response: ServerResponse, status: number, data: unknown
       response.writeHead(status, {
         'Content-Type': 'application/json; charset=utf-8',
         'Content-Encoding': 'gzip',
-        'Vary': 'Accept-Encoding',
+        'Vary': 'Origin, Accept-Encoding',
         'Content-Length': String(gzipped.length),
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
@@ -97,7 +97,20 @@ const staticFileCache = new Map<string, CachedStaticFile>();
 export const serveFrontend = async (request: IncomingMessage, response: ServerResponse) => {
   if (request.method !== 'GET' && request.method !== 'HEAD') return false;
 
-  const requestPath = new URL(request.url || '/', 'http://localhost').pathname;
+  let requestPath: string;
+  try {
+    requestPath = decodeURIComponent(new URL(request.url || '/', 'http://localhost').pathname);
+  } catch {
+    sendJson(response, 400, { message: 'Ruta invalida' });
+    return true;
+  }
+  const extensionRequested = path.extname(requestPath).toLowerCase();
+  if (requestPath.split('/').some(part => part.startsWith('.')) ||
+      /^\/(?:server\.js|migrate\.js|backups|storage|src|node_modules|package(?:-lock)?\.json)(?:\/|$)/i.test(requestPath) ||
+      (extensionRequested && (!contentTypes[extensionRequested] || (extensionRequested === '.js' && !requestPath.startsWith('/assets/'))))) {
+    sendJson(response, 404, { message: 'Archivo no encontrado' });
+    return true;
+  }
   const requestedFile = requestPath === '/' ? 'index.html' : requestPath.slice(1);
   const candidate = path.resolve(frontendRoot, requestedFile);
   const isInsideFrontend = candidate === frontendRoot || candidate.startsWith(`${frontendRoot}${path.sep}`);
@@ -108,6 +121,12 @@ export const serveFrontend = async (request: IncomingMessage, response: ServerRe
   try {
     fileStats = await fs.stat(resolvedPath);
     if (!fileStats.isFile()) throw new Error('Not a file');
+    const realPath = await fs.realpath(resolvedPath);
+    const realRoot = await fs.realpath(frontendRoot);
+    if (!realPath.startsWith(`${realRoot}${path.sep}`)) {
+      sendJson(response, 404, { message: 'Archivo no encontrado' });
+      return true;
+    }
   } catch {
     resolvedPath = path.join(frontendRoot, 'index.html');
     try {
@@ -167,7 +186,7 @@ export const serveFrontend = async (request: IncomingMessage, response: ServerRe
 
     if (canGzip) {
       headers['Content-Encoding'] = 'gzip';
-      headers['Vary'] = 'Accept-Encoding';
+      headers['Vary'] = 'Origin, Accept-Encoding';
     }
 
     response.writeHead(200, headers);

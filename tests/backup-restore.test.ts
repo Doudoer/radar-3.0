@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../src/server/config', () => ({ pool: { query: vi.fn(), getConnection: vi.fn() } }));
 import {
   acquireBackupLock,
   clearDatabaseExceptPreserved,

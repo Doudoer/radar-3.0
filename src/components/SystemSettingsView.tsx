@@ -30,11 +30,11 @@ interface SystemSettingsViewProps {
 }
 
 export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
-  userRole = 'admin',
+  userRole,
   onOpenChangePassword,
 }) => {
   const { theme, setTheme } = useTheme();
-  const isSuperAdmin = userRole === 'admin' || (typeof window !== 'undefined' && sessionStorage.getItem('radar_authenticated') === 'true');
+  const isSuperAdmin = userRole === 'admin';
 
   // Backups state
   const [backups, setBackups] = useState<BackupItem[]>([]);
@@ -83,21 +83,10 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   const fetchWasenderStatus = useCallback(async () => {
     try {
       const res = await apiFetch('/wasender/status');
-      if (res.ok) {
-        const data = await res.json();
-        setWasenderStatus(data);
-      }
+      if (!res.ok) throw new Error('Estado Wasender no disponible');
+      setWasenderStatus(await res.json());
     } catch {
-      // Default fallback
-      setWasenderStatus({
-        configured: true,
-        isTestMode: true,
-        designatedTestPhone: '+584127307933',
-        sessionName: 'Douglas Movistar',
-        connectedPhone: '+584145380654',
-        accountName: 'Control Rodriguez Salvage Yard',
-        service: 'WasenderAPI (wasenderapi.com)',
-      });
+      setWasenderStatus(null);
     }
   }, []);
 
@@ -116,7 +105,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       if (res.ok && data.dispatched) {
         setTestPingFeedback({
           type: 'success',
-          text: `¡Mensaje de prueba transmitido con éxito por Wasender a ${data.recipientUsed || '+58 412-730-7933'}!`,
+          text: `Mensaje de prueba transmitido. Destino: ${data.recipientUsed || 'No informado por el servidor'}.`,
         });
       } else {
         setTestPingFeedback({
@@ -139,14 +128,13 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     setLoadingBackups(true);
     try {
       const response = await apiFetch('/system/backups');
-      if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data)) {
-          setBackups(data);
-        }
-      }
-    } catch {
-      // Ignore transient errors, do not wipe backups
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'No se pudo consultar los respaldos');
+      if (!Array.isArray(data)) throw new Error('Respuesta de respaldos invalida');
+      setBackups(data);
+    } catch (error) {
+      setBackups([]);
+      setBackupMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo consultar los respaldos' });
     } finally {
       setLoadingBackups(false);
     }
@@ -167,8 +155,8 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tag: 'manual' }),
       });
-      if (!response.ok) throw new Error('No se pudo generar el punto de respaldo');
       const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'No se pudo generar el punto de respaldo');
       setBackupMessage({ type: 'success', text: `Punto de respaldo "${data.filename}" generado exitosamente.` });
       await fetchBackups();
     } catch (error) {
@@ -185,7 +173,10 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
         ? `/system/backup/download?file=${encodeURIComponent(filename)}`
         : '/system/backup';
       const response = await apiFetch(url);
-      if (!response.ok) throw new Error('No se pudo descargar el archivo.');
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || 'No se pudo descargar el archivo.');
+      }
       const blob = await response.blob();
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -195,8 +186,8 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       link.click();
       link.remove();
       URL.revokeObjectURL(objectUrl);
-    } catch {
-      setBackupMessage({ type: 'error', text: 'Error al descargar el archivo de respaldo.' });
+    } catch (error) {
+      setBackupMessage({ type: 'error', text: error instanceof Error ? error.message : 'Error al descargar el archivo de respaldo.' });
     }
   };
 
@@ -287,88 +278,14 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
 
   // Execute the Restore / Rollback Operation
   const executeRestore = async () => {
-    if (!restoreTarget) return;
-    setRestoring(true);
-    setRestoreError(null);
-    setRestoreResult(null);
-    setRestoreProgress(10);
-    setRestoreStepIndex(1);
-    setRestoreStepName('Iniciando y preparando conexión a la base de datos...');
-
-    const interval = setInterval(() => {
-      setRestoreProgress((prev) => {
-        if (prev < 25) {
-          setRestoreStepIndex(1);
-          setRestoreStepName('Generando snapshot de seguridad previo...');
-          return prev + 3;
-        }
-        if (prev < 50) {
-          setRestoreStepIndex(2);
-          setRestoreStepName('Resguardando usuarios, accesos e inventario de piezas...');
-          return prev + 2;
-        }
-        if (prev < 75) {
-          setRestoreStepIndex(3);
-          setRestoreStepName('Vaciando tablas operativas (conservando usuarios e inventario)...');
-          return prev + 1.5;
-        }
-        if (prev < 94) {
-          setRestoreStepIndex(4);
-          setRestoreStepName('Cargando archivo SQL y restaurando inventario y usuarios...');
-          return prev + 0.8;
-        }
-        return prev;
-      });
-    }, 200);
-
-    try {
-      let payload: { filename?: string; sqlContent?: string; createSafetySnapshot: boolean };
-
-      if (restoreTarget.type === 'local' && restoreTarget.filename) {
-        payload = {
-          filename: restoreTarget.filename,
-          createSafetySnapshot,
-        };
-      } else if (restoreTarget.type === 'upload' && restoreTarget.file) {
-        setRestoreStepName('Leyendo contenido del archivo SQL local...');
-        const sqlText = await restoreTarget.file.text();
-        payload = {
-          sqlContent: sqlText,
-          createSafetySnapshot,
-        };
-      } else {
-        throw new Error('No se especificó origen de restauración válido');
-      }
-
-      const response = await apiFetch('/system/backup/restore', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Error durante la restauración de la base de datos');
-      }
-
-      clearInterval(interval);
-      setRestoreProgress(100);
-      setRestoreStepIndex(5);
-      setRestoreStepName('¡Restauración y verificación completadas con éxito!');
-      setRestoreResult(data);
-      await fetchBackups();
-    } catch (error) {
-      clearInterval(interval);
-      setRestoreError(error instanceof Error ? error.message : 'Error inesperado al restaurar');
-    } finally {
-      clearInterval(interval);
-      setRestoring(false);
-    }
+    setRestoreError('Restauración directa deshabilitada. Solicite una recuperación verificada al administrador por el procedimiento operativo.');
   };
 
   return (
     <div className="radar-view space-y-6">
+      <p role="status" className="rounded-xl border border-amber-500/40 p-4 text-amber-200 text-sm">
+        Restauración directa deshabilitada por seguridad. Utilice el procedimiento de recuperación verificada; cargar un archivo no restaura datos.
+      </p>
       {/* Cyber Header Card */}
       <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-indigo-500 shadow-[0_0_12px_#22d3ee]" />
@@ -527,6 +444,8 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                 <button
                   type="button"
                   onClick={openRestoreModalForUpload}
+                  disabled
+                  title="Restauración directa deshabilitada por seguridad"
                   className="w-full bg-gradient-to-r from-amber-500 to-red-500 hover:from-amber-400 hover:to-red-400 text-slate-950 font-black py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(245,158,11,0.35)] cursor-pointer active:scale-95 transition-all"
                 >
                   <span className="material-symbols-outlined text-[18px]">restore</span>
@@ -640,8 +559,9 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                           <button
                             type="button"
                             onClick={() => openRestoreModalForLocal(item)}
+                            disabled
+                            title="Restauración directa deshabilitada por seguridad"
                             className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 hover:border-amber-400 text-amber-300 font-bold transition-all text-xs flex items-center gap-1 cursor-pointer"
-                            title="Restaurar base de datos a este punto"
                           >
                             <span className="material-symbols-outlined text-[16px]">settings_backup_restore</span>
                             <span className="text-[10px] font-mono">Rollback</span>
@@ -890,7 +810,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                   <button
                     type="button"
                     onClick={() => void executeRestore()}
-                    disabled={confirmText.trim().toUpperCase() !== 'RESTAURAR' || restoring}
+                    disabled
                     className="bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-black px-3.5 py-1.5 rounded-lg text-xs flex items-center gap-1.5 shadow-[0_0_12px_rgba(239,68,68,0.4)] disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer active:scale-95 transition-all"
                   >
                     <span className="material-symbols-outlined text-[15px]">
@@ -932,16 +852,16 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
               <span className="text-slate-400 font-mono">Estado del Motor MySQL</span>
               <span className="text-emerald-400 font-mono font-bold flex items-center gap-1.5 neon-badge-emerald px-2.5 py-0.5 rounded-full text-[10px]">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Conectado (MySQL 8.4 Engine)
+                No disponible (sin comprobación de salud)
               </span>
             </div>
             <div className="flex justify-between items-center py-2 border-b border-cyan-500/15">
               <span className="text-slate-400 font-mono">Base de Datos Activa</span>
-              <span className="font-mono text-cyan-300">radar_v3</span>
+              <span className="font-mono text-cyan-300">No disponible</span>
             </div>
             <div className="flex justify-between items-center py-2 border-b border-cyan-500/15">
               <span className="text-slate-400 font-mono">Puerto de Servicio</span>
-              <span className="font-mono text-slate-200">3000 / 3001 (Unified Applet)</span>
+              <span className="font-mono text-slate-200">No disponible</span>
             </div>
           </div>
         </div>
@@ -1071,7 +991,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
             <div className="flex items-center gap-2">
               <span className="px-3 py-1 rounded-full text-[11px] font-mono font-bold bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 flex items-center gap-1.5 shadow-sm">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                CONECTADO & OPERATIVO
+                {wasenderStatus ? (wasenderStatus.configured ? 'CONFIGURADO (no verifica conexión)' : 'NO CONFIGURADO') : 'ESTADO NO DISPONIBLE'}
               </span>
               <button
                 type="button"
@@ -1088,13 +1008,13 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
             <div className="bg-[#050914] border border-cyan-500/20 rounded-2xl p-3.5 flex flex-col justify-between shadow-inner">
               <span className="text-[11px] text-slate-400 font-mono uppercase">Sesión Conectada</span>
-              <span className="font-bold text-slate-100 text-sm mt-1">{wasenderStatus?.sessionName || 'Douglas Movistar'}</span>
-              <span className="font-mono text-[11px] text-emerald-400 mt-0.5">{wasenderStatus?.connectedPhone || '+58 414-5380654'}</span>
+              <span className="font-bold text-slate-100 text-sm mt-1">{wasenderStatus?.sessionName || 'No disponible'}</span>
+              <span className="font-mono text-[11px] text-emerald-400 mt-0.5">{wasenderStatus?.connectedPhone || 'Sin registrar'}</span>
             </div>
 
             <div className="bg-[#050914] border border-cyan-500/20 rounded-2xl p-3.5 flex flex-col justify-between shadow-inner">
               <span className="text-[11px] text-slate-400 font-mono uppercase">Cuenta WhatsApp</span>
-              <span className="font-bold text-slate-100 text-sm mt-1">{wasenderStatus?.accountName || 'Control Rodriguez Salvage Yard'}</span>
+              <span className="font-bold text-slate-100 text-sm mt-1">{wasenderStatus?.accountName || 'Sin registrar'}</span>
               <span className="text-[10px] text-slate-400 mt-0.5">Sesión Activa en Servidor</span>
             </div>
 
@@ -1104,7 +1024,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                 <span>Teléfono de Pruebas</span>
               </span>
               <span className="font-mono font-bold text-emerald-300 text-sm mt-1">
-                {wasenderStatus?.designatedTestPhone || '+58 412-730-7933'}
+                {wasenderStatus?.designatedTestPhone || 'Sin registrar'}
               </span>
               <span className="text-[10px] text-emerald-400/80 mt-0.5">Enrutamiento seguro activo</span>
             </div>
@@ -1124,7 +1044,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                 <span>Transmisor de Pruebas WhatsApp en Vivo</span>
               </div>
               <span className="text-[11px] text-slate-400">
-                Destino: <strong className="font-mono text-emerald-300">{wasenderStatus?.designatedTestPhone || '+58 412-730-7933'}</strong>
+                Destino: <strong className="font-mono text-emerald-300">{wasenderStatus?.designatedTestPhone || 'Sin registrar'}</strong>
               </span>
             </div>
 
@@ -1139,7 +1059,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
               <button
                 type="button"
                 onClick={handleSendTestPing}
-                disabled={sendingTestPing}
+                disabled={sendingTestPing || !wasenderStatus?.configured}
                 className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.35)] cursor-pointer transition-all active:scale-95 disabled:opacity-50 shrink-0"
               >
                 {sendingTestPing ? (

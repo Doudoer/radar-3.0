@@ -1,0 +1,423 @@
+/* Shared presentation for existing utility-based screens; business logic stays in components. */
+@media screen {
+  :root {
+    --font-inter: 'DM Sans', system-ui, sans-serif;
+    --font-outfit: 'DM Sans', system-ui, sans-serif;
+    --bg-primary: #0b1437;
+    --bg-surface: #111c44;
+    --bg-card: #111c44;
+    --bg-card-subtle: #1b254b;
+    --text-primary: #e9edf7;
+    --text-secondary: #a3aed0;
+    --text-heading: #ffffff;
+    --border-color: #26335c;
+    --border-subtle: #202c53;
+    --border-hover: #7551ff;
+    --input-bg: #0b1437;
+    --input-text: #e9edf7;
+    --input-border: #34426c;
+    --card-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+    --brand: #a78bfa;
+    --brand-solid: #7551ff;
+    --brand-soft: #252152;
+    --positive: #5eead4;
+    --warning: #fbbf24;
+    --danger: #fda4af;
+    --grid-line: transparent;
+  }
+
+  html.light {
+    --bg-primary: #f4f7fe;
+    --bg-surface: #ffffff;
+    --bg-card: #ffffff;
+    --bg-card-subtle: #f4f7fe;
+    --text-primary: #1b2559;
+    --text-secondary: #657398;
+    --text-heading: #1b2559;
+    --border-color: #e9edf7;
+    --border-subtle: #eef1f8;
+    --border-hover: #7551ff;
+    --input-bg: #ffffff;
+    --input-text: #1b2559;
+    --input-border: #dce2f0;
+    --card-shadow: 0 8px 30px rgba(112, 144, 176, 0.08);
+    --brand: #422afb;
+    --brand-solid: #422afb;
+    --brand-soft: #efebff;
+    --positive: #047857;
+    --warning: #b45309;
+    --danger: #b91c1c;
+    --grid-line: transparent;
+  }
+
+  html body {
+    font-family: var(--font-inter);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+  }
+
+  #root :is(.font-mono, .font-outfit, .font-headline-md, .font-headline-sm,
+    .font-display-lg, .font-body-sm, .font-body-md, .font-body-lg, .font-data-label) {
+    font-family: var(--font-inter);
+  }
+  #root :is(code, pre, kbd, .font-data-mono) { font-family: var(--font-mono); }
+  #root :is(h1, h2, h3, h4) { color: var(--text-heading); letter-spacing: -0.035em; }
+  #root [class*="drop-shadow-"] { filter: none; text-shadow: none; }
+  #root [class*="shadow-"] { box-shadow: none; }
+  #root :is(.animate-cyber-orbit, .animate-cyber-orbit-reverse, .animate-cyber-scan,
+    .animate-neon-pulse, .animate-ping) { animation: none; }
+  #root .cyber-grid-bg { background-image: none; }
+  #root .cyber-laser-bar { display: none; }
+
+  /* Normalize legacy hard-coded surfaces in both themes, including modal content. */
+  html #root :is([class*="bg-[#0"], [class*="bg-[#1"], [class*="bg-slate-800"],
+    [class*="bg-slate-900"], [class*="bg-slate-950"]) {
+    background-color: var(--bg-card) !important;
+    color: var(--text-primary) !important;
+  }
+  html #root :is([class*="bg-gradient-"][class*="from-[#0"],
+    [class*="bg-gradient-"][class*="from-[#1"]) {
+    background-image: none !important;
+    background-color: var(--bg-card) !important;
+  }
+  html #root :is([class*="border-cyan-"], [class*="border-slate-"],
+    [class*="border-[#1"], [class*="border-[#2"], [class*="border-[#3"],
+    [class*="border-[#0"]) { border-color: var(--border-color) !important; }
+  html #root :is(.text-white, .text-slate-50, .text-slate-100, .text-slate-200,
+    .text-slate-300, [class*="text-[#f1f5f9]"], [class*="text-[#cbd5e1]"],
+    [class*="text-[#dfe2ef]"]) { color: var(--text-primary) !important; }
+  html #root :is(.text-slate-400, .text-slate-500, [class*="text-[#94a3b8]"],
+    [class*="text-[#64748b]"]) { color: var(--text-secondary) !important; }
+  html #root :is([class*="text-cyan-"], [class*="text-[#388bfd]"],
+    [class*="text-[#58a6ff]"], [class*="text-[#22d3ee]"],
+    [class*="text-[#38bdf8]"]) { color: var(--brand) !important; }
+  html.light #root :is([class*="text-blue-300"], [class*="text-blue-400"],
+    [class*="text-[#60a5fa]"]) { color: #3965ff !important; }
+  html #root :is([class^="bg-cyan-500/"], [class*=" bg-cyan-500/"],
+    [class^="bg-cyan-400/"], [class*=" bg-cyan-400/"],
+    [class^="bg-cyan-950"], [class*=" bg-cyan-950"],
+    [class^="bg-[#388bfd]/"], [class*=" bg-[#388bfd]/"]) {
+    background: var(--brand-soft) !important;
+    color: var(--brand) !important;
+  }
+  html #root :is(.bg-cyan-500, .bg-cyan-400, .cyber-btn-primary, .horizon-primary,
+    [class*="bg-gradient-"][class*="from-cyan-"]) {
+    background: var(--brand-solid) !important;
+    color: #ffffff !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+  }
+  html #root :is(.bg-cyan-500, .bg-cyan-400, .cyber-btn-primary, .horizon-primary,
+    [class*="bg-gradient-"][class*="from-cyan-"]) :is(span, .material-symbols-outlined) {
+    color: inherit !important;
+  }
+
+  html #root :is(.cyber-card, [class*="rounded-2xl"][class*="backdrop-blur"],
+    [class*="rounded-3xl"][class*="backdrop-blur"]) {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border-subtle) !important;
+    box-shadow: var(--card-shadow) !important;
+    backdrop-filter: none;
+    border-radius: 22px;
+  }
+  html #root [class~="fixed"][class~="inset-0"] {
+    background-color: rgba(11, 20, 55, 0.5) !important;
+    color: var(--text-primary) !important;
+  }
+  html #root :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select, textarea) {
+    background-color: var(--input-bg) !important;
+    color: var(--input-text) !important;
+    border-color: var(--input-border) !important;
+    box-shadow: none !important;
+    border-radius: 12px;
+  }
+  html #root :is(input, textarea)::placeholder { color: var(--text-secondary) !important; opacity: 0.8; }
+  html #root :is(input, select, textarea):focus {
+    border-color: var(--brand) !important;
+    box-shadow: 0 0 0 3px var(--brand-soft) !important;
+  }
+  html #root select option { background: var(--bg-card); color: var(--text-primary); }
+  #root :is(button, a, input, select, textarea):focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 3px;
+  }
+  #root button:disabled { cursor: not-allowed; }
+  html #root :is(thead, thead th, table th) {
+    background: var(--bg-card) !important;
+    color: var(--text-secondary) !important;
+    border-color: var(--border-color) !important;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    font-weight: 600 !important;
+  }
+  html #root :is(tbody, tbody td, table td) {
+    color: var(--text-primary) !important;
+    border-color: var(--border-subtle) !important;
+  }
+  html #root tbody tr { background: var(--bg-card) !important; }
+  html #root tbody tr:hover, html #root tbody tr:hover td { background: var(--bg-card-subtle) !important; }
+  html #root :is(code, pre, kbd) {
+    background: var(--bg-card-subtle) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-color) !important;
+  }
+
+  html #root .horizon-sidebar {
+    background: var(--bg-card) !important;
+    border-right: 0;
+    box-shadow: none !important;
+  }
+  #root .horizon-sidebar-divider { height: 1px; background: var(--border-color); }
+  #root .horizon-brand-mark { background: var(--brand-soft); color: var(--brand); }
+  html #root .horizon-sidebar .horizon-nav-item {
+    color: var(--text-secondary) !important;
+    background: transparent !important;
+    border: 0 !important;
+    font-weight: 500;
+    min-height: 44px;
+  }
+  html #root .horizon-sidebar .horizon-nav-item:hover {
+    background: var(--bg-card-subtle) !important;
+    color: var(--brand) !important;
+  }
+  html #root .horizon-sidebar .horizon-nav-item[aria-current="page"] {
+    color: var(--text-heading) !important;
+    font-weight: 700;
+    background: var(--brand-soft) !important;
+  }
+  #root .horizon-nav-item[aria-current="page"]::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    width: 4px;
+    height: 28px;
+    border-radius: 4px 0 0 4px;
+    background: var(--brand-solid);
+  }
+  #root .horizon-nav-item[aria-current="page"] .material-symbols-outlined { color: var(--brand); }
+  #root .horizon-sidebar-account { background: var(--bg-card-subtle); }
+  html #root .horizon-client-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--card-shadow);
+  }
+  html #root .horizon-client-card:hover { border-color: var(--input-border); }
+  html #root .horizon-client-avatar { background: var(--brand-soft); color: var(--brand); }
+  html #root .horizon-client-stats { background: var(--bg-card-subtle); }
+  html #root .horizon-client-actions { border-color: var(--border-subtle); }
+  html #root .horizon-client-actions :is(a, button) {
+    min-height: 36px;
+    min-width: 32px;
+    border: 0 !important;
+    background: transparent !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    box-shadow: none !important;
+  }
+  html #root .horizon-client-actions :is(a, button):hover { background: var(--bg-card-subtle) !important; }
+  html #root .horizon-client-actions a:first-child {
+    background: var(--brand-soft) !important;
+    color: var(--brand) !important;
+  }
+  html #root .horizon-client-actions button[title^="Eliminar"] { color: var(--danger) !important; }
+  /* Followup dialogs are portaled to body, outside the shared #root rules. */
+  html .horizon-followup-portal {
+    background: rgba(11, 20, 55, 0.5);
+    backdrop-filter: blur(6px);
+    color: var(--text-primary);
+    font-family: var(--font-inter);
+  }
+  html .horizon-followup-portal .font-mono { font-family: var(--font-inter); }
+  html .horizon-followup-portal .horizon-followup-panel {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
+    box-shadow: 0 24px 80px rgba(11, 20, 55, 0.24);
+  }
+  html .horizon-followup-portal :is(h2, h3, h4) {
+    color: var(--text-heading);
+    letter-spacing: -0.035em;
+  }
+  html .horizon-followup-portal :is([class*="shadow-"], .cyber-btn-primary, .cyber-btn-secondary) {
+    box-shadow: none;
+  }
+  html .horizon-followup-portal .animate-pulse { animation: none; }
+  html .horizon-followup-portal :is([class*="bg-[#0"], [class*="bg-slate-800"], [class*="bg-slate-900"]) {
+    background: var(--bg-card-subtle);
+  }
+  html .horizon-followup-portal :is([class*="border-cyan-"], [class*="border-slate-"]) {
+    border-color: var(--border-color);
+  }
+  html .horizon-followup-portal :is(.text-white, .text-slate-200, .text-slate-300) { color: var(--text-primary); }
+  html .horizon-followup-portal :is(.text-slate-400, .text-slate-500) { color: var(--text-secondary); }
+  html .horizon-followup-portal [class*="text-cyan-"] { color: var(--brand); }
+  html .horizon-followup-portal [class*="text-emerald-"] { color: var(--positive); }
+  html .horizon-followup-portal :is([class*="text-amber-"], [class*="text-orange-"]) { color: var(--warning); }
+  html .horizon-followup-portal :is([class*="text-rose-"], [class*="text-red-"]) { color: var(--danger); }
+  html .horizon-followup-portal :is([class^="bg-cyan-"], [class*=" bg-cyan-"]) {
+    background: var(--brand-soft);
+  }
+  html .horizon-followup-portal :is([class^="bg-emerald-"], [class*=" bg-emerald-"]) {
+    background: color-mix(in srgb, var(--positive) 10%, var(--bg-card));
+  }
+  html .horizon-followup-portal :is([class^="bg-amber-"], [class*=" bg-amber-"]) {
+    background: color-mix(in srgb, var(--warning) 10%, var(--bg-card));
+  }
+  html .horizon-followup-portal :is([class^="bg-rose-"], [class*=" bg-rose-"], [class^="bg-red-"], [class*=" bg-red-"]) {
+    background: color-mix(in srgb, var(--danger) 10%, var(--bg-card));
+  }
+  html .horizon-followup-portal :is([class*="border-emerald-"], [class*="border-amber-"], [class*="border-rose-"]) {
+    border-color: var(--border-color);
+  }
+  html .horizon-followup-portal :is(button, a) {
+    min-height: 36px;
+    transition: background-color 150ms, opacity 150ms;
+  }
+  html .horizon-followup-portal :is(button, a, input, select, textarea):focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 3px;
+  }
+  html .horizon-followup-portal button:disabled { cursor: not-allowed; opacity: 0.5; }
+  html .horizon-followup-portal :is(select, textarea, input:not([type="checkbox"]):not([type="radio"])) {
+    background: var(--input-bg);
+    color: var(--input-text);
+    border: 1px solid var(--input-border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    box-shadow: none;
+    max-width: 100%;
+  }
+  html .horizon-followup-portal :is(textarea, input)::placeholder { color: var(--text-secondary); }
+  html .horizon-followup-portal :is(input[type="checkbox"], input[type="radio"]) { accent-color: var(--brand-solid); }
+  html .horizon-followup-portal .horizon-followup-icon { background: var(--brand-soft); color: var(--brand); }
+  html .horizon-followup-portal .horizon-followup-required {
+    background: var(--brand-soft);
+    color: var(--brand);
+  }
+  html .horizon-followup-portal .horizon-followup-toolbar {
+    border-top: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  html .horizon-followup-portal .horizon-followup-metric {
+    background: var(--bg-card-subtle);
+    color: var(--text-primary);
+  }
+  html .horizon-followup-portal .horizon-followup-list {
+    background: var(--bg-primary);
+    scrollbar-color: var(--input-border) transparent;
+  }
+  html .horizon-followup-portal .horizon-followup-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    overflow-wrap: anywhere;
+  }
+  html .horizon-followup-portal .horizon-followup-badge[data-urgency="atrasada"] {
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 10%, var(--bg-card));
+  }
+  html .horizon-followup-portal .horizon-followup-badge[data-urgency="hoy"] {
+    color: var(--warning);
+    background: color-mix(in srgb, var(--warning) 10%, var(--bg-card));
+  }
+  html .horizon-followup-portal .horizon-followup-badge[data-urgency="proxima"] {
+    color: var(--brand);
+    background: var(--brand-soft);
+  }
+  html .horizon-followup-portal :is(.horizon-followup-primary, .cyber-btn-primary) {
+    background: var(--brand-solid);
+    color: #ffffff;
+    border: 1px solid transparent;
+    border-radius: 12px;
+  }
+  html .horizon-followup-portal :is(.horizon-followup-primary, .cyber-btn-primary) span { color: inherit; }
+  html .horizon-followup-portal :is(.horizon-followup-secondary, .cyber-btn-secondary) {
+    background: var(--bg-card-subtle);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    border-radius: 12px;
+  }
+  html .horizon-followup-portal :is(.horizon-followup-primary, .cyber-btn-primary):hover { opacity: 0.9; }
+  html .horizon-followup-portal :is(.horizon-followup-secondary, .cyber-btn-secondary):hover {
+    background: var(--brand-soft);
+    color: var(--brand);
+  }
+  html .horizon-followup-portal .horizon-followup-footer { border-top: 1px solid var(--border-subtle); }
+  @media (max-width: 639px) {
+    html .horizon-followup-portal .horizon-followup-metric { flex-wrap: wrap; gap: 4px; padding: 8px; }
+    html .horizon-followup-portal .horizon-followup-metric > .material-symbols-outlined { display: none; }
+    html .horizon-followup-portal .horizon-followup-metric strong { width: 100%; }
+    html .horizon-followup-portal .horizon-followup-footer { padding-top: 12px; padding-bottom: 12px; }
+  }
+  #root .horizon-sidebar .overflow-y-auto { overflow-x: hidden; }
+  html #root .horizon-topbar {
+    background: var(--bg-primary) !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+  html #root .horizon-topbar input {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border-subtle) !important;
+    border-radius: 30px;
+    min-height: 42px;
+  }
+  #root .horizon-topbar button { min-height: 36px; border-radius: 30px; }
+  html #root .horizon-topbar button[class*="bg-[#0"] {
+    background: var(--bg-card) !important;
+    border-color: var(--border-subtle) !important;
+    color: var(--text-primary) !important;
+  }
+  #root .horizon-topbar .animate-pulse { animation: none; }
+  #root main { scrollbar-color: var(--input-border) var(--bg-primary); }
+  #root .radar-view { gap: 20px; }
+  #root .horizon-dashboard > div { margin-top: 0; }
+  html #root .horizon-kpis > div {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border-subtle) !important;
+    box-shadow: var(--card-shadow) !important;
+    border-radius: 22px;
+  }
+  #root .horizon-dashboard [class*="absolute top-0 inset-x-0"][class*="h-["] { display: none; }
+  #root .horizon-kpis [class*="text-3xl"] { font-size: 28px; font-weight: 700; }
+  #root .horizon-kpis [class*="tracking-wider"] { letter-spacing: 0; text-transform: none; }
+  #root .horizon-kpis [class*="w-8"][class*="h-8"] { width: 48px; height: 48px; border-radius: 50%; border: 0; }
+  html #root .horizon-vault {
+    background: var(--bg-card) !important;
+    border-color: var(--border-subtle) !important;
+    box-shadow: var(--card-shadow) !important;
+    padding: 36px;
+  }
+  #root .horizon-vault > .material-symbols-outlined {
+    display: inline-flex;
+    padding: 20px;
+    border-radius: 50%;
+    background: var(--brand-soft);
+  }
+  #root .horizon-vault button[aria-pressed="true"] { background: var(--brand-soft); color: var(--brand); }
+  html #root .horizon-vault input:focus { box-shadow: none !important; }
+  html #root .horizon-login { background: var(--bg-primary) !important; }
+  #root .horizon-login > [class*=" blur-"],
+  #root .horizon-login :is(.animate-cyber-orbit, .animate-cyber-orbit-reverse, .animate-cyber-scan),
+  #root .horizon-login [class*="absolute top-0 inset-x-0"],
+  #root .horizon-login [class*="absolute inset-0"][class*="blur"] { display: none; }
+  html #root .horizon-login > [class*="max-w-md"] {
+    border: 0 !important;
+    border-radius: 28px;
+    padding: 40px 32px;
+  }
+  #root ::-webkit-scrollbar-track { background: var(--bg-primary); }
+  #root ::-webkit-scrollbar-thumb { background: var(--input-border); border: 0; }
+
+  @media (max-width: 767px) {
+    html #root .horizon-topbar { height: 64px; }
+    html #root .horizon-vault { padding: 24px 20px; }
+    #root .radar-view { gap: 16px; }
+    #root .horizon-topbar > div:last-child { gap: 6px; }
+  }
+  @media (max-width: 480px) {
+    #root .horizon-topbar .horizon-mobile-brand { display: none; }
+  }
+}

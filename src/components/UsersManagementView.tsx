@@ -104,8 +104,12 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, isNew: boolean) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      setError('La imagen no debe superar los 2MB.');
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
+      setError('Usa una imagen PNG, JPEG, WebP o GIF.');
+      return;
+    }
+    if (file.size > 350 * 1024) {
+      setError('La imagen de perfil no debe superar los 350KB.');
       return;
     }
     const reader = new FileReader();
@@ -259,6 +263,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
             </div>
             <p className="text-xs text-slate-400 mt-1">
               Administración integral de cuentas de colaboradores, teléfonos, correos, fotos de perfil y permisos.
+              {' '}Desbloquea la bóveda en Relación Semanal antes de crear, modificar o eliminar cuentas.
             </p>
           </div>
         </div>
@@ -417,7 +422,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
                       <label className="text-[10.5px] font-mono text-cyan-400 hover:text-cyan-200 cursor-pointer flex items-center gap-1">
                         <span className="material-symbols-outlined text-[13px]">upload</span>
                         <span>Subir</span>
-                        <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, false)} className="hidden" />
+                        <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => handleFileUpload(e, false)} className="hidden" />
                       </label>
                     </div>
                     <div className="flex items-center gap-3">
@@ -562,7 +567,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
                   <label className="text-[10.5px] font-mono text-cyan-400 hover:text-cyan-200 cursor-pointer flex items-center gap-1">
                     <span className="material-symbols-outlined text-[13px]">upload</span>
                     <span>Subir Foto</span>
-                    <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, true)} className="hidden" />
+                    <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => handleFileUpload(e, true)} className="hidden" />
                   </label>
                 </div>
                 <div className="flex items-center gap-3">

@@ -7,12 +7,13 @@ interface InvoiceViewProps {
 }
 
 export const InvoiceView: React.FC<InvoiceViewProps> = ({ order, onBack }) => {
-  const partPrice = order.financials.partPrice ?? order.financials.baseMSRP ?? 1000;
-  const downPayment = order.financials.downPayment ?? order.financials.advancePayment ?? 0;
+  const partPrice = order.financials.partPrice;
+  const downPayment = order.financials.downPayment ?? order.financials.advancePayment;
   const deliveryFee = order.financials.deliveryFee ?? 0;
   const coreFee = order.financials.coreFee ?? 0;
-  const grossSubtotal = partPrice + deliveryFee + coreFee;
-  const totalPayable = Math.max(0, grossSubtotal - downPayment);
+  const grossSubtotal = order.financials.total;
+  const totalPayable = order.financials.balanceDue ?? (grossSubtotal == null || downPayment == null ? undefined : Math.max(0, grossSubtotal - downPayment));
+  const money = (value?: number) => value == null ? 'Sin registrar' : `$${value.toFixed(2)}`;
 
   const handlePrint = () => {
     window.print();
@@ -50,7 +51,7 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({ order, onBack }) => {
               <p className="mt-1 text-xs text-slate-400 flex flex-wrap items-center gap-2">
                 <span>Cliente: <strong className="text-cyan-200">{order.customer.name}</strong></span>
                 <span>•</span>
-                <span>Fecha: <strong className="text-slate-300 font-mono">{order.createdAt || '2026-09-25'}</strong></span>
+                <span>Fecha: <strong className="text-slate-300 font-mono">{order.createdAt || 'Sin registrar'}</strong></span>
               </p>
             </div>
           </div>
@@ -86,10 +87,9 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({ order, onBack }) => {
                 <div className="w-8 h-8 rounded-lg bg-cyan-600 text-white flex items-center justify-center font-black text-base">
                   R
                 </div>
-                <span className="text-2xl font-black tracking-tight text-slate-950">RADAR AUTO PARTS</span>
+                <span className="text-2xl font-black tracking-tight text-slate-950">Empresa: Sin registrar</span>
               </div>
-              <p className="text-xs text-slate-500 mt-1">Sistemas de Autopartes y Logística Express</p>
-              <p className="text-xs text-slate-500">RFC: RAP-260925-XYZ • Monterrey, N.L. / TX, USA</p>
+              <p className="text-xs text-slate-500">Identificación fiscal y domicilio: Sin registrar</p>
             </div>
             <div className="sm:text-right">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block font-mono">
@@ -97,7 +97,7 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({ order, onBack }) => {
               </span>
               <p className="text-2xl font-black font-mono text-cyan-700">#{order.code}</p>
               <p className="text-xs text-slate-600 font-mono mt-0.5">
-                Emisión: {order.createdAt || new Date().toISOString().slice(0, 10)}
+                Emisión: {order.createdAt || 'Sin registrar'}
               </p>
             </div>
           </div>
@@ -108,16 +108,16 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({ order, onBack }) => {
               <span className="font-bold text-slate-400 uppercase tracking-wider block mb-1">FACTURADO A:</span>
               <p className="text-sm font-black text-slate-950">{order.customer.name}</p>
               {order.customer.company && <p className="text-slate-700 font-medium">{order.customer.company}</p>}
-              <p className="text-slate-600 font-mono">Tel: {order.customer.phone}</p>
-              <p className="text-slate-600">{order.customer.email || 'N/A'}</p>
+              <p className="text-slate-600 font-mono">Tel: {order.customer.phone || 'Sin registrar'}</p>
+              <p className="text-slate-600">{order.customer.email || 'Sin registrar'}</p>
             </div>
             <div>
               <span className="font-bold text-slate-400 uppercase tracking-wider block mb-1">DETALLES DE ENTREGA:</span>
               <p className="font-semibold text-slate-800">
-                Modalidad: <span className="uppercase font-bold text-cyan-800">{order.deliveryType === 'envio_domicilio' ? 'Envío a Domicilio' : 'Retiro en Sucursal'}</span>
+                Modalidad: <span className="uppercase font-bold text-cyan-800">{order.deliveryType === 'envio_domicilio' ? 'Envío a Domicilio' : order.deliveryType === 'retiro_tienda' ? 'Retiro en Sucursal' : 'Sin registrar'}</span>
               </p>
               <p className="text-slate-600 mt-0.5">
-                {order.customer.shippingAddress || order.customer.location || 'Retiro en Tienda Matriz'}
+                {order.customer.shippingAddress || order.customer.address_shipping || order.customer.location || 'Sin registrar'}
               </p>
               <p className="text-slate-600 mt-0.5 font-mono">Asesor: {order.advisor}</p>
             </div>
@@ -130,8 +130,8 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({ order, onBack }) => {
               <span className="font-bold text-slate-900">
                 {order.vehicle.year} {order.vehicle.make} {order.vehicle.model} {order.vehicle.trim || ''}
               </span>
-              <span className="text-slate-600 font-mono">VIN: {order.vehicle.vin || 'N/A'}</span>
-              <span className="text-slate-600 font-mono">Placas: {order.vehicle.plate || 'N/A'}</span>
+              <span className="text-slate-600 font-mono">VIN: {order.vehicle.vin || 'Sin registrar'}</span>
+              <span className="text-slate-600 font-mono">Placas: {order.vehicle.plate || 'Sin registrar'}</span>
             </div>
           </div>
 
@@ -150,14 +150,14 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({ order, onBack }) => {
                   <td className="py-3.5">
                     <strong className="block text-slate-900 text-sm">{order.mainPart}</strong>
                     <span className="text-slate-500 text-[11px]">
-                      Stock: #{order.stockNumber || 'STK-2026'} • Especificaciones probadas en banco
+                      Stock: {order.stockNumber || 'Sin registrar'} • {order.productSpecs || 'Sin registrar'}
                     </span>
                   </td>
                   <td className="py-3.5 text-center font-mono font-bold text-emerald-700">
-                    {order.warrantyDays || 60} Días
+                    {order.warrantyDays == null ? 'Sin registrar' : `${order.warrantyDays} Días`}
                   </td>
                   <td className="py-3.5 text-right font-mono font-bold text-slate-900">
-                    ${partPrice.toFixed(2)}
+                    {money(partPrice)}
                   </td>
                 </tr>
                 {deliveryFee > 0 && (
@@ -186,22 +186,21 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({ order, onBack }) => {
           <div className="flex flex-col sm:flex-row justify-between items-start pt-6 border-t-2 border-slate-300 gap-6 mt-6">
             <div className="text-xs text-slate-500 space-y-1 max-w-sm">
               <p className="font-bold text-slate-700">TÉRMINOS Y POLÍTICA DE GARANTÍA:</p>
-              <p>• La garantía ampara fallas mecánicas y defectos funcionales de origen por {order.warrantyDays || 60} días.</p>
-              <p>• No cubre sobrecalentamiento extremo o manipulación indebida de sellos.</p>
+              <p>Plan: {order.warranty?.planType || 'Sin registrar'}. Duración: {order.warrantyDays == null ? 'Sin registrar' : `${order.warrantyDays} días`}.</p>
             </div>
 
             <div className="w-full sm:w-64 space-y-2 text-xs font-mono">
               <div className="flex justify-between text-slate-600">
-                <span>Subtotal Bruto:</span>
-                <span>${grossSubtotal.toFixed(2)}</span>
+                <span>Total registrado:</span>
+                <span>{money(grossSubtotal)}</span>
               </div>
               <div className="flex justify-between text-emerald-700 font-bold">
                 <span>Abono Registrado:</span>
-                <span>-${downPayment.toFixed(2)}</span>
+                <span>{downPayment == null ? 'Sin registrar' : `-${money(downPayment)}`}</span>
               </div>
               <div className="flex justify-between border-t border-slate-200 pt-2 text-sm font-black text-slate-950">
                 <span>SALDO PENDIENTE:</span>
-                <span className="text-cyan-800">${totalPayable.toFixed(2)} USD</span>
+                <span className="text-cyan-800">{money(totalPayable)} USD</span>
               </div>
             </div>
           </div>

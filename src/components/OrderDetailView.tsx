@@ -1,19 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Order, OrderStatus, Claim, ClaimCall, ClaimStatus, AuctionLink, AuctionHouse } from '../types';
-import { SecurityOtpModal } from './SecurityOtpModal';
-import { DeliveryDateOtpModal } from './DeliveryDateOtpModal';
+import { ordersApi } from '../services/ordersApi';
 import { InvoiceView } from './InvoiceView';
 import { DispatchLabelView } from './DispatchLabelView';
 import { RefundRequestView } from './RefundRequestView';
 import { OrderPostDeliveryFollowup } from './OrderPostDeliveryFollowup';
 import { canTransitionOrderStatus, getAllowedNextStatuses, ORDER_STATUS_LABELS, requiresStatusAuthorization } from '../utils/orderStatusRules';
 import { apiFetch } from '../services/apiFetch';
+import { OrderInventoryAvailability } from './OrderInventoryAvailability';
 
 interface OrderDetailViewProps {
   order: Order;
   onBack: () => void;
   onOpenSMS: (customerName: string, phone: string, order?: Order) => void;
-  onUpdateOrder?: (updatedOrder: Order) => void;
+  onUpdateOrder?: (updatedOrder: Order) => Promise<Order | void>;
   onCreateClaim?: (orderId: string, reason: string) => Promise<void>;
   currentUser?: { id?: number; name?: string; email?: string; role?: string } | null;
   userRole?: 'admin' | 'operador' | 'vendedor_yarda' | string;
@@ -82,17 +82,30 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   // Modals state
   const [claimModal, setClaimModal] = useState({ isOpen: false, reason: '', isSaving: false, error: '' });
   const [isDeliveryDateModalOpen, setIsDeliveryDateModalOpen] = useState<boolean>(false);
-  const [securityModal, setSecurityModal] = useState<{
-    isOpen: boolean;
-    targetStatus: OrderStatus;
-    actionTitle: string;
-    actionDescription: string;
-  }>({
-    isOpen: false,
-    targetStatus: 'pagado',
-    actionTitle: '',
-    actionDescription: '',
-  });
+  const [deliveryDateInput, setDeliveryDateInput] = useState('');
+  const [deliveryDateReason, setDeliveryDateReason] = useState('');
+  const [deliveryDateSaving, setDeliveryDateSaving] = useState(false);
+  const deliveryDateSavingRef = useRef(false);
+  const [actionError, setActionError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
+  const persistOrder = async (updated: Order): Promise<boolean> => {
+    if (savingRef.current) return false;
+    savingRef.current = true;
+    setIsSaving(true);
+    setActionError('');
+    try {
+      if (!onUpdateOrder) throw new Error('No hay un guardado disponible.');
+      await onUpdateOrder(updated);
+      return true;
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'No se pudieron guardar los cambios.');
+      return false;
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
+  };
 
   const isSuperAdmin = userRole === 'admin' || currentUser?.role?.toLowerCase() === 'admin';
 
@@ -127,7 +140,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
   const handleConfirmReassignAdvisor = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedReassignUserId) return;
+    if (!isSuperAdmin || !selectedReassignUserId || isReassignSubmitting) return;
     const selectedUser = usersList.find((u) => u.id === Number(selectedReassignUserId));
     if (!selectedUser || !onUpdateOrder) return;
 
@@ -146,17 +159,35 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
         setIsReassignModalOpen(false);
         setIsReassignSubmitting(false);
       }, 900);
-    } catch {
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'No se pudo reasignar la orden.');
       setIsReassignSubmitting(false);
     }
   };
 
-  const handleDeliveryDateSuccess = (newDeliveredAt: string) => {
-    const updated = { ...order, deliveredAt: newDeliveredAt };
-    if (onUpdateOrder) {
-      onUpdateOrder(updated);
+  const handleSaveDeliveryDate = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!isSuperAdmin || deliveryDateSavingRef.current) return;
+    deliveryDateSavingRef.current = true;
+    setDeliveryDateSaving(true);
+    setActionError('');
+    try {
+      if (!order.version) throw new Error('Actualiza la orden para obtener su versión antes de modificar la fecha.');
+      if (!deliveryDateInput) throw new Error('Indica la fecha real de entrega.');
+      await ordersApi.updateDeliveryDate(order.id, {
+        deliveredAt: new Date(deliveryDateInput).toISOString(), version: order.version, reason: deliveryDateReason.trim(),
+      });
+      window.dispatchEvent(new Event('radar:data-changed'));
+      setIsDeliveryDateModalOpen(false);
+      setDeliveryDateInput('');
+      setDeliveryDateReason('');
+      handleToast('Fecha real de entrega actualizada.');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'No se pudo actualizar la fecha.');
+    } finally {
+      deliveryDateSavingRef.current = false;
+      setDeliveryDateSaving(false);
     }
-    handleToast('✅ Fecha de entrega física actualizada con 2FA');
   };
 
   const vehicleName = `${order.vehicle.make} ${order.vehicle.model}`;
@@ -182,14 +213,14 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   const calculateWarrantyRemaining = (): { daysLeft: number; badgeClass: string; label: string } => {
     if (order.status !== 'entregado' || !order.deliveredAt) {
       return {
-        daysLeft: order.warrantyDays || 60,
+        daysLeft: order.warrantyDays ?? 60,
         badgeClass: 'neon-badge-cyan',
         label: 'Inicia al entregar físicamente',
       };
     }
     const deliveredDate = new Date(order.deliveredAt).getTime();
     const elapsedDays = Math.floor((Date.now() - deliveredDate) / (1000 * 60 * 60 * 24));
-    const daysLeft = Math.max(0, (order.warrantyDays || 60) - elapsedDays);
+    const daysLeft = Math.max(0, (order.warrantyDays ?? 60) - elapsedDays);
 
     if (daysLeft > 10) {
       return {
@@ -266,7 +297,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     }
   };
 
-  const handleAddAuctionLink = (e?: React.FormEvent) => {
+  const handleAddAuctionLink = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!newAuctionUrl.trim()) return;
 
@@ -288,6 +319,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     };
 
     const updatedLinks = [...auctionLinks, newLink];
+    if (!await persistOrder({ ...order, auctionActive: true, auctionLinks: updatedLinks })) return;
     setAuctionLinks(updatedLinks);
     setIsAuctionActive(true);
     setNewAuctionUrl('');
@@ -295,46 +327,35 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     setNewHasBuyNow(false);
     setNewBuyNowPrice('');
 
-    if (onUpdateOrder) {
-      onUpdateOrder({
-        ...order,
-        auctionActive: true,
-        auctionLinks: updatedLinks,
-      });
-    }
-
     handleToast(`✅ Enlace de subasta (${newAuctionHouse}) agregado`);
   };
 
-  const handleRemoveAuctionLink = (linkId: string) => {
+  const handleRemoveAuctionLink = async (linkId: string) => {
     const updatedLinks = auctionLinks.filter((l) => l.id !== linkId);
+    if (!await persistOrder({ ...order, auctionLinks: updatedLinks })) return;
     setAuctionLinks(updatedLinks);
-    if (onUpdateOrder) {
-      onUpdateOrder({
-        ...order,
-        auctionLinks: updatedLinks,
-      });
-    }
     handleToast('Enlace de subasta eliminado');
   };
 
-  const handleAssignStock = () => {
+  const handleAssignStock = async () => {
     const newStock = `STK-2026-${Math.floor(100 + Math.random() * 900)}`;
+    if (!await persistOrder({ ...order, stockNumber: newStock })) return;
     setStockAssigned(newStock);
-    if (onUpdateOrder) {
-      onUpdateOrder({ ...order, stockNumber: newStock });
-    }
   };
 
   const handleRegisterCall = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!associatedClaim?.id) {
+      setCallForm((previous) => ({ ...previous, error: 'No se encontró el reclamo asociado. Actualiza los datos antes de registrar llamadas.' }));
+      return;
+    }
     if (!callForm.summary.trim()) {
       setCallForm((prev) => ({ ...prev, error: 'Ingresa el resumen de la llamada.' }));
       return;
     }
 
     setCallForm((prev) => ({ ...prev, isSubmitting: true, error: '' }));
-    const claimTargetId = associatedClaim?.id?.replace('REC-', '') || order.id;
+    const claimTargetId = associatedClaim.id;
     const newCallNumber = ((associatedClaim?.callCount || associatedClaim?.calls?.length) || 0) + 1;
     const wasenderMsg = `📢 Reclamo Orden #${order.code} - Llamada #${newCallNumber} | Cliente: ${callForm.callerName || order.customer.name} (${callForm.callerPhone || order.customer.phone}) | Atendió: ${callForm.attendedBy} | Detalle: ${callForm.summary}`;
 
@@ -359,26 +380,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
       const newCall: ClaimCall = await res.json();
       setAssociatedClaim((prev) => {
-        if (!prev) {
-          return {
-            id: `REC-${claimTargetId}`,
-            orderId: order.id,
-            orderCode: order.code,
-            customerName: order.customer.name,
-            customerPhone: order.customer.phone,
-            vehicle: `${order.vehicle.year} ${order.vehicle.make} ${order.vehicle.model}`,
-            mainPart: order.mainPart,
-            claimReason: order.claimReason || 'Reclamo en curso',
-            type: 'Reclamo de orden',
-            priority: 'Media',
-            status: 'Pending',
-            previousOrderStatus: 'entregado',
-            advisor: order.advisor || 'Carlos Mendoza',
-            createdAt: new Date().toISOString(),
-            callCount: 1,
-            calls: [newCall],
-          };
-        }
+        if (!prev) return null;
         return {
           ...prev,
           calls: [newCall, ...(prev.calls || [])],
@@ -407,20 +409,14 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
           body: JSON.stringify({
             status: 'Resolved',
             orderId: Number(order.id),
-            previousOrderStatus: resolveForm.targetStatus,
           }),
         });
-        if (!res.ok) throw new Error('No se pudo resolver el reclamo en el servidor');
-      }
-
-      if (onUpdateOrder) {
-        onUpdateOrder({
-          ...order,
-          status: resolveForm.targetStatus,
-          claimReason: undefined,
-          deliveredAt: resolveForm.targetStatus === 'entregado' ? (order.deliveredAt || new Date().toISOString()) : order.deliveredAt,
-        });
-      }
+        if (!res.ok) {
+          const result = await res.json().catch(() => ({}));
+          throw new Error(result.message || 'No se pudo resolver el reclamo en el servidor');
+        }
+      } else throw new Error('No se encontró el reclamo asociado. Actualiza los datos.');
+      window.dispatchEvent(new Event('radar:data-changed'));
 
       setAssociatedClaim((prev) =>
         prev
@@ -433,22 +429,23 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       );
 
       setIsResolveModalOpen(false);
-      handleToast(`🟢 Reclamo resuelto. Orden restaurada a '${ORDER_STATUS_LABELS[resolveForm.targetStatus]}'.`);
-    } catch {
-      alert('No se pudo completar la resolución del reclamo.');
+      handleToast('Reclamo resuelto. La orden se restauró al estado histórico verificado por el servidor.');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'No se pudo completar la resolución del reclamo.');
     } finally {
       setResolveForm((prev) => ({ ...prev, isSubmitting: false }));
     }
   };
 
   const handleDenyClaimFromDetail = async () => {
+    if (!isSuperAdmin) return setActionError('Solo un administrador puede denegar garantías.');
     if (!window.confirm(`¿Confirmas denegar la garantía del reclamo asociado a la orden #${order.code}?`)) {
       return;
     }
     const claimTargetId = associatedClaim?.id?.replace('REC-', '');
     try {
       if (claimTargetId) {
-        await apiFetch(`/claims/${claimTargetId}`, {
+        const response = await apiFetch(`/claims/${claimTargetId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -456,58 +453,54 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
             orderId: Number(order.id),
           }),
         });
-      }
+        if (!response.ok) {
+          const result = await response.json().catch(() => ({}));
+          throw new Error(result.message || 'No se pudo denegar la garantía.');
+        }
+      } else throw new Error('No se encontró el reclamo asociado.');
+      window.dispatchEvent(new Event('radar:data-changed'));
       setAssociatedClaim((prev) => (prev ? { ...prev, status: 'Denied' as ClaimStatus } : null));
       handleToast(`🔴 Garantía denegada para reclamo.`);
-    } catch {
-      alert('Error al denegar la garantía.');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Error al denegar la garantía.');
     }
   };
 
-  const handleStatusChange = (newStatus: OrderStatus) => {
+  const handleStatusChange = async (newStatus: OrderStatus) => {
     if (!canTransitionOrderStatus(order.status, newStatus)) return;
 
     if (newStatus === 'reclamo') {
       setClaimModal({ isOpen: true, reason: order.claimReason || '', isSaving: false, error: '' });
       return;
     }
+    if (newStatus === 'solicitud_reembolso') {
+      setSubView('refund');
+      return;
+    }
+    if (newStatus === 'reembolsado' || order.status === 'solicitud_reembolso') {
+      setActionError('Gestiona la solicitud desde la vista Reembolsos. No se puede registrar un pago cambiando solo el estado.');
+      return;
+    }
+    if (newStatus === 'pagado') {
+      const total = (order.financials.partPrice ?? order.financials.baseMSRP ?? 0) +
+        (order.financials.deliveryFee ?? 0) + (order.financials.coreFee ?? 0);
+      if ((order.financials.downPayment ?? order.financials.advancePayment ?? 0) !== total) {
+        setActionError('Pagado exige saldo totalmente liquidado. Registra el cobro real desde la edición financiera.');
+        return;
+      }
+    }
 
-    if (requiresStatusAuthorization(order.status, newStatus)) {
-      setSecurityModal({
-        isOpen: true,
-        targetStatus: newStatus,
-        actionTitle: 'Autorizar cambio de reembolso',
-        actionDescription: 'Volver una solicitud de reembolso a pagado o cotización requiere autorización.',
-      });
+    if (!isSuperAdmin && (newStatus === 'cancelado' || newStatus === 'pagado' ||
+      requiresStatusAuthorization(order.status, newStatus) || ['archivado', 'cancelado'].includes(order.status))) {
+      setActionError('Solo un administrador puede realizar este cambio.');
       return;
     }
 
-    if (order.status === 'archivado' && newStatus !== 'archivado') {
-      setSecurityModal({
-        isOpen: true,
-        targetStatus: newStatus,
-        actionTitle: 'Desarchivar Orden',
-        actionDescription: 'Extraer esta orden del histórico requiere verificación de seguridad Wasender.',
-      });
-      return;
-    }
-    if (order.status === 'cancelado' && newStatus !== 'cancelado') {
-      setSecurityModal({
-        isOpen: true,
-        targetStatus: newStatus,
-        actionTitle: 'Reactivar Orden Cancelada',
-        actionDescription: 'Reactivar una orden cancelada requiere autorización de seguridad Wasender.',
-      });
-      return;
-    }
-
-    if (onUpdateOrder) {
-      onUpdateOrder({
+    if (!await persistOrder({
         ...order,
         status: newStatus,
         deliveredAt: newStatus === 'entregado' ? (order.deliveredAt || new Date().toISOString()) : order.deliveredAt,
-      });
-    }
+      })) return;
     handleToast(`Estado actualizado a ${ORDER_STATUS_LABELS[newStatus]}`);
   };
 
@@ -521,32 +514,16 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       setClaimModal((previous) => ({ ...previous, isSaving: true, error: '' }));
       if (onCreateClaim) {
         await onCreateClaim(order.id, claimModal.reason.trim());
-      } else if (onUpdateOrder) {
-        onUpdateOrder({
-          ...order,
-          status: 'reclamo',
-          claimReason: claimModal.reason.trim(),
-        });
-      }
+      } else throw new Error('No hay un servicio de reclamos disponible.');
       setClaimModal({ isOpen: false, reason: '', isSaving: false, error: '' });
       handleToast('⚠️ Reclamo aperturado exitosamente');
       fetchAssociatedClaim();
-    } catch {
-      setClaimModal((previous) => ({ ...previous, isSaving: false, error: 'No se pudo crear el reclamo en la base de datos.' }));
+    } catch (error) {
+      setClaimModal((previous) => ({ ...previous, isSaving: false, error: error instanceof Error ? error.message : 'No se pudo crear el reclamo en la base de datos.' }));
     }
   };
 
   const statusOptions = [order.status, ...getAllowedNextStatuses(order.status)];
-
-  const handleSecuritySuccess = () => {
-    if (onUpdateOrder) {
-      onUpdateOrder({
-        ...order,
-        status: securityModal.targetStatus,
-      });
-    }
-    handleToast(`Autorización exitosa: ${ORDER_STATUS_LABELS[securityModal.targetStatus]}`);
-  };
 
   const workflowSteps = [
     { num: 1, title: 'Cotización', sub: 'Términos & Cotización', icon: 'verified_user' },
@@ -555,11 +532,11 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     { num: 4, title: 'Cierre', sub: 'Entrega & Garantía', icon: 'task_alt' },
   ];
 
-  const handleWorkflowStepCheck = (stepNumber: number) => {
+  const handleWorkflowStepCheck = async (stepNumber: number) => {
     if (!onUpdateOrder || stepNumber > currentStep) return;
 
     const nextStep = Math.min(4, Math.max(order.workflowStep || 1, stepNumber + 1));
-    onUpdateOrder({
+    if (!await persistOrder({
       ...order,
       workflowStep: nextStep,
       ...(stepNumber === 4
@@ -569,7 +546,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
             warrantyStarted: true,
           }
         : {}),
-    });
+    })) return;
     handleToast(`Paso ${stepNumber} completado en flujo`);
   };
 
@@ -607,6 +584,8 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
   return (
     <div className="radar-view text-[var(--text-primary)] pb-4 space-y-2.5">
+      {actionError && <p role="alert" className="rounded-xl border border-red-500 p-3 text-red-300">{actionError}</p>}
+      {isSaving && <p role="status">Guardando…</p>}
       {/* Toast Floating Notification */}
       {copiedNotification && (
         <div className="fixed top-16 right-6 z-50 px-4 py-2 rounded-xl bg-cyan-950/95 border border-cyan-400 text-cyan-200 text-xs font-mono font-bold shadow-[0_0_20px_rgba(6,182,212,0.5)] flex items-center gap-2 animate-fade-in">
@@ -744,16 +723,16 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               <span className="hidden sm:inline">Reembolso</span>
             </button>
 
-            {/* Quick Delivery Date 2FA Modification for Super Admin on Delivered Orders */}
+            {/* Administrative correction of a recorded delivery. */}
             {order.status === 'entregado' && isSuperAdmin && (
               <button
                 type="button"
                 onClick={() => setIsDeliveryDateModalOpen(true)}
                 className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(245,158,11,0.25)] active:scale-95"
-                title="Modificar fecha de entrega con autorización 2FA WhatsApp (Super Admin)"
+                title="Corregir fecha real de entrega (administrador)"
               >
                 <span className="material-symbols-outlined text-[15px] text-amber-400">edit_calendar</span>
-                <span>Modificar Fecha (2FA)</span>
+                <span>Modificar Fecha</span>
               </button>
             )}
 
@@ -963,16 +942,10 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 <input
                   type="checkbox"
                   checked={isAuctionActive}
-                  onChange={(e) => {
+                  onChange={async (e) => {
                     const active = e.target.checked;
+                    if (!await persistOrder({ ...order, auctionActive: active, auctionLinks })) return;
                     setIsAuctionActive(active);
-                    if (onUpdateOrder) {
-                      onUpdateOrder({
-                        ...order,
-                        auctionActive: active,
-                        auctionLinks,
-                      });
-                    }
                     handleToast(active ? 'Marcada para búsqueda en subasta' : 'Desmarcada de búsqueda en subasta');
                   }}
                   className="rounded border-amber-500/60 text-amber-600 focus:ring-0 accent-amber-500 bg-white dark:bg-[#070e1c] cursor-pointer"
@@ -1068,6 +1041,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       {/* ========================================================================= */}
       {/* 5. TAB 1: RESUMEN — ULTRA-COMPACT 3-COLUMN UNIFIED HUD GRID               */}
       {/* ========================================================================= */}
+      {activeTab === 'resumen' && <OrderInventoryAvailability order={order} userRole={userRole || currentUser?.role} />}
       {activeTab === 'resumen' && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 sm:gap-3">
           {/* COLUMN 1: VEHÍCULO & REFACCIÓN */}
@@ -1140,9 +1114,9 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                         type="button"
                         onClick={() => setIsDeliveryDateModalOpen(true)}
                         className="text-[9.5px] font-mono text-amber-400 hover:text-amber-300 underline font-bold cursor-pointer"
-                        title="Modificar fecha de entrega con 2FA WhatsApp"
+                        title="Corregir fecha real de entrega (administrador)"
                       >
-                        Editar (2FA)
+                        Editar fecha
                       </button>
                     )}
                   </div>
@@ -1161,7 +1135,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 <div className="p-2 rounded-xl bg-[var(--bg-card-subtle)] border border-cyan-500/15">
                   <span className="text-[9.5px] font-bold text-[var(--text-secondary)] uppercase block">GARANTÍA</span>
                   <span className="text-emerald-400 font-bold text-[11px] block mt-0.5 truncate">
-                    {order.warrantyDays || 60} Días ({warrantyInfo.label.split(' ')[0]})
+                    {order.warrantyDays ?? 60} Días ({warrantyInfo.label.split(' ')[0]})
                   </span>
                 </div>
               </div>
@@ -1432,10 +1406,10 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                       type="button"
                       onClick={() => setIsDeliveryDateModalOpen(true)}
                       className="px-2 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[10px] font-mono font-bold flex items-center gap-1 cursor-pointer transition-colors"
-                      title="Modificar fecha de entrega con 2FA WhatsApp"
+                      title="Corregir fecha real de entrega (administrador)"
                     >
                       <span className="material-symbols-outlined text-[12px]">edit</span>
-                      <span>Modificar (2FA)</span>
+                      <span>Modificar fecha</span>
                     </button>
                   )}
                 </div>
@@ -1604,19 +1578,8 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
             <form onSubmit={handleResolveClaimFromDetail} className="space-y-3">
               <div>
-                <label className="text-xs font-mono font-bold text-[var(--text-secondary)] uppercase block mb-1">
-                  Restaurar Orden a Estado:
-                </label>
-                <select
-                  value={resolveForm.targetStatus}
-                  onChange={(e) => setResolveForm((prev) => ({ ...prev, targetStatus: e.target.value as OrderStatus }))}
-                  className="cyber-input w-full text-xs font-mono"
-                >
-                  <option value="entregado">🟢 Entregado (Garantía Activa)</option>
-                  <option value="despachado">🚚 Despachado</option>
-                  <option value="pagado">💳 Pagado</option>
-                  <option value="cotizacion">📋 Cotización</option>
-                </select>
+                <p className="text-sm">El servidor restaurará únicamente el estado anterior verificable. Si falta historial, la resolución será rechazada sin inventar una entrega o un pago.</p>
+                {actionError && <p role="alert" className="text-red-300">{actionError}</p>}
               </div>
 
               <div className="flex justify-end gap-2 pt-2 border-t border-cyan-500/15">
@@ -1640,22 +1603,19 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
         </div>
       )}
 
-      {/* Modal: Autorización OTP Wasender para estados protegidos */}
-      <SecurityOtpModal
-        isOpen={securityModal.isOpen}
-        onClose={() => setSecurityModal((prev) => ({ ...prev, isOpen: false }))}
-        onSuccess={handleSecuritySuccess}
-        actionTitle={securityModal.actionTitle}
-        actionDescription={securityModal.actionDescription}
-      />
-
-      {/* Modal: Modificación 2FA de Fecha de Entrega */}
-      <DeliveryDateOtpModal
-        isOpen={isDeliveryDateModalOpen}
-        onClose={() => setIsDeliveryDateModalOpen(false)}
-        order={order}
-        onSuccess={handleDeliveryDateSuccess}
-      />
+      {isSuperAdmin && isDeliveryDateModalOpen && <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+        <form onSubmit={handleSaveDeliveryDate} className="bg-slate-900 rounded-2xl border border-cyan-700 p-6 space-y-4 w-full max-w-lg">
+          <h2 className="text-xl font-bold">Corregir fecha real de entrega</h2>
+          <p className="text-sm text-slate-400">Acción administrativa verificada por el servidor. No registra ni inventa un cobro.</p>
+          <input required type="datetime-local" aria-label="Fecha real de entrega" value={deliveryDateInput} onChange={(event) => setDeliveryDateInput(event.target.value)} className="bg-slate-950 border border-slate-700 rounded-xl p-3 w-full" />
+          <textarea required aria-label="Motivo de corrección" value={deliveryDateReason} onChange={(event) => setDeliveryDateReason(event.target.value)} className="bg-slate-950 border border-slate-700 rounded-xl p-3 w-full" />
+          {actionError && <p role="alert" className="text-red-300">{actionError}</p>}
+          <div className="flex gap-3">
+            <button type="button" disabled={deliveryDateSaving} onClick={() => setIsDeliveryDateModalOpen(false)}>Volver</button>
+            <button disabled={deliveryDateSaving}>{deliveryDateSaving ? 'Guardando…' : 'Guardar corrección'}</button>
+          </div>
+        </form>
+      </div>}
 
       {/* Modal: Reasignar Asesor de Venta (Super Admin) */}
       {isReassignModalOpen && (
@@ -1682,6 +1642,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               </div>
             ) : (
               <form onSubmit={handleConfirmReassignAdvisor} className="space-y-4">
+                {actionError && <p role="alert" className="text-red-300">{actionError}</p>}
                 <div className="p-2.5 rounded-xl bg-[var(--bg-card-subtle)] border border-cyan-500/15 text-xs font-mono space-y-1">
                   <div className="flex justify-between">
                     <span className="text-[var(--text-secondary)]">Cliente:</span>

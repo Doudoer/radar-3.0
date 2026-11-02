@@ -1,7 +1,8 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { runScheduledJob } from './scheduledJobs';
 import zlib from 'node:zlib';
-import { RowDataPacket, createConnection, Pool } from 'mysql2/promise';
+import { RowDataPacket, Pool } from 'mysql2/promise';
 import { pool } from './config';
 
 const escapeIdentifier = (value: string) => `\`${value.replace(/`/g, '``')}\``;
@@ -11,10 +12,16 @@ const escapeValue = (value: unknown) => {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
   if (typeof value === 'bigint') return String(value);
   if (typeof value === 'boolean') return value ? '1' : '0';
+  if (typeof value === 'number') throw new Error('No se puede respaldar un número no finito');
+  if (value instanceof Date && !Number.isFinite(value.getTime())) {
+    throw new Error('No se puede respaldar una fecha inválida');
+  }
 
   const text = Buffer.isBuffer(value)
     ? `x'${value.toString('hex')}'`
-    : String(value)
+    : (value instanceof Date
+      ? value.toISOString().slice(0, 23).replace('T', ' ')
+      : typeof value === 'object' ? JSON.stringify(value) : String(value))
       .replace(/\\/g, '\\\\')
       .replace(/\0/g, '\\0')
       .replace(/\n/g, '\\n')
@@ -31,8 +38,7 @@ const backupsDirectory = path.resolve(process.cwd(), 'backups');
 const uploadsBackupsDirectory = path.resolve(process.cwd(), 'uploads', 'backups');
 
 export const ensureBackupRecordsTable = async () => {
-  try {
-    await pool.query(`
+  await pool.query(`
       CREATE TABLE IF NOT EXISTS system_backup_records (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
         filename VARCHAR(150) NOT NULL UNIQUE,
@@ -44,47 +50,86 @@ export const ensureBackupRecordsTable = async () => {
         INDEX system_backup_created_idx (created_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
-  } catch (err) {
-    console.warn('[Backups] Advertencia al verificar/crear tabla system_backup_records:', err);
-  }
 };
 
 export const ensureBackupsDirectory = async () => {
   await fs.mkdir(backupsDirectory, { recursive: true });
   await fs.mkdir(uploadsBackupsDirectory, { recursive: true });
-  await ensureBackupRecordsTable();
 };
 
 export const createDatabaseBackup = async (): Promise<string> => {
-  const [tableRows] = await pool.query<RowDataPacket[]>('SHOW FULL TABLES WHERE Table_type = \'BASE TABLE\'');
-  const chunks = [
-    '-- Radar 3.0 database backup\n',
-    `-- Generated: ${new Date().toISOString()}\n`,
-    'SET FOREIGN_KEY_CHECKS=0;\nSET SQL_MODE=\'NO_AUTO_VALUE_ON_ZERO\';\n\n',
-  ];
-
-  for (const tableRow of tableRows) {
-    const tableName = getTableName(tableRow);
-    const identifier = escapeIdentifier(tableName);
-    const [createRows] = await pool.query<RowDataPacket[]>(`SHOW CREATE TABLE ${identifier}`);
-    const createStatement = String(createRows[0]?.['Create Table'] || '').replace(/;?$/, ';');
-    if (!createStatement) continue;
-
-    chunks.push(`DROP TABLE IF EXISTS ${identifier};\n${createStatement}\n\n`);
-    const [dataRows] = await pool.query<RowDataPacket[]>(`SELECT * FROM ${identifier}`);
-    const columns = dataRows[0] ? Object.keys(dataRows[0]).map(escapeIdentifier).join(', ') : '';
-
-    if (columns && dataRows.length > 0) {
-      for (const row of dataRows) {
-        const values = Object.keys(row).map((column) => escapeValue(row[column])).join(', ');
-        chunks.push(`INSERT INTO ${identifier} (${columns}) VALUES (${values});\n`);
+  const connection = await pool.getConnection();
+  let originalTimezone: string | undefined;
+  let reusable = true;
+  try {
+    const [sessionRows] = await connection.query<RowDataPacket[]>('SELECT @@session.time_zone AS time_zone');
+    originalTimezone = String(sessionRows[0].time_zone);
+    await connection.query("SET time_zone = '+00:00'");
+    await connection.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
+    await connection.query('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+    const [tableRows] = await connection.query<RowDataPacket[]>(
+      "SELECT TABLE_NAME AS table_name, ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME"
+    );
+    if (tableRows.length === 0) throw new Error('No se encontraron tablas para respaldar');
+    for (const row of tableRows) {
+      if (String(row.engine).toLowerCase() !== 'innodb') {
+        throw new Error(`Snapshot consistente no soportado para tabla ${row.table_name} (${row.engine})`);
       }
-      chunks.push('\n');
     }
-  }
+    const chunks = [
+      '-- Radar 3.0 database backup\n',
+      `-- Generated: ${new Date().toISOString()}\n`,
+      '-- Snapshot de datos InnoDB; no ejecutar migraciones DDL durante la exportación.\n',
+      "SET NAMES utf8mb4;\nSET @RADAR_OLD_TIME_ZONE=@@TIME_ZONE;\nSET TIME_ZONE='+00:00';\n",
+      "SET @RADAR_OLD_SQL_MODE=@@SQL_MODE;\nSET FOREIGN_KEY_CHECKS=0;\nSET SQL_MODE='NO_AUTO_VALUE_ON_ZERO';\n\n",
+    ];
 
-  chunks.push('SET FOREIGN_KEY_CHECKS=1;\n');
-  return chunks.join('');
+    for (const tableRow of tableRows) {
+      const tableName = String(tableRow.table_name);
+      const identifier = escapeIdentifier(tableName);
+      const [createRows] = await connection.query<RowDataPacket[]>(`SHOW CREATE TABLE ${identifier}`);
+      const ddl = createRows[0]?.['Create Table'];
+      if (typeof ddl !== 'string' || !ddl.trim()) throw new Error(`No se pudo respaldar el esquema de ${tableName}`);
+      const createStatement = ddl.replace(/;?$/, ';');
+
+      chunks.push(`DROP TABLE IF EXISTS ${identifier};\n${createStatement}\n\n`);
+      // Keep the catalogue schema, not previous dumps (which recursively contain more dumps).
+      if (tableName.toLowerCase() === 'system_backup_records') continue;
+      const [columnRows] = await connection.query<RowDataPacket[]>(`SHOW FULL COLUMNS FROM ${identifier}`);
+      const columnNames = columnRows
+        .filter((column) => !/\b(VIRTUAL|STORED|PERSISTENT)\s+GENERATED\b/i.test(String(column.Extra)))
+        .map((column) => String(column.Field));
+      if (!columnNames.length) throw new Error(`No hay columnas exportables en ${tableName}`);
+      const columns = columnNames.map(escapeIdentifier).join(', ');
+      const [dataRows] = await connection.query<RowDataPacket[]>({
+        sql: `SELECT ${columns} FROM ${identifier}`,
+        // Avoid timezone conversion, truncated microseconds and unsafe BIGINT rounding by the driver.
+        typeCast: (field, next) => ['DATE', 'NEWDATE', 'DATETIME', 'TIMESTAMP', 'JSON', 'LONGLONG', 'NEWDECIMAL']
+          .includes(field.type) ? field.string() : next(),
+      });
+
+      if (dataRows.length > 0) {
+        for (const row of dataRows) {
+          const values = columnNames.map((column) => escapeValue(row[column])).join(', ');
+          chunks.push(`INSERT INTO ${identifier} (${columns}) VALUES (${values});\n`);
+        }
+        chunks.push('\n');
+      }
+    }
+
+    chunks.push('SET FOREIGN_KEY_CHECKS=1;\nSET TIME_ZONE=@RADAR_OLD_TIME_ZONE;\nSET SQL_MODE=@RADAR_OLD_SQL_MODE;\n');
+    await connection.commit();
+    return chunks.join('');
+  } finally {
+    try {
+      await connection.rollback();
+      if (originalTimezone !== undefined) await connection.query('SET time_zone = ?', [originalTimezone]);
+    } catch {
+      reusable = false;
+      connection.destroy();
+    }
+    if (reusable) connection.release();
+  }
 };
 
 let isBackupOperationInProgress = false;
@@ -101,9 +146,19 @@ export const releaseBackupLock = (): void => {
 
 export const isBackupLocked = (): boolean => isBackupOperationInProgress;
 
+const writeBackupFile = async (filename: string, content: string | Buffer) => {
+  const pendingPath = `${filename}.partial`;
+  try {
+    await fs.writeFile(pendingPath, content, { mode: 0o600, flag: 'wx' });
+    // Publishing a hard link is atomic and refuses to overwrite an existing backup.
+    await fs.link(pendingPath, filename);
+  } finally {
+    await fs.unlink(pendingPath).catch(() => {});
+  }
+};
+
 export const saveBackupSnapshot = async (options: { tag?: string; customFilename?: string } = {}) => {
-  const isNestedSnapshot = options.tag === 'pre_restore';
-  if (!isNestedSnapshot && !acquireBackupLock()) {
+  if (!acquireBackupLock()) {
     throw new Error('Una operación de respaldo o restauración ya se encuentra en ejecución');
   }
   try {
@@ -112,6 +167,9 @@ export const saveBackupSnapshot = async (options: { tag?: string; customFilename
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const tagPart = options.tag ? `_${options.tag}` : '';
     const filename = options.customFilename || `backup_${timestamp}${tagPart}.sql`;
+    if (filename !== path.basename(filename) || !/^[a-zA-Z0-9_.-]+\.sql$/.test(filename)) {
+      throw new Error('Nombre de respaldo inválido');
+    }
     
     const primaryPath = path.join(backupsDirectory, filename);
     const uploadsPath = path.join(uploadsBackupsDirectory, filename);
@@ -119,20 +177,12 @@ export const saveBackupSnapshot = async (options: { tag?: string; customFilename
     const backupType = options.tag || 'manual';
 
     // 1. Dual disk write (both backups/ and uploads/backups/)
-    await fs.writeFile(primaryPath, sql, 'utf8');
-    try {
-      await fs.writeFile(uploadsPath, sql, 'utf8');
-    } catch {
-      // ignore
-    }
+    await writeBackupFile(primaryPath, sql);
+    await writeBackupFile(uploadsPath, sql);
 
     // 2. Compress with gzip and store in uploads/backups/
     const gzippedBuffer = zlib.gzipSync(Buffer.from(sql, 'utf8'));
-    try {
-      await fs.writeFile(path.join(uploadsBackupsDirectory, `${filename}.gz`), gzippedBuffer);
-    } catch {
-      // ignore
-    }
+    await writeBackupFile(path.join(uploadsBackupsDirectory, `${filename}.gz`), gzippedBuffer);
 
     // 3. Persist record and compressed blob in MySQL system_backup_records table
     try {
@@ -143,7 +193,7 @@ export const saveBackupSnapshot = async (options: { tag?: string; customFilename
         [filename, primaryPath, sizeBytes, backupType, gzippedBuffer]
       );
     } catch (dbErr) {
-      console.warn('⚠️ No se pudo registrar el respaldo en la tabla MySQL system_backup_records:', dbErr);
+      throw new Error('El respaldo no se completó: no se pudo registrar la copia en MySQL', { cause: dbErr });
     }
 
     // 4. Rotate backups keeping the last 50 backups on disk
@@ -170,9 +220,7 @@ export const saveBackupSnapshot = async (options: { tag?: string; customFilename
 
     return { filename, path: primaryPath, sizeBytes };
   } finally {
-    if (!isNestedSnapshot) {
-      releaseBackupLock();
-    }
+    releaseBackupLock();
   }
 };
 
@@ -207,8 +255,29 @@ const syncFileToDb = async (filename: string, fullPath: string, size: number, mt
        VALUES (?, ?, ?, 'imported', ?, ?)`,
       [filename, fullPath, size, mtime, gzippedBuffer]
     );
-  } catch {
-    // ignore
+  } catch (error) {
+    throw new Error(`No se pudo sincronizar el catálogo del respaldo ${filename}`, { cause: error });
+  }
+};
+
+const isMissingFile = (error: unknown) => (error as NodeJS.ErrnoException)?.code === 'ENOENT';
+
+const backupFileExists = async (filename: string): Promise<boolean> => {
+  try {
+    await fs.access(filename);
+    return true;
+  } catch (error) {
+    if (isMissingFile(error)) return false;
+    throw error;
+  }
+};
+
+const readBackupDirectory = async (directory: string): Promise<string[]> => {
+  try {
+    return await fs.readdir(directory);
+  } catch (error) {
+    if (isMissingFile(error)) return [];
+    throw error;
   }
 };
 
@@ -219,10 +288,7 @@ export const ensureBackupFileOnDisk = async (filename: string): Promise<string |
   const rootPath = path.join(process.cwd(), safeName);
 
   for (const p of [primaryPath, uploadsPath, rootPath]) {
-    try {
-      await fs.access(p);
-      return p;
-    } catch {}
+    if (await backupFileExists(p)) return p;
   }
 
   // Check in MySQL system_backup_records
@@ -245,8 +311,8 @@ export const ensureBackupFileOnDisk = async (filename: string): Promise<string |
         return primaryPath;
       }
     }
-  } catch (err) {
-    console.warn(`[ensureBackupFileOnDisk] Error materializing backup from DB for ${safeName}:`, err);
+  } catch (error) {
+    throw new Error(`No se pudo recuperar el respaldo ${safeName} desde el catálogo`, { cause: error });
   }
 
   return null;
@@ -258,7 +324,6 @@ export const listBackups = async (): Promise<BackupItem[]> => {
   const seenFiles = new Set<string>();
 
   // 1. Query records from MySQL table system_backup_records
-  try {
     const [dbRows] = await pool.query<RowDataPacket[]>(
       'SELECT id, filename, file_path, size_bytes, backup_type, created_at, (content_compressed IS NOT NULL) AS has_blob FROM system_backup_records ORDER BY created_at DESC'
     );
@@ -269,36 +334,13 @@ export const listBackups = async (): Promise<BackupItem[]> => {
 
       const primaryPath = path.join(backupsDirectory, filename);
       const uploadsPath = path.join(uploadsBackupsDirectory, filename);
-      let fileExistsOnDisk = false;
-
-      try {
-        await fs.access(primaryPath);
-        fileExistsOnDisk = true;
-      } catch {
-        try {
-          await fs.access(uploadsPath);
-          fileExistsOnDisk = true;
-        } catch {
-          fileExistsOnDisk = false;
-        }
-      }
+      const fileExistsOnDisk = await backupFileExists(primaryPath) || await backupFileExists(uploadsPath);
 
       // If missing from disk (e.g. container was destroyed & restarted), re-materialize from DB blob!
       if (!fileExistsOnDisk && row.has_blob) {
-        try {
-          const [blobRows] = await pool.query<RowDataPacket[]>(
-            'SELECT content_compressed FROM system_backup_records WHERE filename = ?',
-            [filename]
-          );
-          const compressed = blobRows[0]?.content_compressed as Buffer | undefined;
-          if (compressed && Buffer.isBuffer(compressed)) {
-            const decompressed = zlib.gunzipSync(compressed).toString('utf8');
-            await fs.writeFile(primaryPath, decompressed, 'utf8').catch(() => {});
-            await fs.writeFile(uploadsPath, decompressed, 'utf8').catch(() => {});
-            fileExistsOnDisk = true;
-          }
-        } catch (restoreErr) {
-          console.warn(`[Backups] No se pudo re-materializar archivo ${filename} desde DB:`, restoreErr);
+        const materialized = await ensureBackupFileOnDisk(filename);
+        if (!materialized) {
+          throw new Error(`El catálogo no pudo recuperar el respaldo ${filename}`);
         }
       }
 
@@ -312,13 +354,9 @@ export const listBackups = async (): Promise<BackupItem[]> => {
         isRootFile: false,
       });
     }
-  } catch (err) {
-    console.warn('Advertencia al consultar system_backup_records:', err);
-  }
 
   // 2. Scan backups/ folder
-  try {
-    const backupFiles = await fs.readdir(backupsDirectory);
+    const backupFiles = await readBackupDirectory(backupsDirectory);
     for (const file of backupFiles) {
       if (!file.endsWith('.sql') && !file.endsWith('.sql.gz')) continue;
       if (seenFiles.has(file)) continue;
@@ -334,15 +372,11 @@ export const listBackups = async (): Promise<BackupItem[]> => {
         isRootFile: false,
       });
 
-      syncFileToDb(file, fullPath, stat.size, stat.mtime).catch(() => {});
+      await syncFileToDb(file, fullPath, stat.size, stat.mtime);
     }
-  } catch {
-    // Ignore error
-  }
 
   // 3. Scan uploads/backups/ folder
-  try {
-    const uploadFiles = await fs.readdir(uploadsBackupsDirectory);
+    const uploadFiles = await readBackupDirectory(uploadsBackupsDirectory);
     for (const file of uploadFiles) {
       if (!file.endsWith('.sql') && !file.endsWith('.sql.gz')) continue;
       if (seenFiles.has(file)) continue;
@@ -358,15 +392,11 @@ export const listBackups = async (): Promise<BackupItem[]> => {
         isRootFile: false,
       });
 
-      syncFileToDb(file, fullPath, stat.size, stat.mtime).catch(() => {});
+      await syncFileToDb(file, fullPath, stat.size, stat.mtime);
     }
-  } catch {
-    // Ignore error
-  }
 
   // 4. Scan project root for .sql backups (e.g. backup_*.sql or radar-*.sql)
-  try {
-    const rootFiles = await fs.readdir(process.cwd());
+    const rootFiles = await readBackupDirectory(process.cwd());
     for (const file of rootFiles) {
       if (!file.endsWith('.sql') || seenFiles.has(file)) continue;
       const fullPath = path.join(process.cwd(), file);
@@ -382,11 +412,8 @@ export const listBackups = async (): Promise<BackupItem[]> => {
         isRootFile: true,
       });
 
-      syncFileToDb(file, fullPath, stat.size, stat.mtime).catch(() => {});
+      await syncFileToDb(file, fullPath, stat.size, stat.mtime);
     }
-  } catch {
-    // Ignore error
-  }
 
   // Sort newest first
   return items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -706,109 +733,21 @@ export const restorePreservedInventoryParts = async (
   return restoredCount;
 };
 
+export class RestoreDisabledError extends Error {
+  readonly statusCode = 409;
+  readonly code = 'RESTORE_DISABLED';
+
+  constructor() {
+    super('Restauración deshabilitada: requiere una base staging aislada, validación y un procedimiento de cambio/rollback verificado. La base activa no fue modificada.');
+    this.name = 'RestoreDisabledError';
+  }
+}
+
 export const restoreDatabaseBackup = async (
-  sqlContent: string,
-  options: { createSafetySnapshot?: boolean; sourceName?: string } = {}
+  _sqlContent: string,
+  _options: { createSafetySnapshot?: boolean; sourceName?: string } = {}
 ): Promise<RestoreResult> => {
-  const trimmedSql = sqlContent.trim();
-  if (!trimmedSql) {
-    throw new Error('El contenido del archivo SQL está vacío');
-  }
-
-  if (!acquireBackupLock()) {
-    throw new Error('Una operación de respaldo o restauración ya se encuentra en ejecución');
-  }
-
-  let connection: any = null;
-  try {
-    const startTime = Date.now();
-    let safetySnapshotName: string | undefined;
-
-    // 1. Create safety snapshot before restoring if requested
-    if (options.createSafetySnapshot !== false) {
-      try {
-        const snapshot = await saveBackupSnapshot({ tag: 'pre_restore' });
-        safetySnapshotName = snapshot.filename;
-      } catch (snapshotError) {
-        console.warn('Advertencia: No se pudo crear el respaldo previo de seguridad:', snapshotError);
-      }
-    }
-
-    // 2. Dedicated connection with multipleStatements: true
-    connection = await createConnection({
-      host: process.env.DB_HOST || '127.0.0.1',
-      port: Number(process.env.DB_PORT || 3306),
-      user: process.env.DB_USER || 'radar_app',
-      password: process.env.DB_PASSWORD || '',
-      database: process.env.DB_NAME || 'radar_v3',
-      multipleStatements: true,
-    });
-
-    await connection.query('SET FOREIGN_KEY_CHECKS = 0;');
-    await connection.query('SET UNIQUE_CHECKS = 0;');
-
-    // 3. Preserve current users, inventory and backup records in memory before restoring
-    const preservedUsers = await fetchCurrentUsers(connection);
-    const preservedUsersCount = preservedUsers.length;
-
-    const preservedInventoryParts = await fetchCurrentInventoryParts(connection);
-    const preservedInventoryCount = preservedInventoryParts.length;
-
-    const preservedBackupRecords = await fetchCurrentBackupRecords(connection);
-
-    // 4. Wipe / clear all tables in the database except preserved tables (users, inventory_parts, system_backup_records)
-    const clearedTables = await clearDatabaseExceptUsers(connection);
-
-    // 5. Execute new SQL backup statements into the blank database
-    await connection.query(trimmedSql);
-
-    // 6. Guarantee that preserved users exist and are active
-    if (preservedUsersCount > 0) {
-      await restorePreservedUsers(connection, preservedUsers);
-    }
-
-    // 7. Guarantee that preserved inventory parts exist and are restored
-    if (preservedInventoryCount > 0) {
-      await restorePreservedInventoryParts(connection, preservedInventoryParts);
-    } else {
-      await ensureInventoryPartsTable(connection);
-    }
-
-    // 8. Guarantee that backup records exist and are restored
-    if (preservedBackupRecords.length > 0) {
-      await restorePreservedBackupRecords(connection, preservedBackupRecords);
-    } else {
-      await ensureBackupRecordsTable();
-    }
-
-    await connection.query('SET FOREIGN_KEY_CHECKS = 1;');
-    await connection.query('SET UNIQUE_CHECKS = 1;');
-
-    const [tableRows] = (await connection.query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")) as [
-      RowDataPacket[],
-      unknown
-    ];
-    const restoredTables = tableRows.map((row) => getTableName(row));
-
-    const durationMs = Date.now() - startTime;
-
-    return {
-      ok: true,
-      message: `Base de datos restaurada exitosamente (${clearedTables.length} tablas operativas vaciadas, ${restoredTables.length} tablas activas, ${preservedUsersCount} usuarios conservados, ${preservedInventoryCount} piezas de inventario conservadas)`,
-      restoredTables,
-      clearedTables,
-      preservedUsersCount,
-      preservedInventoryCount,
-      safetySnapshot: safetySnapshotName,
-      durationMs,
-      timestamp: new Date().toISOString(),
-    };
-  } finally {
-    if (connection) {
-      await connection.end().catch(() => {});
-    }
-    releaseBackupLock();
-  }
+  throw new RestoreDisabledError();
 };
 
 /**
@@ -843,15 +782,13 @@ export const startDailyBackupScheduler = (
       const todayStr = `${year}-${month}-${day}`;
 
       // Run daily at 03:00 AM (Eastern Time)
-      if (hour === '03' && minute === '00' && lastDispatchedDate !== todayStr) {
-        lastDispatchedDate = todayStr;
+      if (Number(hour) >= 3 && lastDispatchedDate !== todayStr) {
+        await runScheduledJob(poolInstance, `daily-backup:${todayStr}`, async () => {
         console.log(`[Daily Backup Scheduler] ⏰ Ejecutando respaldo automático diario (03:00 AM Eastern Time)...`);
         const result = await saveBackupSnapshot({ tag: 'cron_daily' });
         console.log(`[Daily Backup Scheduler] ✅ Respaldo generado: ${result.filename} (${result.sizeBytes} bytes)`);
 
-        const appBaseUrl = (process.env.APP_URL && !process.env.APP_URL.includes('radar-rsy.site') && !process.env.APP_URL.includes('localhost'))
-          ? process.env.APP_URL.replace(/\/+$/, '')
-          : 'https://radar-rsy.store';
+        const appBaseUrl = (process.env.APP_URL || 'http://127.0.0.1:3000').replace(/\/+$/, '');
 
         const backupDownloadUrl = `${appBaseUrl}/api/uploads/backups/${result.filename}`;
 
@@ -859,11 +796,13 @@ export const startDailyBackupScheduler = (
           const { formatRespaldoAutomaticoMessage } = await import('../integrations/wasender/notificationTemplates');
           const { dispatchSystemNotification } = await import('../integrations/wasender/notificationService');
           const backupMsg = formatRespaldoAutomaticoMessage({ downloadUrl: backupDownloadUrl });
-          await dispatchSystemNotification(poolInstance, wasenderInstance, 'RESPALDO_AUTOMATICO', backupMsg);
-          console.log(`[Daily Backup Scheduler] 📱 Notificación de respaldo automático despachada a Super Admin.`);
+          const delivery = await dispatchSystemNotification(poolInstance, wasenderInstance, 'RESPALDO_AUTOMATICO', backupMsg);
+          console.log(`[Daily Backup Scheduler] Notificación: ${delivery.dispatchedCount} entregas; ${delivery.skippedReason || 'procesada'}`);
         } catch (notifErr) {
           console.warn('[Daily Backup Scheduler] ⚠️ No se pudo enviar notificación de respaldo:', notifErr);
         }
+        });
+        lastDispatchedDate = todayStr;
       }
     } catch (err) {
       console.error('[Daily Backup Scheduler] Error al ejecutar respaldo programado:', err);
@@ -873,4 +812,3 @@ export const startDailyBackupScheduler = (
   const interval = setInterval(checkAndRun, 30_000);
   return interval;
 };
-

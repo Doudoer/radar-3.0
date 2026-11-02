@@ -50,9 +50,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-30 shrink-0 w-full h-14 lg:h-16 bg-[#060a16]/95 border-b border-cyan-500/25 backdrop-blur-2xl flex justify-between items-center px-3.5 sm:px-4 md:px-5 lg:px-6 transition-all duration-200 relative shadow-[0_4px_25px_rgba(0,0,0,0.6)]">
-      {/* Bottom Laser Line */}
-      <div className="absolute bottom-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_10px_#22d3ee]" />
+    <header className="horizon-topbar sticky top-0 z-30 shrink-0 w-full h-16 lg:h-20 flex justify-between items-center px-3.5 sm:px-4 md:px-5 lg:px-7 transition-colors gap-3">
 
       {/* Left: Mobile Menu Toggle & Brand (Hidden on Desktop) */}
       <div className="flex md:hidden items-center gap-2.5">
@@ -63,7 +61,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         >
           <span className="material-symbols-outlined text-[22px]">menu</span>
         </button>
-        <div className="flex items-center gap-2">
+        <div className="horizon-mobile-brand flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee] animate-pulse" />
           <span className="font-black text-white text-[14px] tracking-wider uppercase">RADAR 3.0</span>
         </div>
@@ -91,6 +89,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         </div>
 
         {/* Selected Order Breadcrumb if viewing detail */}
+        {(currentScreen === 'reclamos' || currentScreen === 'reembolsos') && (
+          <span className="text-sm font-bold">{currentScreen === 'reclamos' ? 'Reclamos' : 'Reembolsos'}</span>
+        )}
         {currentScreen === 'order-detail' && selectedOrderCode && (
           <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-cyan-500/10 border border-cyan-400/30 text-[11px] font-mono text-cyan-300">
             <span>ÓRDEN:</span>
@@ -150,7 +151,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           <button
             type="button"
             onClick={onOpenNewOrder}
-            className="hidden sm:inline-flex items-center gap-1.5 py-1.5 px-3 rounded-xl text-xs font-black tracking-wide bg-gradient-to-r from-cyan-400 via-blue-500 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 shadow-[0_0_16px_rgba(6,182,212,0.35)] transition-all cursor-pointer active:scale-95"
+            className="horizon-primary hidden sm:inline-flex items-center gap-1.5 py-2.5 px-4 rounded-full text-xs font-bold transition-all cursor-pointer active:scale-95"
           >
             <span className="material-symbols-outlined text-[16px]">add_circle</span>
             <span>Nueva Orden</span>

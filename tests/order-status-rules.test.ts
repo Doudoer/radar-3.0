@@ -22,7 +22,7 @@ describe('order status rules', () => {
   it('blocks transitions not declared by the workflow', () => {
     expect(canTransitionOrderStatus('cotizacion', 'entregado')).toBe(false);
     expect(canTransitionOrderStatus('archivado', 'pagado')).toBe(false);
-    expect(getAllowedNextStatuses('archivado')).toEqual([]);
+    expect(getAllowedNextStatuses('archivado')).toEqual(['cotizacion']);
   });
 
   it('requires authorization when reversing a refund request', () => {

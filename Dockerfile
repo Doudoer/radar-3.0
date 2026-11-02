@@ -16,6 +16,7 @@ RUN groupadd --system --gid 1001 radar && useradd --system --uid 1001 --gid rada
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/migrations ./migrations
 RUN chown -R radar:radar /app
 USER radar
 

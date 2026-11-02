@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Order, OrderStatus, OrderSegmentView } from '../types';
+import { InventoryAvailabilityBadge } from './OrderInventoryAvailability';
 
 interface OrdersTableViewProps {
   orders: Order[];
@@ -982,6 +983,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
                       <div className="flex flex-col">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-slate-100 font-semibold">{order.mainPart}</span>
+                          <InventoryAvailabilityBadge availability={order.inventoryAvailability} />
                           {isOrderAuction(order) && (
                             <span
                               className="text-amber-900 dark:text-amber-400 font-mono text-[9.5px] font-bold inline-flex items-center gap-0.5 bg-amber-100/90 dark:bg-amber-500/15 px-1.5 py-0.5 rounded border border-amber-400/70 dark:border-amber-500/30 shrink-0"

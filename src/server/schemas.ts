@@ -1,4 +1,11 @@
 import { z } from 'zod';
+const moneySchema = z.coerce.number().finite().min(0).max(10_000_000).multipleOf(0.01);
+const avatarSchema = z.string().trim().max(500_000).refine(value =>
+  !value || /^\/uploads\/[a-zA-Z0-9._-]+$/.test(value) ||
+  /^data:image\/(?:png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/.test(value) ||
+  (() => {
+    try { return new URL(value).protocol === 'https:'; } catch { return false; }
+  })(), 'Usa una imagen PNG, JPEG, GIF o WebP, un adjunto propio o una URL HTTPS');
 
 export const loginSchema = z.object({
   email: z.string().trim().email().max(254),
@@ -20,6 +27,9 @@ export const orderStatusSchema = z.enum([
 ]);
 
 export const orderPayloadSchema = z.object({
+  version: z.number().int().positive().optional(),
+  idempotencyKey: z.string().uuid().optional(),
+  inventoryPartId: z.coerce.number().int().positive().optional().nullable(),
   code: z.string().trim().min(1).max(80).optional(),
   userId: z.coerce.number().int().positive().optional().nullable(),
   advisor: z.string().trim().max(200).optional().nullable(),
@@ -38,6 +48,8 @@ export const orderPayloadSchema = z.object({
     shippingAddress: z.string().max(500).optional().nullable(),
     zip_code: z.string().max(20).optional().nullable(),
     language: z.enum(['es', 'en']).optional(),
+    company: z.string().trim().max(150).optional().nullable(),
+    type: z.enum(['Particular', 'Empresa', 'Flota Mantenimiento', 'VIP', 'Taller Mecánico']).optional(),
   }).optional(),
   vehicle: z.object({
     vin: z.string().max(40).optional().nullable(),
@@ -50,14 +62,14 @@ export const orderPayloadSchema = z.object({
     mileage: z.string().max(60).optional().nullable(),
   }).optional(),
   financials: z.object({
-    partPrice: z.coerce.number().finite().min(0).max(10_000_000).optional(),
-    coreFee: z.coerce.number().finite().min(0).max(10_000_000).optional(),
-    downPayment: z.coerce.number().finite().min(0).max(10_000_000).optional(),
-    deliveryFee: z.coerce.number().finite().min(0).max(10_000_000).optional(),
+    partPrice: moneySchema.optional(),
+    coreFee: moneySchema.optional(),
+    downPayment: moneySchema.optional(),
+    deliveryFee: moneySchema.optional(),
   }).optional(),
   deliveryType: z.enum(['retiro_tienda', 'envio_domicilio']).optional(),
-  scheduledPickupAt: z.string().max(80).optional().nullable(),
-  deliveredAt: z.string().max(80).optional().nullable(),
+  scheduledPickupAt: z.string().max(80).refine(v => !v || Number.isFinite(Date.parse(v)), 'Fecha inválida').optional().nullable(),
+  deliveredAt: z.string().max(80).refine(v => !v || Number.isFinite(Date.parse(v)), 'Fecha inválida').optional().nullable(),
   warrantyStarted: z.boolean().optional(),
   notes: z.string().max(5000).optional().nullable(),
   claimReason: z.string().max(5000).optional().nullable(),
@@ -97,8 +109,9 @@ export const customerSchema = z.object({
 });
 
 export const refundCreateSchema = z.object({
+  idempotencyKey: z.string().uuid(),
   orderId: z.coerce.number().int().positive(),
-  amount: z.coerce.number().finite().positive().max(10_000_000),
+  amount: moneySchema.positive(),
   amountType: z.enum(['downpayment', 'total', 'custom']).default('downpayment'),
   paymentMethod: z.enum(['Zelle', 'CashApp', 'Efectivo', 'Transferencia', 'Tarjeta']).default('Zelle'),
   paymentDetails: z.string().max(1000).optional().nullable(),
@@ -114,6 +127,7 @@ export const passwordPolicySchema = z
   .string()
   .min(8, 'La contraseña debe tener al menos 8 caracteres')
   .max(200)
+  .refine(val => new TextEncoder().encode(val).length <= 72, 'La contraseña no puede superar 72 bytes UTF-8')
   .refine((val) => /[A-Z]/.test(val), 'Debe incluir al menos una letra mayúscula (A-Z)')
   .refine((val) => /[a-z]/.test(val), 'Debe incluir al menos una letra minúscula (a-z)')
   .refine((val) => /[0-9]/.test(val), 'Debe incluir al menos un dígito (0-9)')
@@ -123,7 +137,7 @@ export const userCreateSchema = z.object({
   name: z.string().trim().min(1).max(200),
   email: z.string().trim().email().max(254),
   phone: z.string().trim().max(50).optional().nullable(),
-  avatar_url: z.string().trim().max(500_000).optional().nullable(),
+  avatar_url: avatarSchema.optional().nullable(),
   password: passwordPolicySchema,
   role: z.enum(['admin', 'operator', 'vendedor_yarda']).default('operator'),
   permissions: z.array(z.string().trim().min(1).max(80)).max(100).default([]),
@@ -134,9 +148,9 @@ export const userUpdateSchema = z.object({
   name: z.string().trim().min(1).max(200),
   email: z.string().trim().email().max(254),
   phone: z.string().trim().max(50).optional().nullable(),
-  avatar_url: z.string().trim().max(500_000).optional().nullable(),
+  avatar_url: avatarSchema.optional().nullable(),
   password: passwordPolicySchema.optional().or(z.literal('')),
-  role: z.string().trim().min(1).max(40),
+  role: z.enum(['admin', 'operator', 'vendedor_yarda']),
   permissions: z.array(z.string().trim().min(1).max(80)).max(100),
   active: z.boolean(),
 });
@@ -145,13 +159,13 @@ export const userProfileUpdateSchema = z.object({
   name: z.string().trim().min(1).max(200),
   email: z.string().trim().email().max(254),
   phone: z.string().trim().max(50).optional().nullable(),
-  avatar_url: z.string().trim().max(500_000).optional().nullable(),
-  currentPassword: z.string().optional(),
+  avatar_url: avatarSchema.optional().nullable(),
+  currentPassword: z.string().max(200).optional(),
   newPassword: passwordPolicySchema.optional(),
 });
 
 export const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1),
+  currentPassword: z.string().min(1).max(200),
   newPassword: passwordPolicySchema,
 });
 
@@ -166,6 +180,7 @@ export const personalMessageSchema = z.object({
 });
 
 export const uploadPayloadSchema = z.object({
+  orderId: z.coerce.number().int().positive().optional(),
   filename: z.string().trim().min(1).max(255),
   contentType: z.enum([
     'image/jpeg',
@@ -177,7 +192,10 @@ export const uploadPayloadSchema = z.object({
     'text/plain',
     'text/csv',
   ]),
-  base64: z.string().min(1).max(15_000_000),
+  base64: z.string().min(1).max(15_000_000).refine(value => {
+    const encoded = value.replace(/^data:[^;,]+;base64,/, '');
+    return encoded.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(encoded);
+  }, 'Contenido base64 invalido'),
 });
 
 export const wasenderDispatchSchema = z.object({
@@ -189,7 +207,7 @@ export const wasenderDispatchSchema = z.object({
 });
 
 export const backupSnapshotCreateSchema = z.object({
-  tag: z.string().trim().max(50).optional(),
+  tag: z.string().trim().max(50).regex(/^[a-zA-Z0-9_-]*$/).optional(),
 });
 
 export const backupRestoreSchema = z.object({
@@ -201,6 +219,8 @@ export const backupRestoreSchema = z.object({
 });
 
 export const inventoryPartSchema = z.object({
+  price: z.number().finite().min(0).max(10_000_000).optional(),
+  cost: z.number().finite().min(0).max(10_000_000).optional(),
   year: z.string().trim().min(1, 'El año es requerido').max(50),
   brand: z.string().trim().min(1, 'La marca es requerida').max(100),
   model: z.string().trim().max(100).optional().nullable().default(''),
@@ -208,7 +228,7 @@ export const inventoryPartSchema = z.object({
   vin: z.string().trim().max(50).optional().nullable(),
   palletNumber: z.string().trim().max(50).optional().nullable(),
   engineSpecs: z.string().trim().max(150).optional().nullable(),
-  status: z.string().max(40).optional().default('disponible'),
+  status: z.enum(['disponible', 'reservado', 'vendido', 'en_revision']).optional().default('disponible'),
   notes: z.string().max(5000).optional().nullable(),
   yearFrom: z.string().trim().max(50).optional().nullable().default(''),
   yearTo: z.string().trim().max(50).optional().nullable().default(''),
@@ -292,9 +312,9 @@ export const verifyOtpSchema = z.object({
 });
 
 export const updateDeliveryDateSchema = z.object({
-  deliveredAt: z.string().min(1, 'La fecha de entrega es obligatoria'),
-  otpCode: z.string().trim().min(6, 'El código OTP debe tener 6 dígitos').max(6, 'El código OTP debe tener 6 dígitos'),
-  reason: z.string().max(255).optional(),
+  version: z.number().int().positive(),
+  deliveredAt: z.string().min(1, 'La fecha de entrega es obligatoria').refine(v => Number.isFinite(Date.parse(v)) && Date.parse(v) <= Date.now(), 'Fecha inválida o futura'),
+  reason: z.string().trim().min(5, 'Explica el motivo de la correccion').max(255),
 });
 
 export const orderDeliveryFollowupSchema = z.object({
@@ -308,6 +328,3 @@ export const orderDeliveryFollowupSchema = z.object({
   notes: z.string().trim().min(5, 'Las notas de la llamada deben contener al menos 5 caracteres').max(5000),
   operatorName: z.string().trim().max(200).optional().nullable(),
 });
-
-
-

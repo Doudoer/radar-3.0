@@ -1,5 +1,7 @@
 import { RowDataPacket } from 'mysql2/promise';
 import { pool } from './config';
+import { mapInventoryPartRow } from './inventory';
+import { matchOrderInventory } from '../utils/inventoryMatching';
 
 export const statusToDatabase: Record<string, string> = {
   cotizacion: 'Cotización',
@@ -20,6 +22,8 @@ export const statusToDatabase: Record<string, string> = {
 export const statusFromDatabase = (value: string) => {
   const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z]+/g, '_').replace(/^_|_$/g, '');
   const aliases: Record<string, string> = {
+    en_espera_de_confirmacion: 'espera_confirmacion',
+    solicitud_de_reembolso: 'solicitud_reembolso',
     en_espera_confirmacion: 'espera_confirmacion',
     listo_para_despacho: 'listo_despacho',
     listo_para_retiro: 'listo_retiro',
@@ -38,7 +42,7 @@ export const normalizeTransmissionType = (value?: string | null): 'AT' | 'MT' | 
 };
 
 export const mapOrder = (row: RowDataPacket, auctionLinks: any[] = []) => {
-  const customerName = [row.first_name, row.last_name].filter(Boolean).join(' ') || 'Cliente sin nombre';
+  const customerName = row.contact_name ?? ([row.first_name, row.last_name].filter(Boolean).join(' ') || 'Cliente sin nombre');
   const price = Number(row.price || 0);
   const deliveryFee = Number(row.shipping_cost || 0);
   const coreFee = Number(row.core_fee || 0);
@@ -46,6 +50,8 @@ export const mapOrder = (row: RowDataPacket, auctionLinks: any[] = []) => {
 
   return {
     id: String(row.id),
+    version: Number(row.version ?? 1),
+    inventoryPartId: row.inventory_part_id ? Number(row.inventory_part_id) : undefined,
     code: row.order_code,
     createdAt: new Date(row.created_at).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' }),
     createdAtIso: new Date(row.created_at).toISOString(),
@@ -62,12 +68,13 @@ export const mapOrder = (row: RowDataPacket, auctionLinks: any[] = []) => {
     customer: {
       id: String(row.customer_id || ''),
       name: customerName,
-      type: 'Particular',
-      email: row.email || '',
-      phone: row.phone || '',
-      location: row.address_shipping || 'Sin dirección registrada',
-      shippingAddress: row.address_shipping || '',
-      zip_code: row.zip_code || '',
+      type: row.type || 'Particular',
+      company: row.company || '',
+      email: row.contact_email ?? row.email ?? '',
+      phone: row.contact_phone ?? row.phone ?? '',
+      location: row.shipping_address ?? row.address_shipping ?? '',
+      shippingAddress: row.shipping_address ?? row.address_shipping ?? '',
+      zip_code: row.shipping_zip_code ?? row.zip_code ?? '',
       language: (row.customer_language || row.customer_crm_language || row.language || 'es') as 'es' | 'en',
       initials: customerName.split(' ').map((name: string) => name[0]).join('').slice(0, 2).toUpperCase(),
     },
@@ -95,13 +102,14 @@ export const mapOrder = (row: RowDataPacket, auctionLinks: any[] = []) => {
       balanceDue: Math.max(0, price + deliveryFee + coreFee - downPayment),
     },
     deliveryType: row.shipping_toggle ? 'envio_domicilio' : 'retiro_tienda',
-    warrantyDays: row.warranty_days || 60,
+    warrantyDays: row.warranty_days ?? 60,
     deliveredAt: row.delivered_at ? new Date(row.delivered_at).toISOString() : undefined,
     warrantyStarted: Boolean(row.warranty_started),
     claimReason: row.claim_reason || undefined,
     notes: row.description || '',
     auctionActive: Boolean(row.auction_search_active) || (auctionLinks && auctionLinks.length > 0),
     auctionLinks: auctionLinks || [],
+    ...(typeof row.workflow_data === 'string' ? JSON.parse(row.workflow_data) : row.workflow_data || {}),
   };
 };
 
@@ -110,14 +118,17 @@ export const toMysqlDateTime = (value?: string | null) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
 
-  const pad = (number: number) => number.toString().padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  return date.toISOString().slice(0, 19).replace('T', ' ');
 };
 
-export const getOrders = async (options: { limit?: number; startDate?: string; endDate?: string } = {}) => {
+export const getOrders = async (options: { limit?: number; offset?: number; id?: number; startDate?: string; endDate?: string } = {}) => {
   const maxLimit = Math.min(Math.max(1, options.limit || 5000), 10000);
   const conditions: string[] = ['o.deleted_at IS NULL'];
   const params: (string | number)[] = [];
+  if (options.id) {
+    conditions.push('o.id = ?');
+    params.push(options.id);
+  }
 
   if (options.startDate) {
     conditions.push('o.created_at >= ?');
@@ -129,21 +140,21 @@ export const getOrders = async (options: { limit?: number; startDate?: string; e
   }
 
   const [rows] = await pool.query<RowDataPacket[]>(`
-    SELECT o.*, c.first_name, c.last_name, c.phone, c.email, c.address_shipping, c.zip_code, c.language AS customer_crm_language, u.name AS advisor, u.role AS advisor_role
+    SELECT o.*, c.first_name, c.last_name, c.company, c.type, c.phone, c.email, c.address_shipping, c.zip_code, c.language AS customer_crm_language, u.name AS advisor, u.role AS advisor_role
     FROM orders o
     LEFT JOIN customers c ON c.id = o.customer_id
     LEFT JOIN users u ON u.id = o.user_id
     WHERE ${conditions.join(' AND ')}
-    ORDER BY o.created_at DESC
-    LIMIT ?
-  `, [...params, maxLimit]);
+    ORDER BY o.created_at DESC, o.id DESC
+    LIMIT ? OFFSET ?
+  `, [...params, maxLimit, Math.max(0, options.offset || 0)]);
 
-  let linksByOrderId: Map<number, any[]> | undefined;
-  try {
+  if (!rows.length) return [];
+  const linksByOrderId = new Map<number, any[]>();
     const [linkRows] = await pool.query<RowDataPacket[]>(
-      'SELECT id, order_id, url, auction_date, auction_type, status, created_at FROM order_auction_links ORDER BY id ASC'
+      'SELECT id, order_id, url, auction_date, auction_type, status, created_at FROM order_auction_links WHERE order_id IN (?) ORDER BY id ASC',
+      [rows.length ? rows.map(row => row.id) : [0]]
     );
-    linksByOrderId = new Map();
     for (const l of linkRows) {
       const arr = linksByOrderId.get(Number(l.order_id)) || [];
       arr.push({
@@ -156,9 +167,12 @@ export const getOrders = async (options: { limit?: number; startDate?: string; e
       });
       linksByOrderId.set(Number(l.order_id), arr);
     }
-  } catch (err) {
-    console.warn('[getOrders] Could not load auction links:', err);
-  }
-
-  return rows.map((row) => mapOrder(row, linksByOrderId?.get(Number(row.id))));
+  const [inventoryRows] = await pool.query<RowDataPacket[]>(
+    'SELECT * FROM inventory_parts WHERE deleted_at IS NULL',
+  );
+  const inventory = inventoryRows.map(mapInventoryPartRow);
+  return rows.map((row) => {
+    const order = mapOrder(row, linksByOrderId?.get(Number(row.id)));
+    return { ...order, inventoryAvailability: matchOrderInventory(order, inventory) };
+  });
 };

@@ -5,7 +5,6 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { NavScreen, Order, OrderStatus, PrefillOrderData, PendingFollowupItem } from './types';
-import { SLA_METRICS } from './data/mockData';
 import { Sidebar } from './components/Sidebar';
 import { TopHeader } from './components/TopHeader';
 import { DashboardView } from './components/DashboardView';
@@ -24,6 +23,7 @@ import { useAuthSession } from './hooks/useAuthSession';
 const OrderDetailView = React.lazy(() => import('./components/OrderDetailView').then((m) => ({ default: m.OrderDetailView })));
 const ClientsView = React.lazy(() => import('./components/ClientsView').then((m) => ({ default: m.ClientsView })));
 const ClaimsView = React.lazy(() => import('./components/ClaimsView').then((m) => ({ default: m.ClaimsView })));
+const RefundsView = React.lazy(() => import('./components/RefundsView').then((m) => ({ default: m.RefundsView })));
 const OperationsView = React.lazy(() => import('./components/OperationsView').then((m) => ({ default: m.OperationsView })));
 const InventoryView = React.lazy(() => import('./components/InventoryView').then((m) => ({ default: m.InventoryView })));
 const WeeklyRelationView = React.lazy(() => import('./components/WeeklyRelationView').then((m) => ({ default: m.WeeklyRelationView })));
@@ -171,6 +171,11 @@ export default function App() {
 
         eventSource.addEventListener('order:updated', () => {
           void fetchPendingFollowups(false);
+          window.dispatchEvent(new Event('radar:data-changed'));
+        });
+        eventSource.addEventListener('inventory:updated', () => {
+          window.dispatchEvent(new Event('radar:inventory-updated'));
+          window.dispatchEvent(new Event('radar:data-changed'));
         });
 
         eventSource.onerror = () => {
@@ -266,19 +271,21 @@ export default function App() {
       setIsNewOrderModalOpen(false);
       setCurrentScreen('order-detail');
     }
+    return savedOrder;
   }, [createOrder]);
 
   const handleCreateOrderFromCustomer = (customer: any) => {
     setPrefillOrderData({
+      customerId: Number(customer.id),
       customerName: customer.name || `${customer.first_name || ''} ${customer.last_name || ''}`.trim(),
       customerPhone: customer.phone,
       customerEmail: customer.email,
       customerType: customer.type,
       customerAddress: customer.address_shipping || customer.shippingAddress,
       customerZipCode: customer.zip_code,
-      make: 'Ford',
+      make: '',
       model: '',
-      year: 2023,
+      year: undefined,
       mainPart: '',
       partPrice: 1000,
       warrantyDays: 60,
@@ -292,7 +299,7 @@ export default function App() {
   };
 
   const handleUpdateOrder = useCallback(async (updatedOrder: Order) => {
-    await updateOrder(updatedOrder);
+    return await updateOrder(updatedOrder);
   }, [updateOrder]);
 
   const handleCloseNewOrderModal = useCallback(() => {
@@ -301,10 +308,11 @@ export default function App() {
     setPrefillOrderData(null);
   }, []);
 
-  const handleUpdateNewOrderModal = useCallback((updatedOrder: Order) => {
-    void handleUpdateOrder(updatedOrder);
+  const handleUpdateNewOrderModal = useCallback(async (updatedOrder: Order) => {
+    const savedOrder = await handleUpdateOrder(updatedOrder);
     setIsNewOrderModalOpen(false);
     setEditingOrder(null);
+    return savedOrder;
   }, [handleUpdateOrder]);
 
   if (authChecking) return <LoadingOverlay visible label="Validando sesión" />;
@@ -370,10 +378,11 @@ export default function App() {
             {currentScreen === 'dashboard' && (
               <DashboardView
                 orders={orders}
-                slaMetrics={SLA_METRICS}
+                slaMetrics={[]}
                 activities={activities}
                 onSelectOrder={handleSelectOrder}
                 onNavigateTaller={() => handleNavigate('ordenes')}
+                onRefresh={() => fetchAllData({ silent: true })}
               />
             )}
 
@@ -391,7 +400,11 @@ export default function App() {
                 }}
                 onExport={() => setIsExportModalOpen(true)}
                 onStatusRequest={() => setIsStatusRequestOpen(true)}
-                onUpdateStatus={updateOrderStatus}
+                onUpdateStatus={(orderId, status) => {
+                  void updateOrderStatus(orderId, status).catch((error) =>
+                    setDatabaseMessage(error instanceof Error ? error.message : 'No se pudo guardar el estado.')
+                  );
+                }}
                 onRefresh={() => fetchAllData({ silent: false })}
                 isRefreshing={isRefreshing}
                 lastSyncedAt={lastSyncedAt}
@@ -419,6 +432,9 @@ export default function App() {
                 userRole={userRole}
                 onSelectOrder={handleSelectOrder}
               />
+            )}
+            {currentScreen === 'reembolsos' && (
+              <RefundsView orders={orders} userRole={userRole} onSelectOrder={handleSelectOrder} />
             )}
 
             {(currentScreen === 'inventario' || (currentScreen as any) === 'piezas' || (currentScreen as any) === 'hold') && (

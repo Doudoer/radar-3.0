@@ -624,7 +624,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
         </div>
       ) : viewMode === 'grid' ? (
         /* GRID VIEW (Cards) */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {paginatedCustomers.map((client) => {
             const stats = customerStatsMap.get(client.id) || {
               activeOrdersCount: 0,
@@ -646,39 +646,35 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
             return (
               <div
                 key={client.id}
-                className="bg-[#0f172a]/90 border border-[#1e293b] hover:border-[#388bfd]/50 rounded-2xl p-4.5 flex flex-col justify-between gap-3.5 transition-all duration-200 hover:shadow-[0_8px_24px_rgba(0,0,0,0.4)] group relative"
+                className="horizon-client-card flex flex-col gap-5 min-w-0 p-5 sm:p-6 rounded-3xl transition-colors group relative"
               >
                 {/* Card Top Section */}
                 <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-[#1e293b] to-[#334155] border border-[#475569]/60 flex items-center justify-center text-[#f1f5f9] font-black text-sm shadow-inner shrink-0">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="horizon-client-avatar w-12 h-12 rounded-2xl flex items-center justify-center font-bold text-sm shrink-0">
                       {client.initials || 'CL'}
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <h3 className="font-bold text-sm text-[#f1f5f9] group-hover:text-[#58a6ff] transition-colors truncate">
+                        <h3 title={client.name} className="font-bold text-base transition-colors truncate">
                           {client.name}
                         </h3>
                       </div>
                       <p className="text-[11px] text-[#94a3b8] truncate font-medium">
                         {client.company || 'Particular'}
                       </p>
-                      <span className="text-[10px] font-mono text-[#64748b]">ID: {client.id}</span>
+                      <span className="text-[10px] text-slate-400">ID: {client.id}</span>
                     </div>
                   </div>
 
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
                     <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${badgeStyle}`}
+                      className={`text-[10px] font-semibold px-2 py-1 rounded-full ${badgeStyle}`}
                     >
                       {client.type}
                     </span>
                     <span
-                      className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md border flex items-center gap-1 ${
-                        client.language === 'en'
-                          ? 'bg-indigo-950/60 text-indigo-300 border-indigo-500/30'
-                          : 'bg-amber-950/60 text-amber-300 border-amber-500/30'
-                      }`}
+                      className="text-[10px] font-medium text-slate-400 flex items-center gap-1"
                     >
                       <span>{client.language === 'en' ? '🇺🇸' : '🇪🇸'}</span>
                       <span>{client.language === 'en' ? 'EN' : 'ES'}</span>
@@ -687,15 +683,15 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                 </div>
 
                 {/* Location & Contact Info */}
-                <div className="flex flex-col gap-1.5 text-xs text-[#cbd5e1] border-t border-[#1e293b] pt-2.5">
+                <div className="flex flex-col gap-3 text-xs text-[#cbd5e1]">
                   <div className="flex items-center justify-between text-[#94a3b8]">
                     <div className="flex items-center gap-1.5 truncate">
                       <span className="material-symbols-outlined text-[15px] text-[#58a6ff]">call</span>
                       <span className="font-mono text-white text-[12px]">{client.phone}</span>
                     </div>
                     {client.zip_code && (
-                      <span className="text-[10px] font-mono bg-[#1e293b] text-[#94a3b8] px-1.5 py-0.5 rounded border border-[#334155]/60">
-                        📍 ZIP: {client.zip_code}
+                      <span className="text-[10px] text-slate-400 shrink-0 ml-2">
+                        ZIP {client.zip_code}
                       </span>
                     )}
                   </div>
@@ -724,9 +720,9 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                 </div>
 
                 {/* Real-time Order Stats */}
-                <div className="bg-[#0b1329] p-2.5 rounded-xl border border-[#1e293b] flex justify-between items-center text-xs">
+                <div className="horizon-client-stats p-4 rounded-2xl grid grid-cols-2 gap-3 text-xs mt-auto">
                   <div>
-                    <span className="text-[9px] text-[#64748b] uppercase font-bold block">
+                    <span className="text-[10px] text-slate-400 font-medium block mb-1.5">
                       Órdenes Activas
                     </span>
                     <button
@@ -738,17 +734,17 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                     </button>
                   </div>
                   <div className="text-right">
-                    <span className="text-[9px] text-[#64748b] uppercase font-bold block">
+                    <span className="text-[10px] text-slate-400 font-medium block mb-1.5">
                       Inversión Histórica
                     </span>
-                    <span className="font-mono font-bold text-[#10b981]">
-                      ${stats.totalSpent.toLocaleString('en-US', { minimumFractionDigits: 2 })} USD
+                    <span className="font-bold text-sm text-[#10b981]">
+                      ${stats.totalSpent.toLocaleString('en-US', { minimumFractionDigits: 2 })} <span className="text-[9px] font-medium">USD</span>
                     </span>
                   </div>
                 </div>
 
                 {/* Action Bar (Direct WhatsApp, Call, Email, Edit, Delete) */}
-                <div className="flex items-center gap-1.5 pt-1 border-t border-[#1e293b]">
+                <div className="horizon-client-actions flex items-center gap-2 pt-4 border-t">
                   {/* WhatsApp Quick Action */}
                   <a
                     href={buildWhatsAppLink(client)}

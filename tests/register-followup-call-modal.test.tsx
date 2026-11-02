@@ -49,6 +49,9 @@ describe('RegisterFollowupCallModal Component', () => {
     expect(html).toContain('Resumen de la Conversación (Bitácora)');
     expect(html).toContain('Guardar Registro');
     expect(html).toContain('Cancelar');
+    expect(html).toContain('horizon-followup-portal');
+    expect(html).toContain('horizon-followup-panel');
+    expect(html).not.toContain('cyber-laser-bar');
   });
 
   it('hides piece status and warranty warning when call was not answered (no_answer), but requires written explanation', () => {
@@ -286,4 +289,3 @@ describe('RegisterFollowupCallModal Component', () => {
     expect(html).toContain('We wanted to check in and see how everything is going with your transmission.');
   });
 });
-

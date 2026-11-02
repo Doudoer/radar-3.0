@@ -10,4 +10,5 @@ backups/
 uploads/
 *.sql
 !migrations/*.sql
+!deploy/desktop-runtime-grants.sql
 capturas_sistema/

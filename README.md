@@ -25,26 +25,207 @@ https://radar-rsy.store/
 - Gestión de órdenes: creación, edición, estados, entregas, garantías y detalle operativo.
 - Solicitud de estatus para yarda con rango de fechas, selección por estatus y PDF descargable.
 - Directorio de clientes con relación de órdenes.
-- Gestión de reclamos y garantías con restauración de estado de la orden.
+- Vistas separadas de reclamos y reembolsos, con pagos de devoluciones confirmados por administración.
 - Operaciones y traspaso de órdenes.
-- Relación semanal y módulo financiero protegido por 2FA.
+- Relación semanal y finanzas persistentes protegidas por bóveda con segunda autenticación, verificada en el servidor.
 - Dashboard operativo y actividad reciente.
 - Configuración del sistema e integración futura de mensajería.
-- Backup total SQL de la base de datos para administradores.
+- Backup total SQL de la base de datos para administradores con boveda desbloqueada.
 - Gestión de usuarios, roles, estado de cuenta y permisos.
 - Loading global durante sesión, carga de datos y transición de vistas.
 - Bloc de notas personal flotante, persistente por usuario y accesible sobre cualquier vista o modal.
 - Mensajería interna rápida entre usuarios desde el mismo bloc personal.
 - Layout visual compartido para las vistas principales.
 
+## Estilo visual
+
+La interfaz adapta el lenguaje visual de [Horizon UI Chakra](https://github.com/horizon-ui/horizon-ui-chakra)
+(referencia publicada bajo MIT): tipografia DM Sans, superficies limpias,
+tarjetas redondeadas y acentos violeta/azul. Se mantiene React/Tailwind, sin
+incorporar Chakra ni datos de demostracion. No se modifica la autorizacion
+ni el segundo factor de la boveda.
+
+El tema compartido se define en `src/horizon.css`, cargado despues del estilo
+legacy para normalizar las pantallas, formularios y modales existentes en claro
+y oscuro. Las reglas son solo de pantalla: se conservan las reglas de impresion.
+Los usuarios nuevos comienzan en claro; se respeta la preferencia previamente
+guardada. DM Sans dispone de fuentes de sistema como alternativa sin conexion.
+Los modales de seguimiento post-entrega y registro de contacto se renderizan
+fuera de `#root`; su estilo compartido usa `.horizon-followup-portal` para
+mantener el mismo tema claro/oscuro sin alterar las reglas de seguimiento.
+
+## Criterios de las analiticas
+
+- Dashboard y Mis Operaciones comparten periodos de negocio (semana lunes-domingo,
+  mes y ano), independientes de la zona horaria del navegador. Las fechas invalidas
+  no se convierten en actividad de hoy.
+- La distribucion operativa asigna cada orden a una sola categoria, incluidos
+  archivos y estados historicos. Los porcentajes se muestran con un decimal.
+- Los ingresos netos son pagos menos reembolsos por fecha efectiva; los cobros
+  incluyen solamente pagos. No se incluyen saldos migrados sin evidencia fechada.
+  Los administradores pueden consultar agregados diarios del dashboard sin
+  segundo factor en `/api/analytics/income`. No incluyen identificadores de
+  orden ni movimientos individuales. La boveda sigue siendo obligatoria para
+  movimientos detallados, nomina, gastos y configuracion financiera.
+- Mis Operaciones muestra valor comercial total (pieza, envio y core), abonos
+  acumulados y saldo actual de las ordenes creadas en el periodo; no representa
+  cobros ocurridos en ese periodo ni facturacion fiscal. Las ventas excluyen
+  cotizaciones, reclamos, reembolsos, cancelaciones y estados sin clasificacion.
+- El grafico de ingreso neto conserva centavos, usa cero real para periodos vacios
+  y representa los valores negativos debajo del eje cero.
+- Actualizar el dashboard consulta tanto las ordenes como los movimientos.
+
+## Disponibilidad de piezas y Google Sheets
+
+Las ordenes muestran coincidencias de inventario por tipo, marca, modelo, ano
+y especificaciones. Son sugerencias para revision: nunca garantizan
+intercambiabilidad mecanica. Los rangos incompletos y especificaciones faltantes
+se indican como posibles coincidencias. Piezas vendidas o eliminadas no se ofrecen.
+
+En el resumen de una orden, **Ver coincidencias** permite seleccionar una pieza
+disponible y confirmar su revision mecanica antes de **Vincular y reservar pieza**.
+Consultar coincidencias no reserva nada. La reserva se valida en una transaccion
+con bloqueo de filas, version de orden y auditoria; no modifica precios ni
+permite reemplazar una pieza ya asignada. Los cambios se notifican a las sesiones
+locales mediante eventos. Las ordenes historicas no se vinculan automaticamente.
+
+En Inventario se puede descargar todo el inventario o solo los resultados
+filtrados como CSV UTF-8. Google Sheets: **Archivo > Importar > Subir**, seleccionar
+el CSV y separador coma; desactivar la conversion automatica de texto a numeros,
+fechas y formulas para conservar identificadores/VIN. No hay envio automatico
+a Google. El servidor incluye costo interno solo para administracion y neutraliza
+formulas en campos de texto. La impresion por marcas se conserva.
+
+La aceptacion HTTP de esta funcion se ejecuta con
+`scripts/test-inventory-availability.ts`, exclusivamente contra una base vacia
+llamada `radar_inventory_validation` y una API de pruebas aislada. Comprueba
+reserva simultanea (200/409), auditoria, versiones, liberacion al cancelar y
+exportacion CSV con permisos. No debe apuntarse a la copia de negocio ni al VPS.
+
 ## Requisitos
 
 - Node.js 22 o superior.
 - npm.
-- MySQL 8+ o MariaDB compatible.
+- MariaDB 11 (motor validado; las migraciones usan sintaxis específica de MariaDB).
 - Base de datos `radar_v3` creada y accesible.
 
 ## Desarrollo local
+
+### Copia aislada de produccion con Docker Desktop
+
+`compose.desktop.yml` ejecuta la aplicacion compilada, MariaDB 11 y un proxy Nginx en el
+proyecto Docker `radar-desktop`, separado de Dokploy y del VPS. No requiere
+Node.js instalado en el equipo.
+
+```bash
+docker compose -f compose.desktop.yml up -d --build --wait
+```
+
+Abrir http://127.0.0.1:3000. Se conservan las cuentas y contrasenas de la copia
+restaurada; no se cambian usuarios de produccion. Para acceder mediante HTTP
+local se usa `NODE_ENV=development`, aunque el frontend esta compilado.
+
+La base de datos y la aplicacion no publican puertos. Un proxy Nginx publica
+la web solo en la interfaz local del equipo. La app y MariaDB usan exclusivamente
+una red `internal`, sin salida a Internet,
+y `WASENDER_ENABLED=false` impide envios reales. Las
+integraciones externas del servidor no funcionan en este entorno. El navegador
+puede seguir solicitando recursos externos, como fuentes o consultas VIN.
+
+Los datos persisten en los volumenes Docker `database`, `uploads` y
+`app_backups` del proyecto. Las credenciales de este Compose son exclusivas de
+desarrollo y nunca deben usarse en produccion.
+
+La copia original descargada queda en `backups/production-copy/` (excluida de
+Git y del contexto de build). Contiene datos reales: no compartirla ni subirla
+a un repositorio. Los archivos subidos tambien se excluyen del build.
+
+Para restaurar por primera vez sobre volumenes nuevos, antes de arrancar la app:
+
+```bash
+docker compose -f compose.desktop.yml build app
+docker compose -f compose.desktop.yml up -d --wait db
+docker compose -f compose.desktop.yml exec -T db sh -c \
+  'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -uroot "$MARIADB_DATABASE"' \
+  < backups/production-copy/database.sql
+docker compose -f compose.desktop.yml run --rm --no-deps -T --user 0 \
+  --cap-add CHOWN --cap-add FOWNER --cap-add DAC_OVERRIDE app \
+  sh -c 'tar -xzf - -C /app && chown -R 1001:1001 /app/uploads /app/backups' \
+  < backups/production-copy/uploads.tar.gz
+docker compose -f compose.desktop.yml run --rm migrate --baseline-legacy
+docker compose -f compose.desktop.yml up -d --wait
+```
+
+No ejecutar la restauracion sobre una base local con cambios que se quieran
+conservar: el dump reemplaza las tablas existentes. La exportacion SQL usa una
+transaccion consistente sin bloqueos de tablas; los archivos se copian mientras
+produccion sigue activa, por lo que no representan una instantanea atomica junto
+con la base.
+
+```bash
+# Ver estado y registros
+docker compose -f compose.desktop.yml ps
+docker compose -f compose.desktop.yml logs --tail=100 app
+
+# Detener sin borrar datos
+docker compose -f compose.desktop.yml stop
+
+# Volver a iniciar
+docker compose -f compose.desktop.yml up -d --wait
+```
+
+No usar `down -v` salvo que se quiera borrar la base y los archivos locales.
+Estos comandos no se conectan al VPS.
+
+### Actualizaciones locales y migraciones
+
+Antes de actualizar, conservar un dump consistente y detener la app local.
+No se ejecutan cambios de esquema durante el arranque HTTP. Si faltan
+migraciones, la app se niega a iniciar en lugar de servir con esquema incompleto.
+
+```bash
+docker compose -f compose.desktop.yml stop app
+docker compose -f compose.desktop.yml build app
+docker compose -f compose.desktop.yml run --rm migrate
+docker compose -f compose.desktop.yml up -d --wait
+```
+
+`--baseline-legacy` se usa **una sola vez** sobre la copia anterior sin historial
+de migraciones; comprueba su esquema y registra la base conocida, sin repetir el
+DDL inicial sobre tablas existentes. Una base vacía usa `migrate` sin esa opción.
+Las migraciones DDL no son atómicas en MariaDB: no interrumpirlas y conservar el
+dump previo. No ejecutarlas simultáneamente con exportaciones de respaldo.
+
+### Reglas de integridad
+
+- `Pagado` exige liquidar pieza + core + envío; importes con dos decimales,
+  sin anticipos superiores al total.
+- Las ediciones de órdenes requieren la versión recibida; un conflicto devuelve
+  409 y no sobrescribe la otra edición. Crear órdenes y devoluciones requiere
+  una clave UUID estable por intento, reutilizada en reintentos.
+- Solo administración cambia finanzas, asignaciones, cancelaciones,
+  reactivaciones o fechas de entrega existentes y confirma reembolsos.
+- Los reembolsos pueden ser parciales; solicitudes pendientes reservan el importe
+  y nunca pueden exceder lo cobrado menos otras devoluciones.
+- La comisión es 2% del precio de pieza entregada, excluyendo core, envío y yarda.
+  Semana lunes–domingo y zona `America/New_York`.
+- Garantía de cero días válida; comienza en entrega física. Fechas históricas
+  faltantes y posibles duplicados de clientes requieren revisión, no inferencias.
+- Nómina, reglas recurrentes y gastos se guardan en la base. La importación de
+  datos del navegador es explícita y conserva el original. Cobros históricos sin
+  fecha permanecen como saldo inicial, no como ingresos de una semana inventada.
+- La restauración SQL directa desde la web está deshabilitada (409). Exportar,
+  verificar en una base aislada y planificar el reemplazo con mantenimiento.
+  Las descargas de respaldos requieren sesión administrativa y boveda desbloqueada;
+  adjuntos, sesión. La auditoria y las escrituras de gestion de usuarios tambien
+  requieren la boveda. Los agregados diarios del dashboard mantienen su acceso
+  administrativo sin OTP.
+
+Validación adicional reproducible: `scripts/test-information-integrity.ts`
+rechaza cualquier base distinta de `radar_validation_fresh` y prueba rutas HTTP
+con registros sintéticos. No ejecutarlo contra la copia de trabajo ni producción.
+
+### Desarrollo con Node.js y MySQL
 
 Instalar dependencias:
 
@@ -58,7 +239,12 @@ Docker Desktop puede iniciar una base MySQL local aislada:
 npm run db:up
 ```
 
-Crear un archivo `.env` a partir de `.env.example` y completar la conexión. Para el contenedor local se usan `DB_HOST=127.0.0.1`, `DB_PORT=3306`, `DB_NAME=radar_v3`, `DB_USER=radar_app` y `DB_PASSWORD=radar_local_password`.
+Crear un archivo `.env` a partir de `.env.example` y completar la conexion.
+Para desarrollo con Node cambiar explicitamente `NODE_ENV=development`,
+`APP_URL=http://localhost:3000`, `CORS_ORIGIN=http://localhost:3000` y
+`TRUST_PROXY=0`. El ejemplo es de produccion y rechaza HTTP.
+Para el contenedor local se usan `DB_HOST=127.0.0.1`, `DB_PORT=3306`,
+`DB_NAME=radar_v3`, `DB_USER=radar_app` y `DB_PASSWORD=radar_local_password`.
 
 Aplicar migraciones y crear el administrador inicial:
 
@@ -102,12 +288,86 @@ Variables principales:
 | `JWT_SECRET` | Secreto largo y aleatorio para las sesiones. |
 | `CORS_ORIGIN` | Origen permitido del frontend. |
 | `APP_URL` | URL pública de la aplicación. |
+| `TRUST_PROXY` | `1` solo con Node accesible exclusivamente desde un proxy confiable que sobrescribe `X-Real-IP` y `X-Forwarded-Proto`; por defecto no se confia en esas cabeceras. |
+| `WASENDER_ENABLED` | `false` deshabilita WhatsApp explícitamente. |
+| `WASENDER_API_KEY` | Credencial solo por entorno; sin valor incorporado. |
 | `VITE_API_URL` | URL de API usada por Vite en desarrollo. |
 | `ADMIN_NAME` | Nombre del administrador creado por el seed. |
 | `ADMIN_EMAIL` | Correo del administrador creado por el seed. |
 | `ADMIN_PASSWORD` | Contraseña inicial; mínimo 12 caracteres. |
 
 Nunca guardar credenciales reales en Git. En Dokploy deben configurarse como variables o secretos del entorno de producción.
+
+## Seguridad y operacion
+
+Informe de la revision local: [SECURITY-REVIEW.md](./SECURITY-REVIEW.md).
+Estas modificaciones no estan desplegadas en el VPS.
+
+- Produccion exige `APP_URL` y, si existe, `CORS_ORIGIN` como origen HTTPS
+  exacto, JWT de al menos 32 caracteres sin valores de ejemplo y usuario DB no
+  root. Generar el secreto fuera de Git; su longitud no demuestra entropia.
+  No se permite arrancar con depurador. HTTP devuelve 426 excepto `/health`.
+- El proxy debe terminar TLS, redirigir HTTP a HTTPS y ser el unico ingreso a
+  Node. No publicar los puertos de Node o MariaDB. Aplicar firewall y, si DB esta
+  fuera de una red privada confiable, configurar TLS con certificados verificados.
+  La plantilla `deploy/nginx-radar.conf` ya no publica adjuntos mediante `alias`.
+- `radar_session` es HttpOnly, SameSite=Lax, 8 horas; `radar_finance` y
+  `radar_csrf`, HttpOnly y SameSite=Strict. Todas son Secure en produccion.
+  Cerrar sesion revoca las sesiones de la cuenta en el servidor.
+  Cambiar contrasena, identidad administrativa o cuenta desde gestion revoca
+  sesiones/bovedas; regenerar factores vuelve a bloquear la boveda.
+- Cambiar correo o contrasena desde el perfil requiere la contrasena actual.
+  Cambiar el telefono administrativo exige ademas desbloquear la boveda con
+  el factor existente. La gestion administrativa de cuentas exige esa misma
+  autorizacion. No se reiniciaron factores ni contrasenas de usuarios reales.
+- Los clientes que escriben obtienen `GET /api/auth/csrf`, conservan su cookie
+  y envian el token recibido en `X-CSRF-Token`. Es firmado, caduca a las 8 horas
+  y esta ligado a la sesion exacta, incluso con Bearer. `apiFetch` renueva solo
+  tras `403 CSRF_INVALID`, antes de que exista una escritura. Scripts de prueba
+  usan `scripts/securityHttp.ts`; no omitir esta proteccion para integraciones.
+- Limites por proceso: 600 peticiones/minuto/IP; 120 escrituras/minuto/usuario,
+  30 para autenticacion, mensajeria, subidas y respaldos; 10 errores de login
+  por IP o cuenta en 15 minutos; 5 fallos 2FA en 15 minutos. Hasta 5 conexiones
+  SSE por usuario y 200 totales, revalidadas cada 25 segundos. Respuestas 429
+  operativas incluyen `Retry-After`. No se aceptan JWT en URLs.
+- Se registran accesos, cambios de factores, fallos y rechazos sospechosos,
+  con limites para no inundar la auditoria. Consultarla como admin con boveda
+  en `/api/system/audit-logs`. La copia local no envia alertas externas.
+  Para varias replicas hacen falta limites/grants compartidos y supervision externa.
+- CSP no permite JavaScript inline ni eval; conserva estilos inline por
+  compatibilidad con React y la impresion. Los valores del reporte imprimible
+  se escapan y ambos CSV de inventario neutralizan formulas. Costo interno solo
+  para administracion en lectura, escritura y exportacion.
+- Adjuntos: hasta 10 MiB binarios y 15 MiB por peticion JSON/proxy, extensiones
+  y MIME permitidos, base64 valido y firma inicial concordante; SVG y ejecutables
+  no se admiten. Los archivos no imagen se descargan, no se ejecutan como HTML.
+  Avatares raster de hasta 350 KiB en la interfaz, 500.000 caracteres en servidor.
+  Esto no sustituye un antivirus para archivos de terceros.
+- Nuevas contrasenas: bcrypt factor 12 y maximo 72 bytes UTF-8 para evitar
+  truncamiento. No hay enlaces de recuperacion de contrasena ni procesador
+  externo de pagos en este proyecto. Los importes, saldos y devoluciones se
+  comprueban en servidor; no se considera prueba de pago un valor del navegador.
+- La cuenta DB local solo tiene SELECT/INSERT/UPDATE/DELETE.
+  `deploy/desktop-runtime-grants.sql` configura volumenes nuevos; para volumenes
+  existentes se aplica explicitamente una vez con el administrador de la DB.
+  El servicio `migrate` usa una cuenta separada (root solo en Docker local).
+  En produccion usar un migrador dedicado, no conceder DDL a la aplicacion.
+  El contenedor app es no-root, sin capacidades, con raiz de solo lectura y
+  volúmenes privados de datos; mantener sus copias y el disco cifrados fuera de Git.
+- `npm run security:check` es un diagnostico de configuracion/archivos, no una
+  certificacion; no escribe directorios ni muestra claves.
+  `npm audit` consulta solo metadatos de paquetes publicos.
+  La copia no contiene historial Git: su escaneo y la rotacion de credenciales
+  compartidas o comprometidas deben realizarse antes del despliegue.
+
+La aceptacion real de seguridad esta en `scripts/test-security-hardening.ts`;
+se niega a operar fuera de una base vacia `radar_security_validation`. Crear
+esa base y migrarla por separado, ejecutar una API desechable con
+`NODE_ENV=production`, `APP_URL=https://security.test`, `TRUST_PROXY=1`,
+WhatsApp deshabilitado y acceso exclusivamente por red Docker privada.
+El script usa `TEST_API_URL`, el mismo `JWT_SECRET` de prueba y acceso de
+preparacion a esa DB; envia cabeceras de proxy solo en este entorno aislado.
+No ejecutarlo contra datos de trabajo ni exponer esa API.
 
 ## Scripts
 
@@ -225,7 +485,8 @@ No se realizan llamadas externas mientras falten `WASENDER_BASE_URL` y `WASENDER
 - Validación obligatoria de `Content-Type`.
 - Rate limit de login en memoria.
 - Roles administrativos para usuarios y operaciones protegidas.
-- Relación Semanal exige un código OTP generado para cada acceso; no existe bypass de Super Admin ni código maestro.
+- Relación Semanal exige segunda autenticación: WhatsApp (PIN de un uso, 60 segundos), Authenticator configurado o código de respaldo de un uso. La autorización de bóveda dura 15 minutos, se vincula a la sesión autenticada y se revoca al pulsar «Bloquear bóveda». Reiniciar la API también bloquea las bóvedas. No existe bypass de Super Admin ni código maestro.
+- Las API financieras rechazan accesos sin bóveda desbloqueada, incluso para administradores. Consultar o regenerar secretos y códigos requiere desbloquearla primero. En local WhatsApp permanece desactivado: se informa el error y no se simula el envío; pueden usarse factores previamente configurados.
 - Protección contra desactivación o degradación de la propia cuenta administradora.
 - Headers de seguridad, CSP y HSTS bajo HTTPS.
 - Contenedor de producción ejecutado como usuario no root.

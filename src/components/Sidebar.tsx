@@ -32,6 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'inventario', label: 'Inventario & HOLD', icon: 'sell', aliases: ['piezas', 'hold'] },
     { id: 'clientes', label: 'Clientes CRM', icon: 'group', aliases: ['crm'] },
     { id: 'reclamos', label: 'Reclamos', icon: 'error_outline' },
+    { id: 'reembolsos', label: 'Reembolsos', icon: 'currency_exchange' },
     { id: 'mis_operaciones', label: 'Mis Operaciones', icon: 'assignment_ind' },
     ...(isSuperAdmin
       ? [{ id: 'relacion_semanal' as NavScreen, label: 'Relación Semanal', icon: 'domain', aliases: ['finanzas' as NavScreen] }]
@@ -56,27 +57,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <aside
-        className={`bg-[#060b17]/95 backdrop-blur-2xl h-screen h-[100dvh] w-60 lg:w-64 shrink-0 border-r border-cyan-500/20 flex flex-col py-3.5 lg:py-4 px-2.5 lg:px-3 select-none transition-transform duration-300 ease-in-out fixed md:static inset-y-0 left-0 z-50 md:z-auto shadow-[10px_0_30px_rgba(0,0,0,0.6)] ${
+        aria-label="Navegación principal"
+        className={`horizon-sidebar h-screen h-[100dvh] w-60 lg:w-64 shrink-0 flex flex-col py-6 px-4 select-none transition-transform duration-300 ease-in-out fixed md:static inset-y-0 left-0 z-50 md:z-auto ${
           isDrawerOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
       >
-        {/* Header Logo with Cyber Holographic Pulse */}
-        <div className="flex items-center justify-between px-2 py-0.5">
+        <div className="flex items-center justify-between px-2 py-2">
           <div className="flex items-center gap-2.5">
-            <div className="relative w-8 h-8 lg:w-9 lg:h-9 rounded-xl bg-gradient-to-br from-[#0c1a30] via-[#060c18] to-[#040812] border border-cyan-400/60 flex items-center justify-center text-cyan-400 shadow-[0_0_18px_rgba(6,182,212,0.45)] shrink-0">
-              <div className="absolute -inset-1 rounded-xl border border-dashed border-cyan-500/30 animate-cyber-orbit pointer-events-none" />
-              <span className="material-symbols-outlined text-[18px] lg:text-[20px] drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">
+            <div className="horizon-brand-mark w-10 h-10 rounded-2xl flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-[24px]">
                 radar
               </span>
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <h1 className="font-black text-white tracking-[0.16em] text-[14px] lg:text-[15px] leading-none uppercase drop-shadow-[0_0_10px_rgba(255,255,255,0.4)]">
-                  RADAR <span className="text-cyan-400 font-mono">3.0</span>
+                <h1 className="font-black text-white tracking-tight text-xl leading-none uppercase">
+                  RADAR <span className="text-cyan-400">3.0</span>
                 </h1>
               </div>
-              <span className="text-[8.5px] font-mono font-bold tracking-[0.18em] text-emerald-400 uppercase block mt-1 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399] animate-ping" />
+              <span className="text-[9px] font-bold tracking-wider text-slate-400 uppercase mt-1.5 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                 SISTEMA EN LÍNEA
               </span>
             </div>
@@ -91,11 +91,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {/* Laser Divider */}
-        <div className="relative my-2.5 lg:my-3.5">
-          <div className="h-[1px] bg-gradient-to-r from-transparent via-cyan-500/40 to-transparent w-full" />
-          <div className="absolute top-0 left-1/4 right-1/4 h-[1px] bg-cyan-400 shadow-[0_0_8px_#22d3ee]" />
-        </div>
+        <div className="horizon-sidebar-divider my-6" />
+        <p className="px-3 mb-3 text-[10px] font-bold tracking-widest text-slate-500 uppercase">Espacio de trabajo</p>
 
         {/* Navigation Items List */}
         <div className="flex flex-col gap-1 flex-1 overflow-y-auto pr-0.5 custom-scrollbar">
@@ -107,34 +104,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
             return (
               <button
                 key={item.id}
+                aria-current={isActive ? 'page' : undefined}
                 onClick={() => handleNavClick(item.id)}
-                className={`w-full flex items-center gap-3 py-2 px-2.5 lg:py-2.5 lg:px-3 rounded-xl text-[12.5px] lg:text-[13px] transition-all duration-150 text-left cursor-pointer group relative overflow-hidden ${
-                  isActive
-                    ? 'bg-gradient-to-r from-cyan-500/20 via-blue-500/10 to-transparent text-cyan-300 font-bold border-l-4 border-cyan-400 shadow-[inset_0_0_15px_rgba(6,182,212,0.15)]'
-                    : 'text-slate-400 hover:text-slate-100 hover:bg-cyan-500/5 border-l-4 border-transparent font-medium'
-                }`}
+                className="horizon-nav-item w-full flex items-center gap-3 py-3 px-3 rounded-xl text-[13px] transition-colors text-left cursor-pointer group relative"
               >
-                {isActive && (
-                  <div className="absolute right-2 w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee] animate-pulse" />
-                )}
-                <span
-                  className={`material-symbols-outlined text-[18px] lg:text-[20px] shrink-0 transition-all duration-150 ${
-                    isActive
-                      ? 'text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.8)] scale-105'
-                      : 'text-slate-400 group-hover:text-cyan-300 group-hover:scale-105'
-                  }`}
-                >
+                <span className="material-symbols-outlined text-[21px] shrink-0">
                   {item.icon}
                 </span>
-                <span className="truncate tracking-wide">{item.label}</span>
+                <span className="truncate">{item.label}</span>
               </button>
             );
           })}
         </div>
 
-        {/* Bottom Sentinel Security Badge */}
-        <div className="mt-auto pt-2.5 border-t border-cyan-500/15">
-          <div className="bg-[#040814]/90 border border-cyan-500/20 rounded-xl p-2 flex items-center justify-between">
+        <div className="mt-auto pt-4">
+          <div className="horizon-sidebar-account rounded-2xl p-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="material-symbols-outlined text-[15px] text-emerald-400">
                 shield

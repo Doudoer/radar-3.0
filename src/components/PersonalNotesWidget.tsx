@@ -280,7 +280,7 @@ export const PersonalNotesWidget: React.FC = () => {
           className="fixed bottom-5 right-5 z-[80] flex h-11 items-center gap-2 rounded-full border border-cyan-500/40 bg-[#070c18]/90 backdrop-blur-xl px-4 text-cyan-300 shadow-[0_8px_30px_rgba(0,0,0,0.7)] transition-all hover:border-cyan-400 hover:bg-[#09152b] hover:text-white hover:shadow-[0_0_20px_rgba(6,182,212,0.35)] active:scale-95 cursor-pointer font-mono select-none"
         >
           <span className="material-symbols-outlined text-[19px] text-cyan-400">edit_note</span>
-          <span className="text-xs font-bold">Bloc de notas</span>
+          <span className="hidden sm:inline text-xs font-bold">Bloc de notas</span>
         </button>
       )}
 

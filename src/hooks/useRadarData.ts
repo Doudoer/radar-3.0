@@ -17,6 +17,14 @@ export const useRadarData = (authenticated: boolean) => {
 
   const isMountedRef = useRef(true);
   const lastFetchTimeRef = useRef<number>(Date.now());
+  const generationRef = useRef(0);
+  const authenticatedRef = useRef(authenticated);
+  const sessionRef = useRef({ authenticated, generation: 0 });
+  if (sessionRef.current.authenticated !== authenticated) {
+    sessionRef.current = { authenticated, generation: sessionRef.current.generation + 1 };
+  }
+  const sessionGeneration = sessionRef.current.generation;
+  authenticatedRef.current = authenticated;
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -27,6 +35,7 @@ export const useRadarData = (authenticated: boolean) => {
 
   const fetchAllData = useCallback(async (options?: { silent?: boolean }) => {
     if (!authenticated) return;
+    const generation = ++generationRef.current;
     lastFetchTimeRef.current = Date.now();
     const isSilent = options?.silent ?? false;
     if (!isSilent) {
@@ -43,7 +52,7 @@ export const useRadarData = (authenticated: boolean) => {
         apiFetch('/customers').then((response) => (response.ok ? response.json() : Promise.reject())),
       ]);
 
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || !authenticatedRef.current || generation !== generationRef.current) return;
 
       if (ordersResult.status === 'fulfilled') {
         const databaseOrders = ordersResult.value;
@@ -68,9 +77,13 @@ export const useRadarData = (authenticated: boolean) => {
         setCustomers(customersResult.value);
       }
 
-      setLastSyncedAt(new Date());
+      if ([ordersResult, activitiesResult, customersResult].every((result) => result.status === 'fulfilled')) {
+        setLastSyncedAt(new Date());
+      } else {
+        setDatabaseMessage('Sincronización incompleta. No se pudieron actualizar todos los datos.');
+      }
     } finally {
-      if (isMountedRef.current) {
+      if (isMountedRef.current && authenticatedRef.current && generation === generationRef.current) {
         if (!isSilent) setLoading(false);
         setIsRefreshing(false);
       }
@@ -79,8 +92,26 @@ export const useRadarData = (authenticated: boolean) => {
 
   // Initial load
   useEffect(() => {
-    fetchAllData();
-  }, [fetchAllData]);
+    if (!authenticated) {
+      generationRef.current++;
+      setOrders([]);
+      setCustomers([]);
+      setActivities([]);
+      setSelectedOrderId(null);
+      setLastSyncedAt(null);
+      setLoading(false);
+      setIsRefreshing(false);
+      setDatabaseMessage(null);
+      return;
+    }
+    void fetchAllData();
+    const refresh = () => { void fetchAllData({ silent: true }); };
+    window.addEventListener('radar:data-changed', refresh);
+    return () => {
+      generationRef.current++;
+      window.removeEventListener('radar:data-changed', refresh);
+    };
+  }, [authenticated, fetchAllData]);
 
   // Automatic background refresh every 5 minutes (300,000 ms)
   useEffect(() => {
@@ -110,26 +141,25 @@ export const useRadarData = (authenticated: boolean) => {
   }, [authenticated, fetchAllData]);
 
   const replaceOrder = (savedOrder: Order) => {
+    if (!authenticatedRef.current || sessionRef.current.generation !== sessionGeneration) return;
     setOrders((previousOrders) => previousOrders.map((order) => order.id === savedOrder.id ? savedOrder : order));
     setDatabaseMessage(null);
   };
 
   const prependOrder = (savedOrder: Order) => {
+    if (!authenticatedRef.current || sessionRef.current.generation !== sessionGeneration) return;
     setOrders((previousOrders) => [savedOrder, ...previousOrders]);
     setSelectedOrderId(savedOrder.id);
     setDatabaseMessage(null);
   };
 
   const refreshCustomers = async () => {
-    try {
+    const generation = generationRef.current;
       const response = await apiFetch('/customers');
-      if (response.ok) {
-        const data = await response.json();
-        setCustomers(data);
-      }
-    } catch {
-      // ignore
-    }
+      if (!response.ok) throw new Error('No se pudieron actualizar los clientes.');
+      const data = await response.json();
+      if (isMountedRef.current && authenticatedRef.current && generation === generationRef.current &&
+        sessionRef.current.generation === sessionGeneration) setCustomers(data);
   };
 
   return {

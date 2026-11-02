@@ -65,9 +65,13 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
+      setError('Usa una imagen PNG, JPEG, WebP o GIF.');
+      return;
+    }
 
-    if (file.size > 2 * 1024 * 1024) {
-      setError('La imagen no debe superar los 2MB.');
+    if (file.size > 350 * 1024) {
+      setError('La imagen de perfil no debe superar los 350KB.');
       return;
     }
 
@@ -98,6 +102,14 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       return;
     }
 
+    const identityChanged = email.trim().toLowerCase() !== user.email?.toLowerCase() ||
+      (user.role?.toLowerCase() === 'admin' && phone.trim() !== (user.phone || ''));
+    if (identityChanged && !currentPassword) {
+      setError('Confirma tu contraseña actual en Seguridad. Para cambiar el teléfono administrativo, desbloquea primero la bóveda.');
+      setActiveTab('security');
+      return;
+    }
+
     if (newPassword) {
       if (!currentPassword) {
         setError('Debes ingresar tu contraseña actual para cambiarla.');
@@ -125,8 +137,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         avatar_url: avatarUrl.trim() || null,
       };
 
+      if (currentPassword) payload.currentPassword = currentPassword;
       if (newPassword) {
-        payload.currentPassword = currentPassword;
         payload.newPassword = newPassword;
       }
 
@@ -256,7 +268,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   <label className="text-[11px] font-mono text-cyan-400 hover:text-cyan-200 cursor-pointer flex items-center gap-1">
                     <span className="material-symbols-outlined text-[14px]">upload</span>
                     <span>Subir Foto</span>
-                    <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+                    <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleFileUpload} className="hidden" />
                   </label>
                 </div>
 

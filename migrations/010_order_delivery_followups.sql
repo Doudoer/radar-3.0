@@ -3,7 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS order_delivery_followups (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  order_id INT NOT NULL,
+  order_id INT UNSIGNED NOT NULL,
   operator_name VARCHAR(200) NOT NULL,
   contact_channel VARCHAR(20) NOT NULL DEFAULT 'call',
   call_result VARCHAR(50) NOT NULL DEFAULT 'answered',

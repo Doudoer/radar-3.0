@@ -1,68 +1,46 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { getWeekRange, getMonthRange, parseOrderDate } from '../src/components/OperationsView';
-import { Order } from '../src/types';
+import { getWeekRange as dashboardWeek, getMonthRange as dashboardMonth } from '../src/components/DashboardView';
+import { financeDateKey } from '../src/utils/finance';
+import type { Order } from '../src/types';
+
+afterEach(() => vi.useRealTimers());
 
 describe('OperationsView Analytics & Date Helpers', () => {
-  it('getWeekRange computes Monday 00:00:00 to Sunday 23:59:59.999', () => {
-    const range = getWeekRange(0);
-    // Monday is getDay() === 1
-    expect(range.monday.getDay()).toBe(1);
-    expect(range.monday.getHours()).toBe(0);
-    expect(range.monday.getMinutes()).toBe(0);
-    expect(range.monday.getSeconds()).toBe(0);
-
-    // Sunday is getDay() === 0
-    expect(range.sunday.getDay()).toBe(0);
-    expect(range.sunday.getHours()).toBe(23);
-    expect(range.sunday.getMinutes()).toBe(59);
-    expect(range.sunday.getSeconds()).toBe(59);
-
-    // Difference between Sunday and Monday is 6 days
-    const diffDays = Math.round((range.sunday.getTime() - range.monday.getTime()) / (1000 * 60 * 60 * 24));
-    expect(diffDays).toBe(7); // Full 7 day duration (approx 6.999 days)
+  it('uses the same exact business-week boundaries as the dashboard across DST', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-02T12:00:00Z'));
+    for (const offset of [-1, 0, 1]) {
+      const operations = getWeekRange(offset);
+      const dashboard = dashboardWeek(offset);
+      expect(operations.monday).toEqual(dashboard.start);
+      expect(operations.sunday).toEqual(dashboard.end);
+    }
+    expect(getWeekRange().monday.toISOString()).toBe('2026-11-02T05:00:00.000Z');
+    expect(getWeekRange(-1).sunday.toISOString()).toBe('2026-11-02T04:59:59.999Z');
   });
 
-  it('getWeekRange computes previous and next week offsets accurately', () => {
-    const currentWeek = getWeekRange(0);
-    const lastWeek = getWeekRange(-1);
-    const nextWeek = getWeekRange(1);
-
-    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-    expect(currentWeek.monday.getTime() - lastWeek.monday.getTime()).toBe(sevenDaysMs);
-    expect(nextWeek.monday.getTime() - currentWeek.monday.getTime()).toBe(sevenDaysMs);
+  it('moves months from day one without skipping February on January 31', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-31T12:00:00Z'));
+    const february = getMonthRange(1);
+    expect(financeDateKey(february.start)).toBe('2026-02-01');
+    expect(financeDateKey(february.end)).toBe('2026-02-28');
+    expect(february).toEqual(dashboardMonth(1));
   });
 
-  it('getMonthRange computes start of month to end of month', () => {
-    const range = getMonthRange(0);
-    expect(range.start.getDate()).toBe(1);
-    expect(range.start.getHours()).toBe(0);
-    expect(range.end.getHours()).toBe(23);
-    expect(range.end.getMinutes()).toBe(59);
-    expect(range.end.getSeconds()).toBe(59);
+  it('parses DD/MM before native date parsing and never replaces invalid dates with today', () => {
+    expect(financeDateKey(parseOrderDate({ createdAt: '08/10/2026, 10:30' } as Order)!)).toBe('2026-10-08');
+    expect(parseOrderDate({ createdAt: '' } as Order)).toBeNull();
+    expect(parseOrderDate({ createdAt: '31/02/2026' } as Order)).toBeNull();
+    expect(parseOrderDate({ createdAt: '28 unknown 2026' } as Order)).toBeNull();
   });
 
-  it('parseOrderDate handles ISO strings, Spanish locale dates, Hoy and Ayer', () => {
-    const orderIso: Partial<Order> = {
-      createdAtIso: '2026-10-08T14:30:00.000Z',
-      createdAt: '08/10/2026, 10:30',
-    };
-    const parsedIso = parseOrderDate(orderIso as Order);
-    expect(parsedIso.toISOString()).toBe('2026-10-08T14:30:00.000Z');
-
-    const orderHoy: Partial<Order> = {
-      createdAt: 'Hoy, 13:45',
-    };
-    const parsedHoy = parseOrderDate(orderHoy as Order);
-    const today = new Date();
-    expect(parsedHoy.getDate()).toBe(today.getDate());
-    expect(parsedHoy.getMonth()).toBe(today.getMonth());
-
-    const orderSpanish: Partial<Order> = {
-      createdAt: '28 Ago 2026',
-    };
-    const parsedSpanish = parseOrderDate(orderSpanish as Order);
-    expect(parsedSpanish.getFullYear()).toBe(2026);
-    expect(parsedSpanish.getMonth()).toBe(7); // August is month 7 (0-indexed)
-    expect(parsedSpanish.getDate()).toBe(28);
+  it('resolves relative labels by business date even when UTC is already the following day', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-03T02:00:00Z'));
+    expect(financeDateKey(parseOrderDate({ createdAt: 'Hoy, 13:45' } as Order)!)).toBe('2026-11-02');
+    expect(financeDateKey(parseOrderDate({ createdAt: 'Ayer' } as Order)!)).toBe('2026-11-01');
+    expect(financeDateKey(parseOrderDate({ createdAt: '28 Ago 2026' } as Order)!)).toBe('2026-08-28');
   });
 });

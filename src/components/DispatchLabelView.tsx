@@ -1,5 +1,23 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Order } from '../types';
+import QRCode from 'qrcode';
+
+export const OrderQr: React.FC<{ order: Order }> = ({ order }) => {
+  const [image, setImage] = useState('');
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setImage('');
+    setFailed(false);
+    QRCode.toDataURL(JSON.stringify({ orderId: order.id, code: order.code }), {
+      errorCorrectionLevel: 'M', width: 160, margin: 2,
+    }).then((url) => { if (active) setImage(url); })
+      .catch(() => { if (active) setFailed(true); });
+    return () => { active = false; };
+  }, [order.id, order.code]);
+  return image ? <img src={image} alt={`QR orden ${order.code}`} width={160} height={160} /> :
+    <span className="text-xs">{failed ? 'QR no disponible' : 'Generando QR…'}</span>;
+};
 
 interface DispatchLabelViewProps {
   order: Order;
@@ -73,19 +91,17 @@ export const DispatchLabelView: React.FC<DispatchLabelViewProps> = ({ order, onB
         <div className="w-[380px] bg-white text-slate-950 p-6 rounded-2xl border-2 border-slate-950 flex flex-col gap-3 font-sans shadow-2xl">
           {/* Top Bar */}
           <div className="flex justify-between items-center border-b-2 border-black pb-2">
-            <span className="font-black text-lg tracking-tight text-slate-950">RADAR LOGISTICS</span>
+            <span className="font-black text-lg tracking-tight text-slate-950">Empresa: Sin registrar</span>
             <span className="font-mono font-bold text-xs bg-black text-white px-2.5 py-0.5 rounded">
               {order.deliveryType === 'envio_domicilio' ? 'ENVÍO EXPRESS' : 'RETIRO TIENDA'}
             </span>
           </div>
 
-          {/* Order Code & Barcode Simulation */}
+          {/* QR encodes the actual order identifier, not a simulated barcode. */}
           <div className="flex flex-col items-center justify-center py-3 border-b-2 border-black">
-            <div className="flex items-center gap-0.5 tracking-tighter text-3xl font-mono scale-y-125 my-1 select-none text-slate-950">
-              ||| | |||| | || |||| | ||| |||| | |||
-            </div>
+            <OrderQr order={order} />
             <span className="font-mono font-black text-2xl tracking-wider text-slate-950">{order.code}</span>
-            <span className="text-[11px] font-mono text-slate-600 font-bold">STOCK #{order.stockNumber || 'STK-2026-098'}</span>
+            <span className="text-[11px] font-mono text-slate-600 font-bold">STOCK: {order.stockNumber || 'Sin registrar'}</span>
           </div>
 
           {/* Recipient info */}
@@ -95,7 +111,7 @@ export const DispatchLabelView: React.FC<DispatchLabelViewProps> = ({ order, onB
             {order.customer.company && <p className="font-semibold text-slate-700">{order.customer.company}</p>}
             <p className="text-slate-800 font-mono">Tel: {order.customer.phone}</p>
             <p className="text-slate-800 mt-1 font-medium">
-              {order.customer.shippingAddress || order.customer.location || 'Retiro en Sucursal Matriz'}
+              {order.customer.shippingAddress || order.customer.address_shipping || order.customer.location || 'Sin registrar'}
             </p>
           </div>
 
@@ -112,11 +128,11 @@ export const DispatchLabelView: React.FC<DispatchLabelViewProps> = ({ order, onB
           {/* Bottom Status & Core Notice */}
           <div className="flex justify-between items-center text-[10px] pt-1">
             <div>
-              <span className="font-bold block text-slate-900">GARANTÍA: {order.warrantyDays || 60} DÍAS</span>
+              <span className="font-bold block text-slate-900">GARANTÍA: {order.warrantyDays == null ? 'Sin registrar' : `${order.warrantyDays} DÍAS`}</span>
               <span className="text-slate-600">Asesor: {order.advisor}</span>
             </div>
             <div className="text-right font-mono font-bold text-slate-900">
-              RADAR AUTO PARTS
+              Orden: {order.code}
             </div>
           </div>
         </div>
