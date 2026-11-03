@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { orderDeliveryFollowupSchema } from '../src/server/schemas';
 import { PendingFollowupItem } from '../src/types';
+import { isEligibleForDeliveryFollowup } from '../src/server/businessTime';
 
 describe('Order Delivery Followup Schema & Business Logic', () => {
+  it('only includes orders delivered after October 26, 2026 in pending followups', () => {
+    expect(isEligibleForDeliveryFollowup('2026-10-27T03:59:59.000Z')).toBe(false);
+    expect(isEligibleForDeliveryFollowup('2026-10-27T04:00:00.000Z')).toBe(true);
+    expect(isEligibleForDeliveryFollowup('2026-10-27T12:00:00.000Z')).toBe(true);
+    expect(isEligibleForDeliveryFollowup(null)).toBe(false);
+  });
+
   it('validates a correct follow-up call payload', () => {
     const valid = orderDeliveryFollowupSchema.parse({
       callResult: 'answered',

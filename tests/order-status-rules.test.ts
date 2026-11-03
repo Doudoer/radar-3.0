@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { canTransitionOrderStatus, getAllowedNextStatuses, requiresStatusAuthorization } from '../src/utils/orderStatusRules';
+import {
+  canTransitionOrderStatus,
+  getAllowedNextStatuses,
+  requiresAdminForOrderStatusChange,
+  requiresStatusAuthorization,
+} from '../src/utils/orderStatusRules';
 
 describe('order status rules', () => {
   it('allows normal forward transitions and unchanged statuses', () => {
@@ -29,5 +34,12 @@ describe('order status rules', () => {
     expect(requiresStatusAuthorization('solicitud_reembolso', 'pagado')).toBe(true);
     expect(requiresStatusAuthorization('solicitud_reembolso', 'cotizacion')).toBe(true);
     expect(requiresStatusAuthorization('solicitud_reembolso', 'reembolsado')).toBe(false);
+  });
+
+  it('allows operators to mark an order paid after receiving a down payment', () => {
+    expect(requiresAdminForOrderStatusChange('en_preparacion', 'pagado')).toBe(false);
+    expect(requiresAdminForOrderStatusChange('cotizacion', 'cancelado')).toBe(true);
+    expect(requiresAdminForOrderStatusChange('solicitud_reembolso', 'pagado')).toBe(true);
+    expect(requiresAdminForOrderStatusChange('archivado', 'cotizacion')).toBe(true);
   });
 });

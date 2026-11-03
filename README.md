@@ -85,6 +85,13 @@ mantener el mismo tema claro/oscuro sin alterar las reglas de seguimiento.
   segundo factor en `/api/analytics/income`. No incluyen identificadores de
   orden ni movimientos individuales. La boveda sigue siendo obligatoria para
   movimientos detallados, nomina, gastos y configuracion financiera.
+- `Pagado` indica que se recibió el downpayment y la orden puede procesarse; no
+  significa que el total esté liquidado. Para pasar a `Entregado`, el total
+  registrado debe estar cubierto. Los cobros se registran en finanzas al aumentar
+  el downpayment; el cambio de estatus por sí solo no genera un cobro.
+- El seguimiento post-entrega incluye órdenes entregadas después del
+  26 de octubre de 2026 (fecha de negocio `America/New_York`). Las anteriores
+  se excluyen de la lista de pendientes sin modificar su bitácora.
 - Mis Operaciones muestra valor comercial total (pieza, envio y core), abonos
   acumulados y saldo actual de las ordenes creadas en el periodo; no representa
   cobros ocurridos en ese periodo ni facturacion fiscal. Las ventas excluyen

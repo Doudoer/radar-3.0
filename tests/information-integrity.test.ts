@@ -26,10 +26,15 @@ describe('information integrity', () => {
     expect(mapped.customer.name).toBe('Cliente original');
     expect(mapped.version).toBe(3);
   });
-  it('rejects overpayment and requires full settlement for Pagado', () => {
+  it('rejects overpayment and permits Pagado after a down payment', () => {
     expect(() => validateOrder({ ...payload(), financials: { ...payload().financials, downPayment: 136 } })).toThrow(/superar/);
-    expect(() => validateOrder({ ...payload(), status: 'pagado' })).toThrow(/liquidar/);
-    expect(() => validateOrder({ ...payload(), status: 'pagado', financials: { ...payload().financials, downPayment: 125 } })).not.toThrow();
+    expect(() => validateOrder({ ...payload(), status: 'pagado' })).not.toThrow();
+    expect(() => validateOrder({
+      ...payload(), status: 'pagado', financials: { ...payload().financials, downPayment: 0 },
+    })).toThrow(/downpayment/i);
+    expect(() => validateOrder({
+      ...payload(), status: 'pagado', financials: { ...payload().financials, downPayment: 125 },
+    })).not.toThrow();
   });
   it('rejects stale versions and unauthorized financial changes', () => {
     expect(() => validateOrder({ ...payload(), version: 2 }, previous(), 'admin')).toThrow(/cambió/);
@@ -40,12 +45,25 @@ describe('information integrity', () => {
     expect(() => validateOrder({ ...payload(), customer: { id: '2', name: 'Otro' } }, previous())).toThrow(/cliente/);
   });
   it('only starts warranty on actual delivery and does not backfill legacy dates', () => {
-    const order = { ...payload(), status: 'entregado' as const };
+    const order = {
+      ...payload(), status: 'entregado' as const,
+      financials: { ...payload().financials, downPayment: 125 },
+    };
     const result = validateOrder(order, { ...previous(), status: 'En Camino' } as RowDataPacket);
     expect(result.deliveredAt).toBeTruthy();
     expect(result.warrantyStarted).toBe(true);
     const legacy = validateOrder(orderPayloadSchema.parse({ ...payload(), status: 'entregado' }), { ...previous(), status: 'Entregado' } as RowDataPacket);
     expect(legacy.deliveredAt).toBeUndefined();
+  });
+  it('requires full payment when an order is delivered, but does not block later edits to legacy deliveries', () => {
+    const order = { ...payload(), status: 'entregado' as const };
+    expect(() => validateOrder(order, { ...previous(), status: 'En Camino' } as RowDataPacket)).toThrow(/liquida el saldo/i);
+    expect(() => validateOrder({
+      ...order, financials: { ...order.financials, downPayment: 125 },
+    }, { ...previous(), status: 'En Camino' } as RowDataPacket)).not.toThrow();
+    expect(() => validateOrder({ ...order, deliveredAt: '2026-01-01T10:00:00Z' }, {
+      ...previous(), status: 'Entregado', delivered_at: '2026-01-01 10:00:00',
+    } as RowDataPacket)).not.toThrow();
   });
   it('normalizes known aliases without guessing unknown historical states', () => {
     expect(statusFromDatabase('En espera de confirmación')).toBe('espera_confirmacion');
