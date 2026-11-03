@@ -16,7 +16,7 @@ import { inventoryForRole, mapInventoryPartRow } from './src/server/inventory';
 import { matchOrderInventory } from './src/utils/inventoryMatching';
 import { filterInventory, inventoryCsv } from './src/utils/inventoryExport';
 import { financeVaultExpiry, lockFinanceVault, revokeFinanceVaults, unlockFinanceVault } from './src/server/financeVault';
-import { businessDate, businessDaysBetween } from './src/server/businessTime';
+import { businessDate, businessDaysBetween, isEligibleForDeliveryFollowup } from './src/server/businessTime';
 import { startNotificationOutbox } from './src/server/outbox';
 import { clearSessionCookie, isLoginRateLimited, recordLoginFailure, resetLoginAttempts, requireRole, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
 import QRCode from 'qrcode';
@@ -1483,6 +1483,7 @@ const server = createServer(async (request, response) => {
           : null;
 
         const deliveryDateVal = order.delivered_at;
+        if (!isEligibleForDeliveryFollowup(deliveryDateVal)) continue;
         const daysSinceDelivery = deliveryDateVal ? Math.max(0, businessDaysBetween(deliveryDateVal, now)) : 0;
 
         // If part is confirmed installed and tested OK, follow-up cycle is complete!

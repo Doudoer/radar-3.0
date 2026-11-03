@@ -44,13 +44,14 @@ export function validateOrder(order: Payload, previous?: RowDataPacket, role = '
   const paid = cents(financials.downPayment);
   const oldStatus = previous ? statusFromDatabase(previous.status) : undefined;
   const changedStatus = oldStatus !== order.status;
+  const enteringPaid = order.status === 'pagado' && oldStatus !== 'pagado';
   if (order.deliveredAt && Date.parse(order.deliveredAt) > Date.now()) fail(400, 'La fecha de entrega no puede ser futura');
   if (!previous?.delivered_at && order.status !== 'entregado' && (order.deliveredAt || order.warrantyStarted)) {
     fail(400, 'La garantía y fecha de entrega solo se registran con la entrega física');
   }
   if (paid > total) fail(400, 'El importe cobrado no puede superar el total');
-  if ((order.status === 'pagado' && (changedStatus || !previous)) && paid !== total) {
-    fail(400, 'Pagado exige liquidar el total de la orden');
+  if (enteringPaid && paid <= 0) {
+    fail(400, 'Pagado requiere registrar el downpayment recibido');
   }
   if (order.deliveryType === 'envio_domicilio' && !order.customer!.shippingAddress?.trim()) {
     fail(400, 'La dirección de entrega es obligatoria');
@@ -93,6 +94,9 @@ export function validateOrder(order: Payload, previous?: RowDataPacket, role = '
     fail(400, 'Registra primero la orden y después la incidencia o devolución');
   }
   const newDelivery = order.status === 'entregado' && oldStatus !== 'entregado';
+  if (newDelivery && paid !== total) {
+    fail(400, 'Para marcar Entregado, liquida el saldo pendiente antes de la entrega');
+  }
   if (newDelivery && !order.deliveredAt) order.deliveredAt = new Date().toISOString();
   if (newDelivery && Date.parse(order.deliveredAt!) > Date.now()) fail(400, 'La entrega no puede ser futura');
   if (newDelivery) order.warrantyStarted = true;

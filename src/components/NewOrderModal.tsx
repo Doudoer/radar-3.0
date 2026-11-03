@@ -1128,9 +1128,16 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
       setStepError('El depósito core fee es obligatorio.');
       return;
     }
-    if (status === 'pagado' && numDown !== grossSubtotal) {
+    const isEnteringPaid = status === 'pagado' && editingOrder?.status !== 'pagado';
+    const isEnteringDelivered = status === 'entregado' && editingOrder?.status !== 'entregado';
+    if (isEnteringPaid && numDown <= 0) {
       setCurrentStep(3);
-      setStepError('Pagado exige saldo totalmente liquidado. Registra el cobro real antes de guardar.');
+      setStepError('Para iniciar el procesamiento, registra el downpayment recibido.');
+      return;
+    }
+    if (isEnteringDelivered && Math.round(numDown * 100) !== Math.round(grossSubtotal * 100)) {
+      setCurrentStep(3);
+      setStepError('Para marcar Entregado, registra el saldo restante; el total debe estar liquidado.');
       return;
     }
     if (deliveryType === 'envio_domicilio' && !shippingAddress.trim()) {

@@ -5,7 +5,7 @@ import { InvoiceView } from './InvoiceView';
 import { DispatchLabelView } from './DispatchLabelView';
 import { RefundRequestView } from './RefundRequestView';
 import { OrderPostDeliveryFollowup } from './OrderPostDeliveryFollowup';
-import { canTransitionOrderStatus, getAllowedNextStatuses, ORDER_STATUS_LABELS, requiresStatusAuthorization } from '../utils/orderStatusRules';
+import { canTransitionOrderStatus, getAllowedNextStatuses, ORDER_STATUS_LABELS, requiresAdminForOrderStatusChange } from '../utils/orderStatusRules';
 import { apiFetch } from '../services/apiFetch';
 import { OrderInventoryAvailability } from './OrderInventoryAvailability';
 
@@ -481,17 +481,19 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       setActionError('Gestiona la solicitud desde la vista Reembolsos. No se puede registrar un pago cambiando solo el estado.');
       return;
     }
-    if (newStatus === 'pagado') {
-      const total = (order.financials.partPrice ?? order.financials.baseMSRP ?? 0) +
-        (order.financials.deliveryFee ?? 0) + (order.financials.coreFee ?? 0);
-      if ((order.financials.downPayment ?? order.financials.advancePayment ?? 0) !== total) {
-        setActionError('Pagado exige saldo totalmente liquidado. Registra el cobro real desde la edición financiera.');
+    const total = (order.financials.partPrice ?? order.financials.baseMSRP ?? 0) +
+      (order.financials.deliveryFee ?? 0) + (order.financials.coreFee ?? 0);
+    const paid = order.financials.downPayment ?? order.financials.advancePayment ?? 0;
+    if (newStatus === 'pagado' && Math.round(paid * 100) <= 0) {
+      setActionError('Para iniciar el procesamiento, registra el downpayment recibido.');
+      return;
+    }
+    if (newStatus === 'entregado' && Math.round(paid * 100) !== Math.round(total * 100)) {
+      setActionError('Para marcar Entregado, registra el saldo restante; el total debe estar liquidado.');
         return;
-      }
     }
 
-    if (!isSuperAdmin && (newStatus === 'cancelado' || newStatus === 'pagado' ||
-      requiresStatusAuthorization(order.status, newStatus) || ['archivado', 'cancelado'].includes(order.status))) {
+    if (!isSuperAdmin && requiresAdminForOrderStatusChange(order.status, newStatus)) {
       setActionError('Solo un administrador puede realizar este cambio.');
       return;
     }
