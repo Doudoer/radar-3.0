@@ -48,6 +48,23 @@ describe('database order mapping', () => {
     expect(order.financials.balanceDue).toBe(875);
   });
 
+  it('uses the earliest delivered status-log entry as evidence that warranty started', () => {
+    const loggedAt = new Date('2026-07-20T11:38:15.000Z');
+    const order = mapOrder({
+      id: 408,
+      order_code: 'ORD-673714',
+      created_at: new Date('2026-07-10T20:52:49.000Z'),
+      status: 'Reclamo',
+      delivered_at: null,
+      delivery_log_at: loggedAt,
+      warranty_days: 30,
+      warranty_started: 0,
+    } as never);
+
+    expect(order.deliveredAt).toBe('2026-07-20T11:38:15.000Z');
+    expect(order.warrantyStarted).toBe(true);
+  });
+
   it('maps real vehicle VIN when provided in database', () => {
     const orderWithVin = mapOrder({
       id: 9,
@@ -129,4 +146,3 @@ describe('database order mapping', () => {
     expect(toMysqlDateTime('2026-09-18T14:30:45')).toMatch(/^2026-09-18 14:30:45$/);
   });
 });
-

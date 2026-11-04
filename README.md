@@ -236,6 +236,10 @@ dump previo. No ejecutarlas simultáneamente con exportaciones de respaldo.
   Semana lunes–domingo y zona `America/New_York`.
 - Garantía de cero días válida; comienza en entrega física. Fechas históricas
   faltantes y posibles duplicados de clientes requieren revisión, no inferencias.
+- La garantía requiere evidencia de entrega: fecha e inicio registrados o un evento
+  `Entregado` en la bitácora. Si falta la fecha, se usa la primera entrega de la
+  bitácora; resolver reclamos no reinicia el plazo. El detalle muestra el vencimiento
+  y la API rechaza nuevos reclamos con garantía expirada (HTTP 409).
 - Nómina, reglas recurrentes y gastos se guardan en la base. La importación de
   datos del navegador es explícita y conserva el original. Cobros históricos sin
   fecha permanecen como saldo inicial, no como ingresos de una semana inventada.

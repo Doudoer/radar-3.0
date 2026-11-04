@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Claim, ClaimStatus, Order } from '../types';
 import { apiFetch } from '../services/apiFetch';
 import { ClaimDetailView } from './ClaimDetailView';
+import { getClaimWarrantyError } from '../utils/orderWarranty';
 
 interface ClaimsViewProps {
   orders?: Order[];
@@ -87,6 +88,9 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({ orders = [], userRole = 
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!orderId || !reason.trim()) return setError('Selecciona una orden e indica el motivo.');
+    const selectedOrder = orders.find((order) => String(order.id) === String(orderId));
+    const warrantyError = selectedOrder && getClaimWarrantyError(selectedOrder);
+    if (warrantyError) return setError(warrantyError);
     if (await mutate('/claims', 'POST', { orderId, description: reason.trim() }, 'Reclamo registrado.')) {
       setCreating(false);
       setOrderId('');
@@ -157,7 +161,14 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({ orders = [], userRole = 
           <h2 className="text-xl font-bold">Nuevo reclamo</h2>
           <select required className={`${fieldClass} w-full`} aria-label="Orden del reclamo" value={orderId} onChange={(event) => setOrderId(event.target.value)}>
             <option value="">Selecciona una orden</option>
-            {orders.map((order) => <option key={order.id} value={order.id}>{order.code} · {order.customer.name}</option>)}
+            {orders.map((order) => {
+              const warrantyError = getClaimWarrantyError(order);
+              return (
+                <option key={order.id} value={order.id} disabled={Boolean(warrantyError)}>
+                  {order.code} · {order.customer.name}{warrantyError ? ' · Garantía expirada' : ''}
+                </option>
+              );
+            })}
           </select>
           <textarea required className={`${fieldClass} w-full`} aria-label="Motivo del reclamo" value={reason} onChange={(event) => setReason(event.target.value)} />
           {error && <p role="alert" className="text-red-300">{error}</p>}

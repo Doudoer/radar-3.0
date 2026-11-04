@@ -47,6 +47,8 @@ export const mapOrder = (row: RowDataPacket, auctionLinks: any[] = []) => {
   const deliveryFee = Number(row.shipping_cost || 0);
   const coreFee = Number(row.core_fee || 0);
   const downPayment = Number(row.down_payment || 0);
+  const deliveredAt = row.delivered_at ?? row.delivery_log_at;
+  const warrantyStarted = Boolean(row.delivery_log_at || (Number(row.warranty_started) === 1 && deliveredAt));
 
   return {
     id: String(row.id),
@@ -103,8 +105,8 @@ export const mapOrder = (row: RowDataPacket, auctionLinks: any[] = []) => {
     },
     deliveryType: row.shipping_toggle ? 'envio_domicilio' : 'retiro_tienda',
     warrantyDays: row.warranty_days ?? 60,
-    deliveredAt: row.delivered_at ? new Date(row.delivered_at).toISOString() : undefined,
-    warrantyStarted: Boolean(row.warranty_started),
+    deliveredAt: deliveredAt ? new Date(deliveredAt).toISOString() : undefined,
+    warrantyStarted,
     claimReason: row.claim_reason || undefined,
     notes: row.description || '',
     auctionActive: Boolean(row.auction_search_active) || (auctionLinks && auctionLinks.length > 0),
@@ -140,7 +142,9 @@ export const getOrders = async (options: { limit?: number; offset?: number; id?:
   }
 
   const [rows] = await pool.query<RowDataPacket[]>(`
-    SELECT o.*, c.first_name, c.last_name, c.company, c.type, c.phone, c.email, c.address_shipping, c.zip_code, c.language AS customer_crm_language, u.name AS advisor, u.role AS advisor_role
+    SELECT o.*, c.first_name, c.last_name, c.company, c.type, c.phone, c.email, c.address_shipping, c.zip_code, c.language AS customer_crm_language, u.name AS advisor, u.role AS advisor_role,
+      (SELECT MIN(so.created_at) FROM status_orders so
+       WHERE so.order_id = o.id AND LOWER(so.status) = 'entregado') AS delivery_log_at
     FROM orders o
     LEFT JOIN customers c ON c.id = o.customer_id
     LEFT JOIN users u ON u.id = o.user_id

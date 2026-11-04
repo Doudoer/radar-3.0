@@ -8,6 +8,7 @@ import { OrderPostDeliveryFollowup } from './OrderPostDeliveryFollowup';
 import { canTransitionOrderStatus, getAllowedNextStatuses, ORDER_STATUS_LABELS, requiresAdminForOrderStatusChange } from '../utils/orderStatusRules';
 import { apiFetch } from '../services/apiFetch';
 import { OrderInventoryAvailability } from './OrderInventoryAvailability';
+import { getClaimWarrantyError, getOrderWarrantyInfo } from '../utils/orderWarranty';
 
 interface OrderDetailViewProps {
   order: Order;
@@ -209,41 +210,13 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   // Total payable after downpayment
   const totalPayable = Math.max(0, grossSubtotal - downPayment);
 
-  // Warranty Days Remaining Calculation
-  const calculateWarrantyRemaining = (): { daysLeft: number; badgeClass: string; label: string } => {
-    if (order.status !== 'entregado' || !order.deliveredAt) {
-      return {
-        daysLeft: order.warrantyDays ?? 60,
-        badgeClass: 'neon-badge-cyan',
-        label: 'Inicia al entregar físicamente',
-      };
-    }
-    const deliveredDate = new Date(order.deliveredAt).getTime();
-    const elapsedDays = Math.floor((Date.now() - deliveredDate) / (1000 * 60 * 60 * 24));
-    const daysLeft = Math.max(0, (order.warrantyDays ?? 60) - elapsedDays);
-
-    if (daysLeft > 10) {
-      return {
-        daysLeft,
-        badgeClass: 'neon-badge-emerald',
-        label: `🟢 Vigente (${daysLeft}d restantes)`,
-      };
-    } else if (daysLeft > 0) {
-      return {
-        daysLeft,
-        badgeClass: 'neon-badge-amber',
-        label: `🟡 Crítica (${daysLeft}d restantes)`,
-      };
-    } else {
-      return {
-        daysLeft: 0,
-        badgeClass: 'neon-badge-red',
-        label: '🔴 Garantía Expirada',
-      };
-    }
-  };
-
-  const warrantyInfo = calculateWarrantyRemaining();
+  const warrantyInfo = getOrderWarrantyInfo(order);
+  const warrantyLabel = {
+    not_started: 'Inicia al entregar físicamente',
+    active: `🟢 Vigente (${warrantyInfo.daysLeft}d restantes)`,
+    critical: `🟡 Crítica (${warrantyInfo.daysLeft}d restantes)`,
+    expired: 'Garantía expirada',
+  }[warrantyInfo.status];
 
   const fetchAssociatedClaim = async () => {
     try {
@@ -470,6 +443,11 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     if (!canTransitionOrderStatus(order.status, newStatus)) return;
 
     if (newStatus === 'reclamo') {
+      const warrantyError = getClaimWarrantyError(order);
+      if (warrantyError) {
+        setActionError(warrantyError);
+        return;
+      }
       setClaimModal({ isOpen: true, reason: order.claimReason || '', isSaving: false, error: '' });
       return;
     }
@@ -868,6 +846,11 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                     Motivo: <strong>{order.claimReason || associatedClaim?.claimReason}</strong>
                   </p>
                 )}
+                {warrantyInfo.status === 'expired' && (
+                  <p className="text-[11px] text-red-300 font-mono font-bold mt-0.5">
+                    Garantía expirada. No se pueden registrar nuevos reclamos para esta orden.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -1136,9 +1119,19 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 {/* GARANTÍA */}
                 <div className="p-2 rounded-xl bg-[var(--bg-card-subtle)] border border-cyan-500/15">
                   <span className="text-[9.5px] font-bold text-[var(--text-secondary)] uppercase block">GARANTÍA</span>
-                  <span className="text-emerald-400 font-bold text-[11px] block mt-0.5 truncate">
-                    {order.warrantyDays ?? 60} Días ({warrantyInfo.label.split(' ')[0]})
+                  <span className="text-emerald-400 font-bold text-[11px] block mt-0.5">
+                    {order.warrantyDays ?? 60} Días
                   </span>
+                  {warrantyInfo.status === 'expired' ? (
+                    <span
+                      role="status"
+                      className="inline-flex items-center gap-1 mt-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold text-red-400"
+                    >
+                      🔴 {warrantyLabel}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-[var(--text-secondary)]">{warrantyLabel}</span>
+                  )}
                 </div>
               </div>
             </div>

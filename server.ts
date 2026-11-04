@@ -61,6 +61,7 @@ import {
 import { readBody, sendJson, serveFrontend } from './src/server/http';
 import { getOrders, mapOrder, normalizeTransmissionType, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
 import { getClaims } from './src/server/claims';
+import { getClaimWarrantyError } from './src/utils/orderWarranty';
 import {
   createDatabaseBackup,
   listBackups,
@@ -2151,8 +2152,24 @@ const server = createServer(async (request, response) => {
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
-        const [claimOrderState] = await connection.query<RowDataPacket[]>('SELECT status FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE', [orderIdVal]);
+        const [claimOrderState] = await connection.query<RowDataPacket[]>(
+          `SELECT o.status, o.delivered_at, o.warranty_days, o.warranty_started,
+            (SELECT MIN(so.created_at) FROM status_orders so
+             WHERE so.order_id = o.id AND LOWER(so.status) = 'entregado') AS delivery_log_at
+           FROM orders o WHERE o.id=? AND o.deleted_at IS NULL FOR UPDATE`,
+          [orderIdVal],
+        );
         if (!claimOrderState[0]) fail(404, 'Orden no encontrada');
+        const deliveredAt = claimOrderState[0].delivered_at ?? claimOrderState[0].delivery_log_at;
+        const warrantyError = getClaimWarrantyError({
+          deliveredAt: deliveredAt ?? undefined,
+          warrantyDays: Number(claimOrderState[0].warranty_days ?? 60),
+          warrantyStarted: Boolean(
+            claimOrderState[0].delivery_log_at ||
+            (Number(claimOrderState[0].warranty_started) === 1 && deliveredAt)
+          ),
+        });
+        if (warrantyError) fail(409, warrantyError);
         const [openClaims] = await connection.query<RowDataPacket[]>("SELECT id FROM claims WHERE order_id=? AND status IN ('Pending','In Process') AND deleted_at IS NULL", [orderIdVal]);
         if (openClaims.length) fail(409, 'La orden ya tiene un reclamo abierto');
         if (['reclamo', 'solicitud_reembolso', 'reembolsado', 'cancelado', 'archivado'].includes(statusFromDatabase(claimOrderState[0].status))) fail(409, 'La orden no permite abrir un reclamo en su estado actual');
