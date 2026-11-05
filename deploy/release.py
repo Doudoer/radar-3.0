@@ -253,7 +253,12 @@ def verify(sha):
         if revision == sha and deployment == "error":
             raise RuntimeError("Dokploy build failed; inspect private Dokploy logs")
         if revision == sha and deployment == "done":
-            app = container(APP)
+            ids = run(["docker", "ps", "-q", "--filter", f"label=com.docker.swarm.service.name={APP}"]).splitlines()
+            if len(ids) != 1:
+                print(f"Waiting for Swarm replacement to converge ({len(ids)} running containers)", flush=True)
+                time.sleep(10)
+                continue
+            app = ids[0]
             inspect = json.loads(run(["docker", "inspect", app]))[0]
             latest = run(["docker", "image", "inspect", f"{APP}:latest", "--format", "{{.Id}}"])
             if inspect["Image"] == latest and inspect["State"].get("Health", {}).get("Status") == "healthy":

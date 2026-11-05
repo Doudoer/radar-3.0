@@ -2,7 +2,9 @@ import importlib.util
 import io
 from pathlib import Path
 import tarfile
+import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("release", Path(__file__).parents[1] / "deploy/release.py")
 release = importlib.util.module_from_spec(spec)
@@ -48,6 +50,35 @@ class ReleaseGateTests(unittest.TestCase):
         content.seek(0)
         with tarfile.open(fileobj=content) as archive:
             self.assertEqual(release.checked_members(archive)[0].name, "package.json")
+
+    def test_verification_waits_for_swarm_zero_and_two_container_transitions(self):
+        sha = "b" * 40
+        states = iter(["", "old\nnew", "new"])
+        def fake_container(service):
+            if service == "dokploy":
+                return "dokploy"
+            raise RuntimeError("Swarm is replacing the application container")
+        def fake_run(args, data=None):
+            if args[:2] == ["docker", "ps"]:
+                return next(states)
+            if "rev-parse" in args:
+                return sha
+            if args[:2] == ["docker", "inspect"]:
+                return '[{"Image":"image-id","State":{"Health":{"Status":"healthy"}}}]'
+            if args[:3] == ["docker", "image", "inspect"]:
+                return "image-id"
+            raise AssertionError(args)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / sha).mkdir()
+            (root / sha / "prepared.json").write_text('{"sha":"' + sha + '"}')
+            with patch.object(release, "ROOT", root), patch.object(release, "container", side_effect=fake_container), \
+                 patch.object(release, "run", side_effect=fake_run), patch.object(release, "pgsql", return_value="done"), \
+                 patch.object(release.time, "sleep") as sleep, \
+                 patch.object(release.urllib.request, "urlopen", return_value=io.StringIO('{"ok":true,"database":"connected"}')):
+                release.verify(sha)
+                self.assertEqual(sleep.call_count, 2)
+                self.assertTrue((root / sha / "verified.json").exists())
 
 
 if __name__ == "__main__":
