@@ -18,7 +18,9 @@
 7. El gate espera el SHA del checkout, deployment terminado, reemplazo de
    Swarm convergido a un contenedor, imagen realmente activa, healthcheck Docker
    y `/health` HTTPS con base conectada. Cero o dos contenedores durante el
-   reemplazo son estados transitorios, no un fallo inmediato.
+   reemplazo, checkout Git en recreacion (exit 128) y ruta HTTPS aun no lista
+   se reintentan dentro del plazo de verificacion, con registro explicito.
+   Otros errores de comandos siguen deteniendo la release.
 
 No enviar cambios directamente a `production`: saltaria las pruebas y el gate.
 La concurrencia de Actions no cancela una release activa; el servidor tambien
