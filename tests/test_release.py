@@ -4,6 +4,7 @@ from pathlib import Path
 import tarfile
 import tempfile
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("release", Path(__file__).parents[1] / "deploy/release.py")
@@ -53,7 +54,7 @@ class ReleaseGateTests(unittest.TestCase):
 
     def test_verification_waits_for_swarm_zero_and_two_container_transitions(self):
         sha = "b" * 40
-        states = iter(["", "old\nnew", "new"])
+        states = iter(["", "old\nnew", "new", "new"])
         def fake_container(service):
             if service == "dokploy":
                 return "dokploy"
@@ -75,9 +76,11 @@ class ReleaseGateTests(unittest.TestCase):
             with patch.object(release, "ROOT", root), patch.object(release, "container", side_effect=fake_container), \
                  patch.object(release, "run", side_effect=fake_run), patch.object(release, "pgsql", return_value="done"), \
                  patch.object(release.time, "sleep") as sleep, \
-                 patch.object(release.urllib.request, "urlopen", return_value=io.StringIO('{"ok":true,"database":"connected"}')):
+                 patch.object(release.urllib.request, "urlopen", side_effect=[
+                     urllib.error.HTTPError("https://example.test/health", 503, "Route not ready", {}, None),
+                     io.StringIO('{"ok":true,"database":"connected"}')]):
                 release.verify(sha)
-                self.assertEqual(sleep.call_count, 2)
+                self.assertEqual(sleep.call_count, 3)
                 self.assertTrue((root / sha / "verified.json").exists())
 
     def test_missing_checkout_is_explicitly_retried_but_other_failures_are_fatal(self):

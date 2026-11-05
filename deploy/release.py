@@ -14,6 +14,7 @@ import sys
 import tarfile
 import time
 import urllib.request
+import urllib.error
 
 APP = "radar-3-app-yel259"
 DB = "radar-v3-db-rbvsox"
@@ -57,8 +58,11 @@ def env_text(values):
     return "".join(f"{key}={value}\n" for key, value in values.items())
 
 
-def run(args, data=None):
+def run(args, data=None, retry_codes=()):
     result = subprocess.run(args, input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode in retry_codes:
+        print(f"Waiting for deployment transition ({args[0]} {args[1]}, exit {result.returncode})", flush=True)
+        return ""
     if result.returncode:
         # Docker/SQL errors can contain environment values or confidential rows.
         raise RuntimeError(f"Command failed: {args[0]} {args[1] if len(args) > 1 else ''}; exit {result.returncode}")
@@ -248,7 +252,7 @@ def verify(sha):
     print("Waiting for Dokploy to deploy the promoted production revision", flush=True)
     for _ in range(120):
         dokploy = container("dokploy")
-        revision = run(["docker", "exec", dokploy, "git", "-C", f"/etc/dokploy/applications/{APP}/code", "rev-parse", "HEAD"])
+        revision = run(["docker", "exec", dokploy, "git", "-C", f"/etc/dokploy/applications/{APP}/code", "rev-parse", "HEAD"], retry_codes=(128,))
         deployment = pgsql(f"""SELECT status FROM deployment WHERE "applicationId"='UHRvm5xDRsjhw0chOd81v' ORDER BY "createdAt" DESC LIMIT 1;""")
         if revision == sha and deployment == "error":
             raise RuntimeError("Dokploy build failed; inspect private Dokploy logs")
@@ -262,8 +266,13 @@ def verify(sha):
             inspect = json.loads(run(["docker", "inspect", app]))[0]
             latest = run(["docker", "image", "inspect", f"{APP}:latest", "--format", "{{.Id}}"])
             if inspect["Image"] == latest and inspect["State"].get("Health", {}).get("Status") == "healthy":
-                with urllib.request.urlopen("https://radar-rsy.store/health", timeout=15) as response:
-                    health = json.load(response)
+                try:
+                    with urllib.request.urlopen("https://radar-rsy.store/health", timeout=15) as response:
+                        health = json.load(response)
+                except (urllib.error.URLError, TimeoutError) as error:
+                    print(f"Waiting for HTTPS route readiness ({type(error).__name__})", flush=True)
+                    time.sleep(10)
+                    continue
                 if health.get("ok") is True and health.get("database") == "connected":
                     private_file(release / "verified.json", json.dumps({"sha": sha, "image": latest, "health": health}))
                     print(f"VERIFIED {sha}: Dokploy done, running image matches, HTTPS and database healthy", flush=True)
