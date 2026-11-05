@@ -27,6 +27,7 @@ class ReleaseGateTests(unittest.TestCase):
         release.validate_member("src/App.tsx", tarfile.REGTYPE)
         release.validate_member("migrations/023_order_payments.sql", tarfile.REGTYPE)
         release.validate_member(".github/workflows/production.yml", tarfile.REGTYPE)
+        release.validate_member(".env.example", tarfile.REGTYPE)
 
     def test_only_known_migrations_are_considered_pending(self):
         self.assertEqual(release.pending_migrations(["001.sql", "002.sql"], ["001.sql"]), ["002.sql"])
