@@ -41,6 +41,10 @@ const incidentDateSql = `CASE WHEN o.status IN ('Reclamo','reclamo') THEN
   (SELECT MAX(c.created_at) FROM claims c WHERE c.order_id=o.id AND c.deleted_at IS NULL)
   WHEN o.status IN ('Solicitud Reembolso','Solicitud de Reembolso','solicitud_reembolso') THEN
   (SELECT MAX(r.created_at) FROM refund_requests r WHERE r.order_id=o.id AND r.status='pending') END AS incident_created_at`;
+const quoteCreatorSql = `(SELECT COALESCE(a.username, creator.name) FROM audit_logs a
+  LEFT JOIN users creator ON creator.id=a.user_id
+  WHERE a.resource_type='order' AND a.resource_id=CAST(o.id AS CHAR) AND a.action='ORDER_CREATED'
+  ORDER BY a.id LIMIT 1) AS quote_created_by`;
 export const workflowOrderFromRow = (row: RowDataPacket): WorkflowOrder => {
   const status = statusFromDatabase(row.status);
   if (isOrderStatus(status)) return {
@@ -51,6 +55,7 @@ export const workflowOrderFromRow = (row: RowDataPacket): WorkflowOrder => {
   scheduledPickupAt: row.scheduled_pickup_at ? new Date(row.scheduled_pickup_at).toISOString() : null,
   total: Number(row.price || 0) + Number(row.core_fee || 0) + Number(row.shipping_cost || 0),
   paid: Number(row.down_payment || 0),
+  quoteCreatedBy: row.quote_created_by || null,
   incidentCreatedAt: row.incident_created_at ? new Date(row.incident_created_at).toISOString() : null,
   };
   return fail(409, 'La orden contiene un estado desconocido; corrígelo antes de gestionar el flujo.');
@@ -81,7 +86,7 @@ export async function recordWorkflowReopening(connection: PoolConnection, previo
   const nextIndex = stages[nextStatus as keyof typeof stages];
   const resolvedIntoPreparation = ['reclamo', 'solicitud_reembolso'].includes(oldStatus) && nextIndex !== undefined && nextIndex < 4;
   if (!(closed && nextIndex !== undefined || resolvedIntoPreparation || nextIndex !== undefined && oldIndex !== undefined && nextIndex < oldIndex)) return;
-  const stage = closed || nextIndex <= 1 ? 'quote' : 'prepare';
+  const stage = closed || nextIndex <= 1 ? 'ack' : 'prepare';
   const [actors] = await connection.query<RowDataPacket[]>('SELECT name FROM users WHERE id=?', [Number(claims.sub)]);
   if (!actors[0]) fail(403, 'Operador autenticado no encontrado');
   const nextDueDate = addWorkingDays(workflowDate(new Date()), 1);
@@ -130,7 +135,7 @@ export async function handleWorkflowRequest(
     else { where += " AND o.created_at>='2026-10-21 04:00:00'"; }
     if (claims.role !== 'admin') { where += ' AND o.user_id=?'; params.push(Number(claims.sub)); }
     const [rows] = await database.query<RowDataPacket[]>(
-      `SELECT o.*, u.name AS advisor, ${incidentDateSql} FROM orders o LEFT JOIN users u ON u.id=o.user_id WHERE ${where}`, params,
+      `SELECT o.*, u.name AS advisor, ${incidentDateSql}, ${match ? quoteCreatorSql : 'NULL AS quote_created_by'} FROM orders o LEFT JOIN users u ON u.id=o.user_id WHERE ${where}`, params,
     );
     if (match && !rows.length) fail(404, 'Orden no encontrada o no asignada a este operador.');
     const ids = rows.map(row => row.id);

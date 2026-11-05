@@ -14,7 +14,7 @@ describe('automatic quotation summary', () => {
     const html = renderToStaticMarkup(<OrderQuotationSummary order={{ ...order, quoteCreatedBy: 'Original agent' }} />);
     expect(html).toContain('Completada al crear la orden');
     expect(html).toContain('Fecha de creación de la cotización');
-    expect(html).toContain('datetime="2026-10-21T16:00:00Z"');
+    expect(html).toMatch(/datetime="2026-10-21T16:00:00Z"/i);
     expect(html).toContain('Original agent');
     expect(html).not.toContain('Current assignee');
     expect(html).not.toMatch(/<form|<input|<textarea/);

@@ -24,7 +24,7 @@ const order: Order = {
 const events: WorkflowEvent[] = [];
 const workflowOrder = (): WorkflowOrder => ({
   id: order.id, code: order.code, version: order.version!, userId: user.id, advisor: user.name,
-  createdAt: order.createdAtIso!, status: order.status, deliveredAt: order.deliveredAt || null,
+  createdAt: order.createdAtIso!, quoteCreatedBy: 'Agente original de prueba', status: order.status, deliveredAt: order.deliveredAt || null,
   scheduledPickupAt: order.scheduledPickupAt || null,
   total: (order.financials.partPrice || 0) + (order.financials.coreFee || 0), paid: order.financials.downPayment || 0,
 });
@@ -149,6 +149,15 @@ try {
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.horizon-workflow-queue');
   await click('Ver orden'); await page.waitForSelector('.horizon-order-detail');
+  await click('Flujo verificable');
+  await page.waitForSelector('.horizon-workflow-panel');
+  await page.waitForFunction(() => document.querySelector('.horizon-workflow-stages')?.textContent?.includes('Completada al crear la orden'));
+  const quotation = await page.$eval('.horizon-workflow-stages li', element => element.textContent || '');
+  assert.match(quotation, /Fecha de creación de la cotización/);
+  assert.match(quotation, /Agente original de prueba/);
+  assert.ok(!quotation.includes('Pendiente'));
+  assert.match(await page.$eval('.horizon-workflow-form h3', element => element.textContent || ''), /Confirmación/);
+  assert.equal(writes, 0);
   await page.select('select[aria-label="Estado de orden"]', 'entregado');
   await page.waitForSelector('.horizon-payment-overlay');
   await page.waitForFunction(() => document.body.textContent?.includes('Tratamiento del core'));
@@ -184,10 +193,10 @@ try {
   await fill('Detalle de la gestión', 'Sin respuesta, se registra nuevo intento.');
   await fill('Próxima acción', 'Llamar el próximo día hábil');
   await submit();
-  assert.equal(events[0].outcome, 'no_response'); assert.equal(tasks()[0].task, 'quote'); assert.equal(tasks()[0].escalated, true);
+  assert.equal(events[0].outcome, 'no_response'); assert.equal(tasks()[0].task, 'ack'); assert.equal(tasks()[0].escalated, true);
   await click('Vencidas');
   assert.ok(await page.$('article button'));
-  for (const task of ['quote', 'ack', 'prepare', 'delivery']) {
+  for (const task of ['ack', 'prepare', 'delivery']) {
     await click('Todas');
     await click('Gestionar tarea');
     await fill('Detalle de la gestión', `Gestión confirmada: ${task}`);
@@ -205,7 +214,7 @@ try {
     await check('Confirmo que realicé');
     await submit();
   }
-  assert.equal(events.filter(event => event.outcome === 'completed').length, 4);
+  assert.equal(events.filter(event => event.outcome === 'completed').length, 3);
   assert.equal(tasks()[0].task, 'post_3');
   assert.equal(order.warrantyStarted, true);
   assert.equal(order.financials.downPayment, 900); assert.equal(order.financials.coreFee, 0);
@@ -214,7 +223,7 @@ try {
   await page.waitForSelector('.horizon-order-detail');
   await click('Flujo verificable');
   await page.waitForSelector('.horizon-workflow-panel');
-  assert.equal(await page.$$eval('.horizon-workflow-stages li', nodes => nodes.filter(node => node.textContent?.includes('Completada con evidencia')).length), 4);
+  assert.equal(await page.$$eval('.horizon-workflow-stages li', nodes => nodes.filter(node => node.textContent?.includes('Completada con evidencia')).length), 3);
   assert.ok((await page.$eval('.horizon-workflow-panel', element => element.textContent || '')).includes('Sin respuesta, se registra nuevo intento.'));
   for (const width of [1440, 1150, 768, 375]) {
     for (const theme of ['light', 'dark']) {

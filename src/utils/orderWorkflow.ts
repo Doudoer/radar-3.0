@@ -2,7 +2,7 @@ import type { FollowupCallResult, FollowupPartStatus, OrderStatus } from '../typ
 
 export const WORKFLOW_CUTOFF = '2026-10-21';
 export const WORKFLOW_STAGES = [
-  { id: 'quote', title: 'Cotización', requirement: 'Datos y compatibilidad verificados; cotización y condiciones enviadas.' },
+  { id: 'quote', title: 'Cotización', requirement: 'Cotización registrada al crear la orden.' },
   { id: 'ack', title: 'Confirmación', requirement: 'Aceptación del cliente y abono recibido; fecha comprometida de preparación.' },
   { id: 'prepare', title: 'Preparación y cita', requirement: 'Pieza verificada y lista; retiro o envío acordado con fecha.' },
   { id: 'delivery', title: 'Entrega', requirement: 'Entrega física, comprobante y garantía comunicada; saldo liquidado.' },
@@ -15,6 +15,7 @@ export interface WorkflowOrder {
   createdAt: string; status: OrderStatus; deliveredAt: string | null;
   scheduledPickupAt: string | null; total: number; paid: number;
   incidentCreatedAt?: string | null;
+  quoteCreatedBy?: string | null;
 }
 export interface WorkflowEvent {
   id: string; task: WorkflowTaskKey; outcome: WorkflowOutcome | 'reopened';
@@ -66,7 +67,7 @@ const effectiveWorkflowEvents = (events: WorkflowEvent[]) => {
     WORKFLOW_STAGES.findIndex(stage => stage.id === event.task) < stageIndex);
 };
 export const completedWorkflowStages = (events: WorkflowEvent[]) =>
-  WORKFLOW_STAGES.filter(stage => effectiveWorkflowEvents(events).some(event => event.task === stage.id && event.outcome === 'completed')).map(stage => stage.id);
+  WORKFLOW_STAGES.filter(stage => stage.id === 'quote' || effectiveWorkflowEvents(events).some(event => event.task === stage.id && event.outcome === 'completed')).map(stage => stage.id);
 
 export function workflowTasks(order: WorkflowOrder, events: WorkflowEvent[], today = workflowDate(new Date())): WorkflowTask[] {
   if (!workflowRequired(order.createdAt) || ['cancelado', 'reembolsado', 'archivado'].includes(order.status)) return [];
@@ -85,7 +86,7 @@ export function workflowTasks(order: WorkflowOrder, events: WorkflowEvent[], tod
   } else if (stage) {
     task = stage.id; title = stage.title; requirement = stage.requirement;
     const index = WORKFLOW_STAGES.indexOf(stage);
-    const previous = index > 0 ? [...events].reverse().find(event => event.task === WORKFLOW_STAGES[index - 1].id && event.outcome === 'completed') : undefined;
+    const previous = index > 1 ? [...events].reverse().find(event => event.task === WORKFLOW_STAGES[index - 1].id && event.outcome === 'completed') : undefined;
     dueDate = previous?.nextDueDate || (task === 'delivery' && previous?.scheduledAt
       ? workflowDate(previous.scheduledAt) : addWorkingDays(workflowDate(previous?.createdAt || order.createdAt), 1));
   } else {
@@ -99,7 +100,7 @@ export function workflowTasks(order: WorkflowOrder, events: WorkflowEvent[], tod
     dueDate = shiftWorkflowDate(workflowDate(order.deliveredAt), milestone);
   }
   const latest = [...events].reverse().find(event => event.task === task);
-  const reopened = events.find(event => event.task === task && event.outcome === 'reopened');
+  const reopened = events.find(event => (event.task === task || task === 'ack' && event.task === 'quote') && event.outcome === 'reopened');
   if (reopened?.nextDueDate) dueDate = reopened.nextDueDate;
   const objectiveDueDate = dueDate;
   if (latest?.nextDueDate) dueDate = latest.nextDueDate;

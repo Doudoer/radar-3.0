@@ -53,12 +53,12 @@ try {
       evidence: 'Synthetic verifiable reference', confirmed: true, ...extra,
     });
   };
-  await assert.rejects(save('ack'), /etapa/);
-  await assert.rejects(invoke('POST', '/api/orders/901/workflow', { version: 1, task: 'quote', outcome: 'completed', notes: 'Invalid evidence', evidence: '', confirmed: true }), /evidencia/);
+  await assert.rejects(save('prepare'), /etapa/);
+  await assert.rejects(invoke('POST', '/api/orders/901/workflow', { version: 1, task: 'ack', outcome: 'completed', notes: 'Invalid evidence', evidence: '', confirmed: true }), /evidencia/);
   await assert.rejects(invoke('POST', '/api/orders/901/workflow', { version: 1, task: 'quote', outcome: 'completed', notes: 'Wrong operator', evidence: 'Reference', confirmed: true }, '8'), /asignado/);
-  assert.equal((await save('quote')).status, 201);
-  await assert.rejects(invoke('POST', '/api/orders/901/workflow', { version: 1, task: 'ack', outcome: 'completed', notes: 'Stale version', evidence: 'Reference', confirmed: true }), /cambió/);
+  await assert.rejects(save('quote'), /etapa/);
   assert.equal((await save('ack', { nextDueDate: addWorkingDays(today, 1) })).status, 201);
+  await assert.rejects(invoke('POST', '/api/orders/901/workflow', { version: 1, task: 'ack', outcome: 'completed', notes: 'Stale version', evidence: 'Reference', confirmed: true }), /cambió/);
   assert.equal((await save('prepare', { scheduledAt: new Date(Date.now() + 86400000).toISOString() })).status, 201);
   const connection = await database.getConnection();
   try {
@@ -85,8 +85,8 @@ try {
     (SELECT COUNT(*) FROM order_workflow_events) AS events,
     (SELECT COUNT(*) FROM order_delivery_followups) AS contacts,
     (SELECT COUNT(*) FROM call_register WHERE whatsapp_dispatched=0) AS reports`);
-  assert.equal(Number(counts[0].events), 5); assert.equal(Number(counts[0].contacts), 1); assert.equal(Number(counts[0].reports), 1);
-  assert.equal(events.length, 5);
+  assert.equal(Number(counts[0].events), 4); assert.equal(Number(counts[0].contacts), 1); assert.equal(Number(counts[0].reports), 1);
+  assert.equal(events.length, 4);
   await database.execute(`INSERT INTO orders (id,order_code,customer_id,user_id,product_type,price,core_fee,down_payment,status,created_at)
     VALUES (902,'ORD-PAYMENT-LEGACY',1,7,'Test part',900,100,200,'Listo para Retiro','2026-10-01 16:00:00'),
     (903,'ORD-PAYMENT-NEW',1,7,'Test part',900,100,200,'Listo para Retiro','2026-10-21 16:00:00'),

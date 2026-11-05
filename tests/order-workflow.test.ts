@@ -166,7 +166,7 @@ describe('verifiable order workflow', () => {
     }, '2026-11-06')).toThrow(/todavía/);
   });
   it('does not let callers postpone the initial confirmation SLA or contradict a no-response result', () => {
-    expect(() => validateWorkflowAction(order, [], {
+    expect(() => validateWorkflowAction(order, [event('ack')], {
       task: 'prepare', outcome: 'completed', notes: 'Preparación verificada', evidence: 'Referencia verificada',
       confirmed: true, nextDueDate: '2027-01-01',
     }, '2026-11-05')).toThrow(/fecha|plazo/);

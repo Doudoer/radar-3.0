@@ -130,6 +130,13 @@ export const WorkflowActionForm: React.FC<{
     </div>
   </form>;
 };
+export const OrderQuotationSummary: React.FC<{ order: WorkflowOrder }> = ({ order }) => <>
+  <p className="text-sm mt-2" style={{ color: 'var(--positive)' }}>Completada al crear la orden</p>
+  <dl className="text-sm mt-2 space-y-2">
+    <div><dt>Fecha de creación de la cotización</dt><dd><time dateTime={order.createdAt}>{new Date(order.createdAt).toLocaleString('es', { timeZone: 'America/New_York' })}</time></dd></div>
+    <div><dt>Agente que atendió</dt><dd>{order.quoteCreatedBy || 'No registrado'}</dd></div>
+  </dl>
+</>;
 export const OrderWorkflowPanel: React.FC<{ orderId: string }> = ({ orderId }) => {
   const [detail, setDetail] = useState<WorkflowDetail | null>(null);
   const [error, setError] = useState('');
@@ -159,13 +166,14 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string }> = ({ orderId }) =
       <ol className="horizon-workflow-stages grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {WORKFLOW_STAGES.map(stage => <li key={stage.id} className="rounded-2xl p-4 bg-[var(--bg-card-subtle)]" aria-current={task?.task === stage.id ? 'step' : undefined}>
           <strong>{stage.title}</strong>
-          <p className="text-sm mt-2" style={{ color: completed.includes(stage.id) ? 'var(--positive)' : 'var(--text-secondary)' }}>{completed.includes(stage.id) ? 'Completada con evidencia' : 'Pendiente de verificar'}</p>
+          {stage.id === 'quote' ? <OrderQuotationSummary order={detail.order} />
+            : <p className="text-sm mt-2" style={{ color: completed.includes(stage.id) ? 'var(--positive)' : 'var(--text-secondary)' }}>{completed.includes(stage.id) ? 'Completada con evidencia' : 'Pendiente de verificar'}</p>}
         </li>)}
       </ol>
       {task ? <WorkflowActionForm key={`${orderId}-${detail.order.version}-${task.task}`} task={task} onSaved={reload} />
         : <p className="text-sm text-[var(--text-secondary)]">Sin tarea activa. Las incidencias y los estados finales se gestionan en sus vistas.</p>}
       <h3 className="font-bold">Historial de gestiones</h3>
-      {!detail.events.length && <p className="text-sm text-[var(--text-secondary)]">Sin evidencias registradas. El estado anterior no se considera prueba de cumplimiento.</p>}
+      {!detail.events.length && <p className="text-sm text-[var(--text-secondary)]">Cotización registrada al crear la orden. Aún no hay gestiones de las etapas siguientes.</p>}
       <div className="space-y-3">{[...detail.events].reverse().map(event => <article key={event.id} className="rounded-xl bg-[var(--bg-card-subtle)] p-4 text-sm space-y-2">
         <strong>{event.actorName} · {event.task} · {event.outcome}</strong>
         <p>{new Date(event.createdAt).toLocaleString()}</p><p className="whitespace-pre-wrap">{event.notes}</p>
