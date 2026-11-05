@@ -68,11 +68,16 @@ actual. El acceso tambien esta disponible desde el encabezado y la busqueda.
 Al iniciar sesion con tareas accionables se muestra esta bandeja; no se bloquea
 el resto del sistema.
 
-- Cotizacion, confirmacion, preparacion/cita y entrega se completan en orden,
-  con detalle, referencia verificable, confirmacion, autor autenticado y fecha.
-  El numero legacy de etapa no demuestra cumplimiento.
-- Primera gestion: un dia habil desde la creacion. Confirmacion: siguiente
-  dia habil tras cotizar. Preparacion: fecha comprometida al confirmar.
+- Cotizacion queda completada automaticamente al crear la orden, sin otro
+  formulario. Muestra la fecha de creacion y el agente autenticado registrado
+  en la auditoria de creacion, independiente del responsable actual. Si falta
+  ese registro historico, muestra "No registrado"; no inventa un agente.
+  Confirmacion, preparacion/cita y entrega requieren detalle, referencia
+  verificable, confirmacion, autor autenticado y fecha, en ese orden.
+  El numero legacy de etapa no demuestra cumplimiento de estas gestiones.
+- Primera gestion pendiente: Confirmacion, un dia habil desde la creacion
+  de la orden, no desde una gestion de cotizacion registrada posteriormente.
+  Preparacion: fecha comprometida al confirmar.
   Entrega: fecha acordada al preparar. Dias habiles: lunes a viernes, sin
   calendario de feriados.
 - Sin respuesta no completa el objetivo: exige proxima accion y reintento
@@ -83,7 +88,7 @@ el resto del sistema.
   atraso. La tabla distingue objetivos confirmados dentro del plazo,
   intentos, vencimientos y bloqueos. No se agregan envios WhatsApp automaticos.
 - El estado logistico se sigue cambiando desde la orden. El servidor exige
-  cotizacion verificada para avanzar a Pagado, confirmacion para Preparacion
+  la cotizacion inicial ya registrada para avanzar a Pagado, confirmacion para Preparacion
   y preparacion verificada para Listo/En camino. La entrega se registra desde
   el flujo, con saldo liquidado, evidencia y las validaciones existentes de
   inventario, estado y garantia. Administracion sigue registrando los cobros.
@@ -94,9 +99,12 @@ el resto del sistema.
 - Reclamos y reembolsos siguen sus servicios propios. Registrar una incidencia
   en el flujo no crea ni cierra un caso: hay que gestionarlo en su vista.
   Reactivaciones y retrocesos reabren las etapas pertinentes sin borrar el
-  historial ni cambiar la entrega o garantia originales.
-- Las ordenes existentes no reciben evidencias inventadas: deben regularizar
-  sus etapas pendientes. Se conserva el historial de contactos anterior.
+  historial ni cambiar la entrega o garantia originales. Cotizacion no se
+  reabre: una reactivacion temprana vuelve a Confirmacion.
+- Las ordenes existentes tambien muestran Cotizacion completada desde su
+  creacion, sin insertar evidencias nuevas ni modificar datos historicos;
+  deben regularizar las etapas siguientes pendientes. Se conservan los
+  eventos anteriores de cotizacion y el historial de contactos.
   Las anteriores al corte conservan su flujo legacy, accesible desde
   **Seguimiento historico**. La API antigua de contactos rechaza avances de
   ordenes sujetas al nuevo flujo para evitar dos motores contradictorios.

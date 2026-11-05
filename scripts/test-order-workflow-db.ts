@@ -123,6 +123,14 @@ try {
   assert.equal(concurrent.filter(item => item.status === 'fulfilled').length, 1);
   const [once] = await database.query<RowDataPacket[]>('SELECT down_payment,version,delivered_at FROM orders WHERE id=904');
   assert.equal(Number(once[0].down_payment), 10); assert.equal(Number(once[0].version), 2); assert.equal(once[0].delivered_at, null);
+  await database.execute("INSERT INTO audit_logs (user_id,action,resource_type,resource_id,details) VALUES (7,'ORDER_CREATED','order','901','{}')");
+  await database.execute('UPDATE orders SET user_id=NULL WHERE id=901');
+  const quotation = await invoke('GET', '/api/orders/901/workflow', {}, '7', 'admin');
+  assert.equal((quotation.data.order as { quoteCreatedBy: string }).quoteCreatedBy, 'Test operator');
+  const unknownCreator = await invoke('GET', '/api/orders/904/workflow', {}, '7', 'admin');
+  assert.equal((unknownCreator.data.order as { quoteCreatedBy: string | null }).quoteCreatedBy, null);
+  assert.equal((unknownCreator.data.tasks as { task: string }[])[0].task, 'ack');
+  console.log('PASS: quotation automatically complete; audit creation actor survives reassignment, missing historical actor explicit; no manual quote mutation.');
   console.log('PASS: split collection + legacy/workflow delivery, core receipt, ledger methods, inventory-failure rollback and concurrent duplicate prevention on real MariaDB.');
   console.log('PASS: all migrations + idempotent workflow DDL; authenticated transaction, concurrency, ordered evidence, delivery, preserved warranty, calendar milestones and existing contact reporting.');
 } finally {
