@@ -1,5 +1,21 @@
 # Despliegue de Radar
 
+## Una sola instruccion para publicar
+
+En Radar, **"sube a GitHub"** o **"sube los cambios"** incluye publicar y
+desplegar en el VPS, sin una segunda confirmacion. El asistente completa el
+PR hacia `main`, espera el despliegue automatico y confirma la version activa.
+Subir solamente una rama no cumple esta instruccion.
+
+Al llegar los cambios a `main`, el proceso empieza automaticamente, sin abrir
+SSH ni pulsar Deploy en Dokploy. La activacion tarda lo necesario para pasar
+pruebas, respaldo y build; no se omiten estas protecciones para hacerla
+instantanea. Si falla, se informa el error, no se declara desplegado.
+
+Una peticion explicita de "solo GitHub" o "sin desplegar" excluye produccion.
+La regla para agentes esta en
+[copilot-instructions.md](./.github/copilot-instructions.md).
+
 ## Camino normal
 
 1. Subir cambios mediante un PR hacia `main`.
