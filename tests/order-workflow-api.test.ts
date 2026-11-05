@@ -38,7 +38,7 @@ const request = (method = 'POST', action: Record<string, unknown> = {}) => {
   const end = vi.spyOn(res, 'end').mockReturnValue(res);
   return { req, res, end };
 };
-const action = { version: 1, task: 'quote', outcome: 'completed', notes: 'Cotización confirmada', evidence: 'Conversation reference', confirmed: true };
+const action = { version: 1, task: 'ack', outcome: 'completed', notes: 'Cliente confirma', evidence: 'Conversation reference', confirmed: true, nextDueDate: '2099-01-01' };
 
 describe('workflow API transactional enforcement', () => {
   it('rejects forged actors, impossible dates, invalid task and stale input shapes', () => {
@@ -67,7 +67,7 @@ describe('workflow API transactional enforcement', () => {
   it('rolls back ownership, version and evidence failures without writes or success notifications', async () => {
     for (const variant of [
       { user: 8, body: action }, { user: 7, body: { ...action, version: 2 } },
-      { user: 7, body: { ...action, evidence: '' } }, { user: 7, body: { ...action, task: 'ack' } },
+      { user: 7, body: { ...action, evidence: '' } }, { user: 7, body: { ...action, task: 'prepare' } },
     ]) {
       const { database, connection } = setup();
       const { req, res } = request('POST', variant.body);
@@ -133,10 +133,10 @@ describe('workflow API transactional enforcement', () => {
     const data = JSON.parse(String(end.mock.calls[0][0]));
     expect(data.events).toEqual([]);
     expect(data.contacts[0].actor).toBe('Historical actor');
-    expect(data.tasks[0].task).toBe('quote');
+    expect(data.tasks[0].task).toBe('ack');
   });
   it('requires all earlier objectives before preparation and ready states', async () => {
-    for (const status of ['pagado', 'en_preparacion', 'listo_retiro', 'en_camino']) {
+    for (const status of ['en_preparacion', 'listo_retiro', 'en_camino']) {
       const { connection } = setup();
       connection.query.mockReset().mockResolvedValue([[], []]);
       await expect(enforceWorkflowUpdate(connection, { ...row, status: 'Cotización' } as RowDataPacket, { status })).rejects.toThrow(/etapas previas/);
@@ -149,7 +149,7 @@ describe('workflow API transactional enforcement', () => {
       await recordWorkflowReopening(connection, { ...row, status } as RowDataPacket, 'en_preparacion', { sub: '7', role: 'admin' });
       expect(connection.execute).toHaveBeenCalledOnce();
       expect(connection.execute.mock.calls[0][0]).toContain("'reopened'");
-      expect(connection.execute.mock.calls[0][1]).toContain(status === 'Cancelado' ? 'quote' : 'prepare');
+      expect(connection.execute.mock.calls[0][1]).toContain(status === 'Cancelado' ? 'ack' : 'prepare');
     }
   });
   it('completes delivery in the same transaction and never changes an existing original warranty date', async () => {
@@ -159,7 +159,7 @@ describe('workflow API transactional enforcement', () => {
       created_at: row.created_at, notes: 'Confirmed', evidence: 'Reference',
     }));
     const { database, connection } = setup({ status: 'Listo para Retiro', delivered_at: deliveredAt }, events);
-    const { req, res } = request('POST', { ...action, task: 'delivery' });
+    const { req, res } = request('POST', { ...action, task: 'delivery', nextDueDate: undefined });
     await handleWorkflowRequest(req, res, '/api/orders/901/workflow', { sub: '7', role: 'admin' }, database, vi.fn());
     const delivery = connection.execute.mock.calls.find(call => String(call[0]).includes('warranty_started=1'));
     expect(delivery?.[1]).toContain('2026-11-01 16:00:00');
@@ -172,7 +172,7 @@ describe('workflow API transactional enforcement', () => {
       created_at: row.created_at, notes: 'Confirmed', evidence: 'Reference',
     }));
     const { database, connection } = setup({ status: 'Entregado', delivered_at: new Date('2026-11-01T16:00:00Z') }, events);
-    const { req, res } = request('POST', { ...action, task: 'post_3', contactResult: 'sms_replied', partStatus: 'installed_ok' });
+    const { req, res } = request('POST', { ...action, task: 'post_3', nextDueDate: undefined, contactResult: 'sms_replied', partStatus: 'installed_ok' });
     await handleWorkflowRequest(req, res, '/api/orders/901/workflow', { sub: '7', role: 'operator' }, database, vi.fn());
     expect(connection.execute.mock.calls.some(call => String(call[0]).includes('INSERT INTO order_delivery_followups'))).toBe(true);
     expect(connection.execute.mock.calls.some(call => String(call[0]).includes('whatsapp_dispatched)') && String(call[0]).includes('0)'))).toBe(true);
@@ -196,5 +196,20 @@ describe('workflow API transactional enforcement', () => {
       .mockResolvedValueOnce([[{ name: 'Authenticated actor' }] as RowDataPacket[], []]);
     await expect(enforceWorkflowUpdate(connection, { ...row, status: 'Cancelado' } as RowDataPacket, { status: 'pagado', workflowStep: 1 }, { sub: '7', role: 'admin' })).resolves.toBeUndefined();
     expect(connection.execute).toHaveBeenCalledOnce();
+  });
+  it('allows deposit status without manual quotation evidence, but rejects duplicate quotation management', async () => {
+    const { connection } = setup();
+    connection.query.mockReset().mockResolvedValue([[], []]);
+    await expect(enforceWorkflowUpdate(connection, { ...row, status: 'Cotización' } as RowDataPacket, { status: 'pagado' })).resolves.toBeUndefined();
+    const { database, connection: mutation } = setup();
+    const { req, res } = request('POST', { ...action, task: 'quote' });
+    await expect(handleWorkflowRequest(req, res, '/api/orders/901/workflow', { sub: '7', role: 'operator' }, database, vi.fn())).rejects.toThrow(/etapa/);
+    expect(mutation.execute).not.toHaveBeenCalled();
+  });
+  it('maps the original quotation agent separately from the current assignee', () => {
+    expect(workflowOrderFromRow({ ...row, quote_created_by: 'Original agent' } as RowDataPacket)).toMatchObject({
+      advisor: 'Assigned operator', quoteCreatedBy: 'Original agent', createdAt: row.created_at.toISOString(),
+    });
+    expect(workflowOrderFromRow(row as RowDataPacket)).toHaveProperty('quoteCreatedBy', null);
   });
 });
