@@ -58,7 +58,7 @@ class ReleaseGateTests(unittest.TestCase):
             if service == "dokploy":
                 return "dokploy"
             raise RuntimeError("Swarm is replacing the application container")
-        def fake_run(args, data=None):
+        def fake_run(args, data=None, retry_codes=()):
             if args[:2] == ["docker", "ps"]:
                 return next(states)
             if "rev-parse" in args:
@@ -79,6 +79,16 @@ class ReleaseGateTests(unittest.TestCase):
                 release.verify(sha)
                 self.assertEqual(sleep.call_count, 2)
                 self.assertTrue((root / sha / "verified.json").exists())
+
+    def test_missing_checkout_is_explicitly_retried_but_other_failures_are_fatal(self):
+        from subprocess import CompletedProcess
+        with patch.object(release.subprocess, "run", return_value=CompletedProcess(["git"], 128, b"", b"not a repository")):
+            self.assertEqual(release.run(["docker", "exec", "git"], retry_codes=(128,)), "")
+            with self.assertRaises(RuntimeError):
+                release.run(["docker", "exec", "git"])
+        with patch.object(release.subprocess, "run", return_value=CompletedProcess(["git"], 1, b"", b"other failure")):
+            with self.assertRaises(RuntimeError):
+                release.run(["docker", "exec", "git"], retry_codes=(128,))
 
 
 if __name__ == "__main__":
