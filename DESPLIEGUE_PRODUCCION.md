@@ -15,8 +15,10 @@
    nuevamente los datos originales. La app anterior vuelve a arrancar.
 6. Actions avanza la rama `production` al mismo SHA, sin force push. Dokploy
    observa **production**, no `main`, y despliega mediante su integracion GitHub.
-7. El gate espera el SHA del checkout, deployment terminado, imagen realmente
-   activa, healthcheck Docker y `/health` HTTPS con base conectada.
+7. El gate espera el SHA del checkout, deployment terminado, reemplazo de
+   Swarm convergido a un contenedor, imagen realmente activa, healthcheck Docker
+   y `/health` HTTPS con base conectada. Cero o dos contenedores durante el
+   reemplazo son estados transitorios, no un fallo inmediato.
 
 No enviar cambios directamente a `production`: saltaria las pruebas y el gate.
 La concurrencia de Actions no cancela una release activa; el servidor tambien
