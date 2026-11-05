@@ -305,7 +305,7 @@ export const StatusRequestModal: React.FC<StatusRequestModalProps> = ({ isOpen, 
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/85 p-4 backdrop-blur-xl animate-fade-in">
+    <div className="horizon-modal fixed inset-0 z-[70] flex items-center justify-center bg-black/85 p-4 backdrop-blur-xl animate-fade-in">
       <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-3xl min-h-0 flex-col overflow-hidden rounded-3xl border border-cyan-500/30 bg-[#070c18]/95 backdrop-blur-2xl shadow-[0_20px_60px_rgba(0,0,0,0.85)] relative">
         {/* Laser Hairline */}
         <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-20" />

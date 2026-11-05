@@ -107,7 +107,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({ orders = [], userRole = 
   };
 
   return (
-    <div className="radar-view space-y-5 pb-10 text-slate-100">
+    <div className="radar-view horizon-view space-y-5 pb-10 text-slate-100">
       {error && <p role="alert" className="rounded-xl border border-red-500 p-3 text-red-300">{error}</p>}
       {message && <p role="status" className="text-emerald-300">{message}</p>}
       {selectedClaim ? <ClaimDetailView
@@ -118,14 +118,14 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({ orders = [], userRole = 
           ? { ...claim, calls: [call, ...(claim.calls || [])], callCount: (claim.callCount || 0) + 1 } : claim))}
         onResolve={() => { void changeStatus(selectedClaim, 'Resolved'); }}
       /> : <>
-        <header className="flex flex-wrap justify-between gap-3">
+        <header className="horizon-view-header">
           <div><h1 className="text-2xl font-black">Reclamos</h1><p className="text-slate-400">Garantías, seguimiento y llamadas</p></div>
           <div className="flex gap-2">
             <button className={buttonClass} onClick={() => window.print()}>Imprimir</button>
             <button className={buttonClass} onClick={() => setCreating(true)}>Nuevo reclamo</button>
           </div>
         </header>
-        <div className="flex flex-wrap gap-3">
+        <div className="horizon-view-toolbar flex flex-wrap gap-3">
           <input className={fieldClass} aria-label="Buscar reclamos" placeholder="Orden, cliente, vehículo o motivo" value={search} onChange={(event) => setSearch(event.target.value)} />
           <select className={fieldClass} aria-label="Estado del reclamo" value={status} onChange={(event) => setStatus(event.target.value)}>
             {['Todos', 'Pending', 'In Process', 'Resolved', 'Denied'].map((value) => <option key={value}>{value}</option>)}
@@ -135,7 +135,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({ orders = [], userRole = 
           </select>
         </div>
         <div className="space-y-3">
-          {filtered.map((claim) => <article key={claim.id} className="rounded-2xl border border-slate-700 bg-slate-900 p-4 space-y-2">
+          {filtered.map((claim) => <article key={claim.id} className="horizon-view-card rounded-2xl border border-slate-700 bg-slate-900 p-4 space-y-2">
             <div className="flex justify-between gap-3"><button className="font-bold text-cyan-300" onClick={() => setSelectedId(claim.id)}>{claim.id} · {claim.orderCode}</button><span>{claim.status} · {claim.priority}</span></div>
             <p>{claim.customerName} · {claim.vehicle} · {claim.mainPart}</p>
             <p className="text-slate-300">{claim.claimReason}</p>
@@ -156,7 +156,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({ orders = [], userRole = 
           {!filtered.length && <p className="p-6 text-slate-400">No hay reclamos para estos filtros.</p>}
         </div>
       </>}
-      {creating && <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+      {creating && <div className="horizon-modal fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
         <form onSubmit={create} className="bg-slate-900 border border-cyan-800 rounded-2xl p-6 w-full max-w-xl space-y-4">
           <h2 className="text-xl font-bold">Nuevo reclamo</h2>
           <select required className={`${fieldClass} w-full`} aria-label="Orden del reclamo" value={orderId} onChange={(event) => setOrderId(event.target.value)}>

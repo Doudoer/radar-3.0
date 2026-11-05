@@ -99,6 +99,8 @@ export const mapOrder = (row: RowDataPacket, auctionLinks: any[] = []) => {
       advancePayment: downPayment,
       deliveryFee,
       coreFee,
+      coreReceivedAt: row.core_received_at ? new Date(row.core_received_at).toISOString() : undefined,
+      coreReceivedAmount: row.core_received_amount === null || row.core_received_amount === undefined ? undefined : Number(row.core_received_amount),
       subtotal: price + deliveryFee + coreFee,
       total: price + deliveryFee + coreFee,
       balanceDue: Math.max(0, price + deliveryFee + coreFee - downPayment),

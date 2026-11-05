@@ -396,7 +396,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   };
 
   return (
-    <div className="space-y-5 animate-fade-in text-slate-800 dark:text-slate-100 font-sans pb-10">
+    <div className="radar-view horizon-view horizon-inventory space-y-5 animate-fade-in text-slate-800 dark:text-slate-100 pb-10">
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-white dark:bg-[#0c1a30] border border-emerald-500/60 text-emerald-800 dark:text-emerald-300 px-4 py-3 rounded-2xl shadow-lg dark:shadow-[0_0_25px_rgba(16,185,129,0.35)] flex items-center gap-2.5 animate-bounce-subtle">
@@ -406,7 +406,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       )}
 
       {/* Header Banner */}
-      <div className="relative overflow-hidden rounded-3xl bg-white dark:bg-gradient-to-r dark:from-[#070c18] dark:via-[#0b1424] dark:to-[#080d1a] border border-slate-200 dark:border-cyan-500/30 p-5 sm:p-6 shadow-sm dark:shadow-[0_10px_35px_rgba(0,0,0,0.6)]">
+      <div className="horizon-view-header horizon-inventory-header">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
             <div className="w-12 h-12 rounded-2xl bg-cyan-50 dark:bg-gradient-to-br dark:from-cyan-500/20 dark:via-blue-500/20 dark:to-emerald-500/20 border border-cyan-200 dark:border-cyan-500/40 flex items-center justify-center text-cyan-600 dark:text-cyan-400 shadow-sm dark:shadow-[0_0_20px_rgba(6,182,212,0.3)]">
@@ -471,7 +471,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
 
         {/* 5 Metric Chips */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-5">
+        <div className="horizon-view-metrics grid grid-cols-2 sm:grid-cols-5 gap-3 mt-5">
           <div className="rounded-2xl bg-slate-50 dark:bg-[#040814]/80 border border-slate-200 dark:border-slate-800 p-3 flex items-center gap-3 shadow-xs dark:shadow-none">
             <div className="w-9 h-9 rounded-xl bg-cyan-100/80 dark:bg-cyan-500/15 border border-cyan-200 dark:border-cyan-500/30 flex items-center justify-center text-cyan-700 dark:text-cyan-400">
               <span className="material-symbols-outlined text-[18px]">inventory_2</span>
@@ -851,7 +851,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       {/* Editor Modal (Create or Edit) */}
       {/* Editor Modal */}
       {isEditorOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 dark:bg-black/85 backdrop-blur-md animate-fade-in">
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 dark:bg-black/85 backdrop-blur-md animate-fade-in">
           <div className="relative w-full max-w-lg rounded-3xl bg-white dark:bg-[#070c18] border border-slate-200 dark:border-cyan-500/40 shadow-2xl dark:shadow-[0_20px_60px_rgba(0,0,0,0.9)] text-slate-800 dark:text-slate-100 max-h-[min(94vh,700px)] flex flex-col overflow-hidden">
             {/* Modal Header */}
             <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-cyan-500/20 bg-slate-50 dark:bg-[#0a1022]/90 flex items-center justify-between shrink-0">
@@ -1355,7 +1355,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       {/* Detail Card Modal */}
       {selectedDetailItem && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 dark:bg-black/85 backdrop-blur-md animate-fade-in"
+          className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 dark:bg-black/85 backdrop-blur-md animate-fade-in"
           onClick={() => setSelectedDetailItem(null)}
         >
           <div 
@@ -1690,7 +1690,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
       {/* Sold Confirmation Modal */}
       {soldConfirmItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 dark:bg-black/85 backdrop-blur-md animate-fade-in">
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 dark:bg-black/85 backdrop-blur-md animate-fade-in">
           <div className="relative w-full max-w-md rounded-3xl bg-white dark:bg-[#080d1a] border border-slate-200 dark:border-blue-500/50 p-6 text-center space-y-4 shadow-2xl dark:shadow-[0_20px_60px_rgba(0,0,0,0.9)] font-mono">
             <div className="w-14 h-14 rounded-2xl bg-blue-100 border border-blue-200 dark:bg-blue-500/20 dark:border-blue-500/40 mx-auto flex items-center justify-center text-blue-700 dark:text-blue-400 shadow-sm dark:shadow-[0_0_20px_rgba(59,130,246,0.3)]">
               <span className="material-symbols-outlined text-[32px]">sell</span>
@@ -1767,7 +1767,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
       {/* Delete Confirmation Modal */}
       {deleteConfirmItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 dark:bg-black/85 backdrop-blur-md animate-fade-in">
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 dark:bg-black/85 backdrop-blur-md animate-fade-in">
           <div className="relative w-full max-w-sm rounded-3xl bg-white dark:bg-[#0c1322] border border-slate-200 dark:border-red-500/50 p-6 text-center space-y-4 shadow-2xl dark:shadow-[0_20px_50px_rgba(0,0,0,0.85)] font-mono">
             <div className="w-12 h-12 rounded-2xl bg-red-100 border border-red-200 dark:bg-red-500/20 dark:border-red-500/40 mx-auto flex items-center justify-center text-red-600 dark:text-red-400 shadow-sm">
               <span className="material-symbols-outlined text-[28px]">delete</span>

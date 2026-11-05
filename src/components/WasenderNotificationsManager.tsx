@@ -986,7 +986,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
 
       {/* EXTERNAL CONTACT MODAL */}
       {isContactModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto">
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto">
           <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/40 rounded-2xl w-full max-w-md shadow-[0_15px_50px_rgba(6,182,212,0.3)] overflow-hidden flex flex-col text-xs text-slate-300 relative my-auto">
             <div className="h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_#22d3ee] absolute top-0 inset-x-0" />
 

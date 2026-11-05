@@ -224,19 +224,19 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
   const summaryText = `${spanishMessage}\n\n---\n\n${englishMessage}`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-black/80 dark:bg-black/85 backdrop-blur-xl animate-fade-in">
-      <div className="cyber-card w-full max-w-4xl max-h-[min(94vh,740px)] shadow-2xl overflow-hidden flex flex-col text-xs text-[var(--text-primary)] relative border border-cyan-500/30">
+    <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-black/80 dark:bg-black/85 backdrop-blur-xl animate-fade-in">
+      <div className="horizon-message-dialog cyber-card w-full max-w-4xl max-h-[min(94vh,740px)] shadow-2xl overflow-hidden flex flex-col text-xs text-[var(--text-primary)] relative border border-cyan-500/30">
         {/* Laser Hairline */}
         <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-20" />
 
         {/* Header */}
         <div className="px-4 sm:px-5 py-3.5 border-b border-cyan-500/20 bg-[var(--bg-card-subtle)] flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
               <span className="material-symbols-outlined text-[18px]">send</span>
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h3 className="font-bold text-[var(--text-heading)] text-sm">Notificación & Despacho WhatsApp</h3>
                 <span className="font-mono text-[10px] text-cyan-400 bg-cyan-950/40 dark:bg-cyan-950/60 border border-cyan-500/30 px-2 py-0.5 rounded-full font-bold">
                   {orderCode}
@@ -252,7 +252,7 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="h-8 w-8 rounded-lg border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-cyan-500/10 flex items-center justify-center cursor-pointer transition-colors"
+            className="h-8 w-8 shrink-0 rounded-lg border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-cyan-500/10 flex items-center justify-center cursor-pointer transition-colors"
           >
             <span className="material-symbols-outlined text-[18px]">close</span>
           </button>
@@ -300,12 +300,12 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
               {/* English Version Card */}
               <div className="rounded-xl bg-[#1e293b]/70 dark:bg-[#131f33] p-3.5 border border-slate-700/60 dark:border-slate-800 shadow-sm flex flex-col justify-between">
-                <div className="flex items-center justify-between mb-2.5">
+                <div className="horizon-message-actions flex flex-wrap items-center justify-between gap-3 mb-2.5">
                   <span className="font-bold text-xs text-sky-400 flex items-center gap-1.5">
                     <span>🇺🇸</span>
                     <span>Format (English)</span>
                   </span>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => copyText('English', englishMessage)}
@@ -351,12 +351,12 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
 
               {/* Spanish Version Card */}
               <div className="rounded-xl bg-[#1e293b]/70 dark:bg-[#131f33] p-3.5 border border-slate-700/60 dark:border-slate-800 shadow-sm flex flex-col justify-between">
-                <div className="flex items-center justify-between mb-2.5">
+                <div className="horizon-message-actions flex flex-wrap items-center justify-between gap-3 mb-2.5">
                   <span className="font-bold text-xs text-sky-400 flex items-center gap-1.5">
                     <span>🇪🇸</span>
                     <span>Formato (Español)</span>
                   </span>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => copyText('Español', spanishMessage)}
@@ -509,4 +509,3 @@ export const QuickSMSModal: React.FC<QuickSMSModalProps> = ({
     </div>
   );
 };
-

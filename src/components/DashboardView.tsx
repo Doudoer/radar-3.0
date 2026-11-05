@@ -251,6 +251,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return scaleNetBars(result);
   }, [periodType, periodOrders, currentPeriodRange, monthOffset, yearOffset, income.movements]);
   const hasNegativeIncome = trendBars.some(bar => bar.rawAmount < 0);
+  const cumulativeIncome = useMemo(() => {
+    let total = 0;
+    return trendBars.map(bar => {
+      total = sumMoney([total, bar.rawAmount]);
+      return { ...bar, cumulative: total };
+    });
+  }, [trendBars]);
+  const lineMinimum = Math.min(0, ...cumulativeIncome.map(bar => bar.cumulative));
+  const lineMaximum = Math.max(0, ...cumulativeIncome.map(bar => bar.cumulative));
+  const lineRange = lineMaximum - lineMinimum || 1;
+  const lineY = (amount: number) => 180 - ((amount - lineMinimum) / lineRange) * 150;
+  const linePoints = cumulativeIncome.map((bar, index) =>
+    `${20 + index * (460 / Math.max(1, cumulativeIncome.length - 1))},${lineY(bar.cumulative)}`
+  ).join(' ');
+  const distributionColors = ['#4318ff', '#6ad2ff', '#a3aed0', '#f6ad55', '#c4b5fd'];
+  let distributionEnd = 0;
+  const pieBackground = dashboardMetrics.totalOrders
+    ? `conic-gradient(${dashboardMetrics.distribution.map((item, index) => {
+      const start = distributionEnd;
+      distributionEnd += item.percentage;
+      return `${distributionColors[index]} ${start}% ${distributionEnd}%`;
+    }).join(', ')})`
+    : 'var(--bg-card-subtle)';
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -271,17 +294,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   return (
     <div className="radar-view horizon-dashboard pb-8">
-      {/* Page Header with Cyber HUD Badge & Period Selectors */}
-      <div className="flex flex-col gap-4">
+      <div className="horizon-dashboard-toolbar">
         <div>
-          <div className="text-sm text-slate-400 mb-2">
-            <span>Radar / Dashboard</span>
-          </div>
-          <h2 className="text-2xl md:text-3xl font-bold text-white tracking-tight">
+          <h2 className="sr-only">
             Panorama Operativo & Finanzas
           </h2>
           <div className="flex items-center gap-2 mt-1">
-            <p className="text-xs text-slate-400 font-mono">
+            <p className="horizon-capture text-xs text-slate-400 font-mono">
               {periodLabel.subtitle} • Captura: <span className="text-cyan-300">{lastUpdated}</span>
             </p>
             <button
@@ -298,11 +317,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Period Selector & Navigator Controls */}
-        <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-2.5">
+        <div className="horizon-period-controls flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-2.5">
           {/* Granularity segmented buttons: Semana (Default) | Mes | Año */}
-          <div className="flex bg-[#040814]/90 rounded-2xl p-1 border border-cyan-500/30 shadow-[0_0_15px_rgba(6,182,212,0.15)]">
+          <div className="horizon-period-tabs flex rounded-2xl p-1">
             <button
               type="button"
+              aria-pressed={periodType === 'semana'}
               onClick={() => {
                 setPeriodType('semana');
                 setWeekOffset(0);
@@ -323,6 +343,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             <button
               type="button"
+              aria-pressed={periodType === 'mes'}
               onClick={() => {
                 setPeriodType('mes');
                 setMonthOffset(0);
@@ -340,6 +361,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             <button
               type="button"
+              aria-pressed={periodType === 'ano'}
               onClick={() => {
                 setPeriodType('ano');
                 setYearOffset(0);
@@ -357,7 +379,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* Period Date Navigator */}
-          <div className="flex flex-wrap items-center gap-1.5 max-w-full">
+          <div className="horizon-period-navigator flex flex-wrap items-center gap-1.5 max-w-full">
             <button
               type="button"
               onClick={() => {
@@ -416,116 +438,92 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {periodOrders.length === 0 && <p role="status" className="text-sm text-slate-400 mt-4">
-        No hay órdenes creadas en este período. Selecciona un período anterior para consultar el histórico.
-      </p>}
-      {/* 4 KPIs Cyber HUD Grid */}
-      <div className="horizon-kpis grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mt-5">
-        {/* KPI 1: Ventas Consolidadas del Período */}
-        <div className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-emerald-500/35 p-5 shadow-[0_15px_35px_rgba(0,0,0,0.7),0_0_30px_rgba(16,185,129,0.15)] overflow-hidden group hover:border-emerald-400 transition-all">
-          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_12px_#34d399]" />
-          <div className="flex justify-between items-start mb-3 relative z-10">
-            <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-emerald-400/90">
-              Ingresos netos del período
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-400/40 flex items-center justify-center text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.3)]">
-              <span className="material-symbols-outlined text-[18px]">trending_up</span>
+      <div className="horizon-kpis">
+        {[
+          { label: 'Ingresos netos del período', icon: 'trending_up', tone: 'positive',
+            value: income.loaded ? `$${dashboardMetrics.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'No disponible',
+            note: 'Pagos − reembolsos por fecha efectiva. No incluye saldos legacy sin fecha.' },
+          { label: 'Órdenes Operativas', icon: 'inventory_2', tone: 'brand',
+            value: dashboardMetrics.totalOrders,
+            note: `${dashboardMetrics.activeInWorkshop} activas en taller / proceso`, onClick: onNavigateTaller },
+          { label: 'Cobros del período', icon: 'payments', tone: 'brand',
+            value: income.loaded ? `$${dashboardMetrics.totalAdvanceCollected.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'No disponible',
+            note: `Saldo actual de ventas creadas en el período: $${dashboardMetrics.totalBalanceDue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+          { label: 'Reclamos & Incidencias', icon: 'warning', tone: 'warning',
+            value: dashboardMetrics.claimsCount,
+            note: slaMetrics.length ? `${dashboardMetrics.overdueSlas} alertas de tiempo SLA` : 'SLA no disponible' },
+          { label: 'En taller / proceso', icon: 'build', tone: 'brand',
+            value: dashboardMetrics.activeInWorkshop,
+            note: 'Órdenes creadas en el período que siguen activas en taller / proceso.', onClick: onNavigateTaller },
+          { label: 'Saldo pendiente', icon: 'account_balance_wallet', tone: 'brand',
+            value: `$${dashboardMetrics.totalBalanceDue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            note: 'Saldo actual de ventas creadas en el período, no ingresos cobrados.' },
+        ].map(metric => (
+          <div key={metric.label} className="horizon-stat" data-tone={metric.tone}
+            title={`${metric.label}: ${metric.value}. ${metric.note}`}
+            role={metric.onClick ? 'button' : undefined}
+            tabIndex={metric.onClick ? 0 : undefined}
+            aria-label={metric.label}
+            onClick={metric.onClick}
+            onKeyDown={metric.onClick ? event => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                metric.onClick();
+              }
+            } : undefined}>
+            <div className="horizon-stat-icon">
+              <span className="material-symbols-outlined">{metric.icon}</span>
+            </div>
+            <div className="horizon-stat-content">
+              <p className="horizon-stat-label">{metric.label}</p>
+              <p className="horizon-stat-value">{metric.value}</p>
+              <p className="horizon-stat-note sr-only">{metric.note}</p>
             </div>
           </div>
-          <div className="relative z-10">
-            <span className="font-mono text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
-              {income.loaded ? `$${dashboardMetrics.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'No disponible'}
-            </span>
-            <div className="flex items-center gap-1.5 mt-2 text-emerald-300 text-xs font-mono font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>
-                Pagos − reembolsos por fecha efectiva. No incluye saldos legacy sin fecha.
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* KPI 2: Órdenes Operativas en Taller/Proceso */}
-        <div
-          onClick={onNavigateTaller}
-          className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/35 p-5 shadow-[0_15px_35px_rgba(0,0,0,0.7),0_0_30px_rgba(6,182,212,0.15)] overflow-hidden group hover:border-cyan-400 transition-all cursor-pointer"
-        >
-          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_#22d3ee]" />
-          <div className="flex justify-between items-start mb-3 relative z-10">
-            <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-cyan-400/90">
-              Órdenes Operativas
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-cyan-500/15 border border-cyan-400/40 flex items-center justify-center text-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.3)]">
-              <span className="material-symbols-outlined text-[18px]">inventory_2</span>
-            </div>
-          </div>
-          <div className="relative z-10">
-            <span className="font-mono text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
-              {dashboardMetrics.totalOrders}
-            </span>
-            <div className="flex items-center gap-1.5 mt-2 text-cyan-300 text-xs font-mono font-semibold">
-              <span className="material-symbols-outlined text-[14px]">precision_manufacturing</span>
-              <span>{dashboardMetrics.activeInWorkshop} activas en taller / proceso</span>
-            </div>
-          </div>
-        </div>
-
-        {/* KPI 3: Finanzas: Cobrado vs Saldo Pendiente */}
-        <div className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-blue-500/35 p-5 shadow-[0_15px_35px_rgba(0,0,0,0.7),0_0_30px_rgba(59,130,246,0.15)] overflow-hidden group hover:border-blue-400 transition-all">
-          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-blue-400 to-transparent shadow-[0_0_12px_#60a5fa]" />
-          <div className="flex justify-between items-start mb-3 relative z-10">
-            <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-blue-400/90">
-              Cobros del período
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-blue-500/15 border border-blue-400/40 flex items-center justify-center text-blue-400 shadow-[0_0_12px_rgba(59,130,246,0.3)]">
-              <span className="material-symbols-outlined text-[18px]">payments</span>
-            </div>
-          </div>
-          <div className="relative z-10">
-            <span className="font-mono text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
-              {income.loaded ? `$${dashboardMetrics.totalAdvanceCollected.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'No disponible'}
-            </span>
-            <div className="flex items-center gap-1.5 mt-2 text-blue-300 text-xs font-mono font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-              <span>Saldo actual de ventas creadas en el período: ${dashboardMetrics.totalBalanceDue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* KPI 4: Reclamos e Incidencias */}
-        <div className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-amber-500/35 p-5 shadow-[0_15px_35px_rgba(0,0,0,0.7),0_0_30px_rgba(245,158,11,0.15)] overflow-hidden group hover:border-amber-400 transition-all">
-          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-amber-400 to-transparent shadow-[0_0_12px_#fbbf24]" />
-          <div className="flex justify-between items-start mb-3 relative z-10">
-            <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-amber-400/90">
-              Reclamos & Incidencias
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-400/40 flex items-center justify-center text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.3)]">
-              <span className="material-symbols-outlined text-[18px]">warning</span>
-            </div>
-          </div>
-          <div className="relative z-10">
-            <span className="font-mono text-3xl lg:text-4xl font-black text-white tracking-tight drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
-              {dashboardMetrics.claimsCount}
-            </span>
-            <div className="flex items-center gap-1.5 mt-2 text-amber-300 text-xs font-mono font-semibold">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-              <span>{slaMetrics.length ? `${dashboardMetrics.overdueSlas} alertas de tiempo SLA` : 'SLA no disponible'}</span>
-            </div>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Main Bento Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-5">
+      {periodOrders.length === 0 && <p role="status" className="horizon-empty-period">
+        No hay órdenes creadas en este período. Selecciona un período anterior para consultar el histórico.
+      </p>}
+      <div className="horizon-chart-grid">
+        <section className="horizon-dashboard-card horizon-cumulative-card" aria-label="Ingresos netos acumulados">
+          <div className="horizon-card-heading">
+            <span className="horizon-chart-period"><span className="material-symbols-outlined">calendar_today</span>{periodLabel.subtitle}</span>
+            <span className="material-symbols-outlined horizon-card-symbol">bar_chart</span>
+          </div>
+          <div className="horizon-cumulative-body">
+            <div className="horizon-cumulative-summary">
+              <h3>Ingresos netos acumulados</h3>
+              <p className="horizon-chart-total">{income.loaded ? `$${dashboardMetrics.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'No disponible'}</p>
+              <p>Pagos − reembolsos</p>
+              <span className="horizon-chart-legend"><span />Fecha efectiva</span>
+            </div>
+            <div className="horizon-net-line">
+              {!income.loaded ? <p role={income.error ? 'alert' : 'status'}>{income.error || 'Cargando movimientos…'}</p> :
+                !trendBars.some(bar => bar.rawAmount !== 0) ? <p role="status">Sin ingresos netos registrados en este período</p> :
+                  <svg viewBox="0 0 500 210" role="img" aria-label="Evolución acumulada de pagos menos reembolsos por fecha efectiva">
+                    <line x1="20" y1={lineY(0)} x2="480" y2={lineY(0)} className="horizon-chart-zero" />
+                    <polyline points={linePoints} fill="none" stroke="var(--brand-solid)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+                    {cumulativeIncome.map((bar, index) => (
+                      <circle key={bar.label} cx={20 + index * (460 / Math.max(1, cumulativeIncome.length - 1))} cy={lineY(bar.cumulative)} r="4" fill="var(--bg-card)" stroke="var(--brand-solid)" strokeWidth="2">
+                        <title>{`${bar.fullLabel}: $${bar.cumulative.toFixed(2)} acumulados`}</title>
+                      </circle>
+                    ))}
+                  </svg>}
+              <div className="horizon-line-labels">{cumulativeIncome.map(bar => <span key={bar.label}>{bar.label}</span>)}</div>
+            </div>
+          </div>
+        </section>
         {/* Tendencia de Ventas (Dynamic HUD Graph) */}
-        <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 shadow-[0_20px_50px_rgba(0,0,0,0.7)] lg:col-span-2 flex flex-col overflow-hidden">
+        <div className="horizon-dashboard-card horizon-revenue-card flex flex-col overflow-hidden">
           <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee]" />
 
-          <div className="pb-4 border-b border-cyan-500/15 flex flex-wrap justify-between items-center gap-3">
+          <div className="horizon-card-heading flex flex-wrap justify-between items-center gap-3">
             <div>
               <h3 className="text-lg font-black text-white">Ingresos netos por fecha efectiva</h3>
               {!income.loaded && <p role={income.error ? 'alert' : 'status'} className="text-amber-300 text-xs">{income.error || 'Cargando movimientos…'} No se infieren cobros del estado de la orden.</p>}
-              <p className="text-xs text-slate-400 font-mono">
+              <p className="sr-only">
                 {periodType === 'semana'
                   ? 'Actividad diaria de la semana operativa (Lunes a Domingo)'
                   : periodType === 'mes'
@@ -547,7 +545,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* Area / Dynamic Bars Representation */}
-          <div className="my-6 relative h-[240px] min-h-[240px] flex items-end justify-between gap-1.5 sm:gap-3 overflow-hidden">
+          <div className="horizon-income-chart relative flex items-end justify-between gap-1.5 sm:gap-3 overflow-hidden">
             <div
               className="w-full h-full absolute inset-0 opacity-15 pointer-events-none"
               style={{
@@ -586,6 +584,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     } : {}),
                   }}
                   title={`${bar.fullLabel}: ${bar.amount}`}
+                  data-income={bar.rawAmount < 0 ? 'negative' : bar.rawAmount > 0 ? 'positive' : 'zero'}
                   className={`w-full ${bar.rawAmount < 0 ? 'rounded-b-xl' : 'rounded-t-xl'} transition-all duration-300 ${
                     bar.rawAmount < 0
                       ? 'bg-rose-500'
@@ -601,7 +600,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* X-Axis Dynamic labels */}
-          <div className="pt-3 flex justify-between font-mono text-[10px] sm:text-[11px] text-slate-400 border-t border-cyan-500/15 tracking-wider overflow-x-auto">
+          <div className="horizon-line-labels flex justify-between text-[10px] sm:text-[11px] text-slate-400 overflow-x-auto">
             {trendBars.map((bar, idx) => (
               <span
                 key={idx}
@@ -614,12 +613,43 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             ))}
           </div>
         </div>
-
-        {/* Distribución por Estado en el Período */}
-        <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 shadow-[0_20px_50px_rgba(0,0,0,0.7)] flex flex-col overflow-hidden">
+      </div>
+      <div className="horizon-dashboard-lower">
+        <section className="horizon-dashboard-card horizon-period-orders" aria-label="Órdenes del período">
+          <div className="horizon-card-heading">
+            <h3>Órdenes del período</h3>
+            <button type="button" onClick={onNavigateTaller} aria-label="Ver todas las órdenes" className="horizon-card-action"><span className="material-symbols-outlined">more_horiz</span></button>
+          </div>
+          <div className="table-responsive-wrapper">
+            <table>
+              <thead><tr><th>Orden / cliente</th><th>Vehículo</th><th>Estado</th></tr></thead>
+              <tbody>{periodOrders.slice(0, 5).map(order => (
+                <tr key={order.id}>
+                  <td><button type="button" onClick={() => onSelectOrder(order.id)} className="horizon-order-link">{order.code}</button><span className="horizon-table-secondary">{order.customer.name}</span></td>
+                  <td>{order.vehicle.make} {order.vehicle.model}<span className="horizon-table-secondary">{order.vehicle.year}</span></td>
+                  <td><span className="horizon-table-status">{order.status.replace(/_/g, ' ')}</span></td>
+                </tr>
+              ))}</tbody>
+            </table>
+            {!periodOrders.length && <p className="horizon-card-empty">Sin órdenes creadas en este período.</p>}
+          </div>
+        </section>
+        <section className="horizon-dashboard-card horizon-order-volume" aria-label="Volumen de órdenes">
+          <div className="horizon-card-heading"><h3>Órdenes creadas</h3><span className="material-symbols-outlined horizon-card-symbol">bar_chart</span></div>
+          <p className="horizon-chart-total">{dashboardMetrics.totalOrders}<span> en el período</span></p>
+          <div className="horizon-volume-bars">
+            {trendBars.map(bar => (
+              <div key={bar.label} className="horizon-volume-column">
+                <div style={{ height: `${bar.count / (Math.max(...trendBars.map(item => item.count)) || 1) * 100}%` }} title={`${bar.fullLabel}: ${bar.count} órdenes`} />
+                <span>{bar.label}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+        <div className="horizon-dashboard-card horizon-distribution-card flex flex-col overflow-hidden">
           <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_#22d3ee]" />
 
-          <div className="pb-4 border-b border-cyan-500/15 flex justify-between items-center">
+          <div className="horizon-card-heading flex justify-between items-center">
             <div>
               <h3 className="text-lg font-black text-white">Distribución Operativa</h3>
               <p className="text-[11px] text-slate-400 font-mono">
@@ -629,24 +659,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <span className="material-symbols-outlined text-cyan-400 text-[20px]">pie_chart</span>
           </div>
 
-          <div className="py-4 flex flex-col gap-4 flex-1 justify-center">
-            {dashboardMetrics.distribution.map((item) => (
+          <div className="horizon-distribution-pie" role="img" aria-label={dashboardMetrics.totalOrders ? dashboardMetrics.distribution.map(item => `${item.label}: ${item.count} (${item.percentage.toFixed(1)}%)`).join(', ') : 'Sin órdenes en el período'} style={{ background: pieBackground }} />
+          <div className="horizon-distribution-legend">
+            {dashboardMetrics.distribution.map((item, index) => (
               <div key={item.label} className="w-full">
                 <div className="flex justify-between text-xs font-mono mb-1.5">
-                  <span className="text-slate-200 font-bold">{item.label}</span>
-                  <span className="font-black" style={{ color: item.color }}>
+                  <span className="text-slate-200 font-bold"><i style={{ background: distributionColors[index] }} />{item.label}</span>
+                  <span className="font-black">
                     {item.percentage.toFixed(1)}% <span className="text-slate-400 font-normal">({item.count})</span>
                   </span>
-                </div>
-                <div className="h-2 w-full bg-[#040814] rounded-full overflow-hidden border border-slate-800">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${item.percentage}%`,
-                      backgroundColor: item.color,
-                      boxShadow: `0 0 10px ${item.color}`,
-                    }}
-                  />
                 </div>
               </div>
             ))}
@@ -655,7 +676,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* Secondary Section: SLAs & Activity Feed */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5">
+      <div className="horizon-dashboard-secondary grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5">
         {/* Monitor de SLAs */}
         <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 shadow-[0_20px_50px_rgba(0,0,0,0.7)] flex flex-col overflow-hidden">
           <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_#22d3ee]" />

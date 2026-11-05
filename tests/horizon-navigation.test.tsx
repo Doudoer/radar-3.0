@@ -18,6 +18,13 @@ describe('Horizon navigation preserves Radar access and routes', () => {
     expect(html).not.toContain('Relación Semanal');
     expect(html).toContain('Lista de Órdenes');
   });
+  it('separates operational navigation from administration without dropping destinations', () => {
+    const html = renderToStaticMarkup(<Sidebar currentScreen="dashboard" userRole="admin" onNavigate={() => {}} />);
+    expect(html).toContain('aria-label="Operación"');
+    expect(html).toContain('aria-label="Administración"');
+    expect(html.match(/class="horizon-nav-item /g)).toHaveLength(11);
+    expect(html).toContain('Mi trabajo de hoy');
+  });
   it('preserves the mobile drawer and alias selection', () => {
     const html = renderToStaticMarkup(<Sidebar currentScreen="finanzas" userRole="admin" isOpenMobile onNavigate={() => {}} />);
     expect(html).toContain('translate-x-0');

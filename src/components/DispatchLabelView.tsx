@@ -30,10 +30,9 @@ export const DispatchLabelView: React.FC<DispatchLabelViewProps> = ({ order, onB
   };
 
   return (
-    <div className="radar-view text-[#dfe2ef] pb-10 space-y-6 animate-fade-in">
+    <div className="radar-view horizon-view horizon-document-view text-[#dfe2ef] pb-10 space-y-6 animate-fade-in">
       {/* Top Header Card */}
-      <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/30 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">
-        <div className="absolute top-0 inset-x-0 h-[2.5px] bg-gradient-to-r from-transparent via-cyan-400 to-blue-500 shadow-[0_0_15px_#22d3ee]" />
+      <div className="horizon-view-header">
 
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3.5">

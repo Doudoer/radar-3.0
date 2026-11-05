@@ -294,7 +294,7 @@ export const PersonalNotesWidget: React.FC = () => {
             height: isMinimized ? 'auto' : `min(${WIDGET_HEIGHT}px, calc(100vh - 40px))`,
             transition: isDragging ? 'none' : 'box-shadow 0.2s ease, border-color 0.2s ease',
           }}
-          className={`fixed top-0 left-0 z-[85] flex flex-col overflow-hidden rounded-3xl border ${
+          className={`horizon-notes-panel fixed top-0 left-0 z-[85] flex flex-col overflow-hidden rounded-3xl border ${
             isDragging
               ? 'border-cyan-400 shadow-[0_25px_70px_rgba(0,0,0,0.9),0_0_35px_rgba(6,182,212,0.4)] scale-[1.01]'
               : 'border-cyan-500/35 shadow-[0_20px_60px_rgba(0,0,0,0.85),0_0_20px_rgba(6,182,212,0.15)]'

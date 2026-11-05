@@ -442,17 +442,13 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
   };
 
   return (
-    <div className="radar-view select-none pb-8">
+    <div className="radar-view horizon-view horizon-orders select-none pb-8">
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+      <div className="horizon-orders-heading flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#040b17]/90 border border-cyan-400/40 text-[10px] font-mono font-bold tracking-[0.2em] text-cyan-300 uppercase mb-2 shadow-[0_0_12px_rgba(6,182,212,0.25)]">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_#22d3ee] animate-pulse" />
-            <span>MATRIZ DE SEGUIMIENTO OPERATIVO</span>
-          </div>
           <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)]">
-              Lista de Órdenes
+            <h2 className="horizon-section-title">
+              Gestión de órdenes
             </h2>
             <span className="inline-flex items-center justify-center bg-emerald-500/15 border border-emerald-400/40 rounded-full px-3 py-0.5 font-mono text-emerald-300 text-xs font-black shadow-[0_0_10px_rgba(16,185,129,0.25)]">
               {counts.active} Activas
@@ -477,7 +473,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="horizon-order-actions flex items-center gap-2.5 flex-wrap">
           {onRefresh && (
             <button
               type="button"
@@ -521,18 +517,19 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
       </div>
 
       {/* Segmented Quick Tabs */}
-      <div className="flex flex-wrap items-center gap-2">
+      <nav aria-label="Estatus de órdenes" className="horizon-order-segments flex flex-wrap items-center gap-2">
         {/* Activas */}
         <button
           onClick={() => handleSegmentChange('active')}
+          aria-pressed={segmentView === 'active' && !isArchivedView}
           className={`text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
             segmentView === 'active' && !isArchivedView
               ? 'bg-emerald-500/20 border-2 border-emerald-400 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.35)]'
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
           }`}
         >
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span>🟢 Órdenes Activas</span>
+          <span className="material-symbols-outlined text-[18px]">inventory_2</span>
+          <span>Órdenes Activas</span>
           <span className="text-[10px] bg-[#02050c] px-2 py-0.5 rounded-md border border-cyan-500/25 text-white">
             {counts.active}
           </span>
@@ -541,6 +538,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         {/* Búsqueda Subasta */}
         <button
           onClick={() => handleSegmentChange('auction')}
+          aria-pressed={segmentView === 'auction' && !isArchivedView}
           className={`text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
             segmentView === 'auction' && !isArchivedView
               ? 'bg-amber-100 dark:bg-amber-500/20 border-2 border-amber-500 dark:border-amber-400 text-amber-950 dark:text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.35)]'
@@ -558,13 +556,15 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         {/* Listo para Retiro */}
         <button
           onClick={() => handleSegmentChange('ready_pickup')}
+          aria-pressed={segmentView === 'ready_pickup' && !isArchivedView}
           className={`text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
             segmentView === 'ready_pickup' && !isArchivedView
               ? 'bg-purple-500/20 border-2 border-purple-400 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.35)]'
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
           }`}
         >
-          <span>🏪 Listo para Retiro</span>
+          <span className="material-symbols-outlined text-[18px]">storefront</span>
+          <span>Listo para Retiro</span>
           <span className="text-[10px] bg-[#02050c] px-2 py-0.5 rounded-md border border-cyan-500/25 text-white">
             {counts.readyPickup}
           </span>
@@ -573,13 +573,15 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         {/* Garantías Vencidas */}
         <button
           onClick={() => handleSegmentChange('expired_warranty')}
+          aria-pressed={segmentView === 'expired_warranty' && !isArchivedView}
           className={`text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
             segmentView === 'expired_warranty' && !isArchivedView
               ? 'bg-amber-500/20 border-2 border-amber-400 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.35)]'
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
           }`}
         >
-          <span>⏳ Garantías Vencidas</span>
+          <span className="material-symbols-outlined text-[18px]">hourglass_empty</span>
+          <span>Garantías Vencidas</span>
           <span className="text-[10px] bg-[#02050c] px-2 py-0.5 rounded-md border border-cyan-500/25 text-white">
             {counts.expiredWarranty}
           </span>
@@ -588,13 +590,15 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         {/* Canceladas */}
         <button
           onClick={() => handleSegmentChange('cancelled')}
+          aria-pressed={segmentView === 'cancelled' && !isArchivedView}
           className={`text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
             segmentView === 'cancelled' && !isArchivedView
               ? 'bg-red-500/20 border-2 border-red-400 text-red-300 shadow-[0_0_15px_rgba(239,68,68,0.35)]'
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
           }`}
         >
-          <span>🚫 Canceladas</span>
+          <span className="material-symbols-outlined text-[18px]">cancel</span>
+          <span>Canceladas</span>
           <span className="text-[10px] bg-[#02050c] px-2 py-0.5 rounded-md border border-cyan-500/25 text-white">
             {counts.cancelled}
           </span>
@@ -603,13 +607,15 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         {/* Reembolsos */}
         <button
           onClick={() => handleSegmentChange('refunds')}
+          aria-pressed={segmentView === 'refunds' && !isArchivedView}
           className={`text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
             segmentView === 'refunds' && !isArchivedView
               ? 'bg-amber-500/20 border-2 border-amber-400 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.35)]'
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
           }`}
         >
-          <span>💸 Reembolsos</span>
+          <span className="material-symbols-outlined text-[18px]">currency_exchange</span>
+          <span>Reembolsos</span>
           <span className="text-[10px] bg-[#02050c] px-2 py-0.5 rounded-md border border-cyan-500/25 text-white">
             {counts.refunds}
           </span>
@@ -618,21 +624,23 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         {/* Archivadas */}
         <button
           onClick={() => handleSegmentChange('archived')}
+          aria-pressed={isArchivedView || segmentView === 'archived'}
           className={`text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
             isArchivedView || segmentView === 'archived'
               ? 'bg-slate-700/60 border-2 border-cyan-400 text-white shadow-[0_0_15px_rgba(6,182,212,0.3)]'
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
           }`}
         >
-          <span>📦 Archivadas</span>
+          <span className="material-symbols-outlined text-[18px]">archive</span>
+          <span>Archivadas</span>
           <span className="text-[10px] bg-[#02050c] px-2 py-0.5 rounded-md border border-cyan-500/25 text-white">
             {counts.archived}
           </span>
         </button>
-      </div>
+      </nav>
 
       {/* Main Search & Filters Bar (Matching Screenshot UI) */}
-      <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-4 shadow-[0_15px_35px_rgba(0,0,0,0.6)] flex flex-col gap-3.5 overflow-hidden">
+      <div className="horizon-order-filters relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-4 shadow-[0_15px_35px_rgba(0,0,0,0.6)] flex flex-col gap-3.5 overflow-hidden">
         <div className="absolute top-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_10px_#22d3ee]" />
 
         {/* Row 1: Ver Archivadas | Search Bar | Filtros Button */}
@@ -890,7 +898,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
       </div>
 
       {/* Main Glassmorphic Data Table */}
-      <div className="relative rounded-3xl bg-[#070c18]/94 backdrop-blur-2xl border border-cyan-500/25 shadow-[0_20px_50px_rgba(0,0,0,0.75)] overflow-hidden flex flex-col">
+      <div className="horizon-orders-table relative rounded-3xl bg-[#070c18]/94 backdrop-blur-2xl border border-cyan-500/25 shadow-[0_20px_50px_rgba(0,0,0,0.75)] overflow-hidden flex flex-col">
         <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee]" />
 
         <div className="table-responsive-wrapper custom-scrollbar">

@@ -175,11 +175,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+    <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in">
       <div className="relative w-full max-w-xl bg-[#060b18] border border-cyan-500/40 rounded-2xl shadow-[0_0_50px_rgba(6,182,212,0.25)] overflow-hidden flex flex-col max-h-[92vh]">
-        {/* Top Glowing Laser Header */}
-        <div className="h-1 bg-gradient-to-r from-cyan-400 via-blue-500 to-emerald-400 shadow-[0_0_12px_#22d3ee]" />
-
         {/* Modal Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-cyan-500/20 bg-[#091124]/90">
           <div className="flex items-center gap-3">
@@ -213,10 +210,11 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-cyan-500/20 bg-[#070e1c] px-5 pt-2 gap-2">
+        <div className="horizon-view-tabs flex border-b border-cyan-500/20 bg-[#070e1c] px-5 pt-2 gap-2">
           <button
             type="button"
             onClick={() => setActiveTab('profile')}
+            aria-pressed={activeTab === 'profile'}
             className={`pb-2.5 px-3 text-xs font-bold font-mono transition-all flex items-center gap-1.5 cursor-pointer border-b-2 ${
               activeTab === 'profile'
                 ? 'border-cyan-400 text-cyan-300 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]'
@@ -229,6 +227,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('security')}
+            aria-pressed={activeTab === 'security'}
             className={`pb-2.5 px-3 text-xs font-bold font-mono transition-all flex items-center gap-1.5 cursor-pointer border-b-2 ${
               activeTab === 'security'
                 ? 'border-cyan-400 text-cyan-300 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]'
@@ -259,7 +258,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           {activeTab === 'profile' && (
             <div className="space-y-4 animate-fade-in">
               {/* Avatar Selector Section */}
-              <div className="p-4 rounded-xl bg-[#040814] border border-cyan-500/25 space-y-3">
+              <div className="horizon-dialog-section p-4 rounded-xl bg-[#040814] border border-cyan-500/25 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-200 font-mono flex items-center gap-1.5">
                     <span className="material-symbols-outlined text-[16px] text-cyan-400">face</span>

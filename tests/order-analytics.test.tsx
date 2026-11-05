@@ -32,6 +32,37 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('verified operational analytics', () => {
+  it('renders six compact Horizon statistics with labels, values and operational context', () => {
+    const html = renderDashboard([makeOrder('en_preparacion')]);
+    expect(html.match(/class="horizon-stat-icon"/g)).toHaveLength(6);
+    expect(html.match(/class="horizon-stat-value"/g)).toHaveLength(6);
+    expect(html).toContain('aria-label="Órdenes Operativas"');
+    expect(html).toContain('1 activas en taller / proceso');
+    expect(html).toContain('Pagos − reembolsos por fecha efectiva');
+  });
+  it('matches the Main Dashboard modules without inserting demonstration data', () => {
+    const html = renderDashboard([makeOrder('en_preparacion')]);
+    expect(html).toContain('aria-label="Ingresos netos acumulados"');
+    expect(html).toContain('aria-label="Órdenes del período"');
+    expect(html).toContain('horizon-distribution-pie');
+    expect(html).toContain('Ford F150');
+    expect(html).not.toContain('Horizon UI PRO');
+  });
+  it('plots the cumulative net amount from dated payments and refunds only', () => {
+    movementMock.mockReturnValue({
+      movements: [
+        { id: 1, orderId: 'old', kind: 'payment', amount: 200.15, effectiveAt: '2026-11-02T12:00:00Z', source: 'order_payment' },
+        { id: 2, orderId: 'old', kind: 'refund', amount: 50.10, effectiveAt: '2026-11-03T12:00:00Z', source: 'refund' },
+      ],
+      loaded: true, error: null, refresh: vi.fn(),
+    });
+    const html = renderDashboard();
+    expect(html).toContain('Lunes 02 de nov: $200.15 acumulados');
+    expect(html).toContain('Martes 03 de nov: $150.05 acumulados');
+    expect(html).toContain('Domingo 08 de nov: $150.05 acumulados');
+    expect(html).toContain('polyline');
+    expect(html).not.toContain('NaN');
+  });
   it('counts each order exactly once including archives and unknown historical statuses', () => {
     const orders = [
       makeOrder('en_preparacion'), makeOrder('entregado'), makeOrder('pagado'),

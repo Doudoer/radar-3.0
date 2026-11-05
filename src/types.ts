@@ -1,4 +1,5 @@
 export type NavScreen = 
+  | 'mi_trabajo'
   | 'dashboard'
   | 'ordenes'
   | 'clientes'
@@ -142,6 +143,8 @@ export interface Order {
     advancePayment?: number;
     deliveryFee?: number;
     coreFee?: number;
+    coreReceivedAt?: string;
+    coreReceivedAmount?: number;
     accessories?: number;
     discount?: number;
     subtotal: number;

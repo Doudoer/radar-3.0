@@ -659,7 +659,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   const handlePrint = handleExportPdf;
 
   if (!finance.state) {
-    return <div className="radar-view space-y-4 p-6 text-slate-200">
+    return <div className="radar-view horizon-view space-y-4 p-6 text-slate-200">
       {finance.error
         ? <p>La autorización y disponibilidad del estado financiero se verifican en el servidor.</p>
         : <p>Validando acceso administrativo con el servidor…</p>}
@@ -669,8 +669,8 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
     </div>;
   }
   return (
-    <div className="radar-view space-y-6 pb-16">
-      <div className="text-sm text-slate-200 space-y-2 print:hidden">
+    <div className="radar-view horizon-view space-y-6 pb-16">
+      <div className="horizon-view-toolbar text-sm text-slate-200 space-y-2 print:hidden">
         {finance.error && <p role="alert" className="text-red-300">{finance.error}</p>}
         {income.error && <p role="alert" className="text-red-300">Ingresos no disponibles: {income.error}</p>}
         {finance.saving && <p role="status">Guardando en servidor…</p>}
@@ -696,7 +696,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
       )}
 
       {/* Header Container */}
-      <div className="bg-[#0f172a]/95 border border-[#1e293b] rounded-2xl p-5 md:p-6 backdrop-blur-md flex flex-col md:flex-row md:items-center justify-between gap-5 shadow-xl print:hidden">
+      <div className="horizon-view-header print:hidden">
         <div>
           {/* Breadcrumb Navigation */}
           {onBackToDashboard && (
@@ -781,10 +781,11 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
       </div>
 
       {/* 4 Navigation Sub-Tabs Bar */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar print:hidden">
+      <div className="horizon-view-tabs flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar print:hidden">
         {/* Tab 1: Formato Oficial Entregas */}
         <button
           onClick={() => setActiveTab('official')}
+          aria-pressed={activeTab === 'official'}
           className={`py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
             activeTab === 'official'
               ? 'bg-[#0284c7]/20 border-2 border-[#0284c7] text-[#38bdf8] shadow-[0_0_15px_rgba(2,132,199,0.25)]'
@@ -803,6 +804,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
         {/* Tab 2: Ventas de la Semana */}
         <button
           onClick={() => setActiveTab('sales')}
+          aria-pressed={activeTab === 'sales'}
           className={`py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
             activeTab === 'sales'
               ? 'bg-[#10b981]/20 border-2 border-[#10b981] text-[#34d399] shadow-[0_0_15px_rgba(16,185,129,0.25)]'
@@ -821,6 +823,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
         {/* Tab 3: Entregas de la Semana */}
         <button
           onClick={() => setActiveTab('deliveries')}
+          aria-pressed={activeTab === 'deliveries'}
           className={`py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
             activeTab === 'deliveries'
               ? 'bg-[#3b82f6]/20 border-2 border-[#3b82f6] text-[#60a5fa] shadow-[0_0_15px_rgba(59,130,246,0.25)]'
@@ -839,6 +842,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
         {/* Tab 4: Relación General de Entregas y Gastos */}
         <button
           onClick={() => setActiveTab('general')}
+          aria-pressed={activeTab === 'general'}
           className={`py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
             activeTab === 'general'
               ? 'bg-[#f59e0b]/20 border-2 border-[#f59e0b] text-[#fbbf24] shadow-[0_0_15px_rgba(245,158,11,0.25)]'
@@ -1577,7 +1581,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
       {/* MODAL 1: GESTIÓN DE EMPLEADOS Y SALARIO SEMANAL                        */}
       {/* ===================================================================== */}
       {isEmployeesModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+        <div className="horizon-modal fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
           <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl w-full max-w-2xl max-h-[min(94vh,700px)] shadow-2xl overflow-hidden flex flex-col">
             {/* Modal Header */}
             <div className="bg-[#111827] border-b border-[#1e293b] p-4 flex items-center justify-between shrink-0">
@@ -1772,7 +1776,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
       {/* MODAL 2: REGISTRAR NUEVO GASTO OPERATIVO                                */}
       {/* ===================================================================== */}
       {isNewExpenseModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+        <div className="horizon-modal fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
           <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl w-full max-w-lg max-h-[min(94vh,650px)] shadow-2xl overflow-hidden flex flex-col">
             <div className="bg-[#111827] border-b border-[#1e293b] p-4 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
@@ -1916,7 +1920,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
       {/* MODAL 3: GESTIÓN DE GASTOS Y COBROS RECURRENTES                       */}
       {/* ===================================================================== */}
       {isRecurringModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+        <div className="horizon-modal fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
           <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl w-full max-w-2xl max-h-[min(94vh,740px)] shadow-2xl overflow-hidden flex flex-col">
             {/* Modal Header */}
             <div className="bg-[#111827] border-b border-[#1e293b] p-4 flex items-center justify-between shrink-0">
