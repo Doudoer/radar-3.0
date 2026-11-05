@@ -112,7 +112,7 @@ export const RefundModal: React.FC<RefundModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+    <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
       <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-amber-500/30 rounded-3xl w-full max-w-xl shadow-[0_20px_60px_rgba(245,158,11,0.25)] flex flex-col text-slate-100 relative overflow-hidden max-h-[min(94vh,720px)]">
         {/* Amber Glow Hairline */}
         <div className="absolute top-0 inset-x-0 h-[2.5px] bg-gradient-to-r from-amber-500 via-orange-400 to-amber-300 shadow-[0_0_15px_#f59e0b] z-20" />

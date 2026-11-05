@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS order_workflow_events (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  order_id INT UNSIGNED NOT NULL,
+  task VARCHAR(32) NOT NULL,
+  outcome VARCHAR(24) NOT NULL,
+  actor_id INT UNSIGNED NOT NULL,
+  actor_name VARCHAR(200) NOT NULL,
+  notes TEXT NOT NULL,
+  evidence TEXT NOT NULL,
+  task_due_date DATE NULL,
+  next_due_date DATE NULL,
+  next_action VARCHAR(1000) NULL,
+  blocked_by VARCHAR(200) NULL,
+  scheduled_at DATETIME NULL,
+  contact_result VARCHAR(32) NULL,
+  part_status VARCHAR(32) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_workflow_order (order_id, id),
+  INDEX idx_workflow_actor (actor_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -77,8 +77,8 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
     onBack={() => { setCreating(false); setSelectedOrderId(''); }}
     onSuccess={(message) => { setMessage(message); setCreating(false); setSelectedOrderId(''); }} />;
 
-  return <div className="radar-view space-y-5 pb-10 text-slate-100">
-    <header className="flex justify-between gap-3"><div><h1 className="text-2xl font-black">Reembolsos</h1><p className="text-slate-400">Solicitudes y pagos registrados</p></div>
+  return <div className="radar-view horizon-view space-y-5 pb-10 text-slate-100">
+    <header className="horizon-view-header"><div><h1 className="text-2xl font-black">Reembolsos</h1><p className="text-slate-400">Solicitudes y pagos registrados</p></div>
       <button className={buttonClass} onClick={() => setCreating(true)}>Nueva solicitud</button></header>
     {error && <p role="alert" className="text-red-300">{error}</p>}
     {message && <p role="status" className="text-emerald-300">{message}</p>}
@@ -91,13 +91,13 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
       </select>
       <button className={buttonClass} onClick={() => setCreating(false)}>Volver</button>
     </section>}
-    <div className="flex flex-wrap gap-3">
+    <div className="horizon-view-toolbar flex flex-wrap gap-3">
       <input className={fieldClass} aria-label="Buscar reembolsos" placeholder="Orden, cliente, pieza o motivo" value={search} onChange={(event) => setSearch(event.target.value)} />
       <select className={fieldClass} aria-label="Estado del reembolso" value={status} onChange={(event) => setStatus(event.target.value)}>
         <option value="all">Todos</option><option value="pending">Pendientes</option><option value="completed">Completados</option><option value="cancelled">Cancelados</option>
       </select>
     </div>
-    <div className="space-y-3">{filtered.map((refund) => <article key={refund.id} className="rounded-2xl border border-slate-700 bg-slate-900 p-4 space-y-2">
+    <div className="space-y-3">{filtered.map((refund) => <article key={refund.id} className="horizon-view-card rounded-2xl border border-slate-700 bg-slate-900 p-4 space-y-2">
       <div className="flex justify-between"><strong>{refund.id} · {refund.orderCode}</strong><span>{refund.status}</span></div>
       <p>{refund.customerName} · {refund.vehicle} · {refund.part}</p><p>{refund.reason}</p>
       <p>${Number(refund.amount).toFixed(2)} · {refund.paymentMethod} · {refund.paymentDetails}</p>

@@ -88,7 +88,7 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
   };
 
   const modalContent = (
-    <div className="horizon-followup-portal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 md:p-6">
+    <div className="horizon-modal horizon-followup-portal horizon-followup-briefing fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 md:p-6">
       <div role="dialog" aria-modal="true" aria-labelledby="daily-followup-title" aria-describedby="daily-followup-description" className="horizon-followup-panel relative w-full max-w-5xl max-h-[92dvh] flex flex-col rounded-3xl overflow-hidden">
         {/* Modal Header */}
         <div className="horizon-followup-header px-4 py-4 sm:px-6 sm:py-5 flex items-start justify-between gap-3 shrink-0">

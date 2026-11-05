@@ -217,7 +217,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const hasActiveFilters = statusFilter !== 'all' || fromDate !== '' || toDate !== '';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+    <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
       <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-lg max-h-[min(94vh,680px)] shadow-[0_20px_60px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col relative">
         {/* Laser Hairline */}
         <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-20" />

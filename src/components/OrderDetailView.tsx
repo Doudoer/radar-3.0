@@ -9,6 +9,9 @@ import { canTransitionOrderStatus, getAllowedNextStatuses, ORDER_STATUS_LABELS, 
 import { apiFetch } from '../services/apiFetch';
 import { OrderInventoryAvailability } from './OrderInventoryAvailability';
 import { getClaimWarrantyError, getOrderWarrantyInfo } from '../utils/orderWarranty';
+import { workflowRequired } from '../utils/orderWorkflow';
+import { OrderWorkflowPanel } from './OrderWorkflowPanel';
+import { OrderPaymentsModal } from './OrderPayments';
 
 interface OrderDetailViewProps {
   order: Order;
@@ -18,6 +21,8 @@ interface OrderDetailViewProps {
   onCreateClaim?: (orderId: string, reason: string) => Promise<void>;
   currentUser?: { id?: number; name?: string; email?: string; role?: string } | null;
   userRole?: 'admin' | 'operador' | 'vendedor_yarda' | string;
+  openDeliveryPayment?: boolean;
+  onDeliveryPaymentOpened?: () => void;
 }
 
 export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
@@ -28,12 +33,15 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   onCreateClaim,
   currentUser,
   userRole,
+  openDeliveryPayment,
+  onDeliveryPaymentOpened,
 }) => {
   const [activeTab, setActiveTab] = useState<'resumen' | 'workflow' | 'historial'>('resumen');
   const [subView, setSubView] = useState<'detail' | 'refund' | 'invoice' | 'dispatch'>('detail');
   const [previewStep, setPreviewStep] = useState<number | null>(null);
   const recordedStep = Math.min(4, Math.max(1, order.workflowStep || 1));
   const currentStep = previewStep ?? recordedStep;
+  const managedWorkflow = Boolean(order.createdAtIso && workflowRequired(order.createdAtIso));
   const [stockAssigned, setStockAssigned] = useState<string | null>(order.stockNumber || null);
   const [copiedNotification, setCopiedNotification] = useState<string | null>(null);
 
@@ -88,6 +96,10 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   const [deliveryDateSaving, setDeliveryDateSaving] = useState(false);
   const deliveryDateSavingRef = useRef(false);
   const [actionError, setActionError] = useState('');
+  const [paymentModal, setPaymentModal] = useState<'collect' | 'deliver' | null>(null);
+  useEffect(() => {
+    if (openDeliveryPayment) { setPaymentModal('deliver'); onDeliveryPaymentOpened?.(); }
+  }, [openDeliveryPayment, onDeliveryPaymentOpened]);
   const [isSaving, setIsSaving] = useState(false);
   const savingRef = useRef(false);
   const persistOrder = async (updated: Order): Promise<boolean> => {
@@ -441,6 +453,11 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
   const handleStatusChange = async (newStatus: OrderStatus) => {
     if (!canTransitionOrderStatus(order.status, newStatus)) return;
+    if (newStatus === 'entregado') {
+      setActionError('');
+      setPaymentModal('deliver');
+      return;
+    }
 
     if (newStatus === 'reclamo') {
       const warrantyError = getClaimWarrantyError(order);
@@ -459,16 +476,10 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       setActionError('Gestiona la solicitud desde la vista Reembolsos. No se puede registrar un pago cambiando solo el estado.');
       return;
     }
-    const total = (order.financials.partPrice ?? order.financials.baseMSRP ?? 0) +
-      (order.financials.deliveryFee ?? 0) + (order.financials.coreFee ?? 0);
     const paid = order.financials.downPayment ?? order.financials.advancePayment ?? 0;
     if (newStatus === 'pagado' && Math.round(paid * 100) <= 0) {
       setActionError('Para iniciar el procesamiento, registra el downpayment recibido.');
       return;
-    }
-    if (newStatus === 'entregado' && Math.round(paid * 100) !== Math.round(total * 100)) {
-      setActionError('Para marcar Entregado, registra el saldo restante; el total debe estar liquidado.');
-        return;
     }
 
     if (!isSuperAdmin && requiresAdminForOrderStatusChange(order.status, newStatus)) {
@@ -479,7 +490,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     if (!await persistOrder({
         ...order,
         status: newStatus,
-        deliveredAt: newStatus === 'entregado' ? (order.deliveredAt || new Date().toISOString()) : order.deliveredAt,
+        deliveredAt: order.deliveredAt,
       })) return;
     handleToast(`Estado actualizado a ${ORDER_STATUS_LABELS[newStatus]}`);
   };
@@ -563,7 +574,8 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   }
 
   return (
-    <div className="radar-view text-[var(--text-primary)] pb-4 space-y-2.5">
+    <div className="radar-view horizon-view horizon-order-detail text-[var(--text-primary)] pb-4 space-y-2.5">
+      {paymentModal && <OrderPaymentsModal orderId={order.id} code={order.code} managed={managedWorkflow} initialDelivery={paymentModal === 'deliver'} onClose={() => setPaymentModal(null)} />}
       {actionError && <p role="alert" className="rounded-xl border border-red-500 p-3 text-red-300">{actionError}</p>}
       {isSaving && <p role="status">Guardando…</p>}
       {/* Toast Floating Notification */}
@@ -574,15 +586,10 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* 1. ULTRA-COMPACT CONTROL HEADER (ALL KEY CONTROLS IN 1 TIGHT HUD BAR)    */}
-      {/* ========================================================================= */}
-      <div className="cyber-card p-2.5 sm:p-3 shadow-md relative overflow-hidden">
-        <div className="cyber-laser-bar" />
-
-        <div className="flex flex-wrap items-center justify-between gap-2.5">
+      <div className="horizon-detail-header">
+        <div className="horizon-detail-heading flex flex-wrap items-center justify-between gap-2.5">
           {/* Left: Back button + Order code + Status Selector + Abono */}
-          <div className="flex items-center flex-wrap gap-2 sm:gap-2.5">
+          <div className="horizon-detail-overview flex items-center flex-wrap gap-2 sm:gap-2.5">
             <button
               type="button"
               onClick={onBack}
@@ -593,8 +600,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
             </button>
 
             <div className="flex items-center gap-1.5">
-              <span className="text-xs text-[var(--text-secondary)] font-mono font-semibold">ORDEN:</span>
-              <h1 className="text-base sm:text-lg font-black text-cyan-400 font-mono tracking-tight flex items-center gap-1">
+              <h1 className="horizon-detail-title text-base sm:text-lg font-black text-cyan-400 font-mono tracking-tight flex items-center gap-1">
                 #{order.code}
               </h1>
             </div>
@@ -663,7 +669,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
           </div>
 
           {/* Right: Quick Action Buttons & Tabs */}
-          <div className="flex items-center flex-wrap gap-1.5">
+          <div className="horizon-detail-actions flex items-center flex-wrap gap-1.5">
             {/* Quick SMS/WhatsApp Button */}
             <button
               type="button"
@@ -729,53 +735,53 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               </button>
             )}
 
-            {/* Segmented View Tabs */}
-            <div className="flex items-center bg-[var(--bg-card-subtle)] border border-cyan-500/30 p-0.5 rounded-lg shadow-inner ml-1">
+          </div>
+        </div>
+
+            <div className="horizon-detail-tabs horizon-view-tabs flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setActiveTab('resumen')}
+                aria-pressed={activeTab === 'resumen'}
                 className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-bold whitespace-nowrap transition-all cursor-pointer ${
                   activeTab === 'resumen'
                     ? 'bg-gradient-to-r from-cyan-400 to-emerald-400 text-slate-950 font-black shadow-sm'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
-                1. Resumen
+                Resumen
               </button>
               <button
                 type="button"
                 onClick={() => setActiveTab('workflow')}
+                aria-pressed={activeTab === 'workflow'}
                 className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-bold whitespace-nowrap transition-all cursor-pointer ${
                   activeTab === 'workflow'
                     ? 'bg-gradient-to-r from-cyan-400 to-emerald-400 text-slate-950 font-black shadow-sm'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
-                2. Flujo ({currentStep}/4)
+                {managedWorkflow ? 'Flujo verificable' : `Flujo (${currentStep}/4)`}
               </button>
               <button
                 type="button"
                 onClick={() => setActiveTab('historial')}
+                aria-pressed={activeTab === 'historial'}
                 className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-bold whitespace-nowrap transition-all cursor-pointer ${
                   activeTab === 'historial'
                     ? 'bg-gradient-to-r from-cyan-400 to-emerald-400 text-slate-950 font-black shadow-sm'
                     : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
-                3. Historial
+                Historial
               </button>
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* ========================================================================= */}
-      {/* 2. CALL CENTER WORKFLOW 4-STEP RIBBON (COMPACT SLIM BAR)                  */}
-      {/* ========================================================================= */}
-      <div className="cyber-card px-3 py-1.5 shadow-sm flex items-center justify-between gap-2 overflow-x-auto custom-scrollbar">
+      {!managedWorkflow && <div className="horizon-detail-workflow cyber-card px-3 py-1.5 shadow-sm flex items-center justify-between gap-2 overflow-x-auto custom-scrollbar">
         <div className="flex items-center gap-1.5 text-[10.5px] font-mono font-bold text-cyan-400 shrink-0">
           <span className="material-symbols-outlined text-[15px]">headset_mic</span>
-          <span>FLUJO RADAR:</span>
+          <span>Seguimiento</span>
         </div>
 
         <div className="flex items-center gap-2 flex-1 min-w-[520px] justify-between">
@@ -789,6 +795,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setPreviewStep(step.num === currentStep ? null : step.num)}
+                  aria-current={isCurrent ? 'step' : undefined}
                   className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-mono font-bold transition-all cursor-pointer border ${
                     isCurrent
                       ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.3)]'
@@ -822,7 +829,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
         <span className="text-[10px] font-mono text-cyan-300 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-500/30 shrink-0">
           Etapa {currentStep}/4
         </span>
-      </div>
+      </div>}
 
       {/* ========================================================================= */}
       {/* 3. CONTEXTUAL CLAIM ALERT BANNER (IF IN CLAIM)                            */}
@@ -1012,7 +1019,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       {/* ========================================================================= */}
       {/* 4.5 POST-DELIVERY 14-DAY FOLLOWUP MODULE FOR DELIVERED ORDERS              */}
       {/* ========================================================================= */}
-      {order.status === 'entregado' && (
+      {order.status === 'entregado' && !managedWorkflow && (
         <OrderPostDeliveryFollowup
           order={order}
           currentUser={currentUser}
@@ -1023,12 +1030,9 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
         />
       )}
 
-      {/* ========================================================================= */}
-      {/* 5. TAB 1: RESUMEN — ULTRA-COMPACT 3-COLUMN UNIFIED HUD GRID               */}
-      {/* ========================================================================= */}
       {activeTab === 'resumen' && <OrderInventoryAvailability order={order} userRole={userRole || currentUser?.role} />}
       {activeTab === 'resumen' && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 sm:gap-3">
+        <div className="horizon-detail-grid grid grid-cols-1 md:grid-cols-3 gap-2.5 sm:gap-3">
           {/* COLUMN 1: VEHÍCULO & REFACCIÓN */}
           <div className="cyber-card p-3 sm:p-3.5 flex flex-col justify-between gap-2.5 shadow-sm">
             <div className="cyber-laser-bar" />
@@ -1038,7 +1042,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               <div className="flex items-start justify-between gap-2 pb-2 border-b border-cyan-500/15">
                 <div>
                   <span className="text-[10px] font-mono font-bold text-[var(--text-secondary)] uppercase tracking-wider block">
-                    VEHÍCULO & PIEZA
+                    Vehículo y pieza
                   </span>
                   <h3 className="text-sm sm:text-base font-black text-[var(--text-heading)] tracking-tight leading-tight mt-0.5">
                     {vehicleName}
@@ -1260,6 +1264,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               </div>
 
               {/* Compact Breakdown */}
+              <button type="button" className="cyber-btn-secondary w-full px-3 py-2 my-2" onClick={() => setPaymentModal('collect')}>Registrar cobro / ver pagos y core</button>
               <div className="flex flex-col gap-1.5 mt-2.5 text-xs font-mono">
                 <div className="flex justify-between items-center px-2 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-cyan-500/10">
                   <span className="text-[var(--text-secondary)] text-[11px]">Monto Pieza (Base):</span>
@@ -1302,7 +1307,12 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       {/* ========================================================================= */}
       {/* 6. TAB 2: FLUJO OPERATIVO CALL CENTER                                    */}
       {/* ========================================================================= */}
-      {activeTab === 'workflow' && (
+      {managedWorkflow && (activeTab === 'workflow' || activeTab === 'historial') && <OrderWorkflowPanel orderId={order.id} />}
+      {activeTab === 'resumen' && managedWorkflow && <div className="horizon-view-card flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm">Esta orden requiere gestiones con evidencia, responsable y próxima acción.</p>
+        <button type="button" className="horizon-primary rounded-xl px-4 py-2" onClick={() => setActiveTab('workflow')}>Gestionar flujo verificable</button>
+      </div>}
+      {activeTab === 'workflow' && !managedWorkflow && (
         <div className="cyber-card p-4 shadow-sm flex flex-col gap-3">
           <div className="cyber-laser-bar" />
 
@@ -1420,7 +1430,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
       {/* Modal: Apertura de Reclamo */}
       {claimModal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
           <div className="cyber-card w-full max-w-md p-5 border-red-500/50 shadow-[0_0_40px_rgba(239,68,68,0.3)]">
             <div className="flex items-center justify-between border-b border-red-500/20 pb-3 mb-3">
               <div className="flex items-center gap-2 text-red-400 font-mono font-bold text-sm">
@@ -1478,7 +1488,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
       {/* Modal: Registrar Llamada en Bitácora */}
       {isCallModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
           <div className="cyber-card w-full max-w-lg p-5 border-cyan-500/50 shadow-[0_0_40px_rgba(6,182,212,0.3)]">
             <div className="flex items-center justify-between border-b border-cyan-500/20 pb-3 mb-3">
               <div className="flex items-center gap-2 text-cyan-400 font-mono font-bold text-sm">
@@ -1555,7 +1565,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
       {/* Modal: Resolver Reclamo */}
       {isResolveModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
           <div className="cyber-card w-full max-w-md p-5 border-emerald-500/50 shadow-[0_0_40px_rgba(16,185,129,0.3)]">
             <div className="flex items-center justify-between border-b border-emerald-500/20 pb-3 mb-3">
               <div className="flex items-center gap-2 text-emerald-400 font-mono font-bold text-sm">
@@ -1598,7 +1608,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
         </div>
       )}
 
-      {isSuperAdmin && isDeliveryDateModalOpen && <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+      {isSuperAdmin && isDeliveryDateModalOpen && <div className="horizon-modal fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
         <form onSubmit={handleSaveDeliveryDate} className="bg-slate-900 rounded-2xl border border-cyan-700 p-6 space-y-4 w-full max-w-lg">
           <h2 className="text-xl font-bold">Corregir fecha real de entrega</h2>
           <p className="text-sm text-slate-400">Acción administrativa verificada por el servidor. No registra ni inventa un cobro.</p>
@@ -1614,7 +1624,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
       {/* Modal: Reasignar Asesor de Venta (Super Admin) */}
       {isReassignModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
           <div className="cyber-card w-full max-w-md p-5 border-cyan-500/50 shadow-[0_0_40px_rgba(6,182,212,0.3)]">
             <div className="flex items-center justify-between border-b border-cyan-500/20 pb-3 mb-3">
               <div className="flex items-center gap-2 text-cyan-400 font-mono font-bold text-sm">

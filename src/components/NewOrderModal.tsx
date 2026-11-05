@@ -42,7 +42,7 @@ export class ModalErrorBoundary extends (React.Component as any) {
   render() {
     if ((this.state as ModalErrorBoundaryState).hasError) {
       return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
           <div className="bg-[#070c18] border border-cyan-500/50 rounded-2xl p-6 max-w-md w-full shadow-2xl text-slate-100 flex flex-col gap-4">
             <div className="flex items-center gap-3 text-cyan-400">
               <span className="material-symbols-outlined text-[28px]">shield</span>
@@ -1246,8 +1246,8 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
-      <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-3xl max-h-[min(94vh,740px)] shadow-[0_20px_60px_rgba(0,0,0,0.85)] flex flex-col relative overflow-hidden">
+    <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+      <div className="horizon-order-dialog bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-3xl max-h-[min(94vh,740px)] shadow-[0_20px_60px_rgba(0,0,0,0.85)] flex flex-col relative overflow-hidden">
         {/* Laser Hairline */}
         <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-30" />
 
@@ -1274,6 +1274,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Cerrar nueva orden"
             className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <span className="material-symbols-outlined text-[20px]">close</span>
@@ -1298,7 +1299,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
         )}
 
         {/* STEPPER NAVIGATION BAR */}
-        <div className="bg-[#050914]/90 border-b border-cyan-500/20 px-3 py-2 sm:px-5 sm:py-2.5 shrink-0">
+        <div className="horizon-order-steps bg-[#050914]/90 border-b border-cyan-500/20 px-3 py-2 sm:px-5 sm:py-2.5 shrink-0">
           <div className="grid grid-cols-3 gap-1.5 sm:gap-2 relative">
             {stepsConfig.map((s) => {
               const isCompleted = s.num < currentStep;
@@ -1308,6 +1309,9 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                 <button
                   type="button"
                   key={s.num}
+                  aria-current={isCurrent ? 'step' : undefined}
+                  aria-label={`Paso ${s.num}: ${s.label}`}
+                  aria-disabled={s.num > currentStep}
                   onClick={() => {
                     if (s.num <= currentStep) {
                       setStepError(null);
@@ -1400,7 +1404,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
               </div>
 
               {/* Ficha Técnica del Vehículo */}
-              <div className="bg-[#050914] p-4.5 rounded-2xl border border-cyan-500/20 flex flex-col gap-3.5 shadow-sm">
+              <div className="horizon-order-fieldset bg-[#050914] p-5 rounded-2xl border border-cyan-500/20 flex flex-col gap-3.5 shadow-sm">
                 <div className="flex items-center gap-2 text-xs font-bold text-slate-100 border-b border-cyan-500/20 pb-2.5">
                   <span className="material-symbols-outlined text-[17px] text-cyan-400">garage</span>
                   <span>Ficha Técnica del Vehículo</span>
@@ -1546,7 +1550,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
               </div>
 
               {/* Pieza & Refacción Solicitada */}
-              <div className="bg-[#050914] p-4.5 rounded-2xl border border-cyan-500/20 flex flex-col gap-3.5 shadow-sm">
+              <div className="horizon-order-fieldset bg-[#050914] p-5 rounded-2xl border border-cyan-500/20 flex flex-col gap-3.5 shadow-sm">
                 <div className="flex items-center gap-2 text-xs font-bold text-slate-100 border-b border-cyan-500/20 pb-2.5">
                   <span className="material-symbols-outlined text-[17px] text-amber-400">settings</span>
                   <span>Pieza Solicitada & Datos de Yarda / Stock</span>
@@ -1729,7 +1733,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                 <div className="flex flex-col gap-3">
                   {/* SI YA HAY UN CLIENTE SELECCIONADO: Tarjeta de Cliente Vinculado */}
                   {selectedCustomerId && selectedCustomerObj ? (
-                    <div className="bg-[#050914] border-2 border-cyan-500/50 rounded-2xl p-4.5 flex flex-col gap-3.5 shadow-lg relative overflow-hidden">
+                    <div className="horizon-order-fieldset bg-[#050914] border-2 border-cyan-500/50 rounded-2xl p-5 flex flex-col gap-3.5 shadow-lg relative overflow-hidden">
                       <div className="flex items-start justify-between">
                         <div className="flex items-center gap-3">
                           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-emerald-500 text-slate-950 font-black text-base flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.4)]">
@@ -1876,7 +1880,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                     </div>
                   ) : (
                     /* SI NO HAY CLIENTE SELECCIONADO: Buscador & Lista de Clientes */
-                    <div className="bg-[#050914] p-4.5 rounded-2xl border border-cyan-500/20 flex flex-col gap-3.5 shadow-sm">
+                    <div className="horizon-order-fieldset bg-[#050914] p-5 rounded-2xl border border-cyan-500/20 flex flex-col gap-3.5 shadow-sm">
                       {/* Barra de Búsqueda */}
                       <div className="relative">
                         <span className="material-symbols-outlined absolute left-3.5 top-3 text-cyan-400 text-[18px]">
@@ -2047,7 +2051,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
 
               {/* MODO 2: REGISTRAR NUEVO CLIENTE MANUAL */}
               {clientMode === 'manual' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 bg-[#050914] p-4.5 rounded-2xl border border-cyan-500/20 shadow-sm">
+                <div className="horizon-order-fieldset grid grid-cols-1 sm:grid-cols-2 gap-3.5 bg-[#050914] p-5 rounded-2xl border border-cyan-500/20 shadow-sm">
                   <div>
                     <label className="block mb-1 text-slate-400 font-medium text-[11px]">Nombre Completo / Razón Social *</label>
                     <input
@@ -2205,7 +2209,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
               </div>
 
               {/* Inputs de Desglose */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5 bg-[#050914] p-4.5 rounded-2xl border border-cyan-500/20 shadow-sm">
+              <div className="horizon-order-fieldset grid grid-cols-2 sm:grid-cols-4 gap-3.5 bg-[#050914] p-5 rounded-2xl border border-cyan-500/20 shadow-sm">
                 <div>
                   <label className="block mb-1 text-cyan-400 font-bold text-[11px] font-mono">1. Monto Parte ($ USD) *</label>
                   <div className="relative">
@@ -2232,6 +2236,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       min={0}
                       step="any"
                       value={downPayment}
+                      readOnly={Boolean(editingOrder)}
                       onChange={(e) => {
                         setDownPayment(e.target.value);
                         syncField('downPayment', e.target.value);
@@ -2241,6 +2246,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       className="w-full bg-[#070e1c] border border-amber-500/40 rounded-xl py-2.5 pl-7 pr-2 font-mono text-amber-300 font-bold text-xs focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 shadow-inner"
                     />
                   </div>
+                  {editingOrder && <p className="text-[11px] mt-1 text-[var(--text-secondary)]">Para registrar dinero recibido, abre la orden y usa Registrar cobro / ver pagos y core.</p>}
                 </div>
 
                 <div>
@@ -2272,6 +2278,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       min={0}
                       step="any"
                       value={coreFee}
+                      readOnly={Boolean(editingOrder?.financials.coreReceivedAt)}
                       onChange={(e) => {
                         setCoreFee(e.target.value);
                         syncField('coreFee', e.target.value);
@@ -2285,7 +2292,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
               </div>
 
               {/* Total Balance Calculation Bar */}
-              <div className="bg-[#060c1a] p-4.5 rounded-2xl border border-cyan-500/40 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-[0_0_20px_rgba(6,182,212,0.15)] relative overflow-hidden">
+              <div className="horizon-order-fieldset bg-[#060c1a] p-5 rounded-2xl border border-cyan-500/40 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-[0_0_20px_rgba(6,182,212,0.15)] relative overflow-hidden">
                 <div className="flex items-center gap-4 text-xs">
                   <div>
                     <span className="text-slate-400 block text-[10px] uppercase font-mono">Subtotal Bruto:</span>
@@ -2310,7 +2317,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
               </div>
 
               {/* Políticas de Entrega y Garantía */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#050914] p-4.5 rounded-2xl border border-cyan-500/20 shadow-sm">
+              <div className="horizon-order-fieldset grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#050914] p-5 rounded-2xl border border-cyan-500/20 shadow-sm">
                 <div>
                   <label className="block mb-1.5 text-slate-300 font-semibold text-xs">Tipo de Entrega / Despacho</label>
                   <div className="grid grid-cols-2 gap-2">
@@ -2395,7 +2402,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
               </div>
 
               {/* Estatus Inicial y Operador Asignado */}
-              <div className="bg-[#050914] p-4 sm:p-4.5 rounded-2xl border border-cyan-500/20 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="horizon-order-fieldset bg-[#050914] p-4 sm:p-5 rounded-2xl border border-cyan-500/20 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <label className="block mb-1 text-slate-400 text-xs font-semibold">
                     {editingOrder ? 'Estatus de la Orden' : 'Estatus Inicial de Apertura'}

@@ -121,10 +121,9 @@ export const RefundRequestView: React.FC<RefundRequestViewProps> = ({
   };
 
   return (
-    <div className="radar-view text-[#dfe2ef] pb-10 space-y-6 animate-fade-in">
+    <div className="radar-view horizon-view text-[#dfe2ef] pb-10 space-y-6 animate-fade-in">
       {/* Top Breadcrumb & Navigation Bar */}
-      <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-amber-500/30 p-5 md:p-6 shadow-[0_10px_30px_rgba(245,158,11,0.15)] overflow-hidden">
-        <div className="absolute top-0 inset-x-0 h-[2.5px] bg-gradient-to-r from-amber-500 via-orange-400 to-amber-300 shadow-[0_0_15px_#f59e0b]" />
+      <div className="horizon-view-header">
 
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3.5">
@@ -183,7 +182,7 @@ export const RefundRequestView: React.FC<RefundRequestViewProps> = ({
       )}
 
       {/* Main Grid: Form (2 Cols) + Summary & Actions Sidebar (1 Col) */}
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-6 xl:grid-cols-[1.25fr_0.75fr]">
+      <form onSubmit={handleSubmit} className="horizon-view-form grid grid-cols-1 gap-6 xl:grid-cols-[1.25fr_0.75fr]">
         <div className="space-y-6">
           {/* Card 1: Balance Contable de la Orden */}
           <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">

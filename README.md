@@ -19,6 +19,9 @@ Producción:
 
 https://radar-rsy.store/
 
+Guia operativa: [Despliegue a produccion](./DESPLIEGUE_PRODUCCION.md).
+Incluye acceso Git/SSH, PR a `main`, Dokploy, verificacion y recuperacion.
+
 ### Actualizacion productiva del 2026-11-02
 
 La release `38f7457` se publico por GitHub y fue compilada/desplegada por Dokploy.
@@ -55,6 +58,116 @@ expuesta en el historial; moverla al entorno no revoca la clave anterior.
 - Mensajería interna rápida entre usuarios desde el mismo bloc personal.
 - Layout visual compartido para las vistas principales.
 
+## Flujo verificable de ordenes
+
+La vista **Mi trabajo de hoy** reúne las tareas de las ordenes creadas desde
+el **21 de octubre de 2026 inclusive** (fecha de negocio `America/New_York`)
+y todas las nuevas. El operador ve sus asignaciones por ID; administracion
+ve la bandeja global, las ordenes sin asignar y la supervision por responsable
+actual. El acceso tambien esta disponible desde el encabezado y la busqueda.
+Al iniciar sesion con tareas accionables se muestra esta bandeja; no se bloquea
+el resto del sistema.
+
+- Cotizacion, confirmacion, preparacion/cita y entrega se completan en orden,
+  con detalle, referencia verificable, confirmacion, autor autenticado y fecha.
+  El numero legacy de etapa no demuestra cumplimiento.
+- Primera gestion: un dia habil desde la creacion. Confirmacion: siguiente
+  dia habil tras cotizar. Preparacion: fecha comprometida al confirmar.
+  Entrega: fecha acordada al preparar. Dias habiles: lunes a viernes, sin
+  calendario de feriados.
+- Sin respuesta no completa el objetivo: exige proxima accion y reintento
+  el siguiente dia habil. No elimina el aviso de atraso del objetivo original.
+  Un bloqueo identifica a quien debe resolverlo y fija la proxima revision;
+  se muestra separado del atraso imputable al operador.
+- El supervisor recibe un indicador interno al acumular un dia habil de
+  atraso. La tabla distingue objetivos confirmados dentro del plazo,
+  intentos, vencimientos y bloqueos. No se agregan envios WhatsApp automaticos.
+- El estado logistico se sigue cambiando desde la orden. El servidor exige
+  cotizacion verificada para avanzar a Pagado, confirmacion para Preparacion
+  y preparacion verificada para Listo/En camino. La entrega se registra desde
+  el flujo, con saldo liquidado, evidencia y las validaciones existentes de
+  inventario, estado y garantia. Administracion sigue registrando los cobros.
+- Post-entrega mantiene los hitos **3, 7 y 14 dias calendario**. Un mensaje
+  enviado no confirma al cliente. El dia 3 confirma recepcion y cita de
+  instalacion si sigue sin montar; los dias 7 y 14 requieren funcionamiento
+  confirmado. Un hito temprano exitoso no cancela los siguientes.
+- Reclamos y reembolsos siguen sus servicios propios. Registrar una incidencia
+  en el flujo no crea ni cierra un caso: hay que gestionarlo en su vista.
+  Reactivaciones y retrocesos reabren las etapas pertinentes sin borrar el
+  historial ni cambiar la entrega o garantia originales.
+- Las ordenes existentes no reciben evidencias inventadas: deben regularizar
+  sus etapas pendientes. Se conserva el historial de contactos anterior.
+  Las anteriores al corte conservan su flujo legacy, accesible desde
+  **Seguimiento historico**. La API antigua de contactos rechaza avances de
+  ordenes sujetas al nuevo flujo para evitar dos motores contradictorios.
+
+Persistencia aditiva: `migrations/022_order_workflow_events.sql`, aplicada con
+el runner explicito de migraciones y una cuenta DDL separada. No requiere
+seed ni modificar las ordenes existentes. Las tareas se derivan al consultar;
+no se agrega un cron externo. Los eventos tienen version de orden y transaccion
+con bloqueo de fila para impedir guardados simultaneos o duplicados.
+La tabla de eventos no agrega claves foraneas sobre tablas legacy: sus IDs
+son `INT` firmado en la instancia existente y `INT UNSIGNED` en instalaciones
+nuevas. La API verifica la existencia de la orden bajo bloqueo y conserva los
+eventos como historial, sin convertir IDs ni alterar las tablas originales.
+
+Validacion reproducible:
+
+- Reglas/API: `npm test -- tests/order-workflow.test.ts tests/order-workflow-api.test.ts`.
+- Cobertura enfocada: agregar `--coverage --coverage.include=src/utils/orderWorkflow.ts --coverage.include=src/server/orderWorkflow.ts`.
+- Interaccion: `WORKFLOW_TEST_URL=http://127.0.0.1:3000 npx tsx scripts/test-order-workflow-ui.ts`.
+  Solo acepta frontend local, intercepta todas las API y usa datos sinteticos.
+  Prueba conflicto, reintento, evidencia, entrega, historial, bloqueos,
+  claro/oscuro y 1440/1150/768/375px; no escribe en la base real.
+- `scripts/test-order-workflow-db.ts` verifica SQL y transacciones con todas
+  las migraciones en una base local desechable; requiere una cuenta local
+  autorizada para crear/eliminar **solo esa base de prueba**. La elimina al
+  terminar, incluso si falla. No acepta hosts remotos.
+
+## Cobros divididos, core y entrega
+
+En el detalle de la orden, **Registrar cobro / ver pagos y core** permite
+registrar cobros parciales sin entregar. Seleccionar **Entregado** desde el
+detalle o la tabla abre el formulario de cobro y entrega; no registra dinero
+ni una entrega por cambiar solamente la etiqueta.
+
+- Un cobro admite hasta 20 lineas con importe, metodo y referencia:
+  Cash App, Zelle, cashier check, tarjeta o efectivo. Los metodos distintos
+  de efectivo requieren referencia. Se confirma que el dinero fue recibido
+  y verificado; transferencias o cheques pendientes no cuentan como cobrado.
+  Es un registro interno: no procesa tarjetas ni mueve dinero en bancos.
+  Nunca se deben registrar numeros completos de tarjeta ni CVV.
+- Se conserva el acumulado anterior y se suma cada cobro nuevo en centavos.
+  El formulario muestra saldo anterior, ajuste de core, cobro nuevo y saldo
+  final. No permite importes negativos, fracciones de centavo ni sobrecobros.
+- El cliente paga el core o entrega fisicamente la pieza usada. Recibirla
+  requiere referencia y confirmacion, conserva un comprobante inmutable y
+  elimina el cargo una sola vez. No permite eliminarlo si los cobros previos
+  superan el total sin core: corresponde tramitar la devolucion en Reembolsos,
+  no borrar pagos. Los pagos historicos no identifican a que concepto se
+  asignaron; el formulario no inventa esa distribucion.
+- Administracion conserva el permiso para registrar cobros y recibir core.
+  El operador asignado puede consultar el historial y confirmar una entrega
+  ya liquidada. La edicion general ya no modifica el acumulado cobrado.
+  El abono informado al crear una orden conserva el comportamiento anterior
+  y se identifica sin metodo; los nuevos cobros usan el formulario desglosado.
+- La entrega exige saldo cero, evidencia y confirmacion fisica. Las ordenes
+  del flujo verificable siguen exigiendo las etapas previas. En ese flujo,
+  el cobro, core, evidencia, inventario, entrega y comienzo de garantia se
+  guardan juntos en una transaccion. Si falla cualquier paso no se guarda
+  ninguno. Las entregas legacy tambien pasan por el formulario con evidencia.
+- Cada linea conserva metodo, referencia, fecha y autor. Los registros
+  anteriores permanecen como **Metodo no registrado**, sin inventar fechas.
+  Version de orden y bloqueo de fila rechazan reintentos o cobros concurrentes
+  con datos antiguos. Ante un error de conexion, recargar y revisar el
+  historial antes de intentar nuevamente.
+
+Migracion aditiva: `migrations/023_order_payments.sql`; ejecutar con la cuenta
+DDL, respaldo previo y sin seed. No modifica importes historicos.
+Validacion: `npm test -- tests/order-payments.test.ts tests/order-payments-api.test.ts`
+y los scripts locales `scripts/test-order-workflow-db.ts` y
+`scripts/test-order-workflow-ui.ts`, que usan solo datos sinteticos.
+
 ## Estilo visual
 
 La interfaz adapta el lenguaje visual de [Horizon UI Chakra](https://github.com/horizon-ui/horizon-ui-chakra)
@@ -67,10 +180,94 @@ El tema compartido se define en `src/horizon.css`, cargado despues del estilo
 legacy para normalizar las pantallas, formularios y modales existentes en claro
 y oscuro. Las reglas son solo de pantalla: se conservan las reglas de impresion.
 Los usuarios nuevos comienzan en claro; se respeta la preferencia previamente
-guardada. DM Sans dispone de fuentes de sistema como alternativa sin conexion.
+guardada. DM Sans e iconos Material Symbols se sirven desde los paquetes
+Fontsource incluidos en el build, sin depender de Google para esas fuentes.
 Los modales de seguimiento post-entrega y registro de contacto se renderizan
 fuera de `#root`; su estilo compartido usa `.horizon-followup-portal` para
 mantener el mismo tema claro/oscuro sin alterar las reglas de seguimiento.
+
+### Revision visual del 4 de noviembre de 2026
+
+Se compararon los componentes comunes con el codigo de Horizon UI Chakra
+([revision de referencia](https://github.com/horizon-ui/horizon-ui-chakra/tree/27a99f9fb391e9da126e91cf109b3afd953fb58b),
+licencia MIT). Su demo publica estaba pausada; la referencia utilizada fue
+el tema, las tarjetas, los botones, los inputs, el sidebar y el navbar del repositorio.
+No se incorporaron Chakra, rutas ni datos de demostracion al producto.
+
+| Superficie de Radar | Adaptacion visual |
+| --- | --- |
+| Sidebar y encabezado | Navegacion con indicador violeta, titulo de vista, herramientas agrupadas y drawer movil |
+| Dashboard y vistas | Fondo `#f4f7fe` / `#0b1437`, tarjetas blancas / `#111c44`, radios de 20px y sombras suaves |
+| Tablas, formularios y botones | Encabezados discretos, inputs de 16px, foco visible y acciones primarias violetas |
+| Modales y ventanas flotantes | Hook `horizon-modal`, panel uniforme, fondos y controles compartidos; incluye portales de seguimiento |
+| Estados operativos | Verde, ambar y rojo conservan su significado; no se transforman en superficies neutras |
+
+Los cambios no modifican callbacks, API, estados de orden, calculos financieros,
+garantias ni autorizacion. Las reglas del tema siguen dentro de `@media screen`
+para no cambiar los documentos impresos. Esta revision local no implica despliegue.
+
+Comprobacion de navegador reproducible: compilar con `VITE_API_URL=/api npm run build`,
+servir el frontend con `npm run preview -- --host 127.0.0.1 --port 3000` y ejecutar
+`npm run test:ui:horizon` en otra terminal. Requiere Google Chrome local
+(`CHROME_PATH` permite indicar su ejecutable). Intercepta las API con datos sinteticos
+y no usa credenciales reales, bases de datos ni envios externos. Comprueba
+1440/768/375px, claro/oscuro, navegacion, detalle de orden y modales comunes.
+`HORIZON_SCREENSHOT_DIR` habilita capturas opcionales fuera del repositorio.
+Las comprobaciones de alcance CSS e impresion estan en `tests/horizon-theme.test.ts`.
+La suite general contiene aserciones de fecha sensibles al huso horario:
+en esta Mac dos fallan con el huso local y pasan con `TZ=UTC`; en UTC, la prueba
+de `Hoy` del dashboard falla cuando el dia UTC difiere del dia de negocio
+`America/New_York`. No se cambiaron esas reglas ni esas pruebas en esta revision.
+
+La segunda revision corrige la composicion, no solamente los colores:
+navegacion agrupada en Operacion y Administracion, encabezado con un solo
+titulo principal, KPIs compactos con icono lateral como `MiniStatistics`
+de Horizon, controles de periodo en una tarjeta y graficas violetas.
+La lista de ordenes agrupa acciones, pestanas de estatus, filtros y tabla
+en una superficie unica; conserva todos los segmentos y sus contadores.
+El asistente de ordenes usa pasos redondeados, sin cambiar su validacion.
+Las pruebas de navegador verifican la geometria de los KPIs y la seleccion
+de segmentos, ademas de las comprobaciones anteriores.
+
+La referencia visual confirmada es **HORIZON FREE / Main Dashboard** de la
+[imagen oficial del repositorio](https://i.ibb.co/fdyTwz1/introduction-image-2.png).
+El dashboard sigue su composicion: seis indicadores en una fila de escritorio,
+dos tarjetas de graficas de igual ancho y una fila inferior con tabla,
+volumen y distribucion circular. Los controles de periodo son compactos,
+sin tarjeta introductoria. Las graficas representan ingresos netos acumulados,
+ingresos netos por fecha efectiva y ordenes creadas; no se incluyen ventas,
+trafico ni porcentajes ficticios de la demo. Se conservan estados vacios,
+errores de acceso financiero, precision de centavos, periodos y acciones.
+La comprobacion visual mide altura de indicadores, alineacion de filas,
+igualdad de ancho de graficas y posicion de los modulos inferiores.
+
+### Adaptacion global de vistas y modales
+
+Las vistas de ordenes y su detalle, clientes, inventario, reclamos, reembolsos,
+operaciones, relacion semanal, sistema y usuarios usan el contrato `horizon-view`.
+Los encabezados usan `horizon-view-header`: titulo legible, descripcion y acciones,
+sin el marco HUD ni rutas decorativas. El detalle de orden separa identificacion,
+acciones, pestanas y seguimiento; sus tres tarjetas de resumen tienen espacio
+interior y jerarquia tipografica compartidos. Factura y rotulo adoptan solamente
+el encabezado de pantalla; sus documentos y reglas de impresion no se redisenan.
+
+Los paneles `horizon-modal` comparten tipografia, superficie, inputs y limites
+de altura. Las vistas no conservan transformaciones de entrada que hacian que
+los overlays fijos quedaran contenidos y recortados dentro de la vista.
+Los modales quedan por encima del widget de notas; se conserva la prioridad
+del portal de registro de seguimiento. Las acciones de mensajeria se distribuyen
+en varias filas cuando no caben, sin ocultar botones ni cambiar los envios.
+
+`npm run test:ui:horizon` comprueba las diez rutas en ambos temas a
+1440/1150/768/375px, el detalle de orden y sus pestanas, y quince variantes
+adicionales de dialogo a 1150/375px: asesor, mensajeria, cliente nuevo/edicion,
+inventario nuevo/edicion/ficha/impresion, reclamo nuevo/llamadas, colaborador,
+traspaso, nomina, gastos recurrentes y gasto nuevo. Incluye el formulario de
+reembolso y detalle de reclamo, y verifica finanzas bloqueadas y desbloqueadas
+solo con respuestas sinteticas. Comprueba dimensiones reales, fuentes, superficies,
+desbordamiento y acciones no recortadas. No realiza escrituras ni envios externos.
+Esta cobertura no equivale a probar cada estado posible de cada formulario,
+ni certifica fidelidad visual pixel a pixel o cobertura de codigo del 80%.
 
 ## Criterios de las analiticas
 
@@ -567,6 +764,10 @@ El endpoint de healthcheck es:
 https://radar-rsy.store/health
 
 El despliegue se gestiona en Dokploy conectado al branch `main`. Después de publicar cambios en GitHub es necesario esperar o iniciar un nuevo deploy para que Dokploy construya la imagen actualizada.
+
+Seguir la [guia de despliegue](./DESPLIEGUE_PRODUCCION.md): subir una rama no
+actualiza produccion; hay que integrar a `main`, confirmar el despliegue de esa
+revision en Dokploy y verificar la aplicacion por HTTPS.
 
 ## Estado actual
 

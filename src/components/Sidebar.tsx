@@ -29,6 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems: { id: NavScreen; label: string; icon: string; aliases?: NavScreen[] }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: 'grid_view' },
     { id: 'ordenes', label: 'Lista de Órdenes', icon: 'inventory_2', aliases: ['taller'] },
+    { id: 'mi_trabajo', label: 'Mi trabajo de hoy', icon: 'task_alt' },
     { id: 'inventario', label: 'Inventario & HOLD', icon: 'sell', aliases: ['piezas', 'hold'] },
     { id: 'clientes', label: 'Clientes CRM', icon: 'group', aliases: ['crm'] },
     { id: 'reclamos', label: 'Reclamos', icon: 'error_outline' },
@@ -51,7 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Mobile Backdrop */}
       {isDrawerOpen && (
         <div
-          className="fixed inset-0 bg-black/80 backdrop-blur-md z-40 md:hidden"
+          className="horizon-drawer-backdrop fixed inset-0 bg-black/80 backdrop-blur-md z-40 md:hidden"
           onClick={handleClose}
         />
       )}
@@ -71,9 +72,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-1.5">
-                <h1 className="font-black text-white tracking-tight text-xl leading-none uppercase">
+                <p className="font-black text-white tracking-tight text-xl leading-none uppercase">
                   RADAR <span className="text-cyan-400">3.0</span>
-                </h1>
+                </p>
               </div>
               <span className="text-[9px] font-bold tracking-wider text-slate-400 uppercase mt-1.5 flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
@@ -85,6 +86,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Mobile close button */}
           <button
             onClick={handleClose}
+            aria-label="Cerrar menú"
             className="md:hidden text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
           >
             <span className="material-symbols-outlined text-[20px]">close</span>
@@ -92,29 +94,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <div className="horizon-sidebar-divider my-6" />
-        <p className="px-3 mb-3 text-[10px] font-bold tracking-widest text-slate-500 uppercase">Espacio de trabajo</p>
+        <div className="horizon-nav-groups flex-1 overflow-y-auto custom-scrollbar">
+          {[
+            { label: 'Operación', items: navItems.slice(0, -2) },
+            { label: 'Administración', items: navItems.slice(-2) },
+          ].map(group => (
+            <nav key={group.label} aria-label={group.label} className="horizon-nav-group">
+              <p className="horizon-nav-label">{group.label}</p>
+              {group.items.map((item) => {
+                const isActive =
+                  currentScreen === item.id ||
+                  (item.aliases && item.aliases.includes(currentScreen));
 
-        {/* Navigation Items List */}
-        <div className="flex flex-col gap-1 flex-1 overflow-y-auto pr-0.5 custom-scrollbar">
-          {navItems.map((item) => {
-            const isActive =
-              currentScreen === item.id ||
-              (item.aliases && item.aliases.includes(currentScreen));
-
-            return (
-              <button
-                key={item.id}
-                aria-current={isActive ? 'page' : undefined}
-                onClick={() => handleNavClick(item.id)}
-                className="horizon-nav-item w-full flex items-center gap-3 py-3 px-3 rounded-xl text-[13px] transition-colors text-left cursor-pointer group relative"
-              >
-                <span className="material-symbols-outlined text-[21px] shrink-0">
-                  {item.icon}
-                </span>
-                <span className="truncate">{item.label}</span>
-              </button>
-            );
-          })}
+                return (
+                  <button
+                    key={item.id}
+                    aria-current={isActive ? 'page' : undefined}
+                    onClick={() => handleNavClick(item.id)}
+                    className="horizon-nav-item w-full flex items-center gap-3 py-3 px-3 rounded-xl text-[13px] transition-colors text-left cursor-pointer group relative"
+                  >
+                    <span className="material-symbols-outlined text-[21px] shrink-0">
+                      {item.icon}
+                    </span>
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          ))}
         </div>
 
         <div className="mt-auto pt-4">

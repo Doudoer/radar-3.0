@@ -282,13 +282,12 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   };
 
   return (
-    <div className="radar-view space-y-6">
+    <div className="radar-view horizon-view space-y-6">
       <p role="status" className="rounded-xl border border-amber-500/40 p-4 text-amber-200 text-sm">
         Restauración directa deshabilitada por seguridad. Utilice el procedimiento de recuperación verificada; cargar un archivo no restaura datos.
       </p>
       {/* Cyber Header Card */}
-      <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-indigo-500 shadow-[0_0_12px_#22d3ee]" />
+      <div className="horizon-view-header">
 
         <div className="flex items-center gap-3.5">
           <div className="relative w-12 h-12 rounded-2xl bg-[#040814] border border-cyan-500/40 text-cyan-300 flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.3)] shrink-0">
@@ -298,9 +297,6 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
           <div>
             <div className="flex items-center gap-2.5">
               <h1 className="text-xl md:text-2xl font-black text-white tracking-tight">Configuración del Sistema & Seguridad</h1>
-              <span className="text-[11px] font-mono font-bold bg-cyan-950/60 text-cyan-300 border border-cyan-500/30 px-2.5 py-0.5 rounded-full shadow-[0_0_8px_rgba(6,182,212,0.25)]">
-                /settings
-              </span>
             </div>
             <p className="text-xs text-slate-400 mt-1">
               Parámetros globales de la plataforma, recuperación ante desastres y gestión de base de datos.
@@ -580,7 +576,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
 
       {/* Confirmation & Rollback Modal */}
       {isRestoreModalOpen && restoreTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in overflow-y-auto">
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in overflow-y-auto">
           <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-red-500/40 rounded-2xl w-full max-w-lg max-h-[min(94vh,680px)] shadow-[0_15px_50px_rgba(239,68,68,0.3)] overflow-hidden flex flex-col text-xs text-slate-300 relative my-auto">
             <div className="h-[2px] bg-gradient-to-r from-transparent via-red-400 to-transparent shadow-[0_0_12px_#ef4444] absolute top-0 inset-x-0" />
 

@@ -16,10 +16,9 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({ claim, order, 
   const orderBalance = order?.financials?.balanceDue ?? Math.max(0, orderTotal - (order?.financials?.downPayment ?? 0));
 
   return (
-    <div className="radar-view text-[#dfe2ef] pb-8 space-y-6">
+    <div className="radar-view horizon-view text-[#dfe2ef] pb-8 space-y-6">
       {/* Cyber Header Card */}
-      <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">
-        <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-red-400 to-cyan-400 shadow-[0_0_12px_#ef4444]" />
+      <div className="horizon-view-header">
         
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3.5">
@@ -191,4 +190,3 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({ claim, order, 
     </div>
   );
 };
-

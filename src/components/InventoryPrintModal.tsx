@@ -420,7 +420,7 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 dark:bg-black/85 backdrop-blur-xl animate-fade-in font-sans">
+    <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 dark:bg-black/85 backdrop-blur-xl animate-fade-in font-sans">
       <div className="relative w-full max-w-4xl rounded-3xl bg-white dark:bg-[#070c18] border border-slate-200 dark:border-cyan-500/40 shadow-2xl dark:shadow-[0_20px_70px_rgba(0,0,0,0.95)] overflow-hidden flex flex-col max-h-[92vh]">
         {/* Laser Top Accent */}
         <div className="h-1 bg-gradient-to-r from-cyan-500 via-emerald-400 to-blue-500 w-full shrink-0 shadow-xs dark:shadow-[0_0_12px_rgba(6,182,212,0.6)]" />

@@ -12,6 +12,9 @@ import { clientAddress, isSecureRequest, isUnsafeMethod, issueCsrfToken, rateLim
 import { beginIdempotentRequest, finishIdempotentRequest, cents, fail, recordPaymentChange, syncInventory, validateOrder } from './src/server/business';
 import { handleFinanceRequest } from './src/server/finance';
 import { handleAnalyticsRequest } from './src/server/analytics';
+import { enforceWorkflowUpdate, handleWorkflowRequest, recordWorkflowReopening } from './src/server/orderWorkflow';
+import { enforceCollectionUpdate, handlePaymentRequest } from './src/server/orderPayments';
+import { workflowRequired } from './src/utils/orderWorkflow';
 import { inventoryForRole, mapInventoryPartRow } from './src/server/inventory';
 import { matchOrderInventory } from './src/utils/inventoryMatching';
 import { filterInventory, inventoryCsv } from './src/utils/inventoryExport';
@@ -465,6 +468,8 @@ const server = createServer(async (request, response) => {
     }
     if (await handleAnalyticsRequest(request, response, pathname, authenticatedClaims)) return;
     if (await handleFinanceRequest(request, response, pathname, authenticatedClaims)) return;
+    if (authenticatedClaims && await handleWorkflowRequest(request, response, pathname, authenticatedClaims, pool, broadcastRealtimeEvent)) return;
+    if (authenticatedClaims && await handlePaymentRequest(request, response, pathname, authenticatedClaims, pool, broadcastRealtimeEvent)) return;
     if (pathname === '/api/auth/2fa/vault' && request.method === 'GET') {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
       const expiresAt = financeVaultExpiry(request, authenticatedClaims);
@@ -1170,6 +1175,10 @@ const server = createServer(async (request, response) => {
       const order = orderPayloadSchema.parse(await readBody(request));
       const requestFingerprint = structuredClone(order);
       validateOrder(order, undefined, String(authenticatedClaims?.role));
+      if (workflowRequired(new Date().toISOString())) {
+        if (order.status === 'entregado') fail(409, 'Registra la entrega física con evidencia desde el flujo después de crear la orden.');
+        order.workflowStep = 1;
+      }
       if (!order.idempotencyKey) fail(400, 'La clave de idempotencia es obligatoria');
       if (!order.customer || !order.vehicle || !order.financials || !order.mainPart) {
         return sendJson(response, 400, { message: 'Cliente, vehículo, pieza y datos financieros son obligatorios' });
@@ -1430,8 +1439,10 @@ const server = createServer(async (request, response) => {
         LEFT JOIN users u ON u.id = o.user_id
         WHERE o.deleted_at IS NULL
           AND (o.status = 'Entregado' OR o.status = 'entregado')
+          AND o.created_at < '2026-10-21 04:00:00'
+          AND (? = 'admin' OR o.user_id = ?)
         ORDER BY o.delivered_at DESC, o.id DESC
-      `);
+      `, [authenticatedClaims?.role, Number(authenticatedClaims?.sub)]);
 
       if (orderRows.length === 0) {
         return sendJson(response, 200, {
@@ -1637,7 +1648,7 @@ const server = createServer(async (request, response) => {
         const data = orderDeliveryFollowupSchema.parse(await readBody(request));
 
         const [orderRows] = await pool.query<RowDataPacket[]>(
-          `SELECT o.id, o.order_code, o.status, c.first_name, c.last_name, c.phone, u.name AS advisor
+          `SELECT o.id, o.order_code, o.status, o.created_at, c.first_name, c.last_name, c.phone, u.name AS advisor
            FROM orders o
            LEFT JOIN customers c ON c.id = o.customer_id
            LEFT JOIN users u ON u.id = o.user_id
@@ -1648,6 +1659,9 @@ const server = createServer(async (request, response) => {
           return sendJson(response, 404, { ok: false, message: 'Orden no encontrada' });
         }
         const orderRow = orderRows[0];
+        if (workflowRequired(new Date(orderRow.created_at).toISOString())) {
+          return sendJson(response, 409, { message: 'Registra esta gestión desde el flujo verificable de la orden o Mi trabajo de hoy.' });
+        }
 
         // Operator name defaults to provided name, or authenticated user's name, or order advisor
         let opName = data.operatorName || '';
@@ -1862,6 +1876,8 @@ const server = createServer(async (request, response) => {
         );
         const prevOrder = prevRows[0];
         if (!prevOrder) fail(404, 'Orden no encontrada');
+        enforceCollectionUpdate(prevOrder, order);
+        await enforceWorkflowUpdate(connection, prevOrder, order, authenticatedClaims || undefined);
         validateOrder(order, prevOrder, String(authenticatedClaims?.role));
 
         const updateCustomerLanguage = order.customerLanguage || order.customer?.language || null;
@@ -2321,7 +2337,7 @@ const server = createServer(async (request, response) => {
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
-        const [lockedOrders] = await connection.query<RowDataPacket[]>('SELECT status FROM orders WHERE id=? FOR UPDATE', [targetOrderId]);
+        const [lockedOrders] = await connection.query<RowDataPacket[]>('SELECT * FROM orders WHERE id=? FOR UPDATE', [targetOrderId]);
         const [lockedClaims] = await connection.query<RowDataPacket[]>('SELECT * FROM claims WHERE id=? FOR UPDATE', [claimId]);
         const storedClaim = lockedClaims[0];
         if (storedClaim.status === status) {
@@ -2347,6 +2363,7 @@ const server = createServer(async (request, response) => {
           }
           if (!previousStatus) fail(409, 'El reclamo histórico no tiene un estado anterior verificable; requiere revisión manual');
           if (statusFromDatabase(lockedOrders[0]?.status || '') !== 'reclamo') fail(409, 'La orden cambió de estado; revisa la incidencia antes de cerrarla');
+          if (authenticatedClaims) await recordWorkflowReopening(connection, lockedOrders[0], statusFromDatabase(previousStatus), authenticatedClaims);
           await connection.execute(
             'UPDATE orders SET version=version+1, status = ?, claim_reason = NULL WHERE id = ?',
             [previousStatus, targetOrderId]
@@ -2531,6 +2548,7 @@ const server = createServer(async (request, response) => {
           const restoredStatus = fullyRefunded ? statusToDatabase.reembolsado :
             statusFromDatabase(previousStatus || '') === 'pagado' ? statusToDatabase.espera_confirmacion : previousStatus;
           if (!restoredStatus) fail(409, 'La devolución histórica no tiene estado anterior verificable');
+          if (authenticatedClaims) await recordWorkflowReopening(connection, lockedOrder[0], statusFromDatabase(restoredStatus), authenticatedClaims);
           await connection.execute('UPDATE orders SET version=version+1,status=? WHERE id=?', [restoredStatus, orderIdVal]);
           const currentUserId = Number(authenticatedClaims?.sub) || 1;
           await connection.execute(
@@ -2539,6 +2557,7 @@ const server = createServer(async (request, response) => {
           );
         } else if (refund.status === 'cancelled') {
           if (!refundRow.previous_order_status) fail(409, 'La devolución histórica requiere revisión: no tiene estado anterior verificable');
+          if (authenticatedClaims) await recordWorkflowReopening(connection, lockedOrder[0], statusFromDatabase(refundRow.previous_order_status), authenticatedClaims);
           await connection.execute('UPDATE orders SET version=version+1,status=? WHERE id=?', [refundRow.previous_order_status, orderIdVal]);
         }
         await connection.execute(

@@ -39,7 +39,17 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   userAvatar,
   userRole,
 }) => {
-  const { theme, toggleTheme, isDark } = useTheme();
+  const { toggleTheme, isDark } = useTheme();
+  const screenTitles: Partial<Record<NavScreen, string>> = {
+    dashboard: 'Dashboard', ordenes: 'Lista de Órdenes', taller: 'Lista de Órdenes',
+    mi_trabajo: 'Mi trabajo de hoy',
+    inventario: 'Inventario & HOLD', piezas: 'Inventario & HOLD', hold: 'Inventario & HOLD',
+    clientes: 'Clientes CRM', crm: 'Clientes CRM', reclamos: 'Reclamos', reembolsos: 'Reembolsos',
+    mis_operaciones: 'Mis Operaciones', relacion_semanal: 'Relación Semanal', finanzas: 'Relación Semanal',
+    sistema: 'Sistema', configuracion: 'Sistema', ayuda: 'Sistema',
+    usuarios: 'Usuarios', directorio: 'Usuarios', 'order-detail': 'Detalle de Orden',
+  };
+  const screenTitle = screenTitles[currentScreen] || 'Radar';
 
   const handleProfileClick = () => {
     if (onOpenProfile) {
@@ -61,16 +71,20 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         >
           <span className="material-symbols-outlined text-[22px]">menu</span>
         </button>
-        <div className="horizon-mobile-brand flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee] animate-pulse" />
-          <span className="font-black text-white text-[14px] tracking-wider uppercase">RADAR 3.0</span>
-        </div>
+        <span className="horizon-mobile-brand font-bold truncate">{screenTitle}</span>
       </div>
 
-      {/* Center/Left Desktop: Search Bar */}
-      <div className="hidden md:flex items-center gap-4 lg:gap-6 flex-1 max-w-xl lg:max-w-2xl">
+      <div className="horizon-header-title hidden md:block min-w-0">
+        <p className="text-xs text-[var(--text-secondary)]">Radar / {screenTitle}</p>
+        <h1 className="text-xl lg:text-2xl font-bold text-[var(--text-heading)] truncate">
+          {currentScreen === 'order-detail' && selectedOrderCode ? selectedOrderCode : screenTitle}
+        </h1>
+      </div>
+
+      {/* Right Side: Search, Actions & Profile */}
+      <div className="horizon-header-tools flex items-center gap-2 sm:gap-3 min-w-0">
         {/* Terminal Query Search Bar */}
-        <div className="relative w-full max-w-sm lg:max-w-md group">
+        <div className="horizon-header-search hidden lg:block relative w-48 2xl:w-64 group">
           <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-cyan-400/70 text-[18px] group-focus-within:text-cyan-300 transition-colors pointer-events-none drop-shadow-[0_0_6px_rgba(34,211,238,0.5)]">
             search
           </span>
@@ -78,8 +92,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             type="text"
             onClick={onOpenSearch}
             readOnly
-            placeholder="Buscar órdenes, clientes, piezas, VIN..."
-            className="w-full bg-[#040814]/90 border border-cyan-500/25 rounded-xl py-1.5 pl-9 pr-12 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30 transition-all cursor-pointer shadow-[inset_0_0_15px_rgba(0,0,0,0.6)] hover:border-cyan-500/40"
+            aria-label="Búsqueda global"
+            placeholder="Buscar en Radar..."
+            className="w-full py-2 pl-9 pr-12 cursor-pointer"
           />
           <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1 pointer-events-none">
             <kbd className="font-mono text-[9px] border border-cyan-500/30 rounded px-1.5 py-0.5 bg-[#0a1426] text-cyan-300 shadow-[0_0_6px_rgba(6,182,212,0.2)]">
@@ -88,33 +103,16 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           </div>
         </div>
 
-        {/* Selected Order Breadcrumb if viewing detail */}
-        {(currentScreen === 'reclamos' || currentScreen === 'reembolsos') && (
-          <span className="text-sm font-bold">{currentScreen === 'reclamos' ? 'Reclamos' : 'Reembolsos'}</span>
-        )}
-        {currentScreen === 'order-detail' && selectedOrderCode && (
-          <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-cyan-500/10 border border-cyan-400/30 text-[11px] font-mono text-cyan-300">
-            <span>ÓRDEN:</span>
-            <strong className="text-white font-bold">{selectedOrderCode}</strong>
-          </div>
-        )}
-      </div>
-
-      {/* Right Side: Actions & Profile */}
-      <div className="flex items-center gap-2 sm:gap-3">
         {/* Theme Toggle Button (Light/Dark Mode) */}
         <button
           type="button"
           onClick={toggleTheme}
           title={isDark ? 'Cambiar a Modo Claro' : 'Cambiar a Modo Oscuro'}
-          className="p-1.5 lg:p-2 rounded-xl border border-cyan-500/30 bg-[#040814]/90 hover:bg-cyan-500/15 text-cyan-300 hover:text-cyan-100 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-[0_0_10px_rgba(6,182,212,0.15)] active:scale-95 group"
+          className="horizon-icon-button"
           aria-label={isDark ? 'Activar modo claro' : 'Activar modo oscuro'}
         >
           <span className="material-symbols-outlined text-[19px] transition-transform duration-300 group-hover:rotate-45">
             {isDark ? 'light_mode' : 'dark_mode'}
-          </span>
-          <span className="hidden xl:inline text-[11px] font-mono font-bold tracking-wider">
-            {isDark ? 'CLARO' : 'OSCURO'}
           </span>
         </button>
 
@@ -123,7 +121,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           <button
             type="button"
             onClick={onOpenFollowups}
-            title="Seguimiento Post-Entrega • Garantía Temprana (14 Días)"
+            title="Seguimiento de órdenes · Mi trabajo de hoy"
+            aria-label={`Mi trabajo de hoy${pendingFollowupsCount ? `: ${pendingFollowupsCount} pendientes` : ''}`}
             className={`relative inline-flex items-center gap-1.5 py-1.5 px-2.5 sm:px-3 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer active:scale-95 ${
               overdueFollowupsCount > 0
                 ? 'bg-rose-500/25 border border-rose-500/60 text-rose-300 hover:bg-rose-500/35 shadow-[0_0_15px_rgba(244,63,94,0.35)] animate-pulse'
@@ -133,7 +132,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             }`}
           >
             <span className="material-symbols-outlined text-[17px]">phone_in_talk</span>
-            <span className="hidden sm:inline">Seguimiento</span>
+            <span className="sr-only">Seguimiento</span>
             {pendingFollowupsCount > 0 && (
               <span
                 className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-black rounded-full ${
@@ -151,6 +150,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           <button
             type="button"
             onClick={onOpenNewOrder}
+            aria-label="Nueva Orden"
             className="horizon-primary hidden sm:inline-flex items-center gap-1.5 py-2.5 px-4 rounded-full text-xs font-bold transition-all cursor-pointer active:scale-95"
           >
             <span className="material-symbols-outlined text-[16px]">add_circle</span>
@@ -161,7 +161,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         {/* Mobile Search Icon Button */}
         <button
           onClick={onOpenSearch}
-          className="md:hidden p-1.5 text-slate-300 hover:text-cyan-400 hover:bg-slate-800/60 rounded-xl transition-colors cursor-pointer"
+          className="lg:hidden p-1.5 text-slate-300 hover:text-cyan-400 hover:bg-slate-800/60 rounded-xl transition-colors cursor-pointer"
           aria-label="Buscar"
         >
           <span className="material-symbols-outlined text-[19px]">search</span>
@@ -185,7 +185,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                 }}
               />
             </div>
-            <div className="hidden xl:flex flex-col text-left">
+            <div className="hidden 2xl:flex flex-col text-left">
               <span className="text-xs text-slate-200 font-semibold group-hover:text-cyan-300 leading-tight">
                 {userName}
               </span>
@@ -196,7 +196,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               )}
             </div>
             <span className="material-symbols-outlined text-[15px] text-cyan-400/70 group-hover:text-cyan-300">
-              settings
+              expand_more
             </span>
           </button>
 
@@ -205,6 +205,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             type="button"
             onClick={onLogout}
             title="Cerrar sesión segura"
+            aria-label="Cerrar sesión"
             className="p-1.5 lg:p-2 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-300 hover:text-red-200 text-xs font-semibold transition cursor-pointer flex items-center justify-center shadow-[0_0_10px_rgba(239,68,68,0.12)]"
           >
             <span className="material-symbols-outlined text-[17px]">logout</span>

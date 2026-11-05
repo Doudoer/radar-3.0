@@ -454,7 +454,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
   };
 
   return (
-    <div className="radar-view relative pb-16 space-y-6">
+    <div className="radar-view horizon-view relative pb-16 space-y-6">
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed top-20 right-6 z-50 bg-[#10b981] text-[#064e3b] font-bold text-xs py-2.5 px-4 rounded-xl shadow-[0_0_25px_rgba(16,185,129,0.4)] flex items-center gap-2 animate-bounce border border-[#34d399]">
@@ -464,8 +464,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
       )}
 
       {/* SECTION 1: Header with Operator Profile & Super Admin Auditor Switcher */}
-      <div className="relative rounded-3xl bg-[#070c18]/92 backdrop-blur-2xl border border-cyan-500/30 p-5 shadow-[0_20px_50px_rgba(0,0,0,0.75)] flex flex-col lg:flex-row lg:items-center justify-between gap-4 overflow-hidden">
-        <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee]" />
+      <div className="horizon-view-header">
 
         {/* Profile Info */}
         <div className="flex items-center gap-4 relative z-10">
@@ -490,9 +489,6 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
               </h1>
               <span className="text-xs font-mono bg-cyan-500/15 text-cyan-300 px-2.5 py-0.5 rounded-full border border-cyan-400/40 font-bold shadow-[0_0_8px_rgba(6,182,212,0.25)]">
                 {currentOperator.role}
-              </span>
-              <span className="text-[11px] font-mono bg-[#040814] text-slate-400 px-2.5 py-0.5 rounded-md border border-cyan-500/20">
-                /mis-operaciones
               </span>
             </div>
             <p className="text-xs text-slate-400 font-mono mt-1 flex items-center gap-3">
@@ -670,7 +666,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
       </div>
 
       {/* SECTION 3: Key Performance Indicators HUD Matrix */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="horizon-view-metrics grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {/* KPI 1: Facturación Total en Ventas */}
         <div className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-emerald-500/30 p-4 flex flex-col justify-between shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">
           <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_10px_#34d399]" />
@@ -1447,7 +1443,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
 
       {/* Administrative reassignment is persisted by the authenticated API. */}
       {isSuperAdmin && isTransferModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in">
           <div className="bg-[#111827] border border-[#2b3a58] rounded-2xl w-full max-w-2xl max-h-[min(94vh,700px)] shadow-2xl flex flex-col overflow-hidden">
             <div className="p-4 sm:p-5 bg-[#182338] border-b border-[#2b3a58] flex justify-between items-center shrink-0">
               <div className="flex items-center gap-3">
@@ -1584,7 +1580,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
 
       {/* MODAL 2: OFFICIAL PERFORMANCE & COMMISSION REPORT (Printable / PDF) */}
       {isPrintModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in">
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in">
           <div className="bg-white text-[#0f172a] rounded-2xl w-full max-w-4xl max-h-[min(94vh,740px)] shadow-2xl flex flex-col overflow-hidden">
             <div className="p-4 bg-[#0f172a] text-white flex justify-between items-center shrink-0 print:hidden">
               <div className="flex items-center gap-2">

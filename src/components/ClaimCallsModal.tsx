@@ -74,7 +74,7 @@ export const ClaimCallsModal: React.FC<ClaimCallsModalProps> = ({ claim, isOpen,
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-md" role="dialog" aria-modal="true" aria-label="Bitácora de llamadas">
+    <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-md" role="dialog" aria-modal="true" aria-label="Bitácora de llamadas">
       <div className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl min-h-0 flex-col overflow-hidden rounded-2xl border border-cyan-500/30 bg-[#070c18]/95 shadow-[0_20px_60px_rgba(0,0,0,0.8)]">
         <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400" />
 

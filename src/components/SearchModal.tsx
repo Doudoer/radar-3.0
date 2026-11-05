@@ -53,6 +53,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
   const quickNavs: { id: NavScreen; label: string; icon: string }[] = [
     { id: 'dashboard', label: 'Panorama General (Dashboard)', icon: 'dashboard' },
     { id: 'taller', label: 'Lista de Órdenes', icon: 'inventory_2' },
+    { id: 'mi_trabajo', label: 'Mi trabajo de hoy', icon: 'task_alt' },
     { id: 'crm', label: 'CRM Ventas & Clientes VIP', icon: 'person_search' },
     { id: 'reclamos', label: 'Reclamos', icon: 'error_outline' },
     { id: 'reembolsos', label: 'Reembolsos', icon: 'currency_exchange' },
@@ -62,7 +63,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-6 sm:pt-12 p-3 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
+    <div className="horizon-modal fixed inset-0 z-50 flex items-start justify-center pt-6 sm:pt-12 p-3 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
       <div className="bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-2xl max-h-[min(88vh,620px)] shadow-[0_20px_60px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col relative">
         {/* Laser Hairline */}
         <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-20" />

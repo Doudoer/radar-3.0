@@ -395,7 +395,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   };
 
   return (
-    <div className="radar-view pb-8">
+    <div className="radar-view horizon-view pb-8">
       {/* Toast Feedback */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-[#041a14]/95 text-white font-medium text-xs py-3.5 px-5 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8),0_0_30px_rgba(16,185,129,0.35)] flex items-center gap-2.5 animate-bounce border-2 border-emerald-500/60 backdrop-blur-2xl">
@@ -405,8 +405,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       )}
 
       {/* Header Bar */}
-      <div className="relative rounded-3xl bg-[#070c18]/92 border border-cyan-500/30 p-5 md:p-6 backdrop-blur-3xl flex flex-col md:flex-row md:items-center justify-between gap-5 shadow-[0_20px_50px_rgba(0,0,0,0.75)] overflow-hidden">
-        <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee]" />
+      <div className="horizon-view-header">
 
         <div>
           <div className="flex items-center gap-3">
@@ -418,9 +417,6 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                 <h1 className="text-xl md:text-2xl font-black text-white tracking-tight drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]">
                   Directorio de Clientes
                 </h1>
-                <span className="text-[11px] font-mono font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-400/40 px-2.5 py-0.5 rounded-full shadow-[0_0_8px_rgba(6,182,212,0.25)]">
-                  /crm-clientes
-                </span>
               </div>
               <p className="text-xs text-slate-400 font-mono mt-1">
                 CRM operativo centralizado para talleres mecánicos, flotas comerciales y particulares.
@@ -490,7 +486,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       </div>
 
       {/* KPI Cards Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="horizon-view-metrics grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="relative rounded-2xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-3.5 flex items-center gap-3 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden">
           <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_10px_#22d3ee]" />
           <div className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-400/30 text-cyan-400 flex items-center justify-center shrink-0">
@@ -988,7 +984,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       {/* 2-STEP CUSTOMER WIZARD MODAL (PERFIL & CONTACTO/ENVÍO)    */}
       {/* ========================================================== */}
       {isWizardOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-4 animate-fade-in">
+        <div className="horizon-modal fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-4 animate-fade-in">
           <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[min(94vh,700px)]">
             {/* Modal Header */}
             <div className="bg-[#111827] border-b border-[#1e293b] p-4 sm:p-5 flex items-center justify-between shrink-0">
@@ -1391,7 +1387,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       {/* SOFT DELETE CONFIRMATION MODAL (ADMIN ONLY)               */}
       {/* ========================================================== */}
       {customerToDelete && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="horizon-modal fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#0f172a] border border-[#ef4444]/40 rounded-2xl p-6 max-w-md w-full shadow-2xl flex flex-col gap-4">
             <div className="flex items-center gap-3 text-[#ef4444]">
               <div className="w-10 h-10 rounded-xl bg-[#ef4444]/15 flex items-center justify-center shrink-0">
@@ -1437,7 +1433,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       {/* CUSTOMER ORDERS DRAWER / MODAL                            */}
       {/* ========================================================== */}
       {viewingOrdersCustomer && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="horizon-modal fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl w-full max-w-xl max-h-[85vh] shadow-2xl flex flex-col overflow-hidden">
             <div className="bg-[#111827] border-b border-[#1e293b] p-4 flex items-center justify-between">
               <div className="flex items-center gap-2.5">

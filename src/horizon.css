@@ -1,8 +1,8 @@
 /* Shared presentation for existing utility-based screens; business logic stays in components. */
 @media screen {
   :root {
-    --font-inter: 'DM Sans', system-ui, sans-serif;
-    --font-outfit: 'DM Sans', system-ui, sans-serif;
+    --font-inter: 'DM Sans Variable', 'DM Sans', system-ui, sans-serif;
+    --font-outfit: 'DM Sans Variable', 'DM Sans', system-ui, sans-serif;
     --bg-primary: #0b1437;
     --bg-surface: #111c44;
     --bg-card: #111c44;
@@ -16,10 +16,13 @@
     --input-bg: #0b1437;
     --input-text: #e9edf7;
     --input-border: #34426c;
-    --card-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+    --card-shadow: none;
     --brand: #a78bfa;
     --brand-solid: #7551ff;
     --brand-soft: #252152;
+    --brand-hover: #6940ef;
+    --overlay: rgba(11, 20, 55, 0.65);
+    --modal-shadow: 0 24px 80px rgba(0, 0, 0, 0.3);
     --positive: #5eead4;
     --warning: #fbbf24;
     --danger: #fda4af;
@@ -40,10 +43,13 @@
     --input-bg: #ffffff;
     --input-text: #1b2559;
     --input-border: #dce2f0;
-    --card-shadow: 0 8px 30px rgba(112, 144, 176, 0.08);
+    --card-shadow: 14px 17px 40px 4px rgba(112, 144, 176, 0.08);
     --brand: #422afb;
     --brand-solid: #422afb;
     --brand-soft: #efebff;
+    --brand-hover: #3311db;
+    --overlay: rgba(11, 20, 55, 0.45);
+    --modal-shadow: 0 24px 80px rgba(112, 144, 176, 0.24);
     --positive: #047857;
     --warning: #b45309;
     --danger: #b91c1c;
@@ -56,12 +62,33 @@
     color: var(--text-primary);
     letter-spacing: -0.02em;
   }
+  html { color-scheme: dark; }
+  html.light { color-scheme: light; }
+  #root .horizon-app > [class*="blur-"][class*="pointer-events-none"] { display: none; }
+  html #root :is(.horizon-workspace, .horizon-workspace > main) {
+    background: var(--bg-primary);
+    backdrop-filter: none;
+  }
+  html #root .horizon-workspace > main { padding: 8px 20px 24px; }
 
   #root :is(.font-mono, .font-outfit, .font-headline-md, .font-headline-sm,
     .font-display-lg, .font-body-sm, .font-body-md, .font-body-lg, .font-data-label) {
     font-family: var(--font-inter);
   }
   #root :is(code, pre, kbd, .font-data-mono) { font-family: var(--font-mono); }
+  :is(#root, .horizon-modal) .material-symbols-outlined {
+    font-family: 'Material Symbols Outlined Variable', 'Material Symbols Outlined';
+    font-weight: normal;
+    font-style: normal;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    white-space: nowrap;
+    word-wrap: normal;
+    font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased;
+    flex-shrink: 0;
+  }
   #root :is(h1, h2, h3, h4) { color: var(--text-heading); letter-spacing: -0.035em; }
   #root [class*="drop-shadow-"] { filter: none; text-shadow: none; }
   #root [class*="shadow-"] { box-shadow: none; }
@@ -71,7 +98,8 @@
   #root .cyber-laser-bar { display: none; }
 
   /* Normalize legacy hard-coded surfaces in both themes, including modal content. */
-  html #root :is([class*="bg-[#0"], [class*="bg-[#1"], [class*="bg-slate-800"],
+  html :is(#root, .horizon-followup-portal) :where([class*="bg-[#0"]:not([class*="bg-[#0284c7]"]):not([class*="bg-[#059669]"]),
+    [class*="bg-[#1"]:not([class*="bg-[#10b981]"]):not([class*="bg-[#16a34a]"]), [class*="bg-slate-800"],
     [class*="bg-slate-900"], [class*="bg-slate-950"]) {
     background-color: var(--bg-card) !important;
     color: var(--text-primary) !important;
@@ -81,27 +109,31 @@
     background-image: none !important;
     background-color: var(--bg-card) !important;
   }
-  html #root :is([class*="border-cyan-"], [class*="border-slate-"],
+  html :is(#root, .horizon-followup-portal) :is([class*="border-cyan-"], [class*="border-slate-"],
     [class*="border-[#1"], [class*="border-[#2"], [class*="border-[#3"],
     [class*="border-[#0"]) { border-color: var(--border-color) !important; }
-  html #root :is(.text-white, .text-slate-50, .text-slate-100, .text-slate-200,
+  html :is(#root, .horizon-followup-portal) :is(.text-white, .text-slate-50, .text-slate-100, .text-slate-200,
     .text-slate-300, [class*="text-[#f1f5f9]"], [class*="text-[#cbd5e1]"],
     [class*="text-[#dfe2ef]"]) { color: var(--text-primary) !important; }
-  html #root :is(.text-slate-400, .text-slate-500, [class*="text-[#94a3b8]"],
+  html :is(#root, .horizon-followup-portal) :is(.text-slate-400, .text-slate-500, [class*="text-[#94a3b8]"],
     [class*="text-[#64748b]"]) { color: var(--text-secondary) !important; }
-  html #root :is([class*="text-cyan-"], [class*="text-[#388bfd]"],
+  html :is(#root, .horizon-followup-portal) :is(.text-slate-600, .text-slate-700, .text-slate-800, .text-slate-900) {
+    color: var(--text-primary) !important;
+  }
+  html :is(#root, .horizon-followup-portal) :is([class*="text-cyan-"], [class*="text-[#388bfd]"],
     [class*="text-[#58a6ff]"], [class*="text-[#22d3ee]"],
     [class*="text-[#38bdf8]"]) { color: var(--brand) !important; }
   html.light #root :is([class*="text-blue-300"], [class*="text-blue-400"],
     [class*="text-[#60a5fa]"]) { color: #3965ff !important; }
-  html #root :is([class^="bg-cyan-500/"], [class*=" bg-cyan-500/"],
+  html :is(#root, .horizon-followup-portal) :is([class^="bg-cyan-500/"], [class*=" bg-cyan-500/"],
     [class^="bg-cyan-400/"], [class*=" bg-cyan-400/"],
     [class^="bg-cyan-950"], [class*=" bg-cyan-950"],
     [class^="bg-[#388bfd]/"], [class*=" bg-[#388bfd]/"]) {
     background: var(--brand-soft) !important;
     color: var(--brand) !important;
   }
-  html #root :is(.bg-cyan-500, .bg-cyan-400, .cyber-btn-primary, .horizon-primary,
+  html :is(#root, .horizon-followup-portal, .horizon-payment-overlay) :is(.bg-cyan-500, .bg-cyan-400, .bg-blue-500, .bg-blue-600, .bg-indigo-600,
+    [class~="bg-[#388bfd]"], [class~="bg-[#2563eb]"], .cyber-btn-primary, .horizon-primary, .horizon-followup-primary,
     [class*="bg-gradient-"][class*="from-cyan-"]) {
     background: var(--brand-solid) !important;
     color: #ffffff !important;
@@ -116,25 +148,56 @@
   html #root :is(.cyber-card, [class*="rounded-2xl"][class*="backdrop-blur"],
     [class*="rounded-3xl"][class*="backdrop-blur"]) {
     background: var(--bg-card) !important;
-    border: 1px solid var(--border-subtle) !important;
+    border: 0 !important;
     box-shadow: var(--card-shadow) !important;
     backdrop-filter: none;
-    border-radius: 22px;
+    border-radius: 20px;
   }
-  html #root [class~="fixed"][class~="inset-0"] {
-    background-color: rgba(11, 20, 55, 0.5) !important;
+  html :is(#root .horizon-drawer-backdrop, #root .horizon-loading, .horizon-modal) {
+    background: var(--overlay) !important;
     color: var(--text-primary) !important;
+    backdrop-filter: blur(4px);
   }
-  html #root :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  html .horizon-modal {
+    font-family: var(--font-inter);
+    overscroll-behavior: contain;
+  }
+  html .horizon-modal:not(.horizon-followup-portal) { z-index: 100; }
+  html :is(.horizon-modal > div, .horizon-modal > form, #root .horizon-notes-panel, #root .horizon-loading > div) {
+    background: var(--bg-card) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-subtle) !important;
+    border-radius: 20px;
+    box-shadow: var(--modal-shadow) !important;
+    backdrop-filter: none;
+    min-width: 0;
+  }
+  html .horizon-modal > form {
+    max-height: calc(100dvh - 2rem);
+    overflow-y: auto;
+  }
+  html #root .horizon-modal :is(h2, h3) { font-size: 20px; line-height: 1.3; }
+  html .horizon-modal :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    font-size: 14px;
+    min-height: 40px;
+  }
+  html #root .horizon-modal > :is(div, form) > :is(header, [class*="border-b"], [class*="border-t"]) {
+    padding: 20px 24px;
+    background: var(--bg-card) !important;
+  }
+  html #root .horizon-modal :is([class*="bg-gradient-"][class*="absolute top-0"], .cyber-laser-bar) {
+    display: none;
+  }
+  html :is(#root, .horizon-followup-portal) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
     select, textarea) {
     background-color: var(--input-bg) !important;
     color: var(--input-text) !important;
     border-color: var(--input-border) !important;
     box-shadow: none !important;
-    border-radius: 12px;
+    border-radius: 16px;
   }
-  html #root :is(input, textarea)::placeholder { color: var(--text-secondary) !important; opacity: 0.8; }
-  html #root :is(input, select, textarea):focus {
+  html :is(#root, .horizon-followup-portal) :is(input, textarea)::placeholder { color: var(--text-secondary) !important; opacity: 0.8; }
+  html :is(#root, .horizon-followup-portal) :is(input, select, textarea):focus {
     border-color: var(--brand) !important;
     box-shadow: 0 0 0 3px var(--brand-soft) !important;
   }
@@ -144,11 +207,58 @@
     outline-offset: 3px;
   }
   #root button:disabled { cursor: not-allowed; }
+  html #root button:disabled { opacity: 0.5; }
+  html #root :is(input[type="checkbox"], input[type="radio"]) { accent-color: var(--brand-solid); }
+  html #root :is(.cyber-btn-primary, .cyber-btn-secondary) { border-radius: 16px; min-height: 40px; }
+  html #root .cyber-btn-secondary {
+    background: var(--bg-card-subtle);
+    color: var(--text-primary);
+    border-color: var(--border-color);
+    box-shadow: none;
+  }
+  html #root :is(.horizon-primary, .cyber-btn-primary):hover:not(:disabled) {
+    background: var(--brand-hover) !important;
+  }
+  html #root :is(.horizon-primary, .cyber-btn-primary):disabled { background: var(--brand-solid) !important; }
+  html :is(#root, .horizon-followup-portal) :is(.horizon-primary, .horizon-followup-primary, .cyber-btn-primary, [class*="bg-gradient-"][class*="from-cyan-"]) * {
+    color: inherit !important;
+  }
+  html #root :is(.bg-blue-500, .bg-blue-600, .bg-indigo-600, [class~="bg-[#388bfd]"], [class~="bg-[#2563eb]"]) * {
+    color: inherit !important;
+  }
+  html :is(#root, .horizon-followup-portal) :is([class*="text-emerald-"], [class*="text-green-"]) { color: var(--positive) !important; }
+  html :is(#root, .horizon-followup-portal) :is([class*="text-amber-"], [class*="text-orange-"], [class*="text-yellow-"]) { color: var(--warning) !important; }
+  html :is(#root, .horizon-followup-portal) :is([class*="text-rose-"], [class*="text-red-"]) { color: var(--danger) !important; }
+  html :is(#root, .horizon-followup-portal) :is(
+    [class^="bg-emerald-50/"], [class*=" bg-emerald-50/"],
+    [class^="bg-emerald-500/"], [class*=" bg-emerald-500/"],
+    [class^="bg-emerald-600/"], [class*=" bg-emerald-600/"],
+    [class^="bg-emerald-900/"], [class*=" bg-emerald-900/"],
+    [class^="bg-emerald-950/"], [class*=" bg-emerald-950/"]) {
+    background-color: color-mix(in srgb, var(--positive) 10%, var(--bg-card)) !important;
+  }
+  html :is(#root, .horizon-followup-portal) :is(
+    [class^="bg-amber-50/"], [class*=" bg-amber-50/"],
+    [class^="bg-amber-100/"], [class*=" bg-amber-100/"],
+    [class^="bg-amber-200/"], [class*=" bg-amber-200/"],
+    [class^="bg-amber-500/"], [class*=" bg-amber-500/"],
+    [class^="bg-amber-950/"], [class*=" bg-amber-950/"]) {
+    background-color: color-mix(in srgb, var(--warning) 10%, var(--bg-card)) !important;
+  }
+  html :is(#root, .horizon-followup-portal) :is(
+    [class^="bg-rose-500/"], [class*=" bg-rose-500/"],
+    [class^="bg-rose-950/"], [class*=" bg-rose-950/"],
+    [class^="bg-red-500/"], [class*=" bg-red-500/"],
+    [class^="bg-red-600/"], [class*=" bg-red-600/"],
+    [class^="bg-red-900/"], [class*=" bg-red-900/"],
+    [class^="bg-red-950/"], [class*=" bg-red-950/"]) {
+    background-color: color-mix(in srgb, var(--danger) 10%, var(--bg-card)) !important;
+  }
   html #root :is(thead, thead th, table th) {
     background: var(--bg-card) !important;
     color: var(--text-secondary) !important;
     border-color: var(--border-color) !important;
-    font-size: 11px;
+    font-size: 12px;
     letter-spacing: 0.04em;
     font-weight: 600 !important;
   }
@@ -167,7 +277,9 @@
   html #root .horizon-sidebar {
     background: var(--bg-card) !important;
     border-right: 0;
-    box-shadow: none !important;
+    box-shadow: var(--card-shadow) !important;
+    width: 270px;
+    padding: 32px 20px 24px;
   }
   #root .horizon-sidebar-divider { height: 1px; background: var(--border-color); }
   #root .horizon-brand-mark { background: var(--brand-soft); color: var(--brand); }
@@ -176,7 +288,8 @@
     background: transparent !important;
     border: 0 !important;
     font-weight: 500;
-    min-height: 44px;
+    min-height: 48px;
+    font-size: 14px;
   }
   html #root .horizon-sidebar .horizon-nav-item:hover {
     background: var(--bg-card-subtle) !important;
@@ -185,14 +298,14 @@
   html #root .horizon-sidebar .horizon-nav-item[aria-current="page"] {
     color: var(--text-heading) !important;
     font-weight: 700;
-    background: var(--brand-soft) !important;
+    background: transparent !important;
   }
   #root .horizon-nav-item[aria-current="page"]::after {
     content: '';
     position: absolute;
     right: 0;
     width: 4px;
-    height: 28px;
+    height: 36px;
     border-radius: 4px 0 0 4px;
     background: var(--brand-solid);
   }
@@ -226,17 +339,18 @@
   html #root .horizon-client-actions button[title^="Eliminar"] { color: var(--danger) !important; }
   /* Followup dialogs are portaled to body, outside the shared #root rules. */
   html .horizon-followup-portal {
-    background: rgba(11, 20, 55, 0.5);
+    background: var(--overlay);
     backdrop-filter: blur(6px);
     color: var(--text-primary);
     font-family: var(--font-inter);
   }
+  html .horizon-followup-portal.horizon-followup-briefing { z-index: 100; }
   html .horizon-followup-portal .font-mono { font-family: var(--font-inter); }
   html .horizon-followup-portal .horizon-followup-panel {
     background: var(--bg-card);
     color: var(--text-primary);
     border: 1px solid var(--border-subtle);
-    box-shadow: 0 24px 80px rgba(11, 20, 55, 0.24);
+    box-shadow: var(--modal-shadow);
   }
   html .horizon-followup-portal :is(h2, h3, h4) {
     color: var(--text-heading);
@@ -286,7 +400,7 @@
     background: var(--input-bg);
     color: var(--input-text);
     border: 1px solid var(--input-border);
-    border-radius: 12px;
+    border-radius: 16px;
     padding: 10px 12px;
     box-shadow: none;
     max-width: 100%;
@@ -313,7 +427,9 @@
   html .horizon-followup-portal .horizon-followup-item {
     background: var(--bg-card);
     border: 1px solid var(--border-subtle);
-    overflow-wrap: anywhere;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   html .horizon-followup-portal .horizon-followup-badge[data-urgency="atrasada"] {
     color: var(--danger);
@@ -331,14 +447,14 @@
     background: var(--brand-solid);
     color: #ffffff;
     border: 1px solid transparent;
-    border-radius: 12px;
+    border-radius: 16px;
   }
   html .horizon-followup-portal :is(.horizon-followup-primary, .cyber-btn-primary) span { color: inherit; }
   html .horizon-followup-portal :is(.horizon-followup-secondary, .cyber-btn-secondary) {
     background: var(--bg-card-subtle);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
-    border-radius: 12px;
+    border-radius: 16px;
   }
   html .horizon-followup-portal :is(.horizon-followup-primary, .cyber-btn-primary):hover { opacity: 0.9; }
   html .horizon-followup-portal :is(.horizon-followup-secondary, .cyber-btn-secondary):hover {
@@ -354,15 +470,27 @@
   }
   #root .horizon-sidebar .overflow-y-auto { overflow-x: hidden; }
   html #root .horizon-topbar {
-    background: var(--bg-primary) !important;
+    background: color-mix(in srgb, var(--bg-primary) 85%, transparent) !important;
     border: 0 !important;
     box-shadow: none !important;
+    backdrop-filter: blur(20px);
+    min-height: 88px;
+    padding: 16px 20px;
+    gap: 16px;
+  }
+  #root .horizon-header-title { flex-shrink: 0; max-width: 30%; }
+  #root .horizon-header-tools {
+    background: var(--bg-card);
+    border-radius: 30px;
+    padding: 8px;
+    box-shadow: var(--card-shadow);
   }
   html #root .horizon-topbar input {
-    background: var(--bg-card) !important;
-    border: 1px solid var(--border-subtle) !important;
+    background: var(--bg-primary) !important;
+    border: 0 !important;
     border-radius: 30px;
-    min-height: 42px;
+    min-height: 40px;
+    font-size: 12px;
   }
   #root .horizon-topbar button { min-height: 36px; border-radius: 30px; }
   html #root .horizon-topbar button[class*="bg-[#0"] {
@@ -376,9 +504,9 @@
   #root .horizon-dashboard > div { margin-top: 0; }
   html #root .horizon-kpis > div {
     background: var(--bg-card) !important;
-    border: 1px solid var(--border-subtle) !important;
+    border: 0 !important;
     box-shadow: var(--card-shadow) !important;
-    border-radius: 22px;
+    border-radius: 20px;
   }
   #root .horizon-dashboard [class*="absolute top-0 inset-x-0"][class*="h-["] { display: none; }
   #root .horizon-kpis [class*="text-3xl"] { font-size: 28px; font-weight: 700; }
@@ -411,11 +539,531 @@
   #root ::-webkit-scrollbar-track { background: var(--bg-primary); }
   #root ::-webkit-scrollbar-thumb { background: var(--input-border); border: 0; }
 
+  #root .horizon-nav-groups { min-height: 0; }
+  #root .horizon-nav-group + .horizon-nav-group { margin-top: 24px; }
+  #root .horizon-nav-label {
+    padding: 0 12px;
+    margin-bottom: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  html #root .horizon-sidebar .horizon-nav-item { margin-bottom: 4px; }
+  #root .horizon-sidebar-account { padding: 16px; }
+  #root .horizon-header-title h1 { font-size: 30px; line-height: 1.25; margin-top: 4px; }
+  #root .horizon-header-search { width: 210px; }
+  html #root .horizon-topbar .horizon-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  #root .horizon-header-tools { gap: 10px; }
+  #root .horizon-header-tools button[title^="Seguimiento"] {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    justify-content: center;
+    border: 0;
+  }
+  #root .horizon-header-tools button[title^="Seguimiento"] > span:last-child:not(.sr-only) {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+  }
+  html #root .horizon-header-tools button[title^="Mi Perfil"] {
+    padding: 0;
+    border: 0;
+    background: transparent !important;
+  }
+  #root .horizon-header-tools button[title^="Mi Perfil"] img { border-radius: 50%; }
+  #root .horizon-header-tools button[title^="Mi Perfil"] > div:first-child {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 0;
+  }
+  #root .horizon-section-title { font-size: 20px; font-weight: 700; line-height: 1.35; }
+  #root .horizon-dashboard-toolbar {
+    display: flex;
+    flex-direction: row-reverse;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  #root .horizon-dashboard { gap: 20px; }
+  #root .horizon-capture { display: none; }
+  #root .horizon-period-controls { gap: 8px; }
+  #root .horizon-period-tabs button { padding: 4px 10px !important; min-height: 28px; }
+  #root .horizon-period-tabs .material-symbols-outlined { font-size: 14px; }
+  #root .horizon-period-navigator > :is(button, div) {
+    padding: 4px 8px;
+    border: 0;
+    min-height: 28px;
+    font-size: 11px;
+  }
+  #root .horizon-kpis {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 14px;
+  }
+  html #root .horizon-period-tabs { background: var(--bg-card-subtle) !important; border: 0; }
+  html #root .horizon-period-tabs button {
+    background: transparent !important;
+    border: 0;
+    color: var(--text-secondary) !important;
+    font-weight: 500;
+    padding: 8px 16px;
+  }
+  html #root .horizon-period-tabs button[aria-pressed="true"] {
+    background: var(--brand-solid) !important;
+    color: white !important;
+    font-weight: 700;
+  }
+  #root .horizon-period-tabs button * { color: inherit !important; }
+  #root .horizon-stat {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 12px;
+    min-width: 0;
+    min-height: 88px;
+  }
+  #root .horizon-stat[role="button"] { cursor: pointer; }
+  #root .horizon-stat[role="button"]:hover { outline: 1px solid var(--brand); }
+  #root .horizon-stat[role="button"]:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
+  #root .horizon-stat-icon {
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--brand-soft);
+    color: var(--brand);
+  }
+  #root .horizon-stat[data-tone="positive"] .horizon-stat-icon {
+    background: color-mix(in srgb, var(--positive) 10%, var(--bg-card));
+    color: var(--positive);
+  }
+  #root .horizon-stat[data-tone="warning"] .horizon-stat-icon {
+    background: color-mix(in srgb, var(--warning) 10%, var(--bg-card));
+    color: var(--warning);
+  }
+  #root .horizon-stat-content { min-width: 0; }
+  #root .horizon-stat-label { font-size: 11px; line-height: 1.4; color: var(--text-secondary); }
+  #root .horizon-stat-value {
+    margin: 4px 0;
+    font-size: clamp(16px, 1.5vw, 24px);
+    line-height: 1.25;
+    font-weight: 700;
+    color: var(--text-heading);
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
+  }
+  #root .horizon-stat-note { font-size: 11px; line-height: 1.5; color: var(--text-secondary); }
+  #root .horizon-chart-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+  }
+  html #root .horizon-dashboard-card {
+    background: var(--bg-card) !important;
+    border: 0 !important;
+    border-radius: 20px;
+    box-shadow: var(--card-shadow);
+    padding: 20px;
+    min-width: 0;
+  }
+  #root .horizon-chart-grid > .horizon-dashboard-card { height: 300px; }
+  #root .horizon-dashboard-card h3 { font-size: 18px; font-weight: 700; line-height: 1.3; }
+  #root .horizon-card-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 32px;
+    margin-bottom: 16px;
+  }
+  #root .horizon-card-symbol, #root .horizon-card-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    background: var(--bg-card-subtle);
+    color: var(--brand);
+    border: 0;
+  }
+  #root .horizon-chart-period {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-secondary);
+    background: var(--bg-card-subtle);
+    padding: 8px;
+    border-radius: 8px;
+    font-size: 11px;
+  }
+  #root .horizon-chart-period .material-symbols-outlined { font-size: 16px; }
+  #root .horizon-cumulative-body { display: flex; align-items: center; gap: 12px; height: 210px; }
+  #root .horizon-cumulative-summary { width: 140px; flex-shrink: 0; }
+  #root .horizon-cumulative-summary h3 { font-size: 12px; color: var(--text-secondary); font-weight: 400; }
+  #root .horizon-chart-total { font-size: 30px; font-weight: 700; color: var(--text-heading); margin: 8px 0; font-variant-numeric: tabular-nums; }
+  #root .horizon-chart-total > span { font-size: 11px; font-weight: 400; color: var(--text-secondary); }
+  #root .horizon-cumulative-summary > p:not(.horizon-chart-total) { font-size: 11px; color: var(--text-secondary); }
+  #root .horizon-chart-legend { display: flex; align-items: center; gap: 6px; color: var(--brand); font-size: 11px; margin-top: 14px; }
+  #root .horizon-chart-legend > span { width: 7px; height: 7px; background: var(--brand-solid); border-radius: 50%; }
+  #root .horizon-net-line { flex: 1; min-width: 0; }
+  #root .horizon-net-line svg { width: 100%; height: 175px; overflow: visible; }
+  #root .horizon-net-line > p { font-size: 12px; color: var(--text-secondary); text-align: center; padding: 36px 0; }
+  #root .horizon-chart-zero { stroke: var(--border-color); stroke-dasharray: 4 4; }
+  #root .horizon-line-labels { display: flex; justify-content: space-between; gap: 4px; color: var(--text-secondary); font-size: 9px; margin-top: 12px; }
+  #root .horizon-line-labels > span { text-align: center; flex: 1; }
+  #root .horizon-income-chart { gap: 20px; padding: 0 12px; height: 190px; min-height: 190px; }
+  #root .horizon-revenue-card > [class*="absolute top-0"] { display: none; }
+  #root .horizon-dashboard-lower {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+    align-items: start;
+    gap: 20px;
+  }
+  #root .horizon-dashboard-lower > .horizon-dashboard-card { min-height: 300px; }
+  #root .horizon-period-orders table { width: 100%; font-size: 12px; text-align: left; }
+  html #root .horizon-period-orders :is(th, td) { padding: 10px 8px; border-bottom: 1px solid var(--border-subtle); }
+  #root .horizon-period-orders th { font-size: 10px; text-transform: uppercase; white-space: nowrap; }
+  #root .horizon-order-link { background: transparent; color: var(--brand); font-weight: 700; cursor: pointer; text-align: left; }
+  #root .horizon-table-secondary { display: block; color: var(--text-secondary); font-size: 10px; margin-top: 3px; }
+  #root .horizon-table-status { display: inline-block; padding: 4px 8px; background: var(--bg-card-subtle); border-radius: 8px; font-size: 10px; }
+  #root .horizon-empty-period { font-size: 11px; color: var(--text-secondary); }
+  #root .horizon-card-empty { font-size: 12px; color: var(--text-secondary); padding: 24px 0; }
+  #root .horizon-volume-bars { display: flex; gap: 10px; height: 165px; align-items: end; padding-bottom: 20px; margin-top: 12px; }
+  #root .horizon-volume-column { position: relative; flex: 1; height: 100%; display: flex; align-items: end; justify-content: center; }
+  #root .horizon-volume-column > div { width: 12px; border-radius: 6px 6px 0 0; background: linear-gradient(180deg, var(--brand-solid), #c4b5fd); }
+  #root .horizon-volume-column > span { position: absolute; top: 100%; font-size: 8px; color: var(--text-secondary); margin-top: 8px; white-space: nowrap; }
+  #root .horizon-distribution-card h3 { font-size: 15px; }
+  #root .horizon-distribution-card .horizon-card-heading p { font-size: 10px; margin-top: 4px; }
+  #root .horizon-distribution-pie { width: 136px; height: 136px; border-radius: 50%; margin: 0 auto 20px; flex-shrink: 0; }
+  #root .horizon-distribution-legend { display: flex; flex-direction: column; gap: 6px; }
+  #root .horizon-distribution-legend > div > div { font-size: 9px; margin: 0; align-items: center; gap: 4px; }
+  #root .horizon-distribution-legend i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; }
+  #root .horizon-dashboard-secondary h3 { font-size: 18px; font-weight: 700; }
+  html #root .horizon-income-chart [data-income="positive"] {
+    background: linear-gradient(180deg, var(--brand-solid), #868cff) !important;
+    border: 0;
+    border-radius: 8px 8px 0 0;
+    max-width: 44px;
+  }
+  html #root .horizon-income-chart [data-income="negative"] { background: var(--danger) !important; max-width: 44px; }
+  html #root .horizon-income-chart [data-income="zero"] { background: var(--bg-card-subtle) !important; max-width: 44px; }
+  html #root .horizon-orders {
+    background: var(--bg-card);
+    border-radius: 20px;
+    box-shadow: var(--card-shadow);
+    padding: 24px;
+    gap: 24px;
+  }
+  #root .horizon-orders-heading { align-items: flex-start; }
+  #root .horizon-order-actions { justify-content: flex-end; }
+  html #root .horizon-order-actions button:not([class*="from-cyan-"]) {
+    background: var(--bg-card-subtle) !important;
+    border: 0 !important;
+    color: var(--text-primary) !important;
+  }
+  #root .horizon-order-actions button { font-size: 12px; min-height: 40px; text-transform: none; letter-spacing: 0; }
+  #root .horizon-order-segments { gap: 4px; border-bottom: 1px solid var(--border-color); }
+  html #root .horizon-order-segments button {
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0;
+    padding: 12px 10px;
+    color: var(--text-secondary) !important;
+    position: relative;
+    font-weight: 500;
+  }
+  html #root .horizon-order-segments button[aria-pressed="true"] {
+    color: var(--brand) !important;
+    font-weight: 700;
+  }
+  #root .horizon-order-segments button[aria-pressed="true"]::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 10px;
+    right: 10px;
+    height: 3px;
+    border-radius: 3px;
+    background: var(--brand-solid);
+  }
+  html #root .horizon-order-segments button > span:last-child {
+    background: var(--bg-card-subtle) !important;
+    color: inherit !important;
+    border: 0;
+    border-radius: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  html #root .horizon-order-segments .material-symbols-outlined { color: inherit !important; }
+  html #root .horizon-orders :is(.horizon-order-filters, .horizon-orders-table) {
+    border: 0 !important;
+    border-radius: 0;
+    box-shadow: none !important;
+  }
+  html #root .horizon-order-filters { padding: 0; }
+  #root .horizon-orders :is(.horizon-order-filters, .horizon-orders-table) > [class*="absolute top-0"] { display: none; }
+  html #root .horizon-orders-table tbody tr { border-color: var(--border-subtle) !important; }
+  #root .horizon-order-steps { padding: 16px 24px; }
+  html #root .horizon-order-steps button {
+    background: transparent !important;
+    border: 0;
+    border-radius: 12px;
+  }
+  html #root .horizon-order-steps button[aria-current="step"] {
+    background: var(--brand-soft) !important;
+  }
+  #root .horizon-order-steps button > div:first-child { border-radius: 50%; }
+  #root .horizon-order-steps button[aria-current="step"] > div:first-child {
+    background: var(--brand-solid) !important;
+    color: white !important;
+  }
+  #root .horizon-order-dialog form { background: var(--bg-card-subtle); }
+
+  html :is(#root .horizon-view:not(.horizon-document-view), .horizon-view-header, .horizon-modal, .horizon-followup-portal) {
+    font-family: var(--font-inter);
+    letter-spacing: -0.02em;
+  }
+  html :is(#root .horizon-view:not(.horizon-document-view), .horizon-view-header, .horizon-modal, .horizon-followup-portal)
+    :is(.font-sans, .font-mono, .font-black, label, input, select, textarea, button) {
+    font-family: var(--font-inter);
+  }
+  html :is(#root .horizon-view:not(.horizon-document-view), .horizon-view-header, .horizon-modal, .horizon-followup-portal)
+    :is(h1, h2, h3, h4, label, th, button, .uppercase) {
+    text-transform: none;
+    letter-spacing: -0.02em;
+  }
+  html :is(#root .horizon-view:not(.horizon-document-view), .horizon-modal) :is(h2, h3) {
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+  html :is(#root .horizon-view:not(.horizon-document-view), .horizon-modal) :is(.text-xs, label) {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  html :is(#root .horizon-view:not(.horizon-document-view), .horizon-modal) .font-black { font-weight: 700; }
+  /* A transformed view makes nested fixed dialogs relative to the view, not the viewport. */
+  html #root .horizon-view { gap: 24px; animation: none; transform: none; }
+  html #root .horizon-view-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 8px 0;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0;
+    min-width: 0;
+  }
+  html #root .horizon-view-header > div { min-width: 0; }
+  html #root .horizon-view-header h1 {
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--text-heading) !important;
+  }
+  html #root .horizon-view-header p {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-secondary) !important;
+    max-width: 65ch;
+  }
+  html #root :is(.horizon-view-card, .horizon-view-toolbar, .horizon-detail-header, .horizon-view-metrics > div) {
+    background: var(--bg-card) !important;
+    border: 0 !important;
+    border-radius: 20px;
+    box-shadow: var(--card-shadow) !important;
+    padding: 24px;
+    min-width: 0;
+  }
+  html #root .horizon-view-metrics { gap: 20px; }
+  html #root .horizon-view-metrics > div { padding: 20px; }
+  html #root .horizon-view-metrics > div > div:first-of-type:not(.absolute) { border: 0; }
+  html #root .horizon-inventory-header { display: block; }
+  html #root .horizon-view :is([class*="bg-gradient-"][class*="absolute top-0"]) { display: none; }
+  html :is(#root .horizon-view-tabs, .horizon-modal .horizon-view-tabs) {
+    background: transparent !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    padding: 0;
+    gap: 16px;
+    overflow-x: auto;
+  }
+  html :is(#root .horizon-view .horizon-view-tabs, #root .horizon-modal .horizon-view-tabs) > button {
+    min-height: 46px;
+    padding: 12px 8px;
+    font-size: 14px;
+    border: 0 !important;
+    border-radius: 0;
+    box-shadow: none !important;
+    background: transparent !important;
+    color: var(--text-secondary) !important;
+    flex-shrink: 0;
+  }
+  html :is(#root .horizon-view .horizon-view-tabs, #root .horizon-modal .horizon-view-tabs) > button[aria-pressed="true"] {
+    color: var(--brand) !important;
+    border-bottom: 3px solid var(--brand-solid) !important;
+  }
+  html #root .horizon-detail-heading { align-items: flex-start; gap: 20px; flex-direction: column; }
+  html #root .horizon-detail-overview { gap: 12px; }
+  html #root .horizon-detail-title { font-size: 26px; color: var(--text-heading) !important; }
+  html #root .horizon-detail-actions { gap: 10px; }
+  html #root .horizon-detail-actions > button { padding: 10px 14px; min-height: 40px; font-size: 13px; }
+  html #root .horizon-detail-tabs { margin-top: 20px; }
+  html #root .horizon-detail-workflow { padding: 20px; gap: 20px; }
+  html #root .horizon-detail-workflow button { padding: 10px 12px; font-size: 13px; border: 0; }
+  html #root .horizon-detail-workflow button > span:first-child { width: 28px; height: 28px; font-size: 12px; }
+  html #root .horizon-detail-grid { gap: 24px; align-items: stretch; }
+  html :is(#root, .horizon-payment-overlay) .horizon-workflow-form :is(input:not([type="checkbox"]), select, textarea) {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    border: 1px solid var(--input-border);
+    padding: 10px 14px;
+    font: inherit;
+  }
+  html :is(#root, .horizon-payment-overlay) :is(.horizon-workflow-form, .horizon-workflow-panel, .horizon-workflow-queue) p {
+    overflow-wrap: anywhere;
+  }
+  html .horizon-payment-overlay .cyber-btn-secondary {
+    background: var(--bg-card-subtle) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--input-border) !important;
+  }
+  html #root .horizon-workflow-queue .horizon-view-header { align-items: flex-start; }
+  html #root .horizon-detail-grid > div { padding: 24px; gap: 20px; justify-content: flex-start; min-width: 0; }
+  html #root .horizon-detail-grid :is(.p-2, .p-2\.5) { padding: 12px; }
+  html #root .horizon-detail-grid [class~="bg-[var(--bg-card-subtle)]"] {
+    background: var(--bg-card-subtle) !important;
+    border-color: transparent !important;
+    border-radius: 12px;
+  }
+  html #root .horizon-detail-grid :is([class*="text-[9"], [class*="text-[10"], [class*="text-[11"]) {
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  html #root .horizon-detail-grid h3 { font-size: 20px; margin: 8px 0; }
+  html .horizon-modal :is(h2, h3, h4) { color: var(--text-heading) !important; }
+  html .horizon-modal > :is(div, form) { max-height: calc(100dvh - 32px); overflow-y: auto; }
+  html .horizon-modal :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
+    background: var(--input-bg) !important;
+    color: var(--input-text) !important;
+    border-color: var(--input-border) !important;
+    border-radius: 16px;
+  }
+  html .horizon-modal :is(input, textarea)::placeholder { color: var(--text-secondary); }
+  html #root .horizon-modal .horizon-dialog-section {
+    padding: 20px;
+    border: 0 !important;
+    border-radius: 16px;
+    background: var(--bg-card-subtle) !important;
+  }
+  html .horizon-modal :is(.text-slate-100, .text-slate-200, .text-slate-300, .text-white) { color: var(--text-primary) !important; }
+  html .horizon-modal :is(.text-slate-400, .text-slate-500) { color: var(--text-secondary) !important; }
+  html .horizon-modal > div > :is(.h-1, .h-1\.5, .cyber-laser-bar)[class*="bg-gradient-"] { display: none; }
+  html #root .horizon-message-dialog :is(.horizon-message-actions, .horizon-message-actions > div) { min-width: 0; }
+
   @media (max-width: 767px) {
-    html #root .horizon-topbar { height: 64px; }
+    html #root .horizon-view { gap: 16px; }
+    html #root .horizon-view-header { align-items: flex-start; gap: 16px; }
+    html #root .horizon-view-header h1 { font-size: 20px; }
+    html #root :is(.horizon-view-card, .horizon-view-toolbar, .horizon-detail-header, .horizon-view-metrics > div) { padding: 16px; }
+    html #root .horizon-view-metrics { gap: 12px; }
+    html #root .horizon-detail-title { font-size: 22px; }
+    html #root .horizon-detail-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+    html #root .horizon-detail-grid > div { padding: 20px; }
+    html #root .horizon-detail-workflow { padding: 16px; }
+    html #root .horizon-detail-actions > button { padding: 8px 10px; }
+    html #root .horizon-topbar { height: 72px; min-height: 72px; padding: 12px; gap: 6px; }
+    html #root .horizon-sidebar { width: 285px; max-width: calc(100vw - 32px); }
+    html #root .horizon-workspace > main { padding: 16px 12px; }
+    #root .horizon-header-tools { padding: 6px; box-shadow: none; }
+    html #root .horizon-modal > :is(div, form) > :is(header, [class*="border-b"], [class*="border-t"]) { padding: 16px; }
+    html #root .horizon-modal :is(h2, h3) { font-size: 18px; }
     html #root .horizon-vault { padding: 24px 20px; }
     #root .radar-view { gap: 16px; }
     #root .horizon-topbar > div:last-child { gap: 6px; }
+    html #root .horizon-orders { padding: 16px; }
+    #root .horizon-dashboard-toolbar { flex-direction: column; align-items: stretch; padding: 0; }
+    #root .horizon-dashboard-toolbar > div:first-child { align-self: flex-end; }
+    #root .horizon-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    #root .horizon-stat { padding: 12px; gap: 8px; }
+    #root .horizon-stat-icon { width: 32px; height: 32px; }
+    #root .horizon-stat-value { font-size: 18px; }
+    #root .horizon-chart-grid, #root .horizon-dashboard-lower { grid-template-columns: minmax(0, 1fr); }
+    #root .horizon-cumulative-summary { width: 100px; }
+    #root .horizon-chart-total { font-size: 24px; }
+    #root .horizon-dashboard-lower > .horizon-dashboard-card { min-height: 0; }
+    #root .horizon-distribution-pie { width: 170px; height: 170px; }
+    #root .horizon-distribution-legend > div > div { font-size: 11px; }
+    #root .horizon-order-actions { justify-content: flex-start; }
+    #root .horizon-order-segments { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+    #root .horizon-order-segments button { flex-shrink: 0; }
+    #root .horizon-order-steps { padding: 12px; }
+    #root .horizon-header-search { width: auto; }
+    #root .horizon-income-chart { gap: 8px; padding: 0; }
+    #root .horizon-period-navigator {
+      display: grid;
+      grid-template-columns: 36px minmax(0, 1fr) 36px;
+      width: 100%;
+    }
+    #root .horizon-period-navigator > div { padding: 8px; min-width: 0; font-size: 11px; }
+    #root .horizon-period-navigator > div > span:nth-child(2) { min-width: 0; }
+    #root .horizon-period-navigator > button[title^="Volver"] { grid-column: 1 / -1; justify-self: start; }
+  }
+  @media (min-width: 768px) and (max-width: 1199px) {
+    html #root .horizon-sidebar { width: 240px; padding: 24px 16px; }
+    html #root .horizon-workspace > main { padding: 16px 20px; }
+    html #root .horizon-topbar { padding: 16px 20px; }
+    #root .horizon-dashboard-toolbar { flex-wrap: wrap; }
+  }
+  @media (min-width: 768px) and (max-width: 1099px) {
+    #root .horizon-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+  @media (min-width: 1100px) and (max-width: 1399px) {
+    #root .horizon-stat { padding: 14px 10px; gap: 8px; }
+    #root .horizon-stat-icon { width: 28px; height: 28px; }
+    #root .horizon-stat-icon .material-symbols-outlined { font-size: 18px; }
+    #root .horizon-stat-value { font-size: 16px; }
+  }
+  @media (min-width: 768px) and (max-width: 1023px) {
+    #root .horizon-chart-grid { grid-template-columns: minmax(0, 1fr); }
+    #root .horizon-dashboard-lower { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #root .horizon-period-orders { grid-column: 1 / -1; }
+  }
+  @media (max-width: 1199px) {
+    #root .horizon-header-tools .horizon-primary { padding: 8px; }
+    #root .horizon-header-tools .horizon-primary > span:last-child,
+    #root .horizon-header-tools button[title^="Seguimiento"] > span:nth-child(2) { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #root .radar-view { animation: none; }
+    :is(#root, .horizon-modal) :is(.animate-fade-in, .animate-pulse) { animation: none; }
   }
   @media (max-width: 480px) {
     #root .horizon-topbar .horizon-mobile-brand { display: none; }

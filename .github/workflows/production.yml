@@ -1,0 +1,64 @@
+name: Validate and deploy production
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: radar-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: TZ=UTC npm test
+      - run: npm run lint
+      - run: npm run build
+      - run: python3 -m unittest discover -s tests -p test_release.py
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Configure restricted deployment SSH
+        env:
+          DEPLOY_KEY: ${{ secrets.RADAR_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.RADAR_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+      - name: Back up, rehearse and migrate before promotion
+        env:
+          DEPLOY_HOST: ${{ secrets.RADAR_DEPLOY_HOST }}
+        run: |
+          set -euo pipefail
+          git archive "$GITHUB_SHA" | ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "root@$DEPLOY_HOST" "prepare $GITHUB_SHA"
+      - name: Promote verified source to Dokploy production branch
+        run: git push origin "$GITHUB_SHA:refs/heads/production"
+      - name: Verify Dokploy revision and HTTPS health
+        env:
+          DEPLOY_HOST: ${{ secrets.RADAR_DEPLOY_HOST }}
+        run: ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "root@$DEPLOY_HOST" "verify $GITHUB_SHA"

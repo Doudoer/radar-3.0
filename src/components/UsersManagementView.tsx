@@ -236,7 +236,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
   };
 
   return (
-    <div className="radar-view space-y-6">
+    <div className="radar-view horizon-view space-y-6">
       {/* Toast Feedback */}
       {toastMessage && (
         <div className="fixed top-20 right-6 z-50 bg-emerald-400 text-slate-950 font-black text-xs py-2.5 px-4 rounded-2xl shadow-[0_0_25px_rgba(16,185,129,0.5)] flex items-center gap-2 animate-bounce border border-emerald-300">
@@ -246,8 +246,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
       )}
 
       {/* Cyber Header Card */}
-      <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-indigo-500 shadow-[0_0_12px_#22d3ee]" />
+      <div className="horizon-view-header">
 
         <div className="flex items-center gap-3.5">
           <div className="relative w-12 h-12 rounded-2xl bg-[#040814] border border-cyan-500/40 text-cyan-300 flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.3)] shrink-0">
@@ -395,7 +394,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
 
       {/* Modal: Editar Usuario / Permisos */}
       {selectedUser && modalMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-4 backdrop-blur-md animate-fade-in">
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-4 backdrop-blur-md animate-fade-in">
           <form onSubmit={saveUser} className="relative w-full max-w-lg max-h-[min(94vh,720px)] flex flex-col rounded-3xl border border-cyan-500/30 bg-[#070c18]/95 backdrop-blur-2xl p-5 sm:p-6 shadow-[0_20px_60px_rgba(0,0,0,0.8)] overflow-hidden">
             <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-indigo-500 shadow-[0_0_12px_#22d3ee]" />
 
@@ -544,7 +543,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
 
       {/* Modal: Crear Nuevo Colaborador */}
       {isNewUserModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-4 backdrop-blur-md animate-fade-in">
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3 sm:p-4 backdrop-blur-md animate-fade-in">
           <form onSubmit={handleCreateNewUser} className="relative w-full max-w-lg max-h-[min(94vh,740px)] flex flex-col rounded-3xl border border-cyan-500/30 bg-[#070c18]/95 backdrop-blur-2xl p-5 sm:p-6 shadow-[0_20px_60px_rgba(0,0,0,0.8)] overflow-hidden">
             <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee]" />
 

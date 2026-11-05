@@ -1,0 +1,11 @@
+ALTER TABLE finance_movements ADD COLUMN IF NOT EXISTS payment_method VARCHAR(30) NULL;
+ALTER TABLE finance_movements ADD COLUMN IF NOT EXISTS payment_reference VARCHAR(200) NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS core_received_at DATETIME NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS core_received_amount DECIMAL(12,2) NULL;
+CREATE TABLE IF NOT EXISTS order_core_receipts (
+  order_id INT NOT NULL PRIMARY KEY,
+  amount DECIMAL(12,2) NOT NULL,
+  reference TEXT NOT NULL,
+  actor_id INT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;

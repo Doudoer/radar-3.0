@@ -44,6 +44,9 @@ import { useOrderActions } from './hooks/useOrderActions';
 import { useViewLoading } from './hooks/useViewLoading';
 import { useTheme } from './hooks/useTheme';
 import { apiFetch } from './services/apiFetch';
+import { workflowResponse } from './components/OrderWorkflowPanel';
+import type { WorkflowQueue } from './components/WorkflowTasksView';
+const WorkflowTasksView = React.lazy(() => import('./components/WorkflowTasksView').then(m => ({ default: m.WorkflowTasksView })));
 
 export default function App() {
   useTheme(); // Initialize theme on mount
@@ -85,6 +88,7 @@ export default function App() {
   // Modals state
   const [isNewOrderModalOpen, setIsNewOrderModalOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+  const [deliveryPaymentOrderId, setDeliveryPaymentOrderId] = useState<string | null>(null);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isStatusRequestOpen, setIsStatusRequestOpen] = useState(false);
@@ -106,33 +110,37 @@ export default function App() {
 
   const fetchPendingFollowups = useCallback(async (autoOpenOnLogin = false) => {
     try {
-      const response = await apiFetch(`/orders/followups/pending?all=true&_t=${Date.now()}`);
+      const [response, workflow] = await Promise.all([
+        apiFetch(`/orders/followups/pending?all=true&_t=${Date.now()}`),
+        apiFetch('/workflow/tasks').then(workflowResponse<WorkflowQueue>),
+      ]);
       if (response.ok) {
         const data = await response.json();
         const items: PendingFollowupItem[] = data.pending || [];
         setPendingFollowupItems(items);
 
-        const isSuperAdmin = userRole === 'admin';
-        const relevantItems = isSuperAdmin
-          ? items
-          : items.filter((i) => i.advisor.trim().toLowerCase() === (authUser?.name || '').trim().toLowerCase());
+        const relevantItems = items;
 
         const relevantOverdue = relevantItems.filter((i) => i.urgency === 'atrasada').length;
         const relevantActionable = relevantItems.filter((i) => i.urgency === 'atrasada' || i.urgency === 'hoy').length;
 
         // Pending followups badge reflects actionable orders needing attention (atrasadas + hoy)
-        setPendingFollowupsCount(relevantActionable);
-        setOverdueFollowupsCount(relevantOverdue);
+        const workflowActionable = workflow.tasks.filter(task => task.bucket === 'overdue' || task.bucket === 'today' || task.escalated).length;
+        setPendingFollowupsCount(relevantActionable + workflowActionable);
+        setOverdueFollowupsCount(relevantOverdue + workflow.tasks.filter(task => task.escalated || task.bucket === 'overdue').length);
 
         // Auto open on login session every time an operator/admin logs in if there are pending orders
-        if (autoOpenOnLogin && relevantActionable > 0) {
+        if (autoOpenOnLogin && workflowActionable > 0) {
+          setCurrentScreen('mi_trabajo');
+        } else if (autoOpenOnLogin && relevantActionable > 0) {
           setIsFollowupModalOpen(true);
         }
-      }
+      } else throw new Error('No se pudo actualizar el seguimiento histórico.');
     } catch (err) {
       console.error('Error fetching pending followups:', err);
+      setDatabaseMessage(err instanceof Error ? err.message : 'No se pudo actualizar la bandeja de trabajo.');
     }
-  }, [userRole, authUser?.name]);
+  }, [setDatabaseMessage]);
 
   useEffect(() => {
     if (authenticated && authUser && !authChecking) {
@@ -321,7 +329,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen h-[100dvh] w-full overflow-hidden bg-[var(--bg-primary)] text-[var(--text-primary)] antialiased font-sans relative cyber-grid-bg">
+    <div className="horizon-app flex h-screen h-[100dvh] w-full overflow-hidden bg-[var(--bg-primary)] text-[var(--text-primary)] antialiased font-sans relative cyber-grid-bg">
       <LoadingOverlay visible={dataLoading || viewLoading} />
 
       {/* Ambient Neon Backlight Orbs - Lightweight GPU footprint */}
@@ -342,7 +350,7 @@ export default function App() {
         userRole={userRole}
       />
       {/* Main Content Column */}
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[var(--bg-surface)] backdrop-blur-2xl z-10">
+      <div className="horizon-workspace flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[var(--bg-surface)] backdrop-blur-2xl z-10">
         {/* Sticky Top Header */}
         <TopHeader
           currentScreen={currentScreen}
@@ -352,7 +360,7 @@ export default function App() {
           onLogout={() => { void logout(); }}
           onOpenProfile={() => setIsProfileModalOpen(true)}
           onOpenChangePassword={() => setIsChangePasswordOpen(true)}
-          onOpenFollowups={() => setIsFollowupModalOpen(true)}
+          onOpenFollowups={() => handleNavigate('mi_trabajo')}
           pendingFollowupsCount={pendingFollowupsCount}
           overdueFollowupsCount={overdueFollowupsCount}
           userName={authUser?.name || 'Usuario'}
@@ -375,6 +383,8 @@ export default function App() {
         {/* Scrollable Main Screen Container */}
         <main className="flex-1 min-w-0 overflow-y-auto p-3 sm:p-4 md:p-5 lg:p-6 custom-scrollbar">
           <React.Suspense fallback={<ViewFallback />}>
+            {currentScreen === 'mi_trabajo' && <WorkflowTasksView onSelectOrder={handleSelectOrder} onNavigateIncident={handleNavigate} userRole={userRole}
+              onLegacyFollowups={() => setIsFollowupModalOpen(true)} />}
             {currentScreen === 'dashboard' && (
               <DashboardView
                 orders={orders}
@@ -401,6 +411,11 @@ export default function App() {
                 onExport={() => setIsExportModalOpen(true)}
                 onStatusRequest={() => setIsStatusRequestOpen(true)}
                 onUpdateStatus={(orderId, status) => {
+                  if (status === 'entregado') {
+                    setDeliveryPaymentOrderId(orderId);
+                    handleSelectOrder(orderId);
+                    return;
+                  }
                   void updateOrderStatus(orderId, status).catch((error) =>
                     setDatabaseMessage(error instanceof Error ? error.message : 'No se pudo guardar el estado.')
                   );
@@ -493,6 +508,8 @@ export default function App() {
 
             {currentScreen === 'order-detail' && selectedOrder && (
               <OrderDetailView
+                openDeliveryPayment={deliveryPaymentOrderId === selectedOrder.id}
+                onDeliveryPaymentOpened={() => setDeliveryPaymentOrderId(null)}
                 order={selectedOrder}
                 onBack={() => handleNavigate('ordenes')}
                 onOpenSMS={(customerName, phone, order) =>
