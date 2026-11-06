@@ -46,4 +46,14 @@ export const ordersApi = {
       { method: 'PUT', body: JSON.stringify({ deliveredAt: payload.deliveredAt, version: payload.version, reason: payload.reason }) }
     );
   },
+  requestRevertToPaidOtp: (orderId: string | number, payload: { reason: string }) =>
+    request<{ ok: boolean; message: string; cooldownSeconds: number; targetPhoneMasked?: string }>(
+      `/orders/${orderId}/revert-to-paid/request-otp`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+  revertToPaid: (orderId: string | number, payload: { code: string; reason: string; version?: number }) =>
+    request<{ ok: boolean; message: string; newStatus: string }>(
+      `/orders/${orderId}/revert-to-paid`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
 };

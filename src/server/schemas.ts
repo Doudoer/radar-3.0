@@ -317,6 +317,16 @@ export const updateDeliveryDateSchema = z.object({
   reason: z.string().trim().min(5, 'Explica el motivo de la correccion').max(255),
 });
 
+export const revertToPaidOtpRequestSchema = z.object({
+  reason: z.string().trim().min(5, 'Explica el motivo de la reversión a Pagado').max(500),
+});
+
+export const revertToPaidSchema = z.object({
+  code: z.string().trim().regex(/^\d{6}$/, 'El código de seguridad debe tener 6 dígitos numéricos'),
+  reason: z.string().trim().min(5, 'Explica el motivo de la reversión a Pagado').max(500),
+  version: z.number().int().positive().optional(),
+});
+
 export const orderDeliveryFollowupSchema = z.object({
   contactChannel: z.enum(['call', 'sms', 'whatsapp']).default('call'),
   callResult: z

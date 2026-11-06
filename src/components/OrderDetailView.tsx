@@ -183,6 +183,88 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     }
   };
 
+  // Revert from listo_retiro to pagado (Super Admin + WhatsApp OTP)
+  const [isRevertToPaidModalOpen, setIsRevertToPaidModalOpen] = useState(false);
+  const [revertReason, setRevertReason] = useState('');
+  const [revertCode, setRevertCode] = useState('');
+  const [revertLoading, setRevertLoading] = useState(false);
+  const [revertOtpSent, setRevertOtpSent] = useState(false);
+  const [revertCooldown, setRevertCooldown] = useState(0);
+  const [revertTargetPhoneMasked, setRevertTargetPhoneMasked] = useState('');
+  const [revertError, setRevertError] = useState('');
+  const [revertSuccessMsg, setRevertSuccessMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (revertCooldown <= 0) return;
+    const timer = setTimeout(() => setRevertCooldown((c) => Math.max(0, c - 1)), 1000);
+    return () => clearTimeout(timer);
+  }, [revertCooldown]);
+
+  const closeRevertToPaidModal = () => {
+    setIsRevertToPaidModalOpen(false);
+    setRevertReason('');
+    setRevertCode('');
+    setRevertOtpSent(false);
+    setRevertCooldown(0);
+    setRevertTargetPhoneMasked('');
+    setRevertError('');
+    setRevertSuccessMsg(null);
+  };
+
+  const handleRequestRevertOtp = async () => {
+    if (revertReason.trim().length < 5) {
+      setRevertError('Por favor ingresa un motivo detallado (mínimo 5 caracteres).');
+      return;
+    }
+    setRevertLoading(true);
+    setRevertError('');
+    try {
+      const res = await ordersApi.requestRevertToPaidOtp(order.id, { reason: revertReason.trim() });
+      setRevertOtpSent(true);
+      setRevertCooldown(res.cooldownSeconds || 30);
+      if (res.targetPhoneMasked) setRevertTargetPhoneMasked(res.targetPhoneMasked);
+    } catch (err) {
+      setRevertError(err instanceof Error ? err.message : 'No fue posible enviar el código WhatsApp.');
+    } finally {
+      setRevertLoading(false);
+    }
+  };
+
+  const handleConfirmRevertToPaid = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (revertCode.length !== 6) {
+      setRevertError('El código debe tener 6 dígitos numéricos.');
+      return;
+    }
+    setRevertLoading(true);
+    setRevertError('');
+    try {
+      const res = await ordersApi.revertToPaid(order.id, {
+        code: revertCode.trim(),
+        reason: revertReason.trim(),
+        version: order.version,
+      });
+      setRevertSuccessMsg(res.message || 'Orden devuelta a estado Pagado con éxito.');
+      setTimeout(async () => {
+        closeRevertToPaidModal();
+        if (onUpdateOrder) {
+          await onUpdateOrder({
+            ...order,
+            status: 'pagado' as OrderStatus,
+            scheduledPickupAt: null,
+            version: (order.version || 1) + 1,
+          });
+        }
+        window.dispatchEvent(new Event('radar:data-changed'));
+        handleToast('Orden devuelta a Pagado exitosamente.');
+      }, 1500);
+    } catch (err) {
+      setRevertError(err instanceof Error ? err.message : 'Error al verificar el código o revertir la orden.');
+    } finally {
+      setRevertLoading(false);
+    }
+  };
+
   const handleSaveDeliveryDate = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!isSuperAdmin || deliveryDateSavingRef.current) return;
@@ -701,6 +783,19 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               >
                 <span className="material-symbols-outlined text-[15px] text-cyan-400">manage_accounts</span>
                 <span className="hidden sm:inline">Reasignar Asesor</span>
+              </button>
+            )}
+
+            {/* Super Admin Reversion from Listo para Retiro to Pagado with WhatsApp OTP */}
+            {order.status === 'listo_retiro' && isSuperAdmin && (
+              <button
+                type="button"
+                onClick={() => setIsRevertToPaidModalOpen(true)}
+                className="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(244,63,94,0.2)] active:scale-95"
+                title="Devolver orden a estado Pagado con código de seguridad WhatsApp (Super Admin)"
+              >
+                <span className="material-symbols-outlined text-[15px] text-rose-400">history</span>
+                <span>Revertir a Pagado</span>
               </button>
             )}
 
@@ -1698,6 +1793,149 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                   </button>
                 </div>
               </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Revertir Orden de Listo para Retiro a Pagado (Super Admin + WhatsApp OTP) */}
+      {isSuperAdmin && isRevertToPaidModalOpen && (
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="cyber-card w-full max-w-lg p-6 border-rose-500/50 shadow-[0_0_40px_rgba(244,63,94,0.3)] space-y-4">
+            <div className="flex items-center justify-between border-b border-rose-500/20 pb-3">
+              <div className="flex items-center gap-2 text-rose-400 font-mono font-bold text-sm">
+                <span className="material-symbols-outlined text-[20px]">history</span>
+                <span>Revertir Orden a Pagado · #{order.code}</span>
+              </div>
+              <button
+                type="button"
+                onClick={closeRevertToPaidModal}
+                disabled={revertLoading}
+                className="text-slate-400 hover:text-white"
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            {revertSuccessMsg ? (
+              <div className="p-4 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono text-xs text-center flex items-center justify-center gap-2">
+                <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                <span>{revertSuccessMsg}</span>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs font-mono space-y-1.5 text-rose-200">
+                  <p className="font-bold flex items-center gap-1.5 text-rose-300">
+                    <span className="material-symbols-outlined text-[16px]">security</span>
+                    Operación protegida con código WhatsApp
+                  </p>
+                  <p className="text-[11px] text-slate-300">
+                    Esta acción devolverá la orden del estado <strong>Listo para Retiro</strong> al estado <strong>Pagado</strong>. La cita de entrega programada será anulada y la preparación volverá a quedar pendiente en el flujo comercial.
+                  </p>
+                </div>
+
+                {revertError && (
+                  <p role="alert" className="p-2.5 rounded-lg bg-red-950/40 border border-red-500/40 text-red-300 text-xs font-mono">
+                    {revertError}
+                  </p>
+                )}
+
+                <div>
+                  <label className="text-xs font-mono font-bold text-[var(--text-secondary)] uppercase block mb-1.5">
+                    Motivo de la reversión (obligatorio):
+                  </label>
+                  <textarea
+                    required
+                    rows={2}
+                    placeholder="Explica detalladamente por qué se regresa la orden a Pagado..."
+                    value={revertReason}
+                    onChange={(e) => setRevertReason(e.target.value)}
+                    disabled={revertLoading || revertOtpSent}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-xs font-mono text-white placeholder-slate-500 focus:border-rose-500 focus:outline-none"
+                  />
+                </div>
+
+                {!revertOtpSent ? (
+                  <div className="flex justify-end gap-2.5 pt-2 border-t border-slate-800">
+                    <button
+                      type="button"
+                      disabled={revertLoading}
+                      onClick={closeRevertToPaidModal}
+                      className="px-4 py-2 rounded-xl border border-slate-700 text-xs font-mono text-slate-400 hover:text-white"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={revertLoading || revertReason.trim().length < 5}
+                      onClick={handleRequestRevertOtp}
+                      className="px-4 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-mono font-bold flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">send</span>
+                      <span>{revertLoading ? 'Enviando código...' : 'Solicitar código por WhatsApp'}</span>
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleConfirmRevertToPaid} className="space-y-4 pt-1">
+                    <div className="p-3 rounded-xl bg-slate-950 border border-cyan-500/30 space-y-2">
+                      <div className="flex items-center justify-between text-xs font-mono">
+                        <span className="text-emerald-400 flex items-center gap-1 font-bold">
+                          <span className="material-symbols-outlined text-[16px]">mark_chat_read</span>
+                          Código enviado a tu WhatsApp
+                          {revertTargetPhoneMasked && <span className="text-slate-400">({revertTargetPhoneMasked})</span>}
+                        </span>
+                        {revertCooldown > 0 && (
+                          <span className="text-slate-400 text-[11px]">Reenviar en {revertCooldown}s</span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-400 font-mono">
+                        Ingresa el código único de 6 dígitos recibido por WhatsApp para autorizar la reversión:
+                      </p>
+                      <input
+                        required
+                        type="text"
+                        maxLength={6}
+                        pattern="\d{6}"
+                        placeholder="123456"
+                        autoFocus
+                        value={revertCode}
+                        onChange={(e) => setRevertCode(e.target.value.replace(/\D/g, ''))}
+                        className="w-full text-center text-2xl font-mono font-black tracking-widest rounded-xl border border-rose-500/50 bg-slate-900 p-2 text-rose-300 focus:border-rose-400 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2.5 pt-2 border-t border-slate-800">
+                      <button
+                        type="button"
+                        disabled={revertLoading || revertCooldown > 0}
+                        onClick={handleRequestRevertOtp}
+                        className="text-xs font-mono text-cyan-400 hover:text-cyan-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {revertCooldown > 0 ? `Reenviar código (${revertCooldown}s)` : 'Reenviar código WhatsApp'}
+                      </button>
+
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={revertLoading}
+                          onClick={closeRevertToPaidModal}
+                          className="px-3 py-1.5 rounded-xl border border-slate-700 text-xs font-mono text-slate-400 hover:text-white"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={revertLoading || revertCode.length !== 6}
+                          className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-mono font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-rose-950 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">verified_user</span>
+                          <span>{revertLoading ? 'Verificando...' : 'Confirmar reversión'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+                )}
+              </div>
             )}
           </div>
         </div>
