@@ -75,9 +75,17 @@ try {
   await database.execute("UPDATE orders SET status='Pagado' WHERE id=802");
   assert.equal(((await invoke('GET', '/api/orders/802/workflow')).data.tasks as { task: string }[])[0].task, 'ack');
   assert.equal((await invoke('POST', '/api/orders/802/workflow', {
-    version: 1, task: 'ack', outcome: 'completed', notes: 'Historical confirmation',
-    evidence: 'Existing verifiable reference', confirmed: true, nextDueDate: addWorkingDays(today, 1),
+    version: 1, task: 'ack', outcome: 'completed',
+    downpayment: [{ method: 'cash', amount: 50, receivedBy: 'Cash receiver', receipt: null }],
   })).status, 201);
+  const [legacyDeposit] = await database.query<RowDataPacket[]>("SELECT downpayment_details,next_due_date,evidence FROM order_workflow_events WHERE order_id=802 AND task='ack'");
+  const depositDetails = legacyDeposit[0].downpayment_details;
+  assert.deepEqual(typeof depositDetails === 'string' ? JSON.parse(depositDetails) : depositDetails,
+    [{ method: 'cash', amount: 50, receivedBy: 'Cash receiver', receipt: null }]);
+  assert.equal(legacyDeposit[0].next_due_date, null);
+  assert.equal(legacyDeposit[0].evidence, '');
+  const [legacyMoney] = await database.query<RowDataPacket[]>('SELECT down_payment FROM orders WHERE id=802');
+  assert.equal(Number(legacyMoney[0].down_payment), 50);
   await database.execute("UPDATE orders SET status='Cotización' WHERE id=801");
   await applyRollout();
   const [snapshotAgain] = await database.query('SELECT * FROM order_confirmation_rollout ORDER BY order_id');
@@ -91,7 +99,7 @@ try {
   assert.equal(freshOrder.confirmationPolicy, 'documented');
   await database.execute(`INSERT INTO orders (id,order_code,customer_id,user_id,product_type,price,down_payment,status,created_at)
     VALUES (901,'ORD-WORKFLOW-TEST',1,7,'Test part',100,100,'Cotización',UTC_TIMESTAMP())`);
-  console.log('PASS: one-time rollout snapshots only existing Paid confirmations, retains historical nonpaid behavior, never alters order/ledger values or fabricates events, remains idempotent and keeps later Paid orders subject to new requirements.');
+  console.log('PASS: one-time Paid preapproval unchanged; pending historical confirmation uses the same simple deposit payload, no extra money/manual preparation date; snapshot remains immutable, without fabricated events.');
   const save = async (task: string, extra: Record<string, unknown> = {}) => {
     const [rows] = await database!.query<RowDataPacket[]>('SELECT version FROM orders WHERE id=901');
     return invoke('POST', '/api/orders/901/workflow', {

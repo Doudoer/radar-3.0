@@ -115,9 +115,7 @@ export function workflowTasks(order: WorkflowOrder, events: WorkflowEvent[], tod
     requirement = 'Gestionar el caso en Reclamos o Reembolsos; registrar responsable y próxima revisión.';
     dueDate = order.incidentNextDueDate || addWorkingDays(workflowDate(order.incidentCreatedAt || order.createdAt), 1);
   } else if (stage) {
-    task = stage.id; title = stage.title; requirement = stage.id === 'ack' && order.confirmationPolicy && order.confirmationPolicy !== 'documented'
-      ? 'Confirmación histórica: registra el detalle, referencia verificable, fecha comprometida y verificación del abono; no requiere subir comprobantes nuevos.'
-      : stage.requirement;
+    task = stage.id; title = stage.title; requirement = stage.requirement;
     const index = WORKFLOW_STAGES.indexOf(stage);
     const previous = index > 1 ? [...events].reverse().find(event => event.task === WORKFLOW_STAGES[index - 1].id && event.outcome === 'completed') : undefined;
     dueDate = previous?.nextDueDate || (task === 'delivery' && previous?.preparation
@@ -155,10 +153,9 @@ export function workflowTasks(order: WorkflowOrder, events: WorkflowEvent[], tod
 export function validateWorkflowAction(order: WorkflowOrder, events: WorkflowEvent[], action: WorkflowAction, today = workflowDate(new Date())) {
   const task = workflowTasks(order, events, today)[0];
   if (!task || task.task !== action.task) throw new Error('Debes gestionar la etapa pendiente; no se permiten saltos ni completar dos veces.');
-  const documented = !order.confirmationPolicy || order.confirmationPolicy === 'documented';
-  if (action.downpayment && (action.task !== 'ack' || !documented)) throw new Error('Las órdenes históricas conservan su confirmación anterior; no adjuntes documentación de abonos nueva.');
+  if (action.downpayment && (action.task !== 'ack' || action.outcome !== 'completed')) throw new Error('Los datos del depósito solo corresponden a una confirmación completada.');
   if (action.preparation && (action.task !== 'prepare' || action.outcome !== 'completed')) throw new Error('La preparación solo se adjunta al completar Preparación y cita.');
-  if (action.task === 'ack' && action.outcome === 'completed' && documented) {
+  if (action.task === 'ack' && action.outcome === 'completed') {
     const parsed = downpaymentSchema.safeParse(action.downpayment);
     if (!parsed.success) throw new Error(parsed.error.issues[0]?.message || 'Revisa los datos del downpayment.');
     validateDownpayment(order.paid, parsed.data);
@@ -196,11 +193,7 @@ export function validateWorkflowAction(order: WorkflowOrder, events: WorkflowEve
   if (task.task === 'incident') throw new Error('Cierra el caso desde Reclamos o Reembolsos, no desde el flujo.');
   if (!task.task.startsWith('post_') && (!action.evidence?.trim() || action.evidence.trim().length < 5)) throw new Error('La evidencia o referencia verificable es obligatoria.');
   if (!action.confirmed) throw new Error('Confirma que realizaste las verificaciones de esta etapa.');
-  if (task.task === 'ack') {
-    if (order.paid <= 0) throw new Error('Registra el abono antes de confirmar.');
-    if (!action.nextDueDate || action.nextDueDate < today) throw new Error('Indica la fecha comprometida de preparación.');
-  }
-  if (action.nextDueDate && task.task !== 'ack') throw new Error('Esta etapa no permite cambiar el plazo de la siguiente gestión.');
+  if (action.nextDueDate) throw new Error('Esta etapa no permite cambiar el plazo de la siguiente gestión.');
   if (action.scheduledAt && task.task !== 'post_3') throw new Error('Esta etapa no permite modificar una fecha acordada.');
   if (task.task === 'delivery' && Math.round(order.paid * 100) !== Math.round(order.total * 100)) throw new Error('Liquida el saldo pendiente antes de completar la entrega.');
   if (task.task.startsWith('post_')) {

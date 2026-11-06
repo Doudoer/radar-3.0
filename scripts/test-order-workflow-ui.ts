@@ -509,14 +509,33 @@ try {
   assert.equal(order.financials.downPayment, 900); assert.equal(order.warrantyStarted, false);
   assert.equal(events[0].preparation?.channel, 'call'); assert.equal(events[0].preparation?.screenshots.length, 0);
   events.length = 0; order.preparation = null;
-  confirmationPolicy = 'legacy';
+  confirmationPolicy = 'legacy'; order.status = 'cotizacion';
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('nav'); await click('Mi trabajo de hoy');
   await page.waitForSelector('.horizon-workflow-queue');
   await click('Ver orden'); await page.waitForSelector('.horizon-order-detail'); await click('Flujo verificable');
-  await page.waitForSelector('form textarea');
-  assert.match(await page.$eval('.horizon-workflow-form', element => element.textContent || ''), /Fecha comprometida de preparación/);
-  assert.equal(await page.$('form input[type=file]'), null, 'Historical unpaid orders keep the pre-rollout confirmation');
+  await page.waitForSelector('.horizon-workflow-form');
+  assert.match(await page.$eval('.horizon-workflow-form', element => element.textContent || ''), /Guardar confirmación/);
+  assert.equal(await page.$('form textarea, form input[type=date], form input[type=checkbox]'), null,
+    'Pending historical confirmation never asks management detail, reference, preparation date or extra checks');
+  assert.equal(await page.$('form input[type=file]'), null, 'Cash has no proof upload');
+  await fill('Tipo de pago 1', 'card');
+  for (const width of [1440, 768, 375]) for (const theme of ['light', 'dark']) {
+    await page.setViewport({ width, height: 1050 });
+    await page.evaluate(value => {
+      document.documentElement.classList.toggle('dark', value === 'dark');
+      document.documentElement.classList.toggle('light', value === 'light');
+    }, theme);
+    assert.equal(await page.$eval('.horizon-workflow-form', form => form.scrollWidth > form.clientWidth + 1), false);
+    if (output) await page.screenshot({ path: `${output}/historical-simple-confirmation-${width}-${theme}.png`, fullPage: true });
+  }
+  await uploadReceipt('Comprobante 1');
+  const beforeLegacySave = order.financials.downPayment;
+  await click('Guardar confirmación');
+  await page.waitForFunction(() => document.querySelector('.horizon-workflow-form h3')?.textContent?.startsWith('Preparación'));
+  assert.equal(order.financials.downPayment, beforeLegacySave);
+  assert.equal(events[0].downpayment?.[0].method, 'card');
+  assert.equal(events[0].nextDueDate, null);
   assert.deepEqual(errors, []);
   events.length = 0; order.status = 'entregado'; order.deliveredAt = undefined; order.preparation = null;
   historicalDelivery = { paidAt: '2026-10-25T14:12:34.000Z', readyAt: null, deliveredAt: '2026-11-01T18:35:12.000Z' };
@@ -531,7 +550,7 @@ try {
   assert.equal(await page.$$eval('.horizon-workflow-stages time[datetime="2026-11-01T18:35:12.000Z"]', nodes => nodes.length), 1);
   assert.equal(await page.$$eval('.horizon-workflow-stages li', nodes => nodes.filter(node => node.textContent?.includes('Pendiente')).length), 0);
   assert.equal(writes, beforeHistory); assert.equal(events.length, 0);
-  events.length = 0; historicalDelivery = null; confirmationPolicy = 'documented';
+  events.length = 0; historicalDelivery = null; confirmationPolicy = 'legacy';
   order.status = 'cotizacion'; order.deliveredAt = undefined; order.warrantyStarted = false; order.preparation = null;
   order.financials.downPayment = 200; order.financials.coreFee = 100; order.financials.coreReceivedAt = undefined; coreReceipt = null;
   order.version!++;
