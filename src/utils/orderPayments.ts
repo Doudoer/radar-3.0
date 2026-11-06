@@ -14,7 +14,8 @@ export const settlementSchema = z.object({
     receipt: imageEvidenceSchema.nullable().optional(),
     confirmed: z.literal(true),
   }).strict().refine(value => value.method === 'cash' || Boolean(value.receipt) || value.reference.length >= 3, 'Adjunta el comprobante del pago confirmado.')).max(20),
-  coreAction: z.enum(['keep', 'received']),
+  coreAction: z.enum(['keep', 'received', 'charge', 'none']),
+  coreAmount: z.number().min(0).max(99999999).multipleOf(0.01).nullable().optional(),
   coreReference: z.string().trim().max(1000),
   coreConfirmed: z.boolean(),
 }).strict().refine(value => value.coreAction !== 'received' || value.coreConfirmed && value.coreReference.length >= 5,
@@ -38,6 +39,14 @@ export function previewSettlement(order: SettlementOrder, input: Settlement) {
     throw new Error('La orden contiene un importe inválido; requiere revisión administrativa.');
   }
   const cents = (value: number) => Math.round(value * 100);
+  let effectiveCore = cents(order.core);
+  if (input.coreAction === 'charge') {
+    effectiveCore = input.coreAmount !== undefined && input.coreAmount !== null ? cents(input.coreAmount) : cents(order.core);
+  } else if (input.coreAction === 'none') {
+    effectiveCore = 0;
+  } else if (input.coreAction === 'keep' && order.core === 0 && input.coreAmount) {
+    effectiveCore = cents(input.coreAmount);
+  }
   const coreCredit = input.coreAction === 'received' ? cents(order.core) : 0;
   if (input.coreAction === 'received') {
     if (order.coreReceived) throw new Error('La recepción del core ya está registrada.');
@@ -46,7 +55,12 @@ export function previewSettlement(order: SettlementOrder, input: Settlement) {
       throw new Error('El core ya tiene cobros que requieren devolución; tramítala desde Reembolsos, sin borrar cobros.');
     }
   }
-  const total = cents(order.price) + cents(order.shipping) + cents(order.core) - coreCredit;
+  if (input.coreAction === 'none' && cents(order.core) > 0) {
+    if (cents(order.paid) > cents(order.price) + cents(order.shipping)) {
+      throw new Error('El core ya tiene cobros que requieren devolución; tramítala desde Reembolsos, sin borrar cobros.');
+    }
+  }
+  const total = cents(order.price) + cents(order.shipping) + effectiveCore - coreCredit;
   const received = input.payments.reduce((sum, payment) => sum + cents(payment.amount), 0);
   const paid = cents(order.paid) + received;
   if (paid > total) throw new Error('El cobro supera el saldo pendiente.');
