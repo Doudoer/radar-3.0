@@ -293,18 +293,13 @@ export async function handleWorkflowRequest(
       if (completed.includes('ack') && requestAction.completion.downpayment) fail(409, 'La confirmación ya está verificada; no vuelvas a documentar el abono.');
       if (completed.includes('prepare') && requestAction.completion.preparation) fail(409, 'Preparación y cita ya están verificadas.');
       if (!completed.includes('ack')) {
-        const documented = !original.confirmationPolicy || original.confirmationPolicy === 'documented';
-        if (!documented && requestAction.completion.downpayment) fail(409, 'Las órdenes históricas conservan su confirmación anterior.');
         const paidNow = !original.paid && previous.down_payment;
         const downpayment = paidNow ? downpaymentSchema.parse(requestAction.settlement!.payments.map(payment => ({
           amount: payment.amount, method: payment.method, receivedBy: payment.receivedBy, receipt: payment.receipt || null,
         }))) : requestAction.completion.downpayment;
         if (paidNow && requestAction.completion.downpayment) fail(409, 'No hay abono anterior; la confirmación usa únicamente los pagos recibidos ahora.');
         actions.push({ task: 'ack', outcome: 'completed', notes: requestAction.notes, evidence: requestAction.evidence,
-          confirmed: requestAction.confirmed, ...(documented ? { downpayment } : {
-            evidence: 'Confirmación histórica conservada al registrar la entrega física.',
-            nextDueDate: workflowDate(new Date()),
-          }) });
+          confirmed: requestAction.confirmed, downpayment });
       }
       if (!completed.includes('prepare')) actions.push({
         task: 'prepare', outcome: 'completed', notes: '', preparation: requestAction.completion.preparation,

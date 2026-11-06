@@ -188,7 +188,7 @@ export const OrderPaymentsModal: React.FC<{
   const completed = workflow ? completedWorkflowStages(workflow.events, workflow.order) : [];
   const needsConfirmation = managed && workflow && !completed.includes('ack');
   const needsPreparation = managed && workflow && !completed.includes('prepare');
-  const needsDownpayment = needsConfirmation && workflow.order.paid > 0 && workflow.order.confirmationPolicy === 'documented';
+  const needsDownpayment = needsConfirmation && workflow.order.paid > 0;
   const saving = useRef(false);
   const dialog = useRef<HTMLDivElement>(null);
   const close = useRef(onClose); close.current = onClose;
@@ -263,7 +263,6 @@ export const OrderPaymentsModal: React.FC<{
               : !workflow ? <p role="status">Cargando verificaciones pendientes…</p> : <>
                 {needsDownpayment && <section><h3 className="font-bold">Confirmación del abono anterior</h3><DownpaymentFields paid={workflow.order.paid} value={downpayment} onChange={setDownpayment} disabled={busy || uploading} onUpload={file => uploadDownpaymentReceipt(orderId, file)} onUploadingChange={onUploadingChange} /></section>}
                 {needsConfirmation && !workflow.order.paid && <p>Sin abono anterior: la confirmación se documentará con los pagos recibidos ahora, sin volver a cobrarlos.</p>}
-                {needsConfirmation && workflow.order.paid > 0 && workflow.order.confirmationPolicy !== 'documented' && <p>Confirmación histórica: se conservarán el detalle, la evidencia y la verificación de esta entrega, sin exigir comprobantes nuevos del abono anterior.</p>}
                 {needsPreparation && <section><h3 className="font-bold">Preparación y cita pendientes</h3><PreparationFields allowInPerson value={preparation} onChange={setPreparation} disabled={busy || uploading} onUpload={file => uploadDownpaymentReceipt(orderId, file)} onUploadingChange={onUploadingChange} /></section>}
               </>)}
             <OrderDeliveryFields orderId={orderId} customerName={customerName} photos={deliveryPhotos} onChange={setDeliveryPhotos}

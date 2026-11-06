@@ -385,14 +385,22 @@ describe('workflow API transactional enforcement', () => {
     await expect(handleWorkflowRequest(post.req, post.res, '/api/orders/901/workflow', { sub: '7', role: 'operator' }, attempt.database, vi.fn())).rejects.toThrow(/etapa/);
     expect(attempt.connection.execute).not.toHaveBeenCalled();
   });
-  it('preserves the prior confirmation payload for historical nonpaid orders without image requirements', async () => {
+  it('documents pending historical confirmation with the same deposit payload without duplicating money or changing rollout history', async () => {
     const { database, connection } = setup({ confirmation_policy: 'legacy', confirmation_policy_at: new Date('2026-11-05T16:00:00Z') });
-    const { req, res } = request('POST', { version: 1, task: 'ack', outcome: 'completed', ...management, nextDueDate: '2099-01-01' });
+    const { req, res } = request('POST', action);
     await handleWorkflowRequest(req, res, '/api/orders/901/workflow', { sub: '7', role: 'operator' }, database, vi.fn());
     expect(res.statusCode).toBe(201);
-    expect(connection.execute.mock.calls[0][1]).toContain(management.evidence);
-    expect(connection.execute.mock.calls[0][1]).not.toContain('Downpayment existente documentado; no se agregó dinero al acumulado.');
+    expect(connection.execute.mock.calls[0][1]).toContain(JSON.stringify(action.downpayment));
+    expect(connection.execute.mock.calls[0][1]).toContain('Downpayment existente documentado; no se agregó dinero al acumulado.');
+    expect(connection.execute.mock.calls.map(call => call[0]).join('\n')).not.toMatch(/finance_movements|down_payment=|order_confirmation_rollout|scheduled_pickup_at=/);
     expect(connection.commit).toHaveBeenCalledOnce();
+  });
+  it('rejects the outdated pending historical confirmation payload without fabricating a completed step', async () => {
+    const { database, connection } = setup({ confirmation_policy: 'legacy' });
+    const { req, res } = request('POST', { version: 1, task: 'ack', outcome: 'completed', ...management, nextDueDate: '2099-01-01' });
+    await expect(handleWorkflowRequest(req, res, '/api/orders/901/workflow', { sub: '7', role: 'operator' }, database, vi.fn())).rejects.toThrow();
+    expect(connection.execute).not.toHaveBeenCalled();
+    expect(connection.rollback).toHaveBeenCalledOnce();
   });
   it('validates receipt scope/type/owner before committing, without inventing trusted uploads', async () => {
     for (const file of [null, { content_type: 'application/pdf', user_id: 7 }, { content_type: 'image/png', user_id: 8 }]) {

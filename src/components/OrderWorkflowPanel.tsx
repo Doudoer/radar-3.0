@@ -79,7 +79,7 @@ const DownpaymentConfirmationForm: React.FC<{
 };
 export const WorkflowActionForm: React.FC<{
   task: WorkflowTask; onSaved: () => Promise<void>; onCancel?: () => void;
-}> = props => props.task.task === 'ack' && (!props.task.order.confirmationPolicy || props.task.order.confirmationPolicy === 'documented')
+}> = props => props.task.task === 'ack'
   ? <DownpaymentConfirmationForm {...props} /> : <WorkflowManagementForm {...props} />;
 const WorkflowManagementForm: React.FC<{
   task: WorkflowTask; onSaved: () => Promise<void>; onCancel?: () => void;
@@ -148,7 +148,7 @@ const WorkflowManagementForm: React.FC<{
         deliveryPhotos: deliverySettlement ? deliveryPhotos : undefined,
         evidence: completed && !postDelivery && task.task !== 'prepare' ? evidence : undefined, confirmed: completed && task.task !== 'prepare' ? confirmed : false,
         nextAction: completed ? undefined : nextAction,
-        nextDueDate: outcome === 'no_response' ? addWorkingDays(today, 1) : !completed || task.task === 'ack' ? nextDueDate : undefined,
+        nextDueDate: outcome === 'no_response' ? addWorkingDays(today, 1) : !completed ? nextDueDate : undefined,
         blockedBy: outcome === 'blocked' ? blockedBy : undefined,
         scheduledAt: completed && task.task === 'post_3' && partStatus === 'not_installed' && scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
         contactResult: postDelivery ? contactResult : undefined,
@@ -229,9 +229,6 @@ const WorkflowManagementForm: React.FC<{
       <textarea required minLength={5} maxLength={5000} rows={2} placeholder="Referencia del mensaje o conversación; indica qué confirmó el cliente." value={evidence} onChange={event => setEvidence(event.target.value)} />
     </label>}
     {completed ? <>
-      {task.task === 'ack' && <label className={field}>Fecha comprometida de preparación
-        <input required type="date" min={today} value={nextDueDate} onChange={event => setNextDueDate(event.target.value)} />
-      </label>}
       {task.task === 'post_3' && partStatus === 'not_installed' && <label className={field}>
         Fecha de instalación acordada (hora local)
         <input required type="datetime-local" value={scheduledAt} onChange={event => setScheduledAt(event.target.value)} />

@@ -81,16 +81,18 @@ el resto del sistema.
   sin detalle, referencia de texto, casilla o fecha manual adicionales.
   Los comprobantes pertenecen a la misma orden y al usuario que los subio
   (administracion puede documentar comprobantes de otros usuarios).
-  Estos requisitos se aplican solo a ordenes nuevas desde la primera
-  aplicacion de la migracion 025 en cada entorno. La migracion toma una
+  El mismo formulario simple se usa para toda Confirmacion pendiente en
+  ordenes nuevas o existentes sin entregar. No se muestra la antigua gestion
+  con resultado, detalle, referencia y fecha comprometida de preparacion.
+  La migracion 025 toma una
   instantanea inmutable: solo las ordenes en estado Pagado en ese momento
   tienen Confirmacion preaprobada, claramente identificada, sin inventar
   actor, evidencia o pagos ni cambiar su estado comercial. Las demas ordenes
-  anteriores conservan la confirmacion previa (detalle, referencia, abono y
-  fecha comprometida, sin comprobante de imagen nuevo). Cambiar despues una
+  anteriores conservan los pasos ya completados y sus registros, pero sus
+  confirmaciones pendientes usan el formulario simple de deposito. Cambiar despues una
   orden antigua a Pagado no la preaprueba; repetir migraciones tampoco
   modifica la instantanea ni incluye ordenes nuevas. Una reapertura explicita
-  de Confirmacion exige verificarla nuevamente usando el formulario historico.
+  de Confirmacion exige verificarla nuevamente usando el mismo formulario simple.
   Completar Confirmacion cambia automaticamente Cotizacion a Pagado;
   documentar el abono no vuelve a cobrarlo.
   Preparacion/cita exige aviso del patio al call center, respuesta del cliente

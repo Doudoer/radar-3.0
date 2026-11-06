@@ -24,15 +24,29 @@ describe('one-time confirmation rollout policy', () => {
   it('keeps the snapshot decision even if a historical order later changes status or receives money', () => {
     expect(completedWorkflowStages([], { ...order, status: 'cotizacion' })).toContain('ack');
     expect(completedWorkflowStages([], { ...legacy, status: 'pagado', paid: 100 })).toEqual(['quote']);
-    expect(() => validateWorkflowAction(legacy, [], management, '2026-11-05')).not.toThrow();
-    expect(() => validateWorkflowAction(legacy, [], { ...management, nextDueDate: undefined }, '2026-11-05')).toThrow(/fecha/);
-    expect(() => validateWorkflowAction(legacy, [], { ...management, evidence: '' }, '2026-11-05')).toThrow(/evidencia/);
+    expect(() => validateWorkflowAction(legacy, [], management, '2026-11-05')).toThrow();
+    expect(() => validateWorkflowAction(legacy, [], { task: 'ack', outcome: 'completed', notes: '', downpayment: [
+      { method: 'card', amount: 100, receipt: '/uploads/test.png' },
+    ] }, '2026-11-05')).not.toThrow();
   });
-  it('requires new documentation only for post-rollout orders regardless of current paid status', () => {
+  it('requires deposit documentation for new pending confirmations regardless of current paid status', () => {
     const fresh = { ...order, confirmationPolicy: 'documented' as const, confirmationPolicyAt: null };
     expect(completedWorkflowStages([], fresh)).toEqual(['quote']);
     expect(() => validateWorkflowAction(fresh, [], management, '2026-11-05')).toThrow();
     expect(() => validateWorkflowAction(fresh, [], { task: 'ack', outcome: 'completed', notes: '', downpayment: [{ method: 'zelle', amount: 100, receipt: '/uploads/test.png' }] }, '2026-11-05')).not.toThrow();
+  });
+  it('keeps already completed historical confirmations intact without requesting deposit documentation again', () => {
+    const historical: WorkflowEvent = {
+      id: 'old', task: 'ack', outcome: 'completed', notes: 'Existing historical confirmation',
+      evidence: 'Existing historical reference', actorId: 7, actorName: 'Original actor',
+      createdAt: '2026-10-25T16:00:00Z', nextDueDate: '2026-10-27', nextAction: null,
+      blockedBy: null, scheduledAt: null, contactResult: null, partStatus: null,
+    };
+    expect(completedWorkflowStages([historical], legacy)).toContain('ack');
+    expect(workflowTasks(legacy, [historical], '2026-11-05')[0].task).toBe('prepare');
+    expect(() => validateWorkflowAction(legacy, [historical], { task: 'ack', outcome: 'completed', notes: '',
+      downpayment: [{ method: 'cash', amount: 100, receivedBy: 'Cash receiver', receipt: null }] }, '2026-11-05')).toThrow(/etapa/);
+    expect(historical).not.toHaveProperty('downpayment');
   });
   it('does not use preapproval to bypass an explicit reopening', () => {
     const reopened: WorkflowEvent = {
@@ -42,15 +56,22 @@ describe('one-time confirmation rollout policy', () => {
     };
     expect(completedWorkflowStages([reopened], order)).toEqual(['quote']);
     expect(workflowTasks(order, [reopened], '2026-11-06')[0].task).toBe('ack');
-    expect(() => validateWorkflowAction(order, [reopened], { ...management, nextDueDate: '2026-11-09' }, '2026-11-06')).not.toThrow();
+    expect(() => validateWorkflowAction(order, [reopened], { task: 'ack', outcome: 'completed', notes: '',
+      downpayment: [{ method: 'cash', amount: 100, receivedBy: 'Cash receiver', receipt: null }] }, '2026-11-06')).not.toThrow();
   });
-  it('shows the old form for historical non-preapproved orders and the new form for new orders', () => {
+  it('shows the same simple deposit form for every pending confirmation, including historical orders', () => {
     const oldHtml = renderToStaticMarkup(<WorkflowActionForm task={workflowTasks(legacy, [], '2026-11-05')[0]} onSaved={async () => {}} />);
-    expect(oldHtml).toContain('Detalle de la gestión');
+    expect(oldHtml).toContain('Guardar confirmación');
+    expect(oldHtml).toContain('Tipo de pago');
+    expect(oldHtml).not.toContain('Detalle de la gestión');
+    expect(oldHtml).not.toContain('Evidencia o referencia verificable');
+    expect(oldHtml).not.toContain('Fecha comprometida');
+    expect(oldHtml).not.toContain('Resultado');
     expect(oldHtml).not.toContain('type="file"');
     const newHtml = renderToStaticMarkup(<WorkflowActionForm task={workflowTasks({ ...order, confirmationPolicy: 'documented' }, [], '2026-11-05')[0]} onSaved={async () => {}} />);
     expect(newHtml).toContain('Guardar confirmación');
     expect(newHtml).not.toContain('Detalle de la gestión');
+    expect(oldHtml).toBe(newHtml);
   });
   it('maps only server rollout metadata, rejecting unknown policies', () => {
     const row = { id: 1, order_code: 'TEST', version: 1, created_at: order.createdAt, status: 'Pagado', confirmation_policy: 'preapproved', confirmation_policy_at: order.confirmationPolicyAt } as RowDataPacket;
