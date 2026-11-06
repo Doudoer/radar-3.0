@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
-  addWorkingDays, workflowRequired, workflowTasks, validateWorkflowAction,
+  addWorkingDays, completedWorkflowStages, workflowRequired, workflowTasks, validateWorkflowAction,
   workflowDate, shiftWorkflowDate, type WorkflowOrder, type WorkflowEvent,
 } from '../src/utils/orderWorkflow';
+import { preparationSchema } from '../src/utils/orderPreparation';
+
+const preparation = preparationSchema.parse({
+  yardNotified: true, channel: 'call', failedCall: false, failedCallNotes: '', customerConfirmed: true,
+  dateFrom: '2026-11-06', dateTo: '2026-11-09', balanceNotified: true, paymentMethodsNotified: true,
+  corePlan: 'return_core', deliveryType: 'retiro_tienda', address: '', screenshots: [],
+});
 
 const order: WorkflowOrder = {
   id: '901', code: 'ORD-TEST', userId: 7, advisor: 'Operador', version: 1,
@@ -16,6 +23,17 @@ const event = (task: WorkflowEvent['task'], overrides: Partial<WorkflowEvent> = 
   blockedBy: null, scheduledAt: null, contactResult: null, partStatus: null, ...overrides,
 });
 describe('verifiable order workflow', () => {
+  it('completes followup with real responses and notes without requiring additional evidence on any channel', () => {
+    const events = ['ack', 'prepare', 'delivery'].map(task => event(task as WorkflowEvent['task']));
+    const delivered = { ...order, status: 'entregado' as const, deliveredAt: '2026-11-01T16:00:00Z' };
+    for (const channel of ['call', 'sms', 'whatsapp'] as const) {
+      expect(() => validateWorkflowAction(delivered, events, {
+        task: 'post_3', outcome: 'completed', notes: 'Cliente confirmó instalación y funcionamiento.',
+        confirmed: true, contactResult: channel === 'call' ? 'answered' : 'sms_replied',
+        partStatus: 'installed_ok', communication: { channel, warrantyWarningGiven: false },
+      }, '2026-11-05')).not.toThrow();
+    }
+  });
   it('covers October 21 inclusive, not earlier history', () => {
     expect(workflowRequired(order.createdAt)).toBe(true);
     expect(workflowRequired('2026-10-21T03:59:59Z')).toBe(false);
@@ -26,22 +44,26 @@ describe('verifiable order workflow', () => {
     expect(addWorkingDays('2026-11-07', 1)).toBe('2026-11-09');
     expect(addWorkingDays('2026-11-05', 2)).toBe('2026-11-09');
   });
-  it('does not infer evidence from an advanced order status', () => {
+  it('completes quotation at creation without completing later objectives from status', () => {
+    expect(completedWorkflowStages([])).toEqual(['quote']);
+    expect(workflowTasks({ ...order, status: 'cotizacion' }, [], '2026-10-21')[0]).toMatchObject({
+      task: 'ack', dueDate: '2026-10-22',
+    });
     const tasks = workflowTasks({ ...order, status: 'entregado', deliveredAt: '2026-11-01T12:00:00Z' }, [], '2026-11-05');
-    expect(tasks[0].task).toBe('quote');
+    expect(tasks[0].task).toBe('ack');
     expect(tasks[0].escalated).toBe(true);
     expect(tasks[0].regularization).toBe(true);
   });
   it('does not advance on no response, and retries the next business day', () => {
-    const tasks = workflowTasks(order, [event('quote', {
+    const tasks = workflowTasks(order, [event('ack', {
       outcome: 'no_response', nextDueDate: '2026-11-09', nextAction: 'Llamar nuevamente',
     })], '2026-11-06');
-    expect(tasks[0].task).toBe('quote');
+    expect(tasks[0].task).toBe('ack');
     expect(tasks[0].bucket).toBe('waiting');
     expect(tasks[0].dueDate).toBe('2026-11-09');
   });
   it('separates external blocks from operator overdue escalation', () => {
-    const tasks = workflowTasks(order, [event('quote', {
+    const tasks = workflowTasks(order, [event('ack', {
       outcome: 'blocked', blockedBy: 'Inventario', nextDueDate: '2026-11-06', nextAction: 'Verificar existencia',
     })], '2026-11-09');
     expect(tasks[0].bucket).toBe('blocked');
@@ -49,11 +71,15 @@ describe('verifiable order workflow', () => {
     expect(tasks[0].overdue).toBe(true);
   });
   it('rejects skipping stages and missing evidence', () => {
-    expect(() => validateWorkflowAction(order, [], { task: 'ack', outcome: 'completed', notes: 'Confirmado', evidence: 'Referencia', confirmed: true }, '2026-11-05')).toThrow(/etapa/i);
-    expect(() => validateWorkflowAction(order, [], { task: 'quote', outcome: 'completed', notes: 'Confirmado', evidence: '', confirmed: true }, '2026-11-05')).toThrow(/evidencia/i);
+    expect(() => validateWorkflowAction(order, [], { task: 'prepare', outcome: 'completed', notes: 'Confirmado', evidence: 'Referencia', confirmed: true }, '2026-11-05')).toThrow(/etapa/i);
+    expect(() => validateWorkflowAction(order, [event('ack'), event('prepare')], { task: 'delivery', outcome: 'completed', notes: 'Confirmado', evidence: '', confirmed: true }, '2026-11-05')).toThrow(/evidencia/i);
+    expect(() => validateWorkflowAction(order, [], { task: 'quote', outcome: 'completed', notes: 'Duplicada', evidence: 'Referencia', confirmed: true }, '2026-11-05')).toThrow(/etapa/i);
   });
-  it('requires a commitment date before preparation and an agreed delivery date', () => {
-    expect(() => validateWorkflowAction(order, [event('quote')], { task: 'ack', outcome: 'completed', notes: 'Aceptado por el cliente', evidence: 'Conversación registrada', confirmed: true }, '2026-11-05')).toThrow(/fecha/i);
+  it('documents existing downpayment without extra manual fields and preserves old preparation commitments', () => {
+    const downpayment = [{ method: 'cash' as const, amount: 100, receivedBy: 'Cash receiver', receipt: null }];
+    expect(() => validateWorkflowAction(order, [], { task: 'ack', outcome: 'completed', notes: '', downpayment }, '2026-11-05')).not.toThrow();
+    expect(() => validateWorkflowAction(order, [], { task: 'ack', outcome: 'completed', notes: '', downpayment, nextDueDate: '2026-11-06' }, '2026-11-05')).toThrow(/automáticamente/);
+    expect(workflowTasks(order, [event('ack')], '2026-11-05')[0]).toMatchObject({ task: 'prepare', dueDate: '2026-11-06' });
     const tasks = workflowTasks(order, [event('quote'), event('ack', { nextDueDate: '2026-11-09' })], '2026-11-05');
     expect(tasks[0].task).toBe('prepare');
     expect(tasks[0].dueDate).toBe('2026-11-09');
@@ -77,7 +103,7 @@ describe('verifiable order workflow', () => {
     const events = ['quote', 'ack', 'prepare', 'delivery'].map(task => event(task as WorkflowEvent['task']));
     expect(() => validateWorkflowAction({ ...order, status: 'entregado', deliveredAt: '2026-11-02T12:00:00Z' }, events, {
       task: 'post_3', outcome: 'completed', notes: 'Envié un mensaje', evidence: 'Mensaje enviado',
-      confirmed: true, contactResult: 'sms_sent', partStatus: 'installed_ok',
+      confirmed: true, contactResult: 'sms_sent', communication: { channel: 'sms', warrantyWarningGiven: false },
     }, '2026-11-05')).toThrow(/respuesta/i);
   });
   it('keeps incidents in the queue and does not close them with a workflow checkbox', () => {
@@ -87,7 +113,7 @@ describe('verifiable order workflow', () => {
     }, '2026-11-05')).toThrow(/Reclamos|Reembolsos/);
   });
   it('does not forgive an overdue objective by recording another unanswered attempt', () => {
-    const tasks = workflowTasks(order, [event('quote', { outcome: 'no_response', nextDueDate: '2026-11-06', nextAction: 'Reintentar' })], '2026-11-05');
+    const tasks = workflowTasks(order, [event('ack', { outcome: 'no_response', nextDueDate: '2026-11-06', nextAction: 'Reintentar' })], '2026-11-05');
     expect(tasks[0].bucket).toBe('waiting');
     expect(tasks[0].escalated).toBe(true);
   });
@@ -104,6 +130,7 @@ describe('verifiable order workflow', () => {
     expect(() => validateWorkflowAction({ ...order, status: 'entregado', deliveredAt: '2026-11-01T16:00:00Z' }, stages, {
       task: 'post_3', outcome: 'completed', notes: 'El cliente recibió la pieza', evidence: 'Respuesta del cliente',
       confirmed: true, contactResult: 'answered', partStatus: 'not_installed',
+      communication: { channel: 'call', warrantyWarningGiven: true },
     }, '2026-11-05')).toThrow(/instalación/i);
   });
   it('requires confirmed operation by day 7 and day 14', () => {
@@ -111,10 +138,11 @@ describe('verifiable order workflow', () => {
     expect(() => validateWorkflowAction({ ...order, status: 'entregado', deliveredAt: '2026-10-28T16:00:00Z' }, stages, {
       task: 'post_7', outcome: 'completed', notes: 'Continúa en montaje', evidence: 'Cliente confirma montaje',
       confirmed: true, contactResult: 'answered', partStatus: 'in_process',
+      communication: { channel: 'call', warrantyWarningGiven: false },
     }, '2026-11-05')).toThrow(/objetivo|funcionamiento/i);
   });
   it('validates retry dates, next actions and external ownership without changing stages', () => {
-    const action = { task: 'quote' as const, outcome: 'no_response' as const, notes: 'No contestó', nextAction: 'Llamar otra vez', nextDueDate: '2026-11-06' };
+    const action = { task: 'ack' as const, outcome: 'no_response' as const, notes: 'No contestó', nextAction: 'Llamar otra vez', nextDueDate: '2026-11-06' };
     expect(() => validateWorkflowAction(order, [], action, '2026-11-05')).not.toThrow();
     expect(() => validateWorkflowAction(order, [], { ...action, nextAction: '' }, '2026-11-05')).toThrow(/acción/);
     expect(() => validateWorkflowAction(order, [], { ...action, nextDueDate: null }, '2026-11-05')).toThrow(/fecha/);
@@ -124,19 +152,23 @@ describe('verifiable order workflow', () => {
     expect(() => validateWorkflowAction(order, [], { ...action, outcome: 'blocked', blockedBy: 'Cliente' }, '2026-11-05')).not.toThrow();
     expect(() => validateWorkflowAction(order, [], { ...action, notes: 'No' }, '2026-11-05')).toThrow(/detalle/);
   });
-  it('requires a deposit and a valid appointment, but permits documenting a delivered historical appointment', () => {
+  it('requires a deposit and a verified preparation appointment while preserving delivered dates', () => {
     const base = { outcome: 'completed' as const, notes: 'Confirmed objective', evidence: 'Verified reference', confirmed: true };
     const stages = [event('quote'), event('ack')];
-    expect(() => validateWorkflowAction({ ...order, paid: 0 }, [event('quote')], { ...base, task: 'ack', nextDueDate: '2026-11-06' }, '2026-11-05')).toThrow(/abono/);
-    for (const scheduledAt of [undefined, 'bad-date', '2026-11-04T16:00:00Z']) {
-      expect(() => validateWorkflowAction(order, stages, { ...base, task: 'prepare', scheduledAt }, '2026-11-05')).toThrow(/fecha|cita/);
+    expect(() => validateWorkflowAction({ ...order, paid: 0 }, [event('quote')], { ...base, task: 'ack', downpayment: [{ method: 'cash', amount: 100, receivedBy: 'Receiver', receipt: null }] }, '2026-11-05')).toThrow(/abono/);
+    expect(() => validateWorkflowAction(order, stages, { ...base, task: 'prepare' }, '2026-11-05')).toThrow();
+    for (const dateFrom of ['bad-date', '2026-11-04']) {
+      expect(() => validateWorkflowAction(order, stages, { ...base, task: 'prepare', preparation: { ...preparation, dateFrom } }, '2026-11-05')).toThrow(/fecha/i);
     }
-    expect(() => validateWorkflowAction({ ...order, deliveredAt: '2026-11-01T16:00:00Z' }, stages, { ...base, task: 'prepare', scheduledAt: '2026-11-01T16:00:00Z' }, '2026-11-05')).not.toThrow();
+    const historical = { ...order, deliveredAt: '2026-11-01T16:00:00Z' };
+    expect(() => validateWorkflowAction(historical, stages, { ...base, task: 'prepare', preparation }, '2026-11-05')).not.toThrow();
+    expect(historical.deliveredAt).toBe('2026-11-01T16:00:00Z');
+    expect(workflowTasks(order, [...stages, event('prepare', { preparation })], '2026-11-05')[0]).toMatchObject({ task: 'delivery', dueDate: '2026-11-06' });
   });
   it('completes all calendar checkpoints only with their objective and actual customer response', () => {
     const delivered = { ...order, status: 'entregado' as const, deliveredAt: '2026-10-21T16:00:00Z' };
     const stages = ['quote', 'ack', 'prepare', 'delivery', 'post_3', 'post_7'].map(task => event(task as WorkflowEvent['task']));
-    const action = { task: 'post_14' as const, outcome: 'completed' as const, notes: 'Client confirms satisfaction', evidence: 'Conversation reference', confirmed: true, contactResult: 'answered' as const, partStatus: 'installed_ok' as const };
+    const action = { task: 'post_14' as const, outcome: 'completed' as const, notes: 'Client confirms satisfaction', evidence: 'Conversation reference', confirmed: true, contactResult: 'answered' as const, partStatus: 'installed_ok' as const, communication: { channel: 'call' as const, warrantyWarningGiven: false } };
     expect(workflowTasks(delivered, stages, '2026-11-04')[0].bucket).toBe('today');
     expect(() => validateWorkflowAction(delivered, stages, action, '2026-11-04')).not.toThrow();
     expect(() => validateWorkflowAction(delivered, stages, { ...action, partStatus: 'has_issues' }, '2026-11-04')).toThrow(/objetivo/);
@@ -158,16 +190,25 @@ describe('verifiable order workflow', () => {
     expect(() => validateWorkflowAction(delivered, stages, {
       task: 'post_3', outcome: 'completed', notes: 'Customer confirmed reception', evidence: 'Conversation reference',
       confirmed: true, contactResult: 'answered', partStatus: 'installed_ok',
+      communication: { channel: 'call', warrantyWarningGiven: false },
     }, '2026-11-06')).toThrow(/todavía/);
   });
   it('does not let callers postpone the initial confirmation SLA or contradict a no-response result', () => {
-    expect(() => validateWorkflowAction(order, [], {
-      task: 'quote', outcome: 'completed', notes: 'Cotización verificada', evidence: 'Referencia verificada',
-      confirmed: true, nextDueDate: '2027-01-01',
+    expect(() => validateWorkflowAction(order, [event('ack')], {
+      task: 'prepare', outcome: 'completed', notes: 'Preparación verificada', evidence: 'Referencia verificada',
+      confirmed: true, nextDueDate: '2027-01-01', preparation,
     }, '2026-11-05')).toThrow(/fecha|plazo/);
     expect(() => validateWorkflowAction(order, [], {
-      task: 'quote', outcome: 'no_response', notes: 'No respondió', nextDueDate: '2026-11-06', nextAction: 'Reintentar',
+      task: 'ack', outcome: 'no_response', notes: 'No respondió', nextDueDate: '2026-11-06', nextAction: 'Reintentar',
       contactResult: 'answered',
     }, '2026-11-05')).toThrow(/respuesta|contradictorio/);
+  });
+  it('keeps quotation automatic after reopening and ignores obsolete quotation retry deadlines', () => {
+    const reopened = [event('ack'), event('quote', { outcome: 'reopened', nextDueDate: '2026-11-06' })];
+    expect(completedWorkflowStages(reopened)).toEqual(['quote']);
+    expect(workflowTasks(order, reopened, '2026-11-05')[0]).toMatchObject({ task: 'ack', dueDate: '2026-11-06' });
+    expect(workflowTasks(order, [event('quote', { outcome: 'no_response', nextDueDate: '2027-01-01' })], '2026-11-05')[0])
+      .toMatchObject({ task: 'ack', objectiveDueDate: '2026-10-22' });
+    expect(workflowTasks(order, [event('quote', { createdAt: '2026-11-05T16:00:00Z' })], '2026-11-05')[0].objectiveDueDate).toBe('2026-10-22');
   });
 });

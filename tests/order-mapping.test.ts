@@ -143,6 +143,6 @@ describe('database order mapping', () => {
   it('returns null for empty or invalid SQL dates', () => {
     expect(toMysqlDateTime()).toBeNull();
     expect(toMysqlDateTime('not-a-date')).toBeNull();
-    expect(toMysqlDateTime('2026-09-18T14:30:45')).toMatch(/^2026-09-18 14:30:45$/);
+    expect(toMysqlDateTime('2026-09-18T14:30:45Z')).toBe('2026-09-18 14:30:45');
   });
 });

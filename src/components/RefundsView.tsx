@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Order, RefundRequest } from '../types';
 import { apiFetch } from '../services/apiFetch';
 import { RefundRequestView } from './RefundRequestView';
+import { OrderAftersalesPanel } from './OrderAftersales';
 
 interface RefundsViewProps {
   orders: Order[];
@@ -18,6 +19,7 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
   const [creating, setCreating] = useState(false);
+  const [managingId, setManagingId] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -76,6 +78,9 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
   if (creating && selectedOrder) return <RefundRequestView key={selectedOrder.id} order={selectedOrder}
     onBack={() => { setCreating(false); setSelectedOrderId(''); }}
     onSuccess={(message) => { setMessage(message); setCreating(false); setSelectedOrderId(''); }} />;
+  const managingOrder = orders.find(order => String(order.id) === managingId);
+  if (managingOrder) return <div className="radar-view horizon-view space-y-4"><button className={buttonClass} onClick={() => setManagingId('')}>Volver a reembolsos</button>
+    <h1>{managingOrder.code}</h1><OrderAftersalesPanel order={managingOrder} /></div>;
 
   return <div className="radar-view horizon-view space-y-5 pb-10 text-slate-100">
     <header className="horizon-view-header"><div><h1 className="text-2xl font-black">Reembolsos</h1><p className="text-slate-400">Solicitudes y pagos registrados</p></div>
@@ -98,14 +103,13 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
       </select>
     </div>
     <div className="space-y-3">{filtered.map((refund) => <article key={refund.id} className="horizon-view-card rounded-2xl border border-slate-700 bg-slate-900 p-4 space-y-2">
-      <div className="flex justify-between"><strong>{refund.id} · {refund.orderCode}</strong><span>{refund.status}</span></div>
+      <div className="flex flex-wrap justify-between gap-2"><strong>{refund.id} · {refund.orderCode} · {refund.refundScope === 'core' ? 'Core' : 'Compra'}</strong><span>{refund.reviewStage || refund.status}</span></div>
       <p>{refund.customerName} · {refund.vehicle} · {refund.part}</p><p>{refund.reason}</p>
       <p>${Number(refund.amount).toFixed(2)} · {refund.paymentMethod} · {refund.paymentDetails}</p>
       <div className="flex flex-wrap gap-2">
         {onSelectOrder && <button className={buttonClass} onClick={() => onSelectOrder(String(refund.orderId))}>Ver orden</button>}
         {userRole === 'admin' && refund.status === 'pending' && <>
-          <button className={buttonClass} disabled={busyId !== null} onClick={() => { void update(refund, 'completed'); }}>Confirmar pago</button>
-          <button className={buttonClass} disabled={busyId !== null} onClick={() => { void update(refund, 'cancelled'); }}>Cancelar solicitud</button>
+          <button className={buttonClass} onClick={() => setManagingId(String(refund.orderId))}>Gestionar revisión, aprobación y devolución</button>
         </>}
       </div>
     </article>)}

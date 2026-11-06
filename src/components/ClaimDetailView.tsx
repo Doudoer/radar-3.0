@@ -72,7 +72,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({ claim, order, 
                 className="bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 shadow-[0_0_20px_rgba(16,185,129,0.45)] cursor-pointer active:scale-95 transition-all"
               >
                 <span className="material-symbols-outlined text-[18px]">verified</span>
-                <span>Marcar como Resuelto</span>
+                <span>Gestionar resolución verificable</span>
               </button>
             )}
           </div>

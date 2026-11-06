@@ -28,13 +28,14 @@ describe('information integrity', () => {
   });
   it('rejects overpayment and permits Pagado after a down payment', () => {
     expect(() => validateOrder({ ...payload(), financials: { ...payload().financials, downPayment: 136 } })).toThrow(/superar/);
-    expect(() => validateOrder({ ...payload(), status: 'pagado' })).not.toThrow();
+    expect(() => validateOrder({ ...payload(), status: 'pagado' })).toThrow(/Cotización/);
+    expect(() => validateOrder({ ...payload(), status: 'pagado' }, previous())).not.toThrow();
     expect(() => validateOrder({
       ...payload(), status: 'pagado', financials: { ...payload().financials, downPayment: 0 },
     })).toThrow(/downpayment/i);
     expect(() => validateOrder({
       ...payload(), status: 'pagado', financials: { ...payload().financials, downPayment: 125 },
-    })).not.toThrow();
+    }, previous())).not.toThrow();
   });
   it('rejects stale versions and unauthorized financial changes', () => {
     expect(() => validateOrder({ ...payload(), version: 2 }, previous(), 'admin')).toThrow(/cambió/);
@@ -62,7 +63,7 @@ describe('information integrity', () => {
       ...order, financials: { ...order.financials, downPayment: 125 },
     }, { ...previous(), status: 'En Camino' } as RowDataPacket)).not.toThrow();
     expect(() => validateOrder({ ...order, deliveredAt: '2026-01-01T10:00:00Z' }, {
-      ...previous(), status: 'Entregado', delivered_at: '2026-01-01 10:00:00',
+      ...previous(), status: 'Entregado', delivered_at: new Date('2026-01-01T10:00:00Z'), warranty_days: 0,
     } as RowDataPacket)).not.toThrow();
   });
   it('normalizes known aliases without guessing unknown historical states', () => {

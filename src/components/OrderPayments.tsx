@@ -1,7 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { apiFetch } from '../services/apiFetch';
-import { emptySettlement, PAYMENT_METHODS, previewSettlement, settlementSchema, type PaymentDetail, type Settlement } from '../utils/orderPayments';
+import { emptySettlement, isBalancePaymentMethod, PAYMENT_METHODS, previewSettlement, settlementSchema, validateCollectionEvidence, type PaymentDetail, type Settlement } from '../utils/orderPayments';
+import { DownpaymentFields, uploadDownpaymentReceipt } from './DownpaymentConfirmation';
+import { downpaymentSchema, validateDownpayment, type DownpaymentLine } from '../utils/downpaymentConfirmation';
+import { PreparationFields } from './OrderPreparation';
+import { emptyPreparation, preparationSchema } from '../utils/orderPreparation';
+import { completedWorkflowStages, type WorkflowOrder, type WorkflowEvent } from '../utils/orderWorkflow';
+import { OrderDeliveryFields } from './OrderDeliveryFields';
 
 const money = (value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
 export async function paymentResponse<T>(response: Response): Promise<T> {
@@ -29,14 +35,30 @@ export function usePaymentDetail(orderId: string, version?: number, enabled = tr
   return { detail, error, reload: () => setAttempt(value => value + 1) };
 }
 export const OrderPaymentFields: React.FC<{
-  detail: PaymentDetail; value: Settlement; onChange: (value: Settlement) => void; disabled?: boolean;
-}> = ({ detail, value, onChange, disabled }) => {
+  orderId: string; detail: PaymentDetail; value: Settlement; onChange: (value: Settlement) => void; disabled?: boolean;
+  onUploadingChange?: (uploading: boolean) => void;
+}> = ({ orderId, detail, value, onChange, disabled, onUploadingChange }) => {
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const uploadingRef = useRef(false);
   let summary: ReturnType<typeof previewSettlement> | null = null;
   let previewError = '';
   try { summary = previewSettlement(detail.order, value); }
   catch (reason) { previewError = reason instanceof Error ? reason.message : 'Liquidación inválida'; }
   const updatePayment = (index: number, patch: Partial<Settlement['payments'][number]>) =>
     onChange({ ...value, payments: value.payments.map((item, i) => i === index ? { ...item, ...patch } : item) });
+  const saleTotal = (Math.round(detail.order.price * 100) + Math.round(detail.order.shipping * 100) + Math.round(detail.order.core * 100)) / 100;
+  const previousBalance = (Math.round(saleTotal * 100) - Math.round(detail.order.paid * 100)) / 100;
+  const amountRow = (label: string, amount: string, emphasized = false) => <div className={`flex flex-wrap justify-between gap-x-4 gap-y-1 ${emphasized ? 'border-t border-[var(--border-color)] pt-3 font-bold' : ''}`}>
+    <dt>{label}</dt><dd className="font-semibold tabular-nums">{amount}</dd>
+  </div>;
+  const upload = async (index: number, file: File) => {
+    if (uploadingRef.current) return;
+    uploadingRef.current = true; setUploading(true); onUploadingChange?.(true); setUploadError('');
+    try { updatePayment(index, { receipt: await uploadDownpaymentReceipt(orderId, file) }); }
+    catch (reason) { setUploadError(reason instanceof Error ? reason.message : 'No se pudo subir el comprobante.'); }
+    finally { uploadingRef.current = false; setUploading(false); onUploadingChange?.(false); }
+  };
   return <section className="space-y-4">
     <div className="grid gap-3 sm:grid-cols-3 text-sm">
       <p>Total anterior<strong className="block">{money(detail.order.price + detail.order.shipping + detail.order.core)}</strong></p>
@@ -44,7 +66,8 @@ export const OrderPaymentFields: React.FC<{
       <p>Cargo de core<strong className="block">{money(detail.order.core)}</strong></p>
     </div>
     {!detail.canRecord && <p className="text-sm text-amber-600">Solo administración puede registrar cobros y recibir el core. Puedes confirmar una entrega ya liquidada.</p>}
-    <fieldset disabled={disabled || !detail.canRecord} className="space-y-4">
+    {detail.remainingMethodsOnly && <p className="text-sm">Saldo pendiente: únicamente efectivo, Cash App o Zelle, según lo informado al cliente.</p>}
+    <fieldset disabled={disabled || uploading || !detail.canRecord} className="space-y-4">
       <legend className="font-bold mb-2">Core / pieza usada</legend>
       {detail.order.coreReceived ? <p className="text-sm">Core recibido. El cargo ya fue eliminado.</p> : detail.order.core > 0 ? <>
         <label className="flex flex-col gap-2 text-sm">Tratamiento del core
@@ -66,32 +89,53 @@ export const OrderPaymentFields: React.FC<{
         <strong>Pagos recibidos ahora</strong>
         <button type="button" className="cyber-btn-secondary px-3 py-2" disabled={value.payments.length >= 20} onClick={() => onChange({ ...value, payments: [...value.payments, { amount: 0, method: 'cash', reference: '', confirmed: true }] })}>Agregar método de pago</button>
       </div>
-      {!value.payments.length && <p className="text-sm text-[var(--text-secondary)]">Sin cobros nuevos. Agrega una línea por cada método utilizado.</p>}
+      {!value.payments.length && <p className="text-sm text-[var(--text-secondary)]">Sin cobros nuevos. Agrega solo dinero recibido ahora; no repitas los pagos anteriores. Si ya está liquidada, puedes entregar sin cobrar otra vez.</p>}
       {value.payments.map((payment, index) => <div key={index} className="rounded-xl bg-[var(--bg-card-subtle)] p-3 space-y-3">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-2 text-sm">Método {index + 1}
-            <select value={payment.method} onChange={event => updatePayment(index, { method: event.target.value as typeof payment.method })}>
-              {Object.entries(PAYMENT_METHODS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            <select value={payment.method} onChange={event => updatePayment(index, { method: event.target.value as typeof payment.method, receipt: null, receivedBy: '' })}>
+              {Object.entries(PAYMENT_METHODS).filter(([key]) => !detail.remainingMethodsOnly || isBalancePaymentMethod(key)).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-2 text-sm">Importe {index + 1} (USD)
             <input type="number" min="0.01" step="0.01" max="99999999" value={payment.amount || ''} onChange={event => updatePayment(index, { amount: Number(event.target.value) })} />
           </label>
         </div>
-        <label className="flex flex-col gap-2 text-sm">Referencia {index + 1}{payment.method === 'cash' ? ' (opcional)' : ' (obligatoria)'}
+        {payment.method === 'cash' ? <label className="flex flex-col gap-2 text-sm">Persona que recibió el dinero {index + 1}
+          <input required minLength={2} maxLength={200} value={payment.receivedBy || ''} onChange={event => updatePayment(index, { receivedBy: event.target.value })} />
+        </label> : <label className="flex flex-col gap-2 text-sm">Comprobante {index + 1} (imagen obligatoria)
+          <input type="file" required={!payment.receipt} accept="image/jpeg,image/png,image/webp,image/gif" onChange={event => {
+            const file = event.target.files?.[0]; event.target.value = ''; if (file) void upload(index, file);
+          }} />
+          {payment.receipt && <a className="underline" href={payment.receipt} target="_blank" rel="noreferrer">Ver comprobante subido</a>}
+        </label>}
+        <label className="flex flex-col gap-2 text-sm">Referencia {index + 1} (opcional)
           <input maxLength={200} value={payment.reference} onChange={event => updatePayment(index, { reference: event.target.value })} placeholder="Referencia de transacción, cheque o recibo; nunca datos de tarjeta" />
         </label>
         <button type="button" className="text-sm text-red-600" onClick={() => onChange({ ...value, payments: value.payments.filter((_, i) => i !== index) })}>Quitar pago {index + 1}</button>
       </div>)}
       {value.payments.length > 0 && <p className="text-sm text-amber-600">Registra solo dinero recibido y verificado. Un cheque o transferencia pendiente de confirmar no cuenta como cobrado. No guardes números de tarjeta ni CVV.</p>}
     </fieldset>
+    {uploading && <p role="status">Subiendo comprobante… Espera a que termine antes de guardar.</p>}
+    {uploadError && <p role="alert" className="text-sm text-red-600">{uploadError}</p>}
     {previewError && <p role="alert" className="text-red-600 text-sm">{previewError}</p>}
     {summary && <div className="rounded-xl bg-[var(--bg-card-subtle)] p-4 text-sm space-y-2" aria-live="polite">
-      <p>Ajuste por core recibido: <strong>-{money(summary.coreCredit)}</strong></p>
-      <p>Total ajustado: <strong>{money(summary.total)}</strong></p>
-      <p>Cobro nuevo: <strong>{money(summary.received)}</strong></p>
-      <p>Acumulado cobrado: <strong>{money(summary.paid)}</strong></p>
-      <p>Saldo final: <strong>{money(summary.balance)}</strong></p>
+      <h3 className="font-bold text-base">Desglose de venta y cobro</h3>
+      <dl className="space-y-3">
+        {amountRow('Precio de la pieza', money(detail.order.price))}
+        {amountRow('Delivery / envío', money(detail.order.shipping))}
+        {amountRow('Cargo de core', money(detail.order.core))}
+        {amountRow('Monto total de la venta', money(saleTotal), true)}
+        {amountRow('Downpayment / pagos anteriores', money(detail.order.paid))}
+        {amountRow('Monto restante antes de este cobro', money(previousBalance))}
+        {amountRow('Ajuste por core recibido', summary.coreCredit ? `-${money(summary.coreCredit)}` : money(0))}
+        {amountRow('Monto total a liquidar', money(summary.total), true)}
+        {amountRow('Cobro nuevo', money(summary.received))}
+        {amountRow('Acumulado cobrado', money(summary.paid))}
+        {amountRow('Monto restante por cobrar', money(summary.balance), true)}
+      </dl>
+      <p className="text-xs text-[var(--text-secondary)]">Downpayment / pagos anteriores incluye el abono y cualquier pago posterior ya registrado; no es un cobro nuevo. Total de venta = pieza + delivery + core. El ajuste de core se descuenta una sola vez.</p>
+      {!detail.order.shipping && <p className="text-xs text-[var(--text-secondary)]">Esta orden no tiene un cargo de delivery registrado.</p>}
       {detail.order.core > 0 && value.coreAction === 'keep' && <p>{summary.balance === 0 ? 'Core incluido en la liquidación.' : 'El cargo de core sigue incluido en el saldo pendiente.'}</p>}
     </div>}
     <details className="text-sm space-y-3"><summary className="cursor-pointer font-bold">Historial de cobros y core</summary>
@@ -100,6 +144,8 @@ export const OrderPaymentFields: React.FC<{
         <strong>{money(payment.amount)} · {payment.method ? PAYMENT_METHODS[payment.method] : 'Método no registrado'}</strong>
         <p>{payment.date ? new Date(payment.date).toLocaleString() : 'Fecha histórica no registrada'} · {payment.actor || 'Operador no registrado'}</p>
         {payment.reference && <p className="break-words">Referencia: {payment.reference}</p>}
+        {payment.receivedBy && <p>Recibió: {payment.receivedBy}</p>}
+        {payment.receipt && <a className="underline" href={payment.receipt} target="_blank" rel="noreferrer">Ver comprobante del cobro</a>}
       </article>)}
       {detail.coreReceipt && <p className="break-words">Core recibido: {money(detail.coreReceipt.amount)} · {detail.coreReceipt.reference} · {detail.coreReceipt.actor} · {new Date(detail.coreReceipt.date).toLocaleString()}</p>}
     </details>
@@ -107,17 +153,42 @@ export const OrderPaymentFields: React.FC<{
 };
 
 export const OrderPaymentsModal: React.FC<{
-  orderId: string; code: string; managed: boolean; initialDelivery?: boolean; onClose: () => void;
-}> = ({ orderId, code, managed, initialDelivery = false, onClose }) => {
+  orderId: string; code: string; customerName: string; managed: boolean; initialDelivery?: boolean; allowDelivery?: boolean; onClose: () => void;
+}> = ({ orderId, code, customerName, managed, initialDelivery = false, allowDelivery = true, onClose }) => {
   const { detail, error: loadError, reload } = usePaymentDetail(orderId);
   const [value, setValue] = useState(emptySettlement);
   const [delivery, setDelivery] = useState(initialDelivery);
-  const [notes, setNotes] = useState('');
-  const [evidence, setEvidence] = useState('');
+  const [deliveryPhotos, setDeliveryPhotos] = useState<string[]>([]);
   const [confirmed, setConfirmed] = useState(false);
   const [verifiedPayments, setVerifiedPayments] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const uploadInFlight = useRef(false);
+  const onUploadingChange = (active: boolean) => { uploadInFlight.current = active; setUploading(active); };
+  const [workflow, setWorkflow] = useState<{ order: WorkflowOrder; events: WorkflowEvent[] } | null>(null);
+  const [workflowError, setWorkflowError] = useState('');
+  const [workflowAttempt, setWorkflowAttempt] = useState(0);
+  const [downpayment, setDownpayment] = useState<DownpaymentLine[]>([]);
+  const [preparation, setPreparation] = useState(emptyPreparation);
+  useEffect(() => {
+    if (!managed) return;
+    let active = true;
+    setWorkflow(null); setWorkflowError('');
+    void (async () => {
+      try {
+        const data = await paymentResponse<{ order: WorkflowOrder; events: WorkflowEvent[] }>(await apiFetch(`/orders/${orderId}/workflow`));
+        if (active) {
+          setWorkflow(data); setDownpayment([{ method: 'cash', amount: data.order.paid, receivedBy: '', receipt: null }]);
+        }
+      } catch (reason) { if (active) setWorkflowError(reason instanceof Error ? reason.message : 'No se pudo cargar el flujo.'); }
+    })();
+    return () => { active = false; };
+  }, [orderId, managed, workflowAttempt]);
+  const completed = workflow ? completedWorkflowStages(workflow.events, workflow.order) : [];
+  const needsConfirmation = managed && workflow && !completed.includes('ack');
+  const needsPreparation = managed && workflow && !completed.includes('prepare');
+  const needsDownpayment = needsConfirmation && workflow.order.paid > 0 && workflow.order.confirmationPolicy === 'documented';
   const saving = useRef(false);
   const dialog = useRef<HTMLDivElement>(null);
   const close = useRef(onClose); close.current = onClose;
@@ -127,7 +198,7 @@ export const OrderPaymentsModal: React.FC<{
     document.body.style.overflow = 'hidden';
     dialog.current?.querySelector<HTMLElement>('button')?.focus();
     const keyboard = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !saving.current) close.current();
+      if (event.key === 'Escape' && !saving.current && !uploadInFlight.current) close.current();
       if (event.key !== 'Tab') return;
       const allControls: HTMLElement[] = dialog.current ? Array.from(dialog.current.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary')) : [];
       const controls = allControls.filter(item => item.getClientRects().length);
@@ -139,17 +210,35 @@ export const OrderPaymentsModal: React.FC<{
     return () => { document.body.style.overflow = overflow; document.removeEventListener('keydown', keyboard); previous?.focus(); };
   }, []);
   const save = async (deliver: boolean) => {
-    if (!detail || saving.current) return;
+    if (!detail || saving.current || uploadInFlight.current) return;
     setError('');
+    if (deliver && !allowDelivery) { setError('Esta orden no permite registrar otra entrega. Revisa su estado e historial.'); return; }
     const input = settlementSchema.safeParse(value);
     if (!input.success) { setError(input.error.issues[0]?.message || 'Revisa los importes y referencias.'); return; }
+    try { validateCollectionEvidence(input.data); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'Revisa los comprobantes.'); return; }
     if (value.payments.length && !verifiedPayments) { setError('Confirma que verificaste la recepción de todos los pagos.'); return; }
-    if (deliver && (notes.trim().length < 5 || evidence.trim().length < 5 || !confirmed)) { setError('Indica el detalle, la evidencia y confirma la entrega física.'); return; }
+    if (deliver && !confirmed) { setError('Confirma la entrega física y la comunicación de la garantía.'); return; }
     saving.current = true; setBusy(true);
     try {
+      let completion: { downpayment?: DownpaymentLine[]; preparation?: ReturnType<typeof preparationSchema.parse> } | undefined;
+      if (deliver) {
+        if (previewSettlement(detail.order, input.data).balance !== 0) throw new Error('Liquida el saldo pendiente antes de confirmar la entrega.');
+        if (input.data.payments.some(payment => !isBalancePaymentMethod(payment.method))) throw new Error('El saldo de entrega solo admite efectivo, Cash App o Zelle.');
+        if (managed) {
+          if (!workflow) throw new Error(workflowError || 'Espera a que se cargue el flujo.');
+          if (workflow.order.version !== detail.version) throw new Error('La orden cambió; cierra y vuelve a abrir el modal.');
+          completion = {};
+          if (needsDownpayment) {
+            completion.downpayment = downpaymentSchema.parse(downpayment);
+            validateDownpayment(workflow.order.paid, completion.downpayment);
+          }
+          if (needsPreparation) completion.preparation = preparationSchema.parse(preparation);
+        }
+      }
       const body = deliver && managed
-        ? { version: detail.version, settlement: input.data, task: 'delivery', outcome: 'completed', notes, evidence, confirmed }
-        : { version: detail.version, settlement: input.data, ...(deliver ? { delivery: { notes, evidence, confirmed } } : {}) };
+        ? { version: detail.version, settlement: input.data, task: 'delivery', outcome: 'completed', deliveryPhotos, confirmed, completion }
+        : { version: detail.version, settlement: input.data, ...(deliver ? { delivery: { photos: deliveryPhotos, confirmed } } : {}) };
       const result = await paymentResponse<{ ok: boolean; version: number }>(await apiFetch(`/orders/${orderId}/${deliver && managed ? 'workflow' : 'payments'}`, { method: 'POST', body: JSON.stringify(body) }));
       if (!result.ok || result.version !== detail.version + 1) throw new Error('Respuesta inválida; recarga para comprobar el cobro antes de reintentar.');
       window.dispatchEvent(new Event('radar:data-changed'));
@@ -160,23 +249,31 @@ export const OrderPaymentsModal: React.FC<{
   };
   return createPortal(<div className="horizon-modal horizon-payment-overlay fixed inset-0 z-[160] bg-black/50 flex items-center justify-center p-3">
     <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="order-payment-title" className="horizon-workflow-form horizon-view-card w-full max-w-2xl max-h-[92dvh] overflow-y-auto p-5 space-y-4">
-      <div className="flex items-start justify-between gap-3"><h2 id="order-payment-title" className="text-xl font-bold">Registrar cobro y entrega · {code}</h2>
-        <button type="button" disabled={busy} onClick={onClose} aria-label="Cerrar cobros">Cerrar</button></div>
+      <div className="flex items-start justify-between gap-3"><h2 id="order-payment-title" className="text-xl font-bold">{delivery ? 'Registrar entrega' : 'Registrar cobro / ver pagos y core'} · {code}</h2>
+        <button type="button" disabled={busy || uploading} onClick={onClose} aria-label="Cerrar cobros">Cerrar</button></div>
       {loadError ? <><p role="alert" className="text-red-600">{loadError}</p><button type="button" onClick={reload}>Recargar cobros</button></>
         : !detail ? <p role="status">Cargando cobros…</p> : <form onSubmit={event => { event.preventDefault(); void save(delivery); }} className="space-y-4">
-          <OrderPaymentFields detail={detail} value={value} onChange={next => { setValue(next); setVerifiedPayments(false); }} disabled={busy} />
+          <OrderPaymentFields orderId={orderId} detail={{ ...detail, remainingMethodsOnly: detail.remainingMethodsOnly || delivery }} value={value} onChange={next => { setValue(next); setVerifiedPayments(false); }} disabled={busy || uploading} onUploadingChange={onUploadingChange} />
           {value.payments.length > 0 && <label className="flex gap-2 text-sm"><input type="checkbox" disabled={busy} checked={verifiedPayments} onChange={event => setVerifiedPayments(event.target.checked)} />Verifiqué la recepción de todos los pagos indicados.</label>}
-          <label className="flex gap-2 text-sm"><input type="checkbox" disabled={busy} checked={delivery} onChange={event => setDelivery(event.target.checked)} />Registrar también la entrega física</label>
-          {delivery && <fieldset disabled={busy} className="space-y-3">
-            {managed && <p className="text-sm text-[var(--text-secondary)]">Las etapas anteriores del flujo deben estar verificadas. Si faltan, puedes guardar solo el cobro y completarlas después.</p>}
-            <label className="flex flex-col gap-2 text-sm">Detalle de la entrega<textarea minLength={5} maxLength={5000} value={notes} onChange={event => setNotes(event.target.value)} /></label>
-            <label className="flex flex-col gap-2 text-sm">Evidencia de entrega<textarea minLength={5} maxLength={5000} value={evidence} onChange={event => setEvidence(event.target.value)} /></label>
-            <label className="flex gap-2 text-sm"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />Confirmo la entrega física, el comprobante y la comunicación de la garantía.</label>
+          {!initialDelivery && allowDelivery && <label className="flex gap-2 text-sm"><input type="checkbox" disabled={busy || uploading} checked={delivery} onChange={event => setDelivery(event.target.checked)} />Registrar también la entrega física</label>}
+          {delivery && <fieldset disabled={busy || uploading} className="space-y-3">
+            <p className="text-sm">Al confirmar se guardan juntos los pagos, las verificaciones pendientes y la entrega. La orden queda Entregada y finaliza el flujo comercial; los seguimientos post-entrega continúan. La fecha y hora son automáticas.</p>
+            <p className="text-sm">Los pagos anteriores ya están incluidos. Si el saldo es cero, no agregues otro cobro. La garantía y el plazo de devolución del core comienzan con la entrega. Después podrás adjuntar el invoice PDF en la sección de posventa; si falta, quedará pendiente.</p>
+            {managed && (workflowError ? <><p role="alert" className="text-red-600">{workflowError}</p><button type="button" onClick={() => setWorkflowAttempt(value => value + 1)}>Recargar flujo</button></>
+              : !workflow ? <p role="status">Cargando verificaciones pendientes…</p> : <>
+                {needsDownpayment && <section><h3 className="font-bold">Confirmación del abono anterior</h3><DownpaymentFields paid={workflow.order.paid} value={downpayment} onChange={setDownpayment} disabled={busy || uploading} onUpload={file => uploadDownpaymentReceipt(orderId, file)} onUploadingChange={onUploadingChange} /></section>}
+                {needsConfirmation && !workflow.order.paid && <p>Sin abono anterior: la confirmación se documentará con los pagos recibidos ahora, sin volver a cobrarlos.</p>}
+                {needsConfirmation && workflow.order.paid > 0 && workflow.order.confirmationPolicy !== 'documented' && <p>Confirmación histórica: se conservarán el detalle, la evidencia y la verificación de esta entrega, sin exigir comprobantes nuevos del abono anterior.</p>}
+                {needsPreparation && <section><h3 className="font-bold">Preparación y cita pendientes</h3><PreparationFields allowInPerson value={preparation} onChange={setPreparation} disabled={busy || uploading} onUpload={file => uploadDownpaymentReceipt(orderId, file)} onUploadingChange={onUploadingChange} /></section>}
+              </>)}
+            <OrderDeliveryFields orderId={orderId} customerName={customerName} photos={deliveryPhotos} onChange={setDeliveryPhotos}
+              disabled={busy || uploading} onUploadingChange={onUploadingChange} />
+            <label className="flex gap-2 text-sm"><input required type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />Confirmo la entrega física al cliente y la comunicación de la garantía.</label>
           </fieldset>}
           {error && <p role="alert" className="text-red-600">{error}</p>}
           <div className="flex flex-wrap gap-3">
-            <button type="button" disabled={busy || !detail.canRecord} className="cyber-btn-secondary px-4 py-2" onClick={() => void save(false)}>Guardar cobro sin entregar</button>
-            {delivery && <button type="submit" disabled={busy} className="horizon-primary rounded-xl px-4 py-2">{busy ? 'Guardando…' : 'Confirmar cobro y entrega'}</button>}
+            {!initialDelivery && <button type="button" disabled={busy || uploading || !detail.canRecord} className="cyber-btn-secondary px-4 py-2" onClick={() => void save(false)}>Guardar cobro sin entregar</button>}
+            {delivery && <button type="submit" disabled={busy || uploading || managed && !workflow} className="horizon-primary rounded-xl px-4 py-2">{busy ? 'Guardando…' : 'Confirmar entrega y cerrar flujo comercial'}</button>}
           </div>
         </form>}
     </div>

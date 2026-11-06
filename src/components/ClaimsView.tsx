@@ -3,6 +3,7 @@ import { Claim, ClaimStatus, Order } from '../types';
 import { apiFetch } from '../services/apiFetch';
 import { ClaimDetailView } from './ClaimDetailView';
 import { getClaimWarrantyError } from '../utils/orderWarranty';
+import { OrderAftersalesPanel } from './OrderAftersales';
 
 interface ClaimsViewProps {
   orders?: Order[];
@@ -20,6 +21,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({ orders = [], userRole = 
   const [status, setStatus] = useState('Todos');
   const [priority, setPriority] = useState('Todas');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [managingId, setManagingId] = useState('');
   const [creating, setCreating] = useState(false);
   const [orderId, setOrderId] = useState('');
   const [reason, setReason] = useState('');
@@ -87,24 +89,21 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({ orders = [], userRole = 
 
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!orderId || !reason.trim()) return setError('Selecciona una orden e indica el motivo.');
+    if (!orderId) return setError('Selecciona una orden.');
     const selectedOrder = orders.find((order) => String(order.id) === String(orderId));
     const warrantyError = selectedOrder && getClaimWarrantyError(selectedOrder);
     if (warrantyError) return setError(warrantyError);
-    if (await mutate('/claims', 'POST', { orderId, description: reason.trim() }, 'Reclamo registrado.')) {
-      setCreating(false);
-      setOrderId('');
-      setReason('');
-    }
+    setManagingId(orderId);
+    setCreating(false);
   };
 
   const changeStatus = async (claim: Claim, targetStatus: ClaimStatus) => {
-    if (targetStatus === 'Denied' && userRole !== 'admin') return setError('Solo un administrador puede denegar garantías.');
-    const saved = await mutate(`/claims/${claim.id}`, 'PUT', {
-      status: targetStatus, orderId: claim.orderId,
-    }, 'Reclamo actualizado.');
-    if (saved && targetStatus === 'Resolved') setSelectedId(null);
+    setManagingId(String(claim.orderId));
   };
+  const managingOrder = orders.find(order => String(order.id) === managingId);
+  if (managingOrder) return <div className="radar-view horizon-view space-y-4">
+    <button className={buttonClass} onClick={() => setManagingId('')}>Volver a reclamos</button><h1>{managingOrder.code}</h1>
+    <OrderAftersalesPanel order={managingOrder} /></div>;
 
   return (
     <div className="radar-view horizon-view space-y-5 pb-10 text-slate-100">
@@ -170,11 +169,11 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({ orders = [], userRole = 
               );
             })}
           </select>
-          <textarea required className={`${fieldClass} w-full`} aria-label="Motivo del reclamo" value={reason} onChange={(event) => setReason(event.target.value)} />
+          <p>En el siguiente paso registrarás el motivo, soportes y próxima revisión.</p>
           {error && <p role="alert" className="text-red-300">{error}</p>}
           <div className="flex gap-3">
             <button type="button" className={buttonClass} disabled={busy} onClick={() => setCreating(false)}>Volver</button>
-            <button className={buttonClass} disabled={busy}>{busy ? 'Guardando…' : 'Registrar reclamo'}</button>
+            <button className={buttonClass} disabled={busy}>Continuar al flujo verificable</button>
           </div>
         </form>
       </div>}

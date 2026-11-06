@@ -68,12 +68,48 @@ actual. El acceso tambien esta disponible desde el encabezado y la busqueda.
 Al iniciar sesion con tareas accionables se muestra esta bandeja; no se bloquea
 el resto del sistema.
 
-- Cotizacion, confirmacion, preparacion/cita y entrega se completan en orden,
-  con detalle, referencia verificable, confirmacion, autor autenticado y fecha.
-  El numero legacy de etapa no demuestra cumplimiento.
-- Primera gestion: un dia habil desde la creacion. Confirmacion: siguiente
-  dia habil tras cotizar. Preparacion: fecha comprometida al confirmar.
-  Entrega: fecha acordada al preparar. Dias habiles: lunes a viernes, sin
+- Cotizacion queda completada automaticamente al crear la orden, sin otro
+  formulario. Muestra la fecha de creacion y el agente autenticado registrado
+  en la auditoria de creacion, independiente del responsable actual. Si falta
+  ese registro historico, muestra "No registrado"; no inventa un agente.
+  Confirmacion documenta el downpayment ya registrado: monto por metodo
+  (cash, Zelle, Cash App o TDD/TDC), receptor del dinero solo en cash e imagen obligatoria
+  para todo metodo excepto cash, que no permite comprobante. Admite pagos
+  divididos cuya suma debe coincidir con el acumulado existente. No agrega
+  dinero ni movimientos financieros; si falta el abono, primero debe
+  registrarse desde Registrar cobro. La fecha y el autor son del servidor,
+  sin detalle, referencia de texto, casilla o fecha manual adicionales.
+  Los comprobantes pertenecen a la misma orden y al usuario que los subio
+  (administracion puede documentar comprobantes de otros usuarios).
+  Estos requisitos se aplican solo a ordenes nuevas desde la primera
+  aplicacion de la migracion 025 en cada entorno. La migracion toma una
+  instantanea inmutable: solo las ordenes en estado Pagado en ese momento
+  tienen Confirmacion preaprobada, claramente identificada, sin inventar
+  actor, evidencia o pagos ni cambiar su estado comercial. Las demas ordenes
+  anteriores conservan la confirmacion previa (detalle, referencia, abono y
+  fecha comprometida, sin comprobante de imagen nuevo). Cambiar despues una
+  orden antigua a Pagado no la preaprueba; repetir migraciones tampoco
+  modifica la instantanea ni incluye ordenes nuevas. Una reapertura explicita
+  de Confirmacion exige verificarla nuevamente usando el formulario historico.
+  Completar Confirmacion cambia automaticamente Cotizacion a Pagado;
+  documentar el abono no vuelve a cobrarlo.
+  Preparacion/cita exige aviso del patio al call center, respuesta del cliente
+  por llamada o SMS (solo despues de intentar llamar sin respuesta), fecha
+  exacta o rango de dos fechas, aviso del saldo y de sus metodos permitidos
+  (efectivo, Cash App y Zelle), y acuerdo de llevar o pagar el core.
+  SMS exige una o mas capturas de la conversacion y respuesta, subidas a esa
+  misma orden. No basta enviar un mensaje. Se selecciona recogida en yarda
+  o delivery; delivery requiere direccion. Al completar se guardan modalidad,
+  direccion de envio y fechas, y cambia automaticamente a Listo para Retiro
+  o Listo para Despacho. La intencion del core no registra su recepcion ni cobro.
+  La entrega conserva detalle, referencia verificable y confirmacion fisica.
+  Todas las gestiones conservan autor autenticado y fecha del servidor.
+  El numero legacy de etapa no demuestra cumplimiento de estas gestiones.
+- Primera gestion pendiente: Confirmacion, un dia habil desde la creacion
+  de la orden, no desde una gestion de cotizacion registrada posteriormente.
+  Preparacion: siguiente dia habil desde la confirmacion; las confirmaciones
+  historicas conservan su fecha comprometida.
+  Entrega: primera fecha del rango acordado al preparar. Dias habiles: lunes a viernes, sin
   calendario de feriados.
 - Sin respuesta no completa el objetivo: exige proxima accion y reintento
   el siguiente dia habil. No elimina el aviso de atraso del objetivo original.
@@ -82,9 +118,12 @@ el resto del sistema.
 - El supervisor recibe un indicador interno al acumular un dia habil de
   atraso. La tabla distingue objetivos confirmados dentro del plazo,
   intentos, vencimientos y bloqueos. No se agregan envios WhatsApp automaticos.
-- El estado logistico se sigue cambiando desde la orden. El servidor exige
-  cotizacion verificada para avanzar a Pagado, confirmacion para Preparacion
-  y preparacion verificada para Listo/En camino. La entrega se registra desde
+- El selector superior esta bloqueado y muestra solo el estado actual. No
+  se permiten cambios manuales de estado por edicion, ni para administracion.
+  Las ordenes nuevas se crean solo en Cotizacion; Confirmacion y Preparacion
+  controlan los avances automaticos, sin etapa manual intermedia. Modalidad,
+  direccion y cita verificadas tampoco se pueden sobrescribir por edicion.
+  La entrega se registra desde
   el flujo, con saldo liquidado, evidencia y las validaciones existentes de
   inventario, estado y garantia. Administracion sigue registrando los cobros.
 - Post-entrega mantiene los hitos **3, 7 y 14 dias calendario**. Un mensaje
@@ -94,14 +133,29 @@ el resto del sistema.
 - Reclamos y reembolsos siguen sus servicios propios. Registrar una incidencia
   en el flujo no crea ni cierra un caso: hay que gestionarlo en su vista.
   Reactivaciones y retrocesos reabren las etapas pertinentes sin borrar el
-  historial ni cambiar la entrega o garantia originales.
-- Las ordenes existentes no reciben evidencias inventadas: deben regularizar
-  sus etapas pendientes. Se conserva el historial de contactos anterior.
+  historial ni cambiar la entrega o garantia originales. Cotizacion no se
+  reabre: una reactivacion temprana vuelve a Confirmacion.
+- Las ordenes existentes tambien muestran Cotizacion completada desde su
+  creacion, sin insertar evidencias nuevas ni modificar datos historicos;
+  deben regularizar las etapas siguientes pendientes. Se conservan los
+  eventos anteriores de cotizacion y el historial de contactos.
   Las anteriores al corte conservan su flujo legacy, accesible desde
   **Seguimiento historico**. La API antigua de contactos rechaza avances de
   ordenes sujetas al nuevo flujo para evitar dos motores contradictorios.
+- Las ordenes en Entregado muestran todas las etapas comerciales completadas
+  automaticamente desde su historial. Confirmacion usa la primera fecha del
+  estado Pagado anterior a la entrega; Entrega usa la fecha fisica registrada
+  o, si falta, la primera entrada Entregado del historial, con hora y segundos.
+  Preparacion se identifica como regularizada por entrega historica, sin
+  inventar llamadas, citas ni capturas. Las fechas ausentes se indican como
+  no registradas; no se sustituyen por la fecha actual. No inserta eventos ni
+  modifica dinero, garantia o datos originales. El panel tambien esta disponible
+  para entregadas anteriores al corte, conservando su seguimiento legacy.
 
-Persistencia aditiva: `migrations/022_order_workflow_events.sql`, aplicada con
+Persistencia aditiva: `migrations/022_order_workflow_events.sql` y
+`migrations/024_workflow_downpayment_details.sql` y
+`migrations/025_confirmation_rollout.sql` y
+`migrations/026_verified_preparation.sql`, aplicadas con
 el runner explicito de migraciones y una cuenta DDL separada. No requiere
 seed ni modificar las ordenes existentes. Las tareas se derivan al consultar;
 no se agrega un cron externo. Los eventos tienen version de orden y transaccion
@@ -126,20 +180,40 @@ Validacion reproducible:
 
 ## Cobros divididos, core y entrega
 
-En el detalle de la orden, **Registrar cobro / ver pagos y core** permite
-registrar cobros parciales sin entregar. Seleccionar **Entregado** desde el
-detalle o la tabla abre el formulario de cobro y entrega; no registra dinero
-ni una entrega por cambiar solamente la etiqueta.
+El detalle de la orden no muestra el boton independiente de cobros, en ningun
+estado. Conserva el desglose financiero y las acciones del flujo verificable.
+La disponibilidad de inventario se muestra solo para ordenes activas sin entrega
+fisica; queda oculta en ordenes entregadas, incidencias y estados de cierre.
+El boton visible **Registrar entrega**
+en la cabecera abre directamente el cierre verificable, sin depender de una casilla
+de pagos. **Confirmar entrega y cerrar flujo comercial** usa automaticamente el nombre
+del cliente de la orden como receptor, sin pedir nombre ni detalle de entrega.
+La evidencia consiste en cero, una o varias imagenes opcionales de la pieza
+(maximo 20); no requiere texto ni fotos para cerrar. Cada imagen se verifica como
+archivo subido para esa orden. La constancia conserva receptor, imagenes, fecha
+y empleado; los registros historicos de texto siguen visibles.
+Exige saldo cero, confirmacion fisica/garantia y las verificaciones pendientes.
+No exige otro cobro si ya esta liquidada.
+Las ordenes entregadas muestran fecha y acceso a la constancia/responsable en vez
+de permitir una segunda entrega; los estados de incidencia o cierre no ofrecen
+una entrega nueva. El selector de estado permanece bloqueado.
 
 - Un cobro admite hasta 20 lineas con importe, metodo y referencia:
   Cash App, Zelle, cashier check, tarjeta o efectivo. Los metodos distintos
-  de efectivo requieren referencia. Se confirma que el dinero fue recibido
+  de efectivo requieren imagen del comprobante y no muestran receptor;
+  efectivo exige nombre de quien recibio y no permite imagen. La referencia
+  de texto es opcional, no sustituye la imagen. Se confirma que el dinero fue recibido
   y verificado; transferencias o cheques pendientes no cuentan como cobrado.
   Es un registro interno: no procesa tarjetas ni mueve dinero en bancos.
   Nunca se deben registrar numeros completos de tarjeta ni CVV.
 - Se conserva el acumulado anterior y se suma cada cobro nuevo en centavos.
   El formulario muestra saldo anterior, ajuste de core, cobro nuevo y saldo
   final. No permite importes negativos, fracciones de centavo ni sobrecobros.
+  El bloque **Desglose de venta y cobro** detalla juntos precio de pieza, delivery,
+  core, monto total, downpayment/pagos anteriores, restante antes del cobro,
+  ajuste del core, total a liquidar, cobro nuevo, acumulado y restante final.
+  Delivery y core sin cargo aparecen como $0.00. Los pagos anteriores son el
+  acumulado real (abono mas cobros posteriores), no un abono inicial inventado.
 - El cliente paga el core o entrega fisicamente la pieza usada. Recibirla
   requiere referencia y confirmacion, conserva un comprobante inmutable y
   elimina el cargo una sola vez. No permite eliminarlo si los cobros previos
@@ -151,22 +225,151 @@ ni una entrega por cambiar solamente la etiqueta.
   ya liquidada. La edicion general ya no modifica el acumulado cobrado.
   El abono informado al crear una orden conserva el comportamiento anterior
   y se identifica sin metodo; los nuevos cobros usan el formulario desglosado.
-- La entrega exige saldo cero, evidencia y confirmacion fisica. Las ordenes
-  del flujo verificable siguen exigiendo las etapas previas. En ese flujo,
+  Despues de Preparacion/cita verificada, el saldo solo admite efectivo,
+  Cash App o Zelle, tanto en el formulario como en el servidor. Esto no
+  limita los metodos del abono inicial ni altera cobros historicos.
+- La entrega exige saldo cero y confirmacion fisica; las fotos de la pieza son opcionales. Las ordenes
+  del flujo verificable siguen exigiendo las etapas previas, pero
+  **Registrar cobro y entrega** permite completar sus verificaciones pendientes
+  dentro del mismo modal: documentacion del abono existente y Preparacion/cita
+  con las mismas reglas de contacto, fechas, modalidad, core y capturas SMS.
+  Para entrega inmediata en yarda, el cierre ofrece **Cliente presente**:
+  verifica pieza lista e informacion comunicada presencialmente, fija recogida
+  en yarda y fecha de hoy, sin inventar llamadas ni citas futuras. No admite
+  delivery, intentos de llamada ni fechas distintas a hoy para esta modalidad.
+  Las etapas ya verificadas no se repiten. Si no habia abono, Confirmacion
+  usa los pagos recibidos ahora sin sumarlos dos veces. El saldo de entrega
+  solo admite efectivo, Cash App o Zelle, incluso sin preparacion previa.
+  En ese flujo,
   el cobro, core, evidencia, inventario, entrega y comienzo de garantia se
-  guardan juntos en una transaccion. Si falla cualquier paso no se guarda
+  guardan junto con las etapas pendientes en una transaccion y una sola
+  version de orden. Confirmar deja la orden Entregada y su flujo comercial
+  completo; mantiene los seguimientos post-entrega. La fecha/hora y autor
+  son automaticos. Si falla cualquier paso no se guarda
   ninguno. Las entregas legacy tambien pasan por el formulario con evidencia.
-- Cada linea conserva metodo, referencia, fecha y autor. Los registros
+- Cada linea conserva metodo, referencia, comprobante o receptor, fecha y autor. Los registros
   anteriores permanecen como **Metodo no registrado**, sin inventar fechas.
   Version de orden y bloqueo de fila rechazan reintentos o cobros concurrentes
   con datos antiguos. Ante un error de conexion, recargar y revisar el
   historial antes de intentar nuevamente.
 
-Migracion aditiva: `migrations/023_order_payments.sql`; ejecutar con la cuenta
-DDL, respaldo previo y sin seed. No modifica importes historicos.
+Migraciones aditivas: `migrations/023_order_payments.sql` y
+`migrations/027_collection_evidence.sql`; ejecutar con la cuenta
+DDL, respaldo previo y sin seed. No modifica importes historicos ni inventa
+comprobantes o receptores para cobros anteriores.
 Validacion: `npm test -- tests/order-payments.test.ts tests/order-payments-api.test.ts`
 y los scripts locales `scripts/test-order-workflow-db.ts` y
 `scripts/test-order-workflow-ui.ts`, que usan solo datos sinteticos.
+
+## Garantia, reclamos, reembolsos, core e invoice
+
+En **Mi trabajo de hoy**, cada asesor ve solo las tareas a su cargo; el rol
+`admin` actual (superadministrador) ve todas y puede asignar un asesor activo
+de call center como responsable post-entrega sin cambiar el vendedor original.
+Las ventas de yarda entregadas quedan pendientes de asignacion y visibles solo
+para administracion hasta asignarlas. Las demas ventas usan su asesor original
+si no hay una asignacion manual. La asignacion se audita, controla la version
+de la orden y no reinicia hitos, fechas, garantia ni cobros. Los pasos comerciales
+siguen a cargo del vendedor; el responsable designado puede consultar la orden,
+adjuntar soportes y gestionar el seguimiento despues de la entrega.
+
+El detalle separa **Resumen**, **Flujo verificable**, **Historial** y
+**Seguimiento post entrega**. Esta ultima pestana aparece solo en estado
+Entregado; usa las mismas tareas verificables posteriores a la entrega.
+El flujo muestra las etapas comerciales, el historial conserva gestiones,
+soportes y contactos, y el resumen conserva las tarjetas de posventa.
+Los hitos post-entrega registran canal (llamada, WhatsApp o SMS) y resultado real.
+Sin respuesta no se confirma el estado de la pieza; el reintento corresponde al
+siguiente dia habil. Un numero incorrecto requiere bloqueo, responsable y proxima
+accion. Si el cliente responde y no ha instalado, se exige advertencia verbal
+por llamada o escrita por mensaje de que la garantia sigue corriendo, con su
+duracion/vencimiento reales. Una fecha de instalacion no pausa ni reinicia la
+garantia. Las plantillas por hito estan disponibles en espanol e ingles; copiarlas
+no registra envio ni respuesta. Estas reglas se validan tambien en servidor.
+El detalle de la gestion sigue siendo obligatorio; los hitos post-entrega no
+exigen una referencia escrita adicional. WhatsApp y SMS permiten capturas de
+conversacion siempre opcionales, incluso sin respuesta (hasta 20 imagenes de
+10 MB cada una). Las llamadas no requieren ni permiten estas capturas.
+El servidor verifica que las imagenes pertenezcan a la orden y al operador
+autenticado, o esten validadas por administracion. Se consultan desde Historial;
+las referencias historicas se conservan.
+La carga de soportes y la validacion de imagenes se comparten entre abonos,
+preparacion, entrega y posventa; los archivos siguen vinculados a su orden.
+La preparacion por SMS conserva capturas obligatorias, a diferencia de las
+capturas opcionales del seguimiento post-entrega. El detalle ya no incluye
+la vista anterior de seguimiento por contactos; conserva sus registros historicos.
+Los registros nuevos guardan la comunicacion estructurada dentro de la evidencia
+del evento y conservan el reporte de contactos anterior, sin modificar eventos
+historicos ni asumir advertencias pasadas.
+
+La orden incluye el bloque **Garantia, reclamos y devoluciones**, con garantia
+destacada y tarjetas de invoice, reclamos, reembolsos y core (dos columnas en
+escritorio y una en movil). Los indicadores distinguen pendientes, completados y
+alertas; cobrado, devuelto y reservado se muestran por separado sin cambiar sus
+calculos. Las condiciones y la correccion administrativa de garantia estan en
+un desplegable. Sin deposito de core no se muestra un plazo de devolucion.
+**Adjuntar invoice PDF** abre el selector dentro de su propia tarjeta y lo enfoca;
+tras seleccionar un PDF de hasta 10 MB, **Guardar invoice** lo registra en la
+orden. Los errores de carga o guardado aparecen junto al formulario.
+Las
+garantias muestran un reloj con dias, horas y minutos restantes y una barra de
+cobertura que disminuye hasta el vencimiento; se actualiza cada 30 segundos y al
+volver a la ventana. Usa el cierre del ultimo dia en Nueva York (incluidos cambios
+de horario) para calendario y horas exactas para garantias historicas. No cambia
+la duracion ni el derecho de atender reclamos ya abiertos.
+Las nuevas garantias iniciadas con entrega fisica usan dias calendario: entrega + duracion, hasta el final
+del ultimo dia en America/New_York. La migracion `028_aftersales.sql` conserva
+en las garantias ya iniciadas el computo por periodos de 24 horas. La entrega fija una
+instantanea de inicio/duracion/politica y del deposito del core cobrado.
+Administracion puede corregir la duracion con motivo e historial; la edicion
+general no cambia coberturas entregadas. Corregir la fecha fisica mediante la
+accion administrativa ajusta solo la cobertura original, no la de un reemplazo.
+
+- Reclamos: registro con responsable, soportes y proxima revision; revision,
+  resolucion y cierre notificado. Un reclamo registrado a tiempo sigue atendible
+  al vencer la garantia. La entrega fisica documentada de un reemplazo inicia
+  una cobertura calendario nueva de la misma duracion, sin modificar la entrega
+  original ni el plazo del core. Los soportes, identificacion de la pieza y
+  comunicaciones quedan en el historial.
+- Compra: solicitud, revision administrativa, aprobacion y devolucion efectiva
+  separadas. Aprobacion no mueve dinero. Puede requerir recepcion de la pieza;
+  admite devolucion parcial o total y vinculo al reclamo. Rechazo restaura el
+  estado previo; devolucion parcial conserva la incidencia vinculada y una
+  total cierra el reclamo. El acumulado original no se borra: el egreso es un
+  movimiento financiero separado. Una compra con dinero devuelto antes de la
+  entrega no puede reutilizar esos cobros para entregar o cobrar otra vez:
+  una nueva venta requiere una nueva orden.
+- Core: recepcion dentro de los 15 dias calendario posteriores a la entrega
+  original (ultimo dia inclusive). Recibirlo a tiempo conserva la elegibilidad
+  aunque se pague despues. Administracion registra efectivo con receptor o
+  Square con ultimos cuatro digitos, referencia y comprobante. Fecha/hora del
+  servidor. No guardar numero completo ni CVV. Registrar Square aqui **no**
+  ejecuta operaciones en Square. Devolver el core no marca la compra Reembolsada
+  ni reinicia garantia/entrega. No hay excepcion automatica fuera del plazo.
+- Todos los reembolsos comparten el limite cobrado menos devuelto y solicitudes
+  reservadas. No se puede devolver dos veces el mismo dinero. Bloqueo de orden,
+  version e idempotencia protegen concurrencia/reintentos. Las operaciones
+  financieras requieren administracion; el operador asignado gestiona reclamos
+  y solicitudes. Las antiguas escrituras directas `/api/claims` y `/api/refunds`
+  devuelven 409 con instruccion de actualizar y usar el flujo verificable.
+- Invoice: PDF posterior a entrega verificable, versiones inmutables con autor
+  y fecha; ver/descargar desde la orden. No cambia pagos ni garantia. Historicas
+  sin fecha o deposito verificable requieren revision; no se rellenan con ahora.
+  Los archivos usan subida existente (10 MB, magic bytes), autorizacion por orden
+  y comprobacion del MIME/propietario antes de vincularlos.
+
+Aplicar migracion solo con respaldo restaurado y cuenta DDL.
+Las tablas nuevas siguen el patron de `order_core_receipts`: sin claves
+foraneas a `orders`, cuyo identificador es signed en bases importadas y
+unsigned en instalaciones nuevas. La API comprueba existencia, pertenencia y
+bloquea la orden dentro de la transaccion; no se altera el identificador original.
+
+Pruebas:
+`npm test`, `scripts/test-aftersales-db.ts` (schema local desechable) y
+`scripts/test-aftersales-ui.ts` (API interceptada, datos sinteticos). Los
+seguimientos post-entrega de 3/7/14 dias continuan independientes; una incidencia
+activa ocupa la tarea operativa y la proxima revision del reclamo se refleja en
+la cola. No publica ni despliega produccion por ejecutar estas pruebas.
 
 ## Estilo visual
 

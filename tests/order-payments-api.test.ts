@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { enforceCollectionUpdate, handlePaymentRequest } from '../src/server/orderPayments';
 import { handleWorkflowRequest } from '../src/server/orderWorkflow';
 import { emptySettlement } from '../src/utils/orderPayments';
+import { preparationSchema } from '../src/utils/orderPreparation';
 
 vi.mock('../src/server/config', () => ({ pool: {}, maxBodyBytes: 50000, jwtSecret: 'test-only', frontendRoot: '' }));
 const pools: Pool[] = [];
@@ -27,6 +28,7 @@ const setup = (overrides: Record<string, unknown> = {}) => {
       if (String(sql).includes('FROM orders')) return [[{ ...baseRow, ...overrides }] as RowDataPacket[], []];
       if (String(sql).includes('FROM order_workflow_events')) return [events as RowDataPacket[], []];
       if (String(sql).includes('FROM users')) return [[{ name: 'Test actor' }] as RowDataPacket[], []];
+      if (String(sql).includes('FROM uploaded_files')) return [[{ user_id: 7, content_type: 'image/png' }] as RowDataPacket[], []];
       return [[], []];
     }),
     execute: vi.fn<Pool['execute']>().mockResolvedValue([{ constructor: { name: 'ResultSetHeader' }, insertId: 21, affectedRows: 1, fieldCount: 0, info: '', serverStatus: 0, warningStatus: 0, changedRows: 0 }, []]),
@@ -35,8 +37,8 @@ const setup = (overrides: Record<string, unknown> = {}) => {
   return { database, connection };
 };
 const split = { ...emptySettlement(), payments: [
-  { amount: 300, method: 'cash', reference: '', confirmed: true },
-  { amount: 400, method: 'zelle', reference: 'TEST-ZELLE', confirmed: true },
+  { amount: 300, method: 'cash', reference: '', confirmed: true, receivedBy: 'Receiver', receipt: null },
+  { amount: 400, method: 'zelle', reference: 'TEST-ZELLE', confirmed: true, receipt: '/uploads/test.png' },
 ], coreAction: 'received', coreReference: 'TEST-CORE-RECEIPT', coreConfirmed: true };
 const request = (body: Record<string, unknown>, method = 'POST') => {
   const req = new IncomingMessage(new Socket()); req.method = method; req.headers = { 'content-type': 'application/json' };
@@ -46,6 +48,108 @@ const request = (body: Record<string, unknown>, method = 'POST') => {
 };
 const actor = { sub: '7', role: 'admin' };
 describe('transactional order collections', () => {
+  it('closes delivery with optional piece photos and automatically records the customer, without text evidence', async () => {
+    const { database, connection } = setup({ down_payment: 1000, first_name: 'Cliente', last_name: 'Prueba' });
+    const { req, res } = request({ version: 1, task: 'delivery', outcome: 'completed',
+      deliveryPhotos: [], confirmed: true, settlement: emptySettlement() });
+    await handleWorkflowRequest(req, res, '/api/orders/901/workflow', actor, database, vi.fn());
+    expect(connection.commit).toHaveBeenCalledOnce();
+    const inserts = connection.execute.mock.calls.filter(call => String(call[0]).includes('INSERT INTO order_workflow_events'));
+    expect(JSON.stringify(inserts)).toContain('Cliente Prueba');
+    expect(JSON.stringify(inserts)).not.toContain('undefined');
+  });
+  it('validates every optional delivery photo against its own order before committing', async () => {
+    const { database, connection } = setup({ down_payment: 1000, first_name: 'Cliente', last_name: 'Prueba' });
+    const original = connection.query.getMockImplementation()!;
+    connection.query.mockImplementation(async (...args) => String(args[0]).includes('FROM uploaded_files') ? [[], []] : original(...args));
+    const { req, res } = request({ version: 1, task: 'delivery', outcome: 'completed',
+      deliveryPhotos: ['/uploads/foreign.png'], confirmed: true, settlement: emptySettlement() });
+    await expect(handleWorkflowRequest(req, res, '/api/orders/901/workflow', actor, database, vi.fn())).rejects.toThrow(/imagen/);
+    expect(connection.commit).not.toHaveBeenCalled();
+  });
+  it('does not invent a customer name or skip physical confirmation when photos are omitted', async () => {
+    for (const patch of [{ first_name: '', last_name: '', confirmed: true }, { first_name: 'Cliente', last_name: 'Prueba', confirmed: false }]) {
+      const { database, connection } = setup({ down_payment: 1000, ...patch });
+      const { req, res } = request({ version: 1, task: 'delivery', outcome: 'completed',
+        deliveryPhotos: [], confirmed: patch.confirmed, settlement: emptySettlement() });
+      await expect(handleWorkflowRequest(req, res, '/api/orders/901/workflow', actor, database, vi.fn())).rejects.toThrow(/cliente|Confirma/);
+      expect(connection.commit).not.toHaveBeenCalled();
+    }
+  });
+  it('does not reuse refunded pre-delivery collections for a new handover or collection', async () => {
+    const { database, connection } = setup();
+    const original = connection.query.getMockImplementation()!;
+    connection.query.mockImplementation(async (...args) => {
+      if (String(args[0]).includes('FROM refund_requests')) return [[{ id: 1 }] as RowDataPacket[], []];
+      return original(...args);
+    });
+    const { req, res } = request({ version: 1, settlement: split });
+    await expect(handlePaymentRequest(req, res, '/api/orders/901/payments', actor, database, vi.fn())).rejects.toThrow(/reembolsados/);
+    expect(connection.commit).not.toHaveBeenCalled();
+  });
+  it('requires cash receiver or uploaded electronic evidence for every new collection, before writing money', async () => {
+    for (const payment of [
+      { amount: 10, method: 'cash', reference: '', confirmed: true },
+      { amount: 10, method: 'zelle', reference: 'TEST', confirmed: true },
+      { amount: 10, method: 'cash', reference: '', confirmed: true, receivedBy: 'Receiver', receipt: '/uploads/test.png' },
+    ]) {
+      const { database, connection } = setup();
+      const { req, res } = request({ version: 1, settlement: { ...emptySettlement(), payments: [payment] } });
+      await expect(handlePaymentRequest(req, res, '/api/orders/901/payments', actor, database, vi.fn())).rejects.toThrow(/recibió|comprobante/);
+      expect(connection.execute).not.toHaveBeenCalled();
+    }
+  });
+  it('finishes missing confirmation, preparation, collection and delivery together from the modal', async () => {
+    const { database, connection } = setup({ status: 'Cotización' });
+    connection.query.mockImplementation(async sql => {
+      if (String(sql).includes('FROM orders')) return [[{ ...baseRow, status: 'Cotización' }] as RowDataPacket[], []];
+      if (String(sql).includes('FROM uploaded_files')) return [[{ user_id: 7, content_type: 'image/png' }] as RowDataPacket[], []];
+      if (String(sql).includes('FROM users')) return [[{ name: 'Test actor' }] as RowDataPacket[], []];
+      return [[], []];
+    });
+    const preparation = preparationSchema.parse({
+      yardNotified: true, channel: 'call', failedCall: false, failedCallNotes: '', customerConfirmed: true,
+      dateFrom: '2099-01-02', dateTo: '2099-01-02', balanceNotified: true, paymentMethodsNotified: true,
+      corePlan: 'return_core', deliveryType: 'retiro_tienda', address: '', screenshots: [],
+    });
+    const { req, res } = request({ version: 1, task: 'delivery', outcome: 'completed',
+      notes: 'Physical handover', evidence: 'Signed receipt', confirmed: true,
+      settlement: { ...split, payments: [
+        { amount: 300, method: 'cash', reference: '', confirmed: true, receivedBy: 'Receiver', receipt: null },
+        { amount: 400, method: 'zelle', reference: '', confirmed: true, receipt: '/uploads/test.png' },
+      ] },
+      completion: { downpayment: [{ amount: 200, method: 'cash', receivedBy: 'Receiver', receipt: null }], preparation },
+    });
+    await handleWorkflowRequest(req, res, '/api/orders/901/workflow', actor, database, vi.fn());
+    expect(res.statusCode).toBe(201);
+    const recorded = connection.execute.mock.calls.filter(call => String(call[0]).includes('INSERT INTO order_workflow_events'));
+    expect(recorded.map(call => (call[1] as unknown[])[1])).toEqual(['ack', 'prepare', 'delivery']);
+    expect(connection.execute.mock.calls.filter(call => String(call[0]).includes('INSERT INTO finance_movements'))).toHaveLength(2);
+    expect(connection.execute.mock.calls.filter(call => String(call[0]).includes('version=version+1'))).toHaveLength(1);
+    expect(connection.commit).toHaveBeenCalledOnce();
+  });
+  it('rejects missing preparation, foreign evidence, duplicate delivery and noncash receiver without committing any part', async () => {
+    for (const variant of ['missing-preparation', 'foreign-image', 'duplicate', 'receiver', 'card']) {
+      const { database, connection } = setup(variant === 'duplicate' ? { delivered_at: new Date(), status: 'Entregado' } : {});
+      if (variant === 'foreign-image') connection.query.mockImplementation(async sql => {
+        if (String(sql).includes('FROM orders')) return [[baseRow] as RowDataPacket[], []];
+        if (String(sql).includes('FROM uploaded_files')) return [[], []];
+        return [[], []];
+      });
+      if (variant === 'missing-preparation') connection.query.mockImplementation(async sql => {
+        if (String(sql).includes('FROM orders')) return [[baseRow] as RowDataPacket[], []];
+        if (String(sql).includes('FROM uploaded_files')) return [[{ user_id: 7, content_type: 'image/png' }] as RowDataPacket[], []];
+        return [[], []];
+      });
+      const badSplit = variant === 'receiver' ? { ...split, payments: split.payments.map(payment => ({ ...payment, receivedBy: 'Receiver' })) }
+        : variant === 'card' ? { ...split, payments: [{ amount: 700, method: 'card', reference: '', confirmed: true, receipt: '/uploads/test.png' }] } : split;
+      const { req, res } = request({ version: 1, task: 'delivery', outcome: 'completed', confirmed: true,
+        notes: 'Physical handover', evidence: 'Signed receipt', settlement: badSplit, completion: {} });
+      const broadcast = vi.fn();
+      await expect(handleWorkflowRequest(req, res, '/api/orders/901/workflow', actor, database, broadcast)).rejects.toThrow();
+      expect(connection.commit).not.toHaveBeenCalled(); expect(connection.rollback).toHaveBeenCalledOnce(); expect(broadcast).not.toHaveBeenCalled();
+    }
+  });
   it('prevents manual order edits from bypassing the ledger or charging a received core again', () => {
     const row = baseRow as RowDataPacket;
     expect(() => enforceCollectionUpdate(row, { status: 'listo_retiro', financials: { downPayment: 201, coreFee: 100 } })).toThrow(/Registrar cobro/);
@@ -100,6 +204,14 @@ describe('transactional order collections', () => {
     const { req, res } = request({ version: 1, settlement: split, task: 'post_3', outcome: 'blocked', notes: 'Blocked test', nextAction: 'Review', nextDueDate: '2026-12-01', blockedBy: 'Test' });
     await expect(handleWorkflowRequest(req, res, '/api/orders/901/workflow', actor, database, vi.fn())).rejects.toThrow();
     expect(connection.execute).not.toHaveBeenCalled();
+  });
+  it('restricts remaining collections after verified preparation to cash, Cash App or Zelle', async () => {
+    for (const method of ['card', 'cashier_check']) {
+      const { database, connection } = setup({ preparation_details: '{}' });
+      const { req, res } = request({ version: 1, settlement: { ...emptySettlement(), payments: [{ amount: 1, method, reference: 'TEST', confirmed: true }] } });
+      await expect(handlePaymentRequest(req, res, '/api/orders/901/payments', actor, database, vi.fn())).rejects.toThrow(/efectivo|Cash App|Zelle/);
+      expect(connection.execute).not.toHaveBeenCalled();
+    }
   });
   it('keeps new-workflow delivery guarded at the standalone endpoint', async () => {
     const { database, connection } = setup();

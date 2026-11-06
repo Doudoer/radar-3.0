@@ -1,3 +1,5 @@
+import type { Preparation } from './utils/orderPreparation';
+
 export type NavScreen = 
   | 'mi_trabajo'
   | 'dashboard'
@@ -158,6 +160,7 @@ export interface Order {
   warrantyDays?: number; // 30, 60, 90
   deliveredAt?: string; // Fecha de entrega física
   warrantyStarted?: boolean;
+  warrantyTerms?: import('./utils/aftersales').WarrantyTerms | null;
   warranty?: {
     planType: string;
     duration: string;
@@ -174,6 +177,7 @@ export interface Order {
   callConfirmed?: boolean;
   termsAckAttachment?: string; // Captura comprobante acuse WhatsApp
   scheduledPickupAt?: string; // Fecha/hora programada de entrega o retiro
+  preparation?: Preparation | null;
   pickupExtensionReason?: string; // Prórroga
   coreStatus?: CoreStatus;
   checklistDelivered?: boolean;
@@ -274,6 +278,8 @@ export interface Claim {
 }
 
 export interface RefundRequest {
+  reviewStage?: string;
+  refundScope?: 'purchase' | 'core';
   id: string; // e.g. "REF-2026-0012"
   orderId: string;
   orderCode: string;
