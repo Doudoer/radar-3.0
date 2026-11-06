@@ -40,6 +40,7 @@ describe('order status rules', () => {
 
   it('allows operators to mark an order paid after receiving a down payment', () => {
     expect(requiresAdminForOrderStatusChange('en_preparacion', 'pagado')).toBe(false);
+    expect(requiresAdminForOrderStatusChange('listo_retiro', 'pagado')).toBe(true);
     expect(requiresAdminForOrderStatusChange('cotizacion', 'cancelado')).toBe(true);
     expect(requiresAdminForOrderStatusChange('solicitud_reembolso', 'pagado')).toBe(true);
     expect(requiresAdminForOrderStatusChange('archivado', 'cotizacion')).toBe(true);

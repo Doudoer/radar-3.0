@@ -66,4 +66,4 @@ export const requiresStatusAuthorization = (from: OrderStatus, to: OrderStatus) 
   from === 'solicitud_reembolso' && (to === 'pagado' || to === 'cotizacion');
 
 export const requiresAdminForOrderStatusChange = (from: OrderStatus, to: OrderStatus) =>
-  to === 'cancelado' || requiresStatusAuthorization(from, to) || ['archivado', 'cancelado'].includes(from);
+  to === 'cancelado' || requiresStatusAuthorization(from, to) || ['archivado', 'cancelado'].includes(from) || (from === 'listo_retiro' && to === 'pagado');

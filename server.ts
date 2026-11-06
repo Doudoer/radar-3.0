@@ -61,6 +61,8 @@ import {
   notificationTestDispatchSchema,
   verifyOtpSchema,
   updateDeliveryDateSchema,
+  revertToPaidOtpRequestSchema,
+  revertToPaidSchema,
   orderDeliveryFollowupSchema,
 } from './src/server/schemas';
 import { readBody, sendJson, serveFrontend } from './src/server/http';
@@ -120,6 +122,18 @@ interface Financial2FAState {
 }
 let activeFinancial2FA: Financial2FAState | null = null;
 const twoFactorFailures = new Map<string, number>();
+
+// In-memory single-use OTP state for order reversion from listo_retiro to pagado (3 min expiration)
+interface RevertToPaidOtpState {
+  orderId: number;
+  code: string;
+  expiresAt: number;
+  requestedAt: number;
+  requestedByUserId: number;
+  targetPhone: string;
+  reason?: string;
+}
+const activeRevertToPaidOtps = new Map<number, RevertToPaidOtpState>();
 
 const MIME_EXTENSION_MAP: Record<string, string[]> = {
   'image/jpeg': ['.jpg', '.jpeg'],
@@ -1818,6 +1832,199 @@ const server = createServer(async (request, response) => {
         await connection.rollback();
         throw error;
       } finally { connection.release(); }
+    }
+
+    // ==========================================
+    // REVERT ORDER FROM LISTO_RETIRO TO PAGADO (SUPER ADMIN + WHATSAPP OTP)
+    // ==========================================
+    const revertToPaidOtpMatch = pathname.match(/^\/api\/orders\/(\d+)\/revert-to-paid\/request-otp$/);
+    if (request.method === 'POST' && revertToPaidOtpMatch) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const targetOrderId = Number(revertToPaidOtpMatch[1]);
+      const body = revertToPaidOtpRequestSchema.parse(await readBody(request));
+
+      const [orderRows] = await pool.query<RowDataPacket[]>(
+        'SELECT id, order_code, status FROM orders WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        [targetOrderId]
+      );
+      if (!orderRows[0]) return sendJson(response, 404, { message: 'Orden no encontrada' });
+      const orderRow = orderRows[0];
+      const curStatus = statusFromDatabase(orderRow.status);
+      if (curStatus !== 'listo_retiro' && orderRow.status !== 'listo_retiro') {
+        return sendJson(response, 400, { message: 'Solo se pueden revertir a Pagado órdenes en estado Listo para Retiro.' });
+      }
+
+      const now = Date.now();
+      const existing = activeRevertToPaidOtps.get(targetOrderId);
+      if (existing && (now - existing.requestedAt) < 30_000 && existing.expiresAt > now) {
+        const remaining = Math.max(1, Math.ceil((30_000 - (now - existing.requestedAt)) / 1000));
+        return sendJson(response, 429, {
+          ok: false,
+          message: 'Por favor espera unos segundos antes de solicitar otro código.',
+          cooldownSeconds: remaining,
+        });
+      }
+
+      const [adminRows] = await pool.query<RowDataPacket[]>(
+        "SELECT id, name, phone FROM users WHERE id = ? AND role = 'admin' AND active = 1 AND deleted_at IS NULL LIMIT 1",
+        [authenticatedClaims?.sub]
+      );
+      let adminUser = adminRows[0];
+      if (!adminUser?.phone) {
+        const [fallbackAdmins] = await pool.query<RowDataPacket[]>(
+          "SELECT id, name, phone FROM users WHERE role = 'admin' AND active = 1 AND phone IS NOT NULL AND phone != '' AND deleted_at IS NULL ORDER BY (id = 1) DESC, id ASC LIMIT 1"
+        );
+        adminUser = fallbackAdmins[0];
+      }
+      if (!adminUser?.phone) {
+        return sendJson(response, 409, { message: 'No hay teléfono configurado para el Super Administrador en el sistema.' });
+      }
+
+      const targetPhone = formatWasenderPhone(adminUser.phone);
+      const otpCode = crypto.randomInt(100000, 1000000).toString();
+
+      activeRevertToPaidOtps.set(targetOrderId, {
+        orderId: targetOrderId,
+        code: otpCode,
+        expiresAt: now + 3 * 60 * 1000, // 3 minutes
+        requestedAt: now,
+        requestedByUserId: Number(authenticatedClaims?.sub),
+        targetPhone,
+        reason: body.reason,
+      });
+
+      const messageText = `🔐 *Radar Security Alert · Reversión de Orden*\n\nHola *${adminUser.name || 'Super Admin'}*, se ha solicitado devolver la orden *#${orderRow.order_code || targetOrderId}* del estado 'Listo para Retiro' a 'Pagado'.\n\nMotivo: _${body.reason}_\n\nTu código de seguridad de un solo uso es:\n👉 *${otpCode}* 👈\n\n⏱️ Válido por 3 minutos. Si no solicitaste esta reversión, ignora este mensaje.`;
+
+      if (!wasender.configured || wasender.isTestMode) {
+        if (wasender.isTestMode) {
+          console.log(`[TEST MODE] OTP para revertir orden ${targetOrderId}: ${otpCode}`);
+        } else {
+          activeRevertToPaidOtps.delete(targetOrderId);
+          return sendJson(response, 503, { message: 'El servicio de WhatsApp (Wasender) no está configurado o disponible.' });
+        }
+      } else {
+        try {
+          await wasender.sendText({ to: targetPhone, text: messageText });
+        } catch (err) {
+          console.error('[Revert to Paid OTP] Error enviando WhatsApp:', err);
+          activeRevertToPaidOtps.delete(targetOrderId);
+          return sendJson(response, 503, { message: 'Error al enviar el código de seguridad por WhatsApp.' });
+        }
+      }
+
+      void recordAuditLog(pool, {
+        userId: Number(authenticatedClaims?.sub),
+        username: authenticatedClaims?.email,
+        action: 'ORDER_REVERT_OTP_REQUESTED',
+        resourceType: 'order',
+        resourceId: String(targetOrderId),
+        details: { targetPhoneMasked: `***${targetPhone.slice(-4)}`, reason: body.reason },
+        ipAddress: request.socket.remoteAddress || 'unknown',
+        userAgent: request.headers['user-agent'] || null,
+      });
+
+      return sendJson(response, 200, {
+        ok: true,
+        message: 'Código de seguridad enviado por WhatsApp exitosamente.',
+        cooldownSeconds: 30,
+        targetPhoneMasked: `***${targetPhone.slice(-4)}`,
+      });
+    }
+
+    const revertToPaidMatch = pathname.match(/^\/api\/orders\/(\d+)\/revert-to-paid$/);
+    if (request.method === 'POST' && revertToPaidMatch) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const targetOrderId = Number(revertToPaidMatch[1]);
+      const data = revertToPaidSchema.parse(await readBody(request));
+
+      const now = Date.now();
+      const activeOtp = activeRevertToPaidOtps.get(targetOrderId);
+      if (!activeOtp || activeOtp.expiresAt <= now) {
+        activeRevertToPaidOtps.delete(targetOrderId);
+        return sendJson(response, 400, { message: 'El código de seguridad ha expirado o no ha sido solicitado. Solicita uno nuevo.' });
+      }
+      if (activeOtp.code !== data.code.trim()) {
+        return sendJson(response, 400, { message: 'El código de seguridad ingresado es incorrecto.' });
+      }
+
+      activeRevertToPaidOtps.delete(targetOrderId);
+
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [orderRows] = await connection.query<RowDataPacket[]>(
+          'SELECT id, order_code, status, scheduled_pickup_at, preparation_details, version FROM orders WHERE id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE',
+          [targetOrderId]
+        );
+        if (!orderRows[0]) fail(404, 'Orden no encontrada');
+        const orderRow = orderRows[0];
+        const curStatus = statusFromDatabase(orderRow.status);
+        if (curStatus !== 'listo_retiro' && orderRow.status !== 'listo_retiro') {
+          fail(400, 'Solo se pueden revertir a Pagado órdenes en estado Listo para Retiro.');
+        }
+        if (data.version && Number(data.version) !== Number(orderRow.version)) {
+          fail(409, 'La orden cambió; recarga antes de guardar');
+        }
+
+        const [orderUpdate] = await connection.execute<ResultSetHeader>(
+          'UPDATE orders SET status = ?, scheduled_pickup_at = NULL, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL',
+          [statusToDatabase.pagado || 'pagado', targetOrderId]
+        );
+        if (!orderUpdate.affectedRows) fail(409, 'No se pudo actualizar la orden.');
+
+        const currentUserId = Number(authenticatedClaims?.sub);
+        const [adminRows] = await connection.query<RowDataPacket[]>(
+          'SELECT name FROM users WHERE id = ?',
+          [currentUserId]
+        );
+        const adminName = adminRows[0]?.name || 'Super Admin';
+        await connection.execute(
+          `INSERT INTO order_workflow_events (order_id, task, outcome, actor_id, actor_name, notes) VALUES (?, 'prepare', 'reopened', ?, ?, ?)`,
+          [targetOrderId, currentUserId, adminName, `Reversión administrativa de Listo para Retiro a Pagado con OTP verificado. Motivo: ${data.reason.trim()}`]
+        );
+
+        await connection.execute(
+          'INSERT INTO status_orders (order_id, status, description, user_id) VALUES (?, ?, ?, ?)',
+          [targetOrderId, statusToDatabase.pagado || 'pagado', `Reversión administrativa desde Listo para Retiro con OTP verificado. Motivo: ${data.reason.trim()}`, currentUserId]
+        );
+
+        await connection.execute(
+          "INSERT INTO audit_logs (user_id, username, action, resource_type, resource_id, details, ip_address, user_agent) VALUES (?, ?, 'ORDER_REVERTED_TO_PAID', 'order', ?, ?, ?, ?)",
+          [
+            currentUserId,
+            authenticatedClaims?.email || null,
+            String(targetOrderId),
+            JSON.stringify({
+              orderCode: orderRow.order_code,
+              fromStatus: orderRow.status,
+              toStatus: 'pagado',
+              reason: data.reason.trim(),
+              otpVerified: true,
+            }),
+            request.socket.remoteAddress || null,
+            request.headers['user-agent']?.slice(0, 255) || null,
+          ]
+        );
+
+        await connection.commit();
+
+        broadcastRealtimeEvent('order:updated', {
+          orderId: targetOrderId,
+          action: 'STATUS_REVERTED_TO_PAID',
+          timestamp: Date.now(),
+        });
+
+        return sendJson(response, 200, {
+          ok: true,
+          message: 'Orden devuelta a estado Pagado con éxito.',
+          newStatus: 'pagado',
+        });
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally {
+        connection.release();
+      }
     }
 
     const inventoryLinkId = pathname.match(/^\/api\/orders\/(\d+)\/inventory$/)?.[1];
