@@ -10,6 +10,8 @@ describe('order status rules', () => {
   it('allows normal forward transitions and unchanged statuses', () => {
     expect(canTransitionOrderStatus('cotizacion', 'pagado')).toBe(true);
     expect(canTransitionOrderStatus('en_preparacion', 'listo_despacho')).toBe(true);
+    expect(canTransitionOrderStatus('pagado', 'entregado')).toBe(true);
+    expect(canTransitionOrderStatus('en_preparacion', 'entregado')).toBe(true);
     expect(canTransitionOrderStatus('pagado', 'pagado')).toBe(true);
   });
 

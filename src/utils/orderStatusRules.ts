@@ -26,8 +26,8 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
 export const ORDER_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   cotizacion: ['espera_confirmacion', 'pagado', 'reclamo', 'solicitud_reembolso', 'cancelado'],
   espera_confirmacion: ['cotizacion', 'pagado', 'reclamo', 'solicitud_reembolso', 'cancelado'],
-  pagado: ['en_preparacion', 'listo_despacho', 'listo_retiro', 'espera_confirmacion', 'cotizacion', 'reclamo', 'solicitud_reembolso', 'cancelado'],
-  en_preparacion: ['listo_despacho', 'listo_retiro', 'pagado', 'espera_confirmacion', 'cotizacion', 'reclamo', 'solicitud_reembolso', 'cancelado'],
+  pagado: ['en_preparacion', 'listo_despacho', 'listo_retiro', 'entregado', 'espera_confirmacion', 'cotizacion', 'reclamo', 'solicitud_reembolso', 'cancelado'],
+  en_preparacion: ['listo_despacho', 'listo_retiro', 'entregado', 'pagado', 'espera_confirmacion', 'cotizacion', 'reclamo', 'solicitud_reembolso', 'cancelado'],
   listo_despacho: ['en_camino', 'entregado', 'en_preparacion', 'espera_confirmacion', 'pagado', 'reclamo', 'solicitud_reembolso', 'cancelado'],
   listo_retiro: ['entregado', 'pagado', 'espera_confirmacion', 'cotizacion', 'reclamo', 'solicitud_reembolso', 'cancelado'],
   en_camino: ['entregado', 'listo_despacho', 'reclamo', 'solicitud_reembolso', 'cancelado'],
@@ -49,11 +49,11 @@ export const ORDER_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   archivado: ['cotizacion'],
   cancelado: ['cotizacion', 'pagado', 'en_preparacion', 'solicitud_reembolso'],
   en_diagnostico: ['espera_confirmacion', 'pagado', 'reclamo', 'solicitud_reembolso', 'cancelado'],
-  en_reparacion: ['listo_despacho', 'listo_retiro', 'pagado', 'espera_confirmacion', 'cotizacion', 'reclamo', 'solicitud_reembolso', 'cancelado'],
-  listo_pago: ['en_preparacion', 'listo_despacho', 'listo_retiro', 'espera_confirmacion', 'cotizacion', 'reclamo', 'solicitud_reembolso', 'cancelado'],
-  detenido_pieza: ['en_preparacion', 'pagado', 'espera_confirmacion', 'cotizacion', 'reclamo', 'solicitud_reembolso', 'cancelado'],
-  en_proceso: ['listo_despacho', 'listo_retiro', 'pagado', 'espera_confirmacion', 'cotizacion', 'reclamo', 'solicitud_reembolso', 'cancelado'],
-  facturado: ['en_preparacion', 'listo_despacho', 'listo_retiro', 'espera_confirmacion', 'cotizacion', 'reclamo', 'solicitud_reembolso', 'cancelado'],
+  en_reparacion: ['listo_despacho', 'listo_retiro', 'entregado', 'pagado', 'espera_confirmacion', 'cotizacion', 'reclamo', 'solicitud_reembolso', 'cancelado'],
+  listo_pago: ['en_preparacion', 'listo_despacho', 'listo_retiro', 'entregado', 'espera_confirmacion', 'cotizacion', 'reclamo', 'solicitud_reembolso', 'cancelado'],
+  detenido_pieza: ['en_preparacion', 'pagado', 'entregado', 'espera_confirmacion', 'cotizacion', 'reclamo', 'solicitud_reembolso', 'cancelado'],
+  en_proceso: ['listo_despacho', 'listo_retiro', 'entregado', 'pagado', 'espera_confirmacion', 'cotizacion', 'reclamo', 'solicitud_reembolso', 'cancelado'],
+  facturado: ['en_preparacion', 'listo_despacho', 'listo_retiro', 'entregado', 'espera_confirmacion', 'cotizacion', 'reclamo', 'solicitud_reembolso', 'cancelado'],
   pendiente_aprobacion: ['cotizacion', 'pagado', 'reclamo', 'solicitud_reembolso', 'cancelado'],
 };
 
