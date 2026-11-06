@@ -25,6 +25,7 @@ vi.mock('react', async () => {
 vi.mock('../src/services/apiFetch', () => ({ apiFetch: vi.fn() }));
 import { apiFetch } from '../src/services/apiFetch';
 import { RefundRequestView } from '../src/components/RefundRequestView';
+import { OrderAftersalesPanel } from '../src/components/OrderAftersales';
 import { RefundsView } from '../src/components/RefundsView';
 import { ClaimsView } from '../src/components/ClaimsView';
 import { SecurityOtpModal } from '../src/components/SecurityOtpModal';
@@ -133,28 +134,36 @@ describe('persisted frontend flows', () => {
     })));
   });
 
-  it('keeps refund input and the same UUID after a failed POST; success emits refresh without a PUT', async () => {
-    const onUpdateOrder = vi.fn();
-    const onSuccess = vi.fn();
+  it('keeps the verified refund action and UUID after an uncertain network failure; success emits refresh without a PUT', async () => {
     const changed = vi.fn();
     window.addEventListener('radar:data-changed', changed);
-    const props = { order, onBack: vi.fn(), onUpdateOrder, onSuccess };
-    const failed = () => Promise.resolve(new Response(JSON.stringify({ message: 'Conflicto financiero' }), { status: 409 }));
-    vi.mocked(apiFetch).mockImplementationOnce(failed).mockResolvedValueOnce(new Response(JSON.stringify({ id: 'REF-4' })));
-    let tree = render(RefundRequestView, props);
-    await nodes(tree).find((node) => node.type === 'form').props.onSubmit({ preventDefault() {} });
-    expect(onSuccess).not.toHaveBeenCalled();
-    tree = render(RefundRequestView, props);
-    expect(text(tree)).toContain('Conflicto financiero');
-    await nodes(tree).find((node) => node.type === 'form').props.onSubmit({ preventDefault() {} });
-    const payloads = vi.mocked(apiFetch).mock.calls.map(([, options]) => JSON.parse(String(options?.body)));
+    const detail = { version: 3, canManage: true, canAdmin: true,
+      warranty: { status: 'not_started', terms: null }, core: { amount: 0, reviewRequired: false },
+      claims: [], refunds: [], invoices: [], history: [], paid: 100, refunded: 0, reserved: 0 };
+    hooks.values[0] = detail;
+    let attempts = 0;
+    vi.mocked(apiFetch).mockImplementation(async (_path, options) => {
+      if (options?.method === 'POST' && attempts++ === 0) throw new Error('Conexión interrumpida');
+      return new Response(JSON.stringify(options?.method === 'POST' ? { ok: true } : detail));
+    });
+    const props = { order };
+    let tree = render(OrderAftersalesPanel, props);
+    click(tree, 'Solicitar reembolso de compra');
+    tree = render(OrderAftersalesPanel, props);
+    nodes(tree).find(node => node.type === 'textarea').props.onChange({ target: { value: 'Motivo verificable de devolución' } });
+    nodes(tree).find(node => node.type === 'input' && node.props.type === 'number').props.onChange({ target: { value: '25' } });
+    tree = render(OrderAftersalesPanel, props);
+    nodes(tree).find(node => node.type === 'form').props.onSubmit({ preventDefault() {} });
+    await vi.waitFor(() => expect(text(render(OrderAftersalesPanel, props))).toContain('Conexión interrumpida'));
+    tree = render(OrderAftersalesPanel, props);
+    nodes(tree).find(node => node.type === 'form').props.onSubmit({ preventDefault() {} });
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledOnce());
+    const payloads = vi.mocked(apiFetch).mock.calls.filter(([, options]) => options?.method === 'POST').map(([, options]) => JSON.parse(String(options?.body)));
     expect(payloads[0].idempotencyKey).toMatch(/^[0-9a-f-]{36}$/);
     expect(payloads[0]).toEqual(payloads[1]);
-    expect(payloads[0].orderId).toBe('18');
-    expect(onUpdateOrder).not.toHaveBeenCalled();
-    expect(onSuccess).toHaveBeenCalledOnce();
-    expect(changed).toHaveBeenCalledOnce();
-    expect(vi.mocked(apiFetch).mock.calls.every(([path]) => path === '/refunds')).toBe(true);
+    expect(payloads[0].data.action).toBe('refund_create');
+    expect(vi.mocked(apiFetch).mock.calls.every(([path]) => path === '/orders/18/aftersales')).toBe(true);
+    expect(nodes(render(RefundRequestView, { order, onBack: vi.fn() })).some(node => node.type === OrderAftersalesPanel)).toBe(true);
   });
 
   it('lists only real refund requests; historical orders are informative and not actionable', () => {
@@ -167,19 +176,18 @@ describe('persisted frontend flows', () => {
     expect(text(tree)).toContain('solo informativo');
     expect(text(tree)).not.toContain('Confirmar pago');
     tree = render(RefundsView, { orders: [order, legacy], userRole: 'admin' });
-    expect(nodes(tree).filter((node) => node.type === 'button' && text(node) === 'Confirmar pago')).toHaveLength(1);
+    expect(nodes(tree).filter((node) => node.type === 'button' && text(node) === 'Gestionar revisión, aprobación y devolución')).toHaveLength(1);
   });
 
-  it('awaits refund confirmation and preserves pending state on failure', async () => {
+  it('opens the verified order lifecycle instead of completing a refund directly', async () => {
     hooks.values[0] = [refund];
     hooks.values[1] = true;
     const props = { orders: [order], userRole: 'admin' };
-    vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ message: 'No autorizado' }), { status: 403 }));
-    await click(render(RefundsView, props), 'Confirmar pago');
-    await vi.waitFor(() => expect(text(render(RefundsView, props))).toContain('No autorizado'));
+    click(render(RefundsView, props), 'Gestionar revisión, aprobación y devolución');
+    const tree = render(RefundsView, props);
+    expect(nodes(tree).some(node => node.type === OrderAftersalesPanel)).toBe(true);
     expect(hooks.values[0][0].status).toBe('pending');
-    expect(apiFetch).toHaveBeenCalledOnce();
-    expect(JSON.parse(String(vi.mocked(apiFetch).mock.calls[0][1]?.body))).toEqual({ status: 'completed' });
+    expect(apiFetch).not.toHaveBeenCalled();
   });
 
   it('has a claims-only screen and never locally authorizes an OTP action', () => {

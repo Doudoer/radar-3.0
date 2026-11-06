@@ -66,6 +66,7 @@ export const getClaims = async () => {
       mainPart: row.product_type || 'Refacción',
       partSpecs: row.product_specs || '',
       claimReason: row.description || '',
+      resolutionNotes: row.resolution_notes || '',
       type: 'Reclamo de orden',
       priority: 'Media' as const,
       status: mapClaimStatus(row.status || ''),

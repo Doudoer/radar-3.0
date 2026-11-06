@@ -57,6 +57,10 @@ export function validateOrder(order: Payload, previous?: RowDataPacket, role = '
     fail(400, 'La dirección de entrega es obligatoria');
   }
   if (previous) {
+    if ((previous.delivered_at || previous.warranty_terms) && order.warrantyDays !== undefined &&
+      Number(order.warrantyDays) !== Number(previous.warranty_days ?? 60)) {
+      fail(409, 'La cobertura entregada no se modifica desde la edición general de la orden.');
+    }
     if (order.version !== Number(previous.version)) fail(409, 'La orden cambió. Actualiza los datos antes de guardar');
     if (changedStatus && !canTransitionOrderStatus(oldStatus as OrderStatus, order.status!)) {
       fail(409, 'Transición de estado no permitida');
@@ -93,6 +97,7 @@ export function validateOrder(order: Payload, previous?: RowDataPacket, role = '
   } else if (['reclamo', 'solicitud_reembolso', 'reembolsado'].includes(order.status!)) {
     fail(400, 'Registra primero la orden y después la incidencia o devolución');
   }
+  if (!previous && order.status !== 'cotizacion') fail(400, 'Toda orden nueva debe crearse en Cotización; avanza desde el flujo verificable.');
   const newDelivery = order.status === 'entregado' && oldStatus !== 'entregado';
   if (newDelivery && paid !== total) {
     fail(400, 'Para marcar Entregado, liquida el saldo pendiente antes de la entrega');

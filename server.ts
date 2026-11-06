@@ -13,7 +13,9 @@ import { beginIdempotentRequest, finishIdempotentRequest, cents, fail, recordPay
 import { handleFinanceRequest } from './src/server/finance';
 import { handleAnalyticsRequest } from './src/server/analytics';
 import { enforceWorkflowUpdate, handleWorkflowRequest, recordWorkflowReopening } from './src/server/orderWorkflow';
-import { enforceCollectionUpdate, handlePaymentRequest } from './src/server/orderPayments';
+import { assertPaymentAccess, enforceCollectionUpdate, handlePaymentRequest } from './src/server/orderPayments';
+import { handleAftersalesRequest, parseStoredJson } from './src/server/aftersales';
+import { warrantyTermsSchema } from './src/utils/aftersales';
 import { workflowRequired } from './src/utils/orderWorkflow';
 import { inventoryForRole, mapInventoryPartRow } from './src/server/inventory';
 import { matchOrderInventory } from './src/utils/inventoryMatching';
@@ -470,6 +472,10 @@ const server = createServer(async (request, response) => {
     if (await handleFinanceRequest(request, response, pathname, authenticatedClaims)) return;
     if (authenticatedClaims && await handleWorkflowRequest(request, response, pathname, authenticatedClaims, pool, broadcastRealtimeEvent)) return;
     if (authenticatedClaims && await handlePaymentRequest(request, response, pathname, authenticatedClaims, pool, broadcastRealtimeEvent)) return;
+    if (authenticatedClaims && await handleAftersalesRequest(request, response, pathname, authenticatedClaims, pool, broadcastRealtimeEvent)) return;
+    if (['POST', 'PUT', 'DELETE'].includes(request.method || '') && /^\/api\/(?:claims|refunds)(?:\/(?:REC-|REF-)?\d+)?$/.test(pathname)) {
+      return sendJson(response, 409, { message: 'Gestiona la incidencia desde Garantía, reclamos y devoluciones de la orden. Actualiza la aplicación para usar el flujo verificable.' });
+    }
     if (pathname === '/api/auth/2fa/vault' && request.method === 'GET') {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
       const expiresAt = financeVaultExpiry(request, authenticatedClaims);
@@ -1757,7 +1763,7 @@ const server = createServer(async (request, response) => {
       try {
         await connection.beginTransaction();
         const [orderRows] = await connection.query<RowDataPacket[]>(
-          'SELECT id, order_code, status, delivered_at, version FROM orders WHERE id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE',
+          'SELECT id, order_code, status, delivered_at, version, warranty_terms, core_returned_at FROM orders WHERE id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE',
           [targetOrderId]
         );
         if (!orderRows[0]) {
@@ -1776,6 +1782,13 @@ const server = createServer(async (request, response) => {
           [newDeliveredMysql, targetOrderId, data.version]
         );
         if (!deliveryUpdate.affectedRows) fail(409, 'La orden cambió; recarga antes de guardar');
+        if (orderRow.warranty_terms) {
+          const terms = warrantyTermsSchema.parse(parseStoredJson(orderRow.warranty_terms));
+          if (previousDeliveredAt && Date.parse(terms.startedAt) === new Date(previousDeliveredAt).getTime()) {
+            await connection.execute('UPDATE orders SET warranty_terms=? WHERE id=?',
+              [JSON.stringify({ ...terms, startedAt: new Date(data.deliveredAt).toISOString() }), targetOrderId]);
+          }
+        }
 
         await connection.execute(
           "INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details,ip_address,user_agent) VALUES (?,?,'ORDER_DELIVERY_DATE_UPDATED','order',?,?,?,?)",
@@ -2421,6 +2434,8 @@ const server = createServer(async (request, response) => {
         paymentMethod: ({zelle:'Zelle',cashapp:'CashApp',cash:'Efectivo'} as Record<string,string>)[row.payment_method] || row.payment_method,
         paymentDetails: row.payment_contact || row.payment_details || '',
         status: row.status || 'pending',
+        reviewStage: row.review_stage || undefined,
+        refundScope: row.refund_scope || 'purchase',
         createdAt: row.created_at,
         completedAt: row.completed_at || undefined,
         completedBy: row.completed_by || undefined,
@@ -2949,6 +2964,12 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && pathname.startsWith('/uploads/')) {
       const filename = path.basename(pathname);
       const filePath = path.resolve(process.cwd(), 'uploads', filename);
+      const [attachedOrders] = await pool.query<RowDataPacket[]>(
+        `SELECT o.user_id,o.delivered_at,
+          (SELECT MIN(created_at) FROM status_orders WHERE order_id=o.id AND LOWER(status)='entregado') AS delivery_log_at,
+          (SELECT advisor_id FROM order_followup_assignments WHERE order_id=o.id) AS followup_user_id
+          FROM uploaded_files f JOIN orders o ON o.id=f.order_id WHERE f.filename=?`, [filename]);
+      if (attachedOrders[0]) assertPaymentAccess(attachedOrders[0], authenticatedClaims!, true);
       if (!existsSync(filePath)) {
         return sendJson(response, 404, { message: 'Archivo no encontrado' });
       }
@@ -2975,8 +2996,18 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'POST' && pathname === '/api/upload') {
-      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) return;
       const data = uploadPayloadSchema.parse(await readBody(request, 15 * 1024 * 1024));
+      if (data.orderId) {
+        const [orders] = await pool.query<RowDataPacket[]>(`SELECT o.user_id,o.delivered_at,
+          (SELECT MIN(created_at) FROM status_orders WHERE order_id=o.id AND LOWER(status)='entregado') AS delivery_log_at,
+          (SELECT advisor_id FROM order_followup_assignments WHERE order_id=o.id) AS followup_user_id
+          FROM orders o WHERE o.id=? AND o.deleted_at IS NULL`, [data.orderId]);
+        if (!orders[0]) return sendJson(response, 404, { message: 'Orden no encontrada' });
+        assertPaymentAccess(orders[0], authenticatedClaims!, true);
+      } else if (authenticatedClaims?.role === 'vendedor_yarda') {
+        return sendJson(response, 403, { message: 'Selecciona una orden asignada para adjuntar el comprobante.' });
+      }
       const buffer = Buffer.from(data.base64.replace(/^data:.*?;base64,/, ''), 'base64');
       if (buffer.length > 10 * 1024 * 1024) {
         return sendJson(response, 400, { message: 'El archivo excede el límite máximo de 10MB' });

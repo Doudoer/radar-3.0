@@ -2,6 +2,8 @@ import { RowDataPacket } from 'mysql2/promise';
 import { pool } from './config';
 import { mapInventoryPartRow } from './inventory';
 import { matchOrderInventory } from '../utils/inventoryMatching';
+import { preparationSchema } from '../utils/orderPreparation';
+import { warrantyTermsSchema, type WarrantyTerms } from '../utils/aftersales';
 
 export const statusToDatabase: Record<string, string> = {
   cotizacion: 'Cotización',
@@ -40,6 +42,12 @@ export const normalizeTransmissionType = (value?: string | null): 'AT' | 'MT' | 
   if (/AUTO|AT|AUTOMATICA|AUTOMÁTICA|CVT|DCT|SPEED/.test(str)) return 'AT';
   return null;
 };
+
+export function warrantyFromRow(row: RowDataPacket): WarrantyTerms | null {
+  if (row.warranty_terms) return warrantyTermsSchema.parse(typeof row.warranty_terms === 'string' ? JSON.parse(row.warranty_terms) : row.warranty_terms);
+  const deliveredAt = row.delivered_at || row.delivery_log_at;
+  return deliveredAt ? { startedAt: new Date(deliveredAt).toISOString(), days: Number(row.warranty_days ?? 60), policy: 'elapsed' } : null;
+}
 
 export const mapOrder = (row: RowDataPacket, auctionLinks: any[] = []) => {
   const customerName = row.contact_name ?? ([row.first_name, row.last_name].filter(Boolean).join(' ') || 'Cliente sin nombre');
@@ -109,11 +117,13 @@ export const mapOrder = (row: RowDataPacket, auctionLinks: any[] = []) => {
     warrantyDays: row.warranty_days ?? 60,
     deliveredAt: deliveredAt ? new Date(deliveredAt).toISOString() : undefined,
     warrantyStarted,
+    warrantyTerms: row.warranty_terms ? warrantyTermsSchema.parse(typeof row.warranty_terms === 'string' ? JSON.parse(row.warranty_terms) : row.warranty_terms) : null,
     claimReason: row.claim_reason || undefined,
     notes: row.description || '',
     auctionActive: Boolean(row.auction_search_active) || (auctionLinks && auctionLinks.length > 0),
     auctionLinks: auctionLinks || [],
     ...(typeof row.workflow_data === 'string' ? JSON.parse(row.workflow_data) : row.workflow_data || {}),
+    preparation: row.preparation_details ? preparationSchema.parse(typeof row.preparation_details === 'string' ? JSON.parse(row.preparation_details) : row.preparation_details) : null,
   };
 };
 

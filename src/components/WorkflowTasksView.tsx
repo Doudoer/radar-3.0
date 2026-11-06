@@ -1,12 +1,46 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { WorkflowActionForm, workflowResponse } from './OrderWorkflowPanel';
-import type { WorkflowTask } from '../utils/orderWorkflow';
+import { workflowTaskAssignee, type WorkflowTask } from '../utils/orderWorkflow';
 import { apiFetch } from '../services/apiFetch';
 
 export interface WorkflowQueue {
+  followupAdvisors?: { id: number; name: string }[];
   today: string; tasks: WorkflowTask[];
   operators: { userId: number | null; name: string; completed: number; onTime: number; attempts: number; overdue: number; escalated: number; blocked: number; unassigned: number }[];
 }
+const FollowupAssignment: React.FC<{ task: WorkflowTask; advisors: { id: number; name: string }[]; onSaved: () => Promise<void> }> =
+  ({ task, advisors, onSaved }) => {
+    const [advisor, setAdvisor] = useState(task.order.followupUserId ? String(task.order.followupUserId) : '');
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState('');
+    const lock = useRef(false);
+    const save = async () => {
+      if (lock.current) return;
+      lock.current = true; setBusy(true); setError('');
+      try {
+        const result = await workflowResponse<{ ok: boolean; version: number }>(await apiFetch(`/orders/${task.order.id}/workflow/assignee`, {
+          method: 'POST', body: JSON.stringify({ version: task.order.version, advisorId: advisor ? Number(advisor) : null }),
+        }));
+        if (!result.ok || result.version !== task.order.version + 1) throw new Error('Respuesta de asignación inválida; actualiza antes de reintentar.');
+        window.dispatchEvent(new Event('radar:data-changed'));
+        await onSaved();
+      } catch (reason) { setError(reason instanceof Error ? reason.message : 'No se pudo asignar el seguimiento.'); }
+      finally { lock.current = false; setBusy(false); }
+    };
+    return <section className="rounded-xl border border-[var(--border-color)] p-3 space-y-2">
+      <p className="text-sm">Responsable post-entrega independiente del vendedor original.</p>
+      <div className="flex flex-wrap gap-3">
+        <label className="flex flex-col gap-1 text-sm">Asesor de seguimiento<select value={advisor} disabled={busy} onChange={event => setAdvisor(event.target.value)}>
+          <option value="">{task.order.isYardSale ? 'Pendiente de asignación' : 'Asesor original de la venta'}</option>
+          {task.order.followupUserId && !advisors.some(user => user.id === task.order.followupUserId) &&
+            <option value={String(task.order.followupUserId)} disabled>{task.order.followupAdvisor || 'Asesor asignado'} (no disponible)</option>}
+          {advisors.map(user => <option key={user.id} value={String(user.id)}>{user.name}</option>)}
+        </select></label>
+        <button type="button" disabled={busy} className="cyber-btn-secondary px-3 py-2" onClick={() => void save()}>{busy ? 'Asignando…' : 'Guardar responsable'}</button>
+      </div>
+      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+    </section>;
+  };
 const buckets = { all: 'Todas', overdue: 'Vencidas', today: 'Para hoy', waiting: 'Esperando respuesta', blocked: 'Bloqueadas', upcoming: 'Próximas' } as const;
 export const WorkflowTasksView: React.FC<{
   onSelectOrder: (id: string) => void; onNavigateIncident: (screen: 'reclamos' | 'reembolsos') => void; userRole: string; onLegacyFollowups?: () => void;
@@ -49,7 +83,7 @@ export const WorkflowTasksView: React.FC<{
   }, [selected?.order.id]);
   const tasks = (queue?.tasks || []).filter(task => {
     const matchesBucket = filter === 'all' || (filter === 'overdue' ? task.overdue && task.bucket !== 'blocked' : task.bucket === filter);
-    return matchesBucket && (operator === 'all' || String(task.order.userId) === operator);
+    return matchesBucket && (operator === 'all' || String(workflowTaskAssignee(task.order, task.task).userId) === operator);
   });
   return <div className="radar-view horizon-view horizon-workflow-queue pb-8">
     <header className="horizon-view-header">
@@ -77,7 +111,11 @@ export const WorkflowTasksView: React.FC<{
       {!tasks.length && <p className="horizon-view-card">No hay tareas para este filtro.</p>}
       <div className="space-y-4">{tasks.map(task => <article key={task.order.id} className="horizon-view-card space-y-3">
         <div className="flex flex-wrap justify-between gap-3"><h2 className="font-bold text-lg">{task.order.code} · {task.title}</h2><span className="text-sm">{buckets[task.bucket]} · {task.dueDate}</span></div>
-        <p className="text-sm">Responsable: {task.order.advisor} {task.order.userId === null && '· Administración debe asignar esta orden.'}</p>
+        <p className="text-sm">Responsable: {workflowTaskAssignee(task.order, task.task).name}
+          {workflowTaskAssignee(task.order, task.task).userId === null && ' · Administración debe asignar el seguimiento.'}</p>
+        {task.order.deliveredAt && <p className="text-xs text-[var(--text-secondary)]">Vendedor original: {task.order.advisor}{task.order.isYardSale && ' · Venta de yarda'}</p>}
+        {userRole === 'admin' && <FollowupAssignment key={`${task.order.id}-${task.order.version}`}
+          task={task} advisors={queue.followupAdvisors || []} onSaved={reload} />}
         <p className="text-sm text-[var(--text-secondary)]">{task.nextAction}</p>
         {task.escalated && <p className="text-sm text-red-600">Aviso interno al supervisor: al menos un día hábil de atraso.</p>}
         {task.blockedBy && <p className="text-sm text-amber-600">Bloqueo externo: {task.blockedBy} · próxima revisión {task.dueDate}</p>}
