@@ -44,6 +44,28 @@ describe('split collection and core settlement', () => {
       { ...settlement([]), actorId: 99 },
     ]) expect(settlementSchema.safeParse(value).success).toBe(false);
   });
+  it('supports adding a core fee at delivery when the customer initially promised the core but decided to pay it', () => {
+    const zeroCoreOrder = { price: 1200, shipping: 0, core: 0, paid: 200, coreReceived: false };
+    const input = settlementSchema.parse({
+      payments: [payment(1150)],
+      coreAction: 'charge',
+      coreAmount: 150,
+      coreReference: '',
+      coreConfirmed: false,
+    });
+    const result = previewSettlement(zeroCoreOrder, input);
+    expect(result).toEqual({ total: 1350, paid: 1350, balance: 0, received: 1150, coreCredit: 0 });
+  });
+  it('supports waiving core fee with none action without counting prior payments twice', () => {
+    const input = settlementSchema.parse({
+      payments: [payment(700)],
+      coreAction: 'none',
+      coreReference: '',
+      coreConfirmed: false,
+    });
+    const result = previewSettlement(order, input);
+    expect(result).toEqual({ total: 900, paid: 900, balance: 0, received: 700, coreCredit: 0 });
+  });
   it('rejects invalid stored amounts rather than calculating a success-shaped balance', () => {
     expect(() => previewSettlement({ ...order, paid: NaN }, settlementSchema.parse(settlement([])))).toThrow(/importe/);
   });

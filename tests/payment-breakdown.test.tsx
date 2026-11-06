@@ -42,4 +42,31 @@ describe('collection financial breakdown', () => {
     expectRow(html, 'Cargo de core', '$0.00');
     expectRow(html, 'Monto restante por cobrar', '$0.00');
   });
+  it('correctly adapts breakdown when customer promised core at creation but decides to pay it at delivery', () => {
+    const zeroCoreDetail: PaymentDetail = {
+      version: 1, canRecord: true,
+      order: { price: 1200, shipping: 0, core: 0, paid: 200, coreReceived: false },
+      payments: [], coreReceipt: null,
+    };
+    const settlementWithCore: Settlement = {
+      payments: [{ amount: 1150, method: 'cash', receivedBy: 'Favio', reference: '', confirmed: true }],
+      coreAction: 'charge',
+      coreAmount: 150,
+      coreReference: '',
+      coreConfirmed: false,
+    };
+    const html = markup(settlementWithCore, zeroCoreDetail);
+    expectRow(html, 'Cargo de core', '$150.00');
+    expectRow(html, 'Monto total de la venta', '$1,350.00');
+    expectRow(html, 'Downpayment / pagos anteriores', '$200.00');
+    expectRow(html, 'Monto restante antes de este cobro', '$1,150.00');
+    expectRow(html, 'Monto total a liquidar', '$1,350.00');
+    expectRow(html, 'Cobro nuevo', '$1,150.00');
+    expectRow(html, 'Acumulado cobrado', '$1,350.00');
+    expectRow(html, 'Monto restante por cobrar', '$0.00');
+    expect(html).toContain('El cliente no trajo la pieza usada y pagará el core');
+    expect(html).toContain('Monto a cobrar por el core (USD)');
+    expect(html).toContain('value="150"');
+    expect(html).toContain('Saldo liquidado exactamente');
+  });
 });

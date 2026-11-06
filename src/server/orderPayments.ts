@@ -48,7 +48,15 @@ export async function applyOrderSettlement(connection: PoolConnection, row: RowD
   if (row.preparation_details && input.payments.some(payment => !isBalancePaymentMethod(payment.method))) {
     fail(409, 'El saldo después de Preparación y cita se paga únicamente en efectivo, Cash App o Zelle.');
   }
-  const changes = input.payments.length > 0 || input.coreAction === 'received';
+  let summary: ReturnType<typeof previewSettlement>;
+  try { summary = previewSettlement(settlementOrderFromRow(row), input); }
+  catch (error) { return fail(409, error instanceof Error ? error.message : 'Liquidación inválida'); }
+  const effectiveCoreFee = input.coreAction === 'charge' && input.coreAmount !== undefined && input.coreAmount !== null
+    ? input.coreAmount
+    : input.coreAction === 'none'
+      ? 0
+      : Number(row.core_fee || 0);
+  const changes = input.payments.length > 0 || input.coreAction === 'received' || (input.coreAction === 'charge' && effectiveCoreFee !== Number(row.core_fee || 0)) || (input.coreAction === 'none' && Number(row.core_fee || 0) > 0);
   if (changes) await assertUnrefundedSale(connection, row);
   if (changes && claims.role !== 'admin') fail(403, 'Solo administración puede registrar cobros o recibir el core.');
   try { validateCollectionEvidence(input); }
@@ -57,13 +65,14 @@ export async function applyOrderSettlement(connection: PoolConnection, row: RowD
   if (changes && ['cancelado', 'reembolsado', 'archivado', 'reclamo', 'solicitud_reembolso'].includes(statusFromDatabase(row.status))) {
     fail(409, 'Gestiona la incidencia o reactiva la orden antes de registrar cobros.');
   }
-  let summary: ReturnType<typeof previewSettlement>;
-  try { summary = previewSettlement(settlementOrderFromRow(row), input); }
-  catch (error) { return fail(409, error instanceof Error ? error.message : 'Liquidación inválida'); }
   if (input.coreAction === 'received') {
     await connection.execute('INSERT INTO order_core_receipts (order_id,amount,reference,actor_id) VALUES (?,?,?,?)',
       [row.id, summary.coreCredit, input.coreReference, Number(claims.sub)]);
     await connection.execute('UPDATE orders SET core_fee=0,core_received_at=UTC_TIMESTAMP(),core_received_amount=? WHERE id=?', [summary.coreCredit, row.id]);
+  } else if (input.coreAction === 'charge' && effectiveCoreFee !== Number(row.core_fee || 0)) {
+    await connection.execute('UPDATE orders SET core_fee=? WHERE id=?', [effectiveCoreFee, row.id]);
+  } else if (input.coreAction === 'none' && Number(row.core_fee || 0) > 0) {
+    await connection.execute('UPDATE orders SET core_fee=0 WHERE id=?', [row.id]);
   }
   for (const payment of input.payments) {
     await connection.execute(
@@ -73,7 +82,8 @@ export async function applyOrderSettlement(connection: PoolConnection, row: RowD
     );
   }
   if (input.payments.length) await connection.execute('UPDATE orders SET down_payment=? WHERE id=?', [summary.paid, row.id]);
-  return { ...row, down_payment: summary.paid, core_fee: input.coreAction === 'received' ? 0 : row.core_fee } as RowDataPacket;
+  const newCoreFee = input.coreAction === 'received' || input.coreAction === 'none' ? 0 : effectiveCoreFee;
+  return { ...row, down_payment: summary.paid, core_fee: newCoreFee } as RowDataPacket;
 }
 export async function completeOrderDelivery(connection: PoolConnection, row: RowDataPacket, claims: Claims, description: string) {
   await assertUnrefundedSale(connection, row);
@@ -121,7 +131,8 @@ export async function handlePaymentRequest(
       return true;
     }
     if (Number(row.version) !== action.version) fail(409, 'La orden cambió; recarga antes de registrar el cobro.');
-    if (!action.delivery && !action.settlement.payments.length && action.settlement.coreAction === 'keep') fail(400, 'Agrega un cobro o registra la recepción del core.');
+    const hasCoreModification = action.settlement.coreAction === 'received' || (action.settlement.coreAction === 'charge' && (action.settlement.coreAmount !== undefined ? action.settlement.coreAmount !== Number(row.core_fee || 0) : true)) || (action.settlement.coreAction === 'none' && Number(row.core_fee || 0) > 0);
+    if (!action.delivery && !action.settlement.payments.length && !hasCoreModification) fail(400, 'Agrega un cobro o registra la gestión del core.');
     if (action.delivery && workflowRequired(new Date(row.created_at).toISOString())) fail(409, 'Completa la entrega desde el flujo verificable.');
     if (action.delivery && row.delivered_at) fail(409, 'La entrega ya está registrada.');
     if (action.delivery && action.settlement.payments.some(payment => !isBalancePaymentMethod(payment.method))) {

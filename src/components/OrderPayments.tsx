@@ -47,7 +47,12 @@ export const OrderPaymentFields: React.FC<{
   catch (reason) { previewError = reason instanceof Error ? reason.message : 'Liquidación inválida'; }
   const updatePayment = (index: number, patch: Partial<Settlement['payments'][number]>) =>
     onChange({ ...value, payments: value.payments.map((item, i) => i === index ? { ...item, ...patch } : item) });
-  const saleTotal = (Math.round(detail.order.price * 100) + Math.round(detail.order.shipping * 100) + Math.round(detail.order.core * 100)) / 100;
+  const currentCore = value.coreAction === 'charge' && value.coreAmount !== undefined && value.coreAmount !== null
+    ? value.coreAmount
+    : value.coreAction === 'none'
+      ? 0
+      : detail.order.core;
+  const saleTotal = (Math.round(detail.order.price * 100) + Math.round(detail.order.shipping * 100) + Math.round(currentCore * 100)) / 100;
   const previousBalance = (Math.round(saleTotal * 100) - Math.round(detail.order.paid * 100)) / 100;
   const amountRow = (label: string, amount: string, emphasized = false) => <div className={`flex flex-wrap justify-between gap-x-4 gap-y-1 ${emphasized ? 'border-t border-[var(--border-color)] pt-3 font-bold' : ''}`}>
     <dt>{label}</dt><dd className="font-semibold tabular-nums">{amount}</dd>
@@ -60,34 +65,201 @@ export const OrderPaymentFields: React.FC<{
     finally { uploadingRef.current = false; setUploading(false); onUploadingChange?.(false); }
   };
   return <section className="space-y-4">
-    <div className="grid gap-3 sm:grid-cols-3 text-sm">
-      <p>Total anterior<strong className="block">{money(detail.order.price + detail.order.shipping + detail.order.core)}</strong></p>
-      <p>Cobrado anteriormente<strong className="block">{money(detail.order.paid)}</strong></p>
-      <p>Cargo de core<strong className="block">{money(detail.order.core)}</strong></p>
+    <div className="grid gap-3 grid-cols-2 sm:grid-cols-4 text-sm">
+      <div className="rounded-xl bg-[var(--bg-card-subtle)] p-3">
+        <span className="text-xs text-[var(--text-secondary)] block">Total venta</span>
+        <strong className="block text-base">{money(saleTotal)}</strong>
+      </div>
+      <div className="rounded-xl bg-[var(--bg-card-subtle)] p-3">
+        <span className="text-xs text-[var(--text-secondary)] block">Cobrado anterior</span>
+        <strong className="block text-base">{money(detail.order.paid)}</strong>
+      </div>
+      <div className="rounded-xl bg-[var(--bg-card-subtle)] p-3">
+        <span className="text-xs text-[var(--text-secondary)] block">Cargo de core</span>
+        <strong className="block text-base">{money(currentCore)}</strong>
+      </div>
+      <div className="rounded-xl bg-[var(--bg-card-subtle)] p-3 border border-cyan-500/40 bg-cyan-950/20">
+        <span className="text-xs text-cyan-400 font-semibold block">Saldo pendiente</span>
+        <strong className="block text-base text-cyan-300">{money(summary ? summary.balance : previousBalance)}</strong>
+      </div>
     </div>
     {!detail.canRecord && <p className="text-sm text-amber-600">Solo administración puede registrar cobros y recibir el core. Puedes confirmar una entrega ya liquidada.</p>}
     {detail.remainingMethodsOnly && <p className="text-sm">Saldo pendiente: únicamente efectivo, Cash App o Zelle, según lo informado al cliente.</p>}
-    <fieldset disabled={disabled || uploading || !detail.canRecord} className="space-y-4">
-      <legend className="font-bold mb-2">Core / pieza usada</legend>
-      {detail.order.coreReceived ? <p className="text-sm">Core recibido. El cargo ya fue eliminado.</p> : detail.order.core > 0 ? <>
-        <label className="flex flex-col gap-2 text-sm">Tratamiento del core
-          <select value={value.coreAction} onChange={event => onChange({ ...value, coreAction: event.target.value as Settlement['coreAction'] })}>
-            <option value="keep">El cliente paga el core · conservar cargo</option>
-            <option value="received">Recibimos la pieza usada · eliminar cargo</option>
-          </select>
-        </label>
-        {value.coreAction === 'received' && <>
-          <label className="flex flex-col gap-2 text-sm">Referencia de recepción del core
-            <input maxLength={1000} value={value.coreReference} onChange={event => onChange({ ...value, coreReference: event.target.value })} placeholder="Comprobante y descripción de la pieza recibida" />
+    <fieldset disabled={disabled || uploading || !detail.canRecord} className="rounded-xl border border-[var(--border-color)] p-4 space-y-3.5 bg-[var(--bg-card-subtle)]/40">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <legend className="font-bold text-sm text-[var(--text-primary)]">Core / pieza usada</legend>
+        {detail.order.core > 0 ? (
+          <span className="text-xs px-2 py-0.5 rounded bg-cyan-950/70 border border-cyan-500/30 text-cyan-300 font-mono">Core inicial: {money(detail.order.core)}</span>
+        ) : (
+          <span className="text-xs px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">Sin core inicial en orden</span>
+        )}
+      </div>
+      {detail.order.coreReceived ? (
+        <div className="flex items-center gap-2 text-sm text-emerald-400 bg-emerald-950/30 border border-emerald-500/30 rounded-lg p-3">
+          <span className="material-symbols-outlined text-base">check_circle</span>
+          <div>
+            <p className="font-semibold">Core recibido físicamente</p>
+            <p className="text-xs text-[var(--text-secondary)]">La pieza usada ya fue verificada y recibida. No hay cargo de core pendiente por liquidar.</p>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium text-[var(--text-primary)]">Tratamiento del core</span>
+            <select
+              className="cyber-input"
+              value={
+                value.coreAction === 'charge' ? 'charge'
+                : value.coreAction === 'received' ? 'received'
+                : value.coreAction === 'none' ? 'none'
+                : detail.order.core > 0 ? 'keep' : 'none'
+              }
+              onChange={event => {
+                const action = event.target.value as 'keep' | 'charge' | 'received' | 'none';
+                if (action === 'charge') {
+                  onChange({
+                    ...value,
+                    coreAction: 'charge',
+                    coreAmount: value.coreAmount !== undefined ? value.coreAmount : (detail.order.core > 0 ? detail.order.core : 0),
+                    coreReference: '',
+                    coreConfirmed: false,
+                  });
+                } else if (action === 'keep') {
+                  onChange({
+                    ...value,
+                    coreAction: 'keep',
+                    coreAmount: detail.order.core > 0 ? detail.order.core : undefined,
+                    coreReference: '',
+                    coreConfirmed: false,
+                  });
+                } else if (action === 'received') {
+                  onChange({
+                    ...value,
+                    coreAction: 'received',
+                    coreAmount: undefined,
+                    coreReference: value.coreReference || '',
+                    coreConfirmed: value.coreConfirmed || false,
+                  });
+                } else if (action === 'none') {
+                  onChange({
+                    ...value,
+                    coreAction: 'none',
+                    coreAmount: 0,
+                    coreReference: '',
+                    coreConfirmed: false,
+                  });
+                }
+              }}
+            >
+              <option value={detail.order.core > 0 ? 'keep' : 'charge'}>
+                {detail.order.core > 0
+                  ? `El cliente paga el core · conservar cargo (${money(detail.order.core)})`
+                  : 'El cliente no trajo la pieza usada y pagará el core'}
+              </option>
+              <option value="received">
+                Recibimos la pieza usada · eliminar cargo {detail.order.core > 0 ? `(-${money(detail.order.core)})` : ''}
+              </option>
+              <option value="none">
+                Sin cargo de core (no aplica para esta pieza / exento)
+              </option>
+            </select>
           </label>
-          <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={value.coreConfirmed} onChange={event => onChange({ ...value, coreConfirmed: event.target.checked })} />
-            Confirmo que recibimos físicamente la pieza usada. No es una promesa de devolución.</label>
-        </>}
-        <p className="text-xs text-[var(--text-secondary)]">Si el core ya fue cobrado y corresponde devolver dinero, tramita una devolución desde Reembolsos.</p>
-      </> : <p className="text-sm">Sin cargo de core.</p>}
-      <div className="flex flex-wrap justify-between items-center gap-2">
+          {(value.coreAction === 'charge' || (value.coreAction === 'keep' && detail.order.core > 0)) && (
+            <div className="rounded-lg bg-[var(--bg-card)] p-3 border border-[var(--border-color)] space-y-2">
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="font-semibold text-cyan-300">
+                  {detail.order.core === 0 ? 'Monto a cobrar por el core (USD)' : 'Monto del cargo de core (USD)'}
+                </span>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  max="99999999"
+                  required
+                  className="cyber-input"
+                  placeholder="Ej: 150.00"
+                  value={value.coreAmount !== undefined && value.coreAmount !== null ? value.coreAmount : (detail.order.core > 0 ? detail.order.core : '')}
+                  onChange={event => {
+                    const val = event.target.value === '' ? undefined : Number(event.target.value);
+                    onChange({
+                      ...value,
+                      coreAction: 'charge',
+                      coreAmount: val,
+                    });
+                  }}
+                />
+              </label>
+              <p className="text-xs text-[var(--text-secondary)]">
+                {detail.order.core === 0
+                  ? 'El cliente pagará este importe por el core. Se sumará al total a liquidar y queda registrado como depósito de core para posventa.'
+                  : 'Cargo incluido en la liquidación de la orden. Se registra como depósito de core reembolsable si el cliente entrega la pieza durante la garantía.'}
+              </p>
+            </div>
+          )}
+          {value.coreAction === 'received' && (
+            <div className="rounded-lg bg-[var(--bg-card)] p-3 border border-[var(--border-color)] space-y-3">
+              {detail.order.core > 0 ? (
+                <p className="text-xs text-emerald-400">
+                  ✓ Se aplicará un ajuste de <strong>-{money(detail.order.core)}</strong> al total por recibir la pieza usada física.
+                </p>
+              ) : (
+                <p className="text-xs text-emerald-400">
+                  ✓ El cliente entregó la pieza usada acordada. No se genera cargo de core.
+                </p>
+              )}
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Referencia de recepción del core</span>
+                <input
+                  required
+                  minLength={5}
+                  maxLength={1000}
+                  className="cyber-input"
+                  value={value.coreReference}
+                  onChange={event => onChange({ ...value, coreReference: event.target.value })}
+                  placeholder="Comprobante y descripción de la pieza recibida"
+                />
+              </label>
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  required
+                  className="mt-0.5"
+                  checked={value.coreConfirmed}
+                  onChange={event => onChange({ ...value, coreConfirmed: event.target.checked })}
+                />
+                <span>Confirmo que recibimos físicamente la pieza usada. No es una promesa de devolución.</span>
+              </label>
+            </div>
+          )}
+          {value.coreAction === 'none' && (
+            <p className="text-xs text-[var(--text-secondary)] italic">
+              Esta orden no tiene cargo de core ni requiere entrega de pieza usada.
+            </p>
+          )}
+          <p className="text-xs text-[var(--text-secondary)]">Si el core ya fue cobrado y corresponde devolver dinero, tramita una devolución desde Reembolsos.</p>
+        </div>
+      )}
+      <div className="flex flex-wrap justify-between items-center gap-2 pt-2">
         <strong>Pagos recibidos ahora</strong>
-        <button type="button" className="cyber-btn-secondary px-3 py-2" disabled={value.payments.length >= 20} onClick={() => onChange({ ...value, payments: [...value.payments, { amount: 0, method: 'cash', reference: '', confirmed: true }] })}>Agregar método de pago</button>
+        <div className="flex flex-wrap items-center gap-2">
+          {summary && summary.balance > 0 && (
+            <button
+              type="button"
+              className="text-xs px-2.5 py-1.5 rounded-lg bg-cyan-950/70 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900/60 transition-colors font-medium"
+              onClick={() => {
+                const bal = summary!.balance;
+                if (!value.payments.length) {
+                  onChange({ ...value, payments: [{ amount: bal, method: 'cash', reference: '', confirmed: true }] });
+                } else {
+                  updatePayment(value.payments.length - 1, { amount: bal });
+                }
+              }}
+            >
+              ⚡ Completar saldo ({money(summary.balance)})
+            </button>
+          )}
+          <button type="button" className="cyber-btn-secondary px-3 py-1.5 text-sm" disabled={value.payments.length >= 20} onClick={() => onChange({ ...value, payments: [...value.payments, { amount: 0, method: 'cash', reference: '', confirmed: true }] })}>+ Agregar método de pago</button>
+        </div>
       </div>
       {!value.payments.length && <p className="text-sm text-[var(--text-secondary)]">Sin cobros nuevos. Agrega solo dinero recibido ahora; no repitas los pagos anteriores. Si ya está liquidada, puedes entregar sin cobrar otra vez.</p>}
       {value.payments.map((payment, index) => <div key={index} className="rounded-xl bg-[var(--bg-card-subtle)] p-3 space-y-3">
@@ -124,7 +296,7 @@ export const OrderPaymentFields: React.FC<{
       <dl className="space-y-3">
         {amountRow('Precio de la pieza', money(detail.order.price))}
         {amountRow('Delivery / envío', money(detail.order.shipping))}
-        {amountRow('Cargo de core', money(detail.order.core))}
+        {amountRow('Cargo de core', money(currentCore))}
         {amountRow('Monto total de la venta', money(saleTotal), true)}
         {amountRow('Downpayment / pagos anteriores', money(detail.order.paid))}
         {amountRow('Monto restante antes de este cobro', money(previousBalance))}
@@ -136,7 +308,12 @@ export const OrderPaymentFields: React.FC<{
       </dl>
       <p className="text-xs text-[var(--text-secondary)]">Downpayment / pagos anteriores incluye el abono y cualquier pago posterior ya registrado; no es un cobro nuevo. Total de venta = pieza + delivery + core. El ajuste de core se descuenta una sola vez.</p>
       {!detail.order.shipping && <p className="text-xs text-[var(--text-secondary)]">Esta orden no tiene un cargo de delivery registrado.</p>}
-      {detail.order.core > 0 && value.coreAction === 'keep' && <p>{summary.balance === 0 ? 'Core incluido en la liquidación.' : 'El cargo de core sigue incluido en el saldo pendiente.'}</p>}
+      {(value.coreAction === 'charge' || (detail.order.core > 0 && value.coreAction === 'keep')) && <p>{summary.balance === 0 ? 'Core incluido en la liquidación.' : 'El cargo de core sigue incluido en el saldo pendiente.'}</p>}
+      {summary.balance === 0 ? (
+        <p className="text-sm font-semibold text-emerald-400">✓ Saldo liquidado exactamente. Listo para registrar la entrega.</p>
+      ) : (
+        <p className="text-sm font-medium text-amber-400">Saldo pendiente por cobrar: {money(summary.balance)}</p>
+      )}
     </div>}
     <details className="text-sm space-y-3"><summary className="cursor-pointer font-bold">Historial de cobros y core</summary>
       {!detail.payments.length && <p>Sin cobros registrados.</p>}
