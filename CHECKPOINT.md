@@ -58,6 +58,17 @@
   - En lugar de una casilla gris pequeña, un bloque táctil grande que se ilumina en verde esmeralda con icono `handshake` / `check_circle`.
   - Notifica claramente la inspección de la pieza, el inicio del plazo de garantía y las condiciones del core.
 
+#### 4. Tratamiento del Core y Registro de Pagos (Liquidación Visual Interactiva):
+- **Selector de Tratamiento del Core en 3 Tarjetas de Decisión:**
+  - 💵 **Cliente pagará core:** Se ilumina en cian, despliega el campo del monto con prefijo `$`, y explica que queda como depósito reembolsable.
+  - 🔄 **Recibimos pieza usada:** Se ilumina en verde esmeralda, aplica el descuento automático, y provee campo para la referencia y confirmación táctil de recepción física en yarda.
+  - 🚫 **Sin cargo / Exento:** Tarjeta limpia para piezas que no requieren core.
+- **Registro Visual de Pagos Recibidos:**
+  - Selector de método por **chips/botones táctiles con iconos** (Efectivo 💵, Zelle 📲, Cash App 🟢, Tarjeta 💳).
+  - Botón rápido **`⚡ Completar saldo ($X.XX)`** para rellenar el saldo restante con 1 solo toque.
+  - Entradas de texto e importe con iconos, diseño oscuro moderno y bordes de enfoque visuales.
+  - Acciones claras para agregar o quitar métodos de cobro con confirmaciones visibles.
+
 ---
 
 ---
