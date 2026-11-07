@@ -56,9 +56,9 @@ const FollowupAssignment: React.FC<{
   };
 
   return (
-    <div className="rounded-2xl bg-[#030610]/90 border border-cyan-500/20 p-3 space-y-2">
-      <div className="flex items-center gap-2 text-xs font-mono text-cyan-300">
-        <span className="material-symbols-outlined text-[16px]">manage_accounts</span>
+    <div className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3 space-y-2">
+      <div className="flex items-center gap-1.5 text-xs font-bold text-cyan-400">
+        <span className="material-symbols-outlined text-[15px]">manage_accounts</span>
         <span>Reasignación Post-Entrega (Supervisión)</span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -66,7 +66,7 @@ const FollowupAssignment: React.FC<{
           value={advisor}
           disabled={busy}
           onChange={(event) => setAdvisor(event.target.value)}
-          className="flex-1 min-w-[200px] text-xs py-1.5 px-3 rounded-xl bg-[#070c18] border border-cyan-500/30 text-white focus:outline-none focus:border-cyan-400 font-mono"
+          className="flex-1 min-w-[200px] text-xs py-1.5 px-3 rounded-lg bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-cyan-400"
         >
           <option value="">{task.order.isYardSale ? 'Pendiente de asignación' : 'Asesor original de la venta'}</option>
           {task.order.followupUserId && !advisors.some((user) => user.id === task.order.followupUserId) && (
@@ -90,7 +90,7 @@ const FollowupAssignment: React.FC<{
           <span>{busy ? 'Asignando…' : 'Guardar'}</span>
         </button>
       </div>
-      {error && <p role="alert" className="text-xs text-rose-400 font-mono">{error}</p>}
+      {error && <p role="alert" className="text-xs text-rose-400 font-semibold">{error}</p>}
     </div>
   );
 };
@@ -104,14 +104,28 @@ const buckets = {
   upcoming: 'Próximas',
 } as const;
 
+const categories = {
+  all: { label: 'Todas las áreas', icon: 'apps' },
+  commercial: { label: 'Flujo Comercial', icon: 'storefront' },
+  post_delivery: { label: 'Seguimiento Post-Entrega', icon: 'support_agent' },
+  incident: { label: 'Incidencias / Garantías', icon: 'shield_with_heart' },
+} as const;
+
+const getTaskCategory = (taskKey: string): keyof typeof categories => {
+  if (taskKey.startsWith('post_')) return 'post_delivery';
+  if (taskKey === 'incident') return 'incident';
+  return 'commercial';
+};
+
 const getTaskCategoryIcon = (taskKey: string): string => {
-  if (taskKey.startsWith('post_')) return 'contact_phone';
-  if (taskKey === 'downpayment') return 'payments';
-  if (taskKey === 'confirmation') return 'verified_user';
-  if (taskKey === 'preparation') return 'inventory_2';
-  if (taskKey === 'ready_pickup') return 'storefront';
+  if (taskKey === 'post_3') return 'inventory';
+  if (taskKey === 'post_7') return 'build_circle';
+  if (taskKey === 'post_14') return 'verified_user';
+  if (taskKey === 'quote') return 'request_quote';
+  if (taskKey === 'ack') return 'verified';
+  if (taskKey === 'prepare') return 'event_available';
   if (taskKey === 'delivery') return 'local_shipping';
-  if (taskKey === 'incident') return 'gavel';
+  if (taskKey === 'incident') return 'report_problem';
   return 'assignment';
 };
 
@@ -142,6 +156,7 @@ export const WorkflowTasksView: React.FC<{
   const [queue, setQueue] = useState<WorkflowQueue | null>(null);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState<keyof typeof buckets>('all');
+  const [categoryFilter, setCategoryFilter] = useState<keyof typeof categories>('all');
   const [operator, setOperator] = useState('all');
   const [selected, setSelected] = useState<WorkflowTask | null>(null);
   const generation = useRef(0);
@@ -204,24 +219,31 @@ export const WorkflowTasksView: React.FC<{
   const tasks = (queue?.tasks || []).filter((task) => {
     const matchesBucket =
       filter === 'all' || (filter === 'overdue' ? task.overdue && task.bucket !== 'blocked' : task.bucket === filter);
-    return matchesBucket && (operator === 'all' || String(workflowTaskAssignee(task.order, task.task).userId) === operator);
+    const matchesCategory = categoryFilter === 'all' || getTaskCategory(task.task) === categoryFilter;
+    const matchesOperator =
+      operator === 'all' || String(workflowTaskAssignee(task.order, task.task).userId) === operator;
+    return matchesBucket && matchesCategory && matchesOperator;
   });
 
   return (
     <div className="radar-view horizon-view horizon-workflow-queue pb-8 space-y-6">
-      {/* Cyber Header Card */}
+      {/* Header Card */}
       <div className="horizon-view-header">
         <div className="flex items-center gap-3.5">
-          <div className="relative w-12 h-12 rounded-2xl bg-[#040814] border border-cyan-500/40 text-cyan-300 flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.3)] shrink-0">
+          <div className="relative w-12 h-12 rounded-2xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 flex items-center justify-center shrink-0">
             <span className="material-symbols-outlined text-[26px]">task_alt</span>
-            <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee] animate-pulse" />
+            <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-400 animate-pulse" />
           </div>
           <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-xl md:text-2xl font-black text-white tracking-tight">Mi trabajo de hoy</h1>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-xl md:text-2xl font-black text-[var(--text-primary)] tracking-tight">Mi trabajo de hoy</h1>
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold text-emerald-500">
+                <span className="material-symbols-outlined text-[13px]">verified</span>
+                <span>Flujo Post-Entrega Activo (Día 3 · 7 · 14)</span>
+              </span>
             </div>
-            <p className="text-xs text-slate-400 mt-1">
-              Órdenes desde el 21 de octubre de 2026. Primera gestión y reintento en días hábiles; hitos post-entrega 3, 7 y 14.
+            <p className="text-xs text-[var(--text-secondary)] mt-1">
+              Gestión comercial en días hábiles y seguimiento post-entrega para órdenes entregadas a partir de la activación del nuevo flujo. Las entregas previas quedan finalizadas automáticamente por el sistema.
             </p>
           </div>
         </div>
@@ -251,14 +273,14 @@ export const WorkflowTasksView: React.FC<{
       </div>
 
       {error && (
-        <div role="alert" className="p-4 rounded-2xl bg-rose-950/40 border border-rose-500/40 text-rose-300 text-xs font-mono flex items-center gap-2">
+        <div role="alert" className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/35 text-rose-400 text-xs font-semibold flex items-center gap-2">
           <span className="material-symbols-outlined text-base">error</span>
           <span>{error}</span>
         </div>
       )}
 
       {!queue && !error && (
-        <div role="status" className="p-8 rounded-3xl bg-[#070c18]/90 border border-cyan-500/20 text-center text-slate-400 text-xs font-mono flex items-center justify-center gap-2">
+        <div role="status" className="p-8 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] text-center text-[var(--text-secondary)] text-xs font-semibold flex items-center justify-center gap-2">
           <span className="material-symbols-outlined text-cyan-400 animate-spin">progress_activity</span>
           <span>Cargando tareas del servidor…</span>
         </div>
@@ -266,78 +288,146 @@ export const WorkflowTasksView: React.FC<{
 
       {queue && (
         <>
-          {/* Cyber Metric Cards */}
-          <div className="horizon-view-metrics grid gap-4 grid-cols-2 lg:grid-cols-4">
+          {/* KPI Metric Cards */}
+          <div className="horizon-view-metrics grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {/* Tareas Activas */}
-            <div className="relative rounded-2xl bg-[#070c18]/90 border border-cyan-500/25 p-4 shadow-[0_4px_20px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col justify-between">
-              <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_8px_#22d3ee]" />
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-slate-400 font-mono font-medium">Tareas Activas</span>
-                <span className="w-7 h-7 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
-                  <span className="material-symbols-outlined text-[16px]">assignment</span>
-                </span>
+            <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4 flex items-center justify-between gap-3">
+              <div>
+                <span className="text-xs font-medium text-[var(--text-secondary)] block">Tareas Activas</span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <strong className="text-2xl font-black text-[var(--text-primary)] tabular-nums">{queue.tasks.length}</strong>
+                  <span className="text-[11px] font-semibold text-cyan-400">en cola</span>
+                </div>
               </div>
-              <div className="mt-2 flex items-baseline gap-2">
-                <strong className="text-2xl md:text-3xl font-black text-white font-mono">{queue.tasks.length}</strong>
-                <span className="text-[10px] text-cyan-400 font-mono">en cola</span>
+              <span className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
+                <span className="material-symbols-outlined text-[20px]">assignment</span>
+              </span>
+            </div>
+
+            {/* Post-Entrega Activas */}
+            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 flex items-center justify-between gap-3">
+              <div>
+                <span className="text-xs font-medium text-[var(--text-secondary)] block">Post-Entrega</span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <strong className="text-2xl font-black text-emerald-500 tabular-nums">
+                    {queue.tasks.filter((t) => t.task.startsWith('post_')).length}
+                  </strong>
+                  <span className="text-[11px] font-semibold text-emerald-500">Día 3/7/14</span>
+                </div>
               </div>
+              <span className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-500 shrink-0">
+                <span className="material-symbols-outlined text-[20px]">support_agent</span>
+              </span>
             </div>
 
             {/* Vencidas */}
-            <div className="relative rounded-2xl bg-[#070c18]/90 border border-rose-500/25 p-4 shadow-[0_4px_20px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col justify-between">
-              <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-rose-500 to-transparent shadow-[0_0_8px_#f43f5e]" />
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-slate-400 font-mono font-medium">Vencidas</span>
-                <span className="w-7 h-7 rounded-lg bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
-                  <span className="material-symbols-outlined text-[16px]">warning</span>
-                </span>
+            <div className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-4 flex items-center justify-between gap-3">
+              <div>
+                <span className="text-xs font-medium text-[var(--text-secondary)] block">Vencidas</span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <strong className="text-2xl font-black text-rose-400 tabular-nums">
+                    {queue.tasks.filter((t) => t.overdue && t.bucket !== 'blocked').length}
+                  </strong>
+                  <span className="text-[11px] font-semibold text-rose-400">prioridad alta</span>
+                </div>
               </div>
-              <div className="mt-2 flex items-baseline gap-2">
-                <strong className="text-2xl md:text-3xl font-black text-rose-400 font-mono">
-                  {queue.tasks.filter((t) => t.overdue && t.bucket !== 'blocked').length}
-                </strong>
-                <span className="text-[10px] text-rose-400 font-mono">prioridad alta</span>
-              </div>
+              <span className="w-10 h-10 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                <span className="material-symbols-outlined text-[20px]">warning</span>
+              </span>
             </div>
 
             {/* Escaladas */}
-            <div className="relative rounded-2xl bg-[#070c18]/90 border border-amber-500/25 p-4 shadow-[0_4px_20px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col justify-between">
-              <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-amber-400 to-transparent shadow-[0_0_8px_#fbbf24]" />
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-slate-400 font-mono font-medium">Escaladas</span>
-                <span className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
-                  <span className="material-symbols-outlined text-[16px]">priority_high</span>
-                </span>
+            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 flex items-center justify-between gap-3">
+              <div>
+                <span className="text-xs font-medium text-[var(--text-secondary)] block">Escaladas</span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <strong className="text-2xl font-black text-amber-500 tabular-nums">
+                    {queue.tasks.filter((t) => t.escalated).length}
+                  </strong>
+                  <span className="text-[11px] font-semibold text-amber-500">supervisión</span>
+                </div>
               </div>
-              <div className="mt-2 flex items-baseline gap-2">
-                <strong className="text-2xl md:text-3xl font-black text-amber-400 font-mono">
-                  {queue.tasks.filter((t) => t.escalated).length}
-                </strong>
-                <span className="text-[10px] text-amber-400 font-mono">supervisión</span>
-              </div>
+              <span className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-500 shrink-0">
+                <span className="material-symbols-outlined text-[20px]">priority_high</span>
+              </span>
             </div>
 
             {/* Bloqueos Externos */}
-            <div className="relative rounded-2xl bg-[#070c18]/90 border border-purple-500/25 p-4 shadow-[0_4px_20px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col justify-between">
-              <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-purple-400 to-transparent shadow-[0_0_8px_#c084fc]" />
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-slate-400 font-mono font-medium">Bloqueadas</span>
-                <span className="w-7 h-7 rounded-lg bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400">
-                  <span className="material-symbols-outlined text-[16px]">lock</span>
-                </span>
+            <div className="rounded-2xl border border-purple-500/30 bg-purple-500/5 p-4 flex items-center justify-between gap-3">
+              <div>
+                <span className="text-xs font-medium text-[var(--text-secondary)] block">Bloqueadas</span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <strong className="text-2xl font-black text-purple-400 tabular-nums">
+                    {queue.tasks.filter((t) => t.bucket === 'blocked').length}
+                  </strong>
+                  <span className="text-[11px] font-semibold text-purple-400">en espera</span>
+                </div>
               </div>
-              <div className="mt-2 flex items-baseline gap-2">
-                <strong className="text-2xl md:text-3xl font-black text-purple-400 font-mono">
-                  {queue.tasks.filter((t) => t.bucket === 'blocked').length}
-                </strong>
-                <span className="text-[10px] text-purple-400 font-mono">externas</span>
-              </div>
+              <span className="w-10 h-10 rounded-xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
+                <span className="material-symbols-outlined text-[20px]">lock</span>
+              </span>
             </div>
           </div>
 
-          {/* Filter Toolbar */}
-          <div className="horizon-view-toolbar flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap gap-2">
+          {/* Area / Category Filter Bar */}
+          <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3.5 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap gap-2">
+                {(Object.entries(categories) as [keyof typeof categories, { label: string; icon: string }][]).map(
+                  ([key, meta]) => {
+                    const count =
+                      key === 'all'
+                        ? queue.tasks.length
+                        : queue.tasks.filter((t) => getTaskCategory(t.task) === key).length;
+                    const active = categoryFilter === key;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setCategoryFilter(key)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                          active
+                            ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400'
+                            : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-[15px]">{meta.icon}</span>
+                        <span>{meta.label}</span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold tabular-nums ${
+                            active ? 'bg-cyan-500/25 text-cyan-300' : 'bg-[var(--bg-card)] text-[var(--text-secondary)]'
+                          }`}
+                        >
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  }
+                )}
+              </div>
+
+              {userRole === 'admin' && (
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[var(--text-secondary)] text-[18px]">filter_alt</span>
+                  <select
+                    aria-label="Operador de tareas"
+                    value={operator}
+                    onChange={(event) => setOperator(event.target.value)}
+                    className="text-xs py-1.5 px-3 rounded-xl bg-[var(--bg-input)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-cyan-400 font-semibold cursor-pointer"
+                  >
+                    <option value="all">Todos los operadores</option>
+                    {queue.operators.map((item) => (
+                      <option key={String(item.userId)} value={String(item.userId)}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {/* Bucket Filter Pills */}
+            <div className="horizon-view-toolbar flex flex-wrap items-center gap-2 pt-2 border-t border-[var(--border-color)]">
               {Object.entries(buckets).map(([key, label]) => {
                 const count =
                   key === 'all'
@@ -345,22 +435,23 @@ export const WorkflowTasksView: React.FC<{
                     : key === 'overdue'
                     ? queue.tasks.filter((t) => t.overdue && t.bucket !== 'blocked').length
                     : queue.tasks.filter((t) => t.bucket === key).length;
+                const active = filter === key;
                 return (
                   <button
                     key={key}
                     type="button"
-                    aria-pressed={filter === key}
+                    aria-pressed={active}
                     onClick={() => setFilter(key as keyof typeof buckets)}
-                    className={`px-3 py-2 rounded-xl text-xs font-mono font-bold transition-all flex items-center gap-2 cursor-pointer ${
-                      filter === key
-                        ? 'bg-gradient-to-r from-cyan-400 to-emerald-400 text-slate-950 shadow-[0_0_12px_rgba(6,182,212,0.4)]'
-                        : 'bg-[#040814]/80 text-slate-300 hover:text-white border border-cyan-500/20 hover:border-cyan-500/40'
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                      active
+                        ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-500'
+                        : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                     }`}
                   >
                     <span>{label}</span>
                     <span
-                      className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-                        filter === key ? 'bg-slate-950/30 text-slate-950 font-black' : 'bg-slate-800 text-cyan-300'
+                      className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold tabular-nums ${
+                        active ? 'bg-emerald-500/25 text-emerald-400' : 'bg-[var(--bg-card)] text-[var(--text-secondary)]'
                       }`}
                     >
                       {count}
@@ -369,33 +460,16 @@ export const WorkflowTasksView: React.FC<{
                 );
               })}
             </div>
-
-            {userRole === 'admin' && (
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-slate-400 text-[18px]">filter_alt</span>
-                <select
-                  aria-label="Operador de tareas"
-                  value={operator}
-                  onChange={(event) => setOperator(event.target.value)}
-                  className="text-xs py-2 px-3 rounded-xl bg-[#040814] border border-cyan-500/30 text-white focus:outline-none focus:border-cyan-400 font-mono cursor-pointer"
-                >
-                  <option value="all">Todos los operadores</option>
-                  {queue.operators.map((item) => (
-                    <option key={String(item.userId)} value={String(item.userId)}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
           </div>
 
           {/* Empty State */}
           {!tasks.length && (
-            <div className="rounded-3xl bg-[#070c18]/90 border border-cyan-500/20 p-10 text-center space-y-2">
-              <span className="material-symbols-outlined text-4xl text-cyan-400/50">task_alt</span>
-              <p className="text-sm font-bold text-slate-200">No hay tareas pendientes en este filtro</p>
-              <p className="text-xs text-slate-400">Todas las tareas para el criterio seleccionado están al día.</p>
+            <div className="rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] p-10 text-center space-y-2">
+              <span className="material-symbols-outlined text-4xl text-emerald-500/60">task_alt</span>
+              <p className="text-sm font-bold text-[var(--text-primary)]">No hay tareas pendientes en este filtro</p>
+              <p className="text-xs text-[var(--text-secondary)]">
+                Todas las tareas comerciales y de seguimiento post-entrega para el criterio seleccionado están al día.
+              </p>
             </div>
           )}
 
@@ -405,71 +479,81 @@ export const WorkflowTasksView: React.FC<{
               const assignee = workflowTaskAssignee(task.order, task.task);
               const isUnassigned = assignee.userId === null;
               const isOverdue = task.overdue && task.bucket !== 'blocked';
+              const category = getTaskCategory(task.task);
               const categoryIcon = getTaskCategoryIcon(task.task);
               const dueInfo = formatDueDate(task.dueDate, queue.today);
+              const isPostDelivery = category === 'post_delivery';
+
+              const postSteps = [
+                { key: 'post_3', label: 'Día 3 · Recepción', done: Boolean(task.order.post3CompletedAt) },
+                { key: 'post_7', label: 'Día 7 · Instalación', done: Boolean(task.order.post7CompletedAt) },
+                { key: 'post_14', label: 'Día 14 · Cierre Garantía', done: Boolean(task.order.post14CompletedAt) },
+              ];
+
+              const commercialSteps = [
+                { key: 'quote', label: '1. Cotización', done: Boolean(task.order.quoteCompletedAt) },
+                { key: 'ack', label: '2. Confirmación', done: Boolean(task.order.ackCompletedAt) },
+                { key: 'prepare', label: '3. Preparación', done: Boolean(task.order.prepareCompletedAt) },
+                { key: 'delivery', label: '4. Entrega', done: Boolean(task.order.deliveryCompletedAt || task.order.deliveredAt) },
+              ];
 
               return (
                 <article
                   key={task.order.id}
-                  className={`relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.5)] overflow-hidden transition-all duration-300 hover:border-cyan-400/50 hover:shadow-[0_10px_35px_rgba(6,182,212,0.15)] flex flex-col justify-between gap-4 group ${
+                  className={`rounded-2xl bg-[var(--bg-card)] border p-5 transition-all flex flex-col justify-between gap-4 ${
                     isOverdue
-                      ? 'border-rose-500/30'
+                      ? 'border-rose-500/40'
                       : task.escalated
-                      ? 'border-amber-500/30'
+                      ? 'border-amber-500/40'
                       : task.bucket === 'blocked'
-                      ? 'border-purple-500/30'
-                      : 'border-cyan-500/25'
+                      ? 'border-purple-500/40'
+                      : isPostDelivery
+                      ? 'border-emerald-500/30'
+                      : 'border-[var(--border-color)]'
                   }`}
                 >
-                  {/* Glowing Top Accent Line */}
-                  <div
-                    className={`absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r ${
-                      isOverdue
-                        ? 'from-transparent via-rose-500 to-transparent shadow-[0_0_12px_#f43f5e]'
-                        : task.escalated
-                        ? 'from-transparent via-amber-400 to-transparent shadow-[0_0_12px_#fbbf24]'
-                        : task.bucket === 'blocked'
-                        ? 'from-transparent via-purple-400 to-transparent shadow-[0_0_12px_#c084fc]'
-                        : 'from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_#22d3ee]'
-                    }`}
-                  />
-
                   <div className="space-y-3.5">
-                    {/* Top Bar: Code, Customer & Status Badges */}
-                    <div className="flex flex-wrap items-start justify-between gap-2.5">
+                    {/* Top Bar: Code, Customer, Category & Due Date Badge */}
+                    <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="px-3 py-1 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 font-mono font-bold text-xs tracking-wider flex items-center gap-1.5 shadow-[0_0_10px_rgba(6,182,212,0.15)]">
+                        <span className="px-2.5 py-1 rounded-lg bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 font-bold text-xs flex items-center gap-1.5">
                           <span className="material-symbols-outlined text-[15px]">receipt_long</span>
                           <span>{task.order.code}</span>
                         </span>
 
                         {task.order.customerName && (
-                          <span className="px-2.5 py-1 rounded-xl bg-slate-800/60 border border-slate-700/60 text-slate-300 text-xs font-medium flex items-center gap-1 max-w-[200px] truncate">
-                            <span className="material-symbols-outlined text-[14px] text-slate-400">person</span>
+                          <span className="px-2.5 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--text-primary)] text-xs font-semibold flex items-center gap-1 max-w-[200px] truncate">
+                            <span className="material-symbols-outlined text-[14px] text-[var(--text-secondary)]">person</span>
                             <span className="truncate">{task.order.customerName}</span>
                           </span>
                         )}
 
+                        {isPostDelivery && (
+                          <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 text-[11px] font-bold flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[13px]">support_agent</span>
+                            <span>Post-Entrega</span>
+                          </span>
+                        )}
+
                         {task.order.isYardSale && (
-                          <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 font-mono text-[10px] font-bold">
+                          <span className="px-2 py-0.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-500 text-[11px] font-bold">
                             Yarda
                           </span>
                         )}
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {/* Bucket / Due Date Badge */}
                         <span
-                          className={`px-2.5 py-1 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 ${
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 border ${
                             task.bucket === 'overdue' || isOverdue
-                              ? 'bg-rose-500/15 text-rose-300 border border-rose-500/30 shadow-[0_0_10px_rgba(244,63,94,0.2)]'
+                              ? 'bg-rose-500/15 text-rose-400 border-rose-500/35'
                               : task.bucket === 'today'
-                              ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.2)]'
+                              ? 'bg-emerald-500/15 text-emerald-500 border-emerald-500/35'
                               : task.bucket === 'waiting'
-                              ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shadow-[0_0_10px_rgba(6,182,212,0.2)]'
+                              ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/35'
                               : task.bucket === 'blocked'
-                              ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30 shadow-[0_0_10px_rgba(192,132,252,0.2)]'
-                              : 'bg-slate-800/80 text-slate-300 border border-slate-700/60'
+                              ? 'bg-purple-500/15 text-purple-400 border-purple-500/35'
+                              : 'bg-[var(--bg-card-subtle)] text-[var(--text-secondary)] border-[var(--border-color)]'
                           }`}
                         >
                           <span className="material-symbols-outlined text-[14px]">
@@ -490,93 +574,163 @@ export const WorkflowTasksView: React.FC<{
 
                     {/* Task Title & Icon */}
                     <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 rounded-2xl bg-[#040814] border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.15)] shrink-0 mt-0.5">
+                      <div
+                        className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 mt-0.5 ${
+                          isPostDelivery
+                            ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500'
+                            : category === 'incident'
+                            ? 'bg-rose-500/15 border-rose-500/35 text-rose-400'
+                            : 'bg-cyan-500/15 border-cyan-500/35 text-cyan-400'
+                        }`}
+                      >
                         <span className="material-symbols-outlined text-[20px]">{categoryIcon}</span>
                       </div>
-                      <div>
-                        <h2 className="text-base font-bold text-white tracking-tight leading-snug group-hover:text-cyan-300 transition-colors">
+                      <div className="space-y-1 flex-1">
+                        <h2 className="text-base font-bold text-[var(--text-primary)] leading-snug">
                           {task.title}
                         </h2>
                         {task.requirement && (
-                          <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
+                          <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
                             {task.requirement}
                           </p>
-                        )}
-                        {task.order.yardPieceReady && (
-                          <div className="mt-2 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold font-mono flex items-center gap-1.5 shadow-[0_0_12px_rgba(16,185,129,0.2)]">
-                            <span className="material-symbols-outlined text-[16px] text-emerald-400 animate-pulse">check_circle</span>
-                            <span>¡PIEZA LISTA EN YARDA! — Contactar al comprador para acordar entrega</span>
-                          </div>
-                        )}
-                        {task.order.status === 'espera_confirmacion' && (
-                          <div className="mt-2 px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold font-mono flex items-center gap-1.5 shadow-[0_0_12px_rgba(245,158,11,0.2)]">
-                            <span className="material-symbols-outlined text-[16px] text-amber-400">hourglass_top</span>
-                            <span>Anticipo Zelle/Cash App pendiente de verificación en banco por Admin</span>
-                          </div>
                         )}
                       </div>
                     </div>
 
-                    {/* Operational Assignee & Context Pills */}
-                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                    {/* Visual Step Progress Bar */}
+                    {isPostDelivery ? (
+                      <div className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3 space-y-2">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-bold text-[var(--text-secondary)] flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[14px] text-emerald-500">route</span>
+                            <span>Ruta de Seguimiento Post-Entrega</span>
+                          </span>
+                          {task.order.deliveredAt && (
+                            <span className="text-[var(--text-secondary)] tabular-nums">
+                              Entregada: {task.order.deliveredAt.slice(0, 10)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          {postSteps.map((step) => {
+                            const active = task.task === step.key;
+                            return (
+                              <div
+                                key={step.key}
+                                className={`rounded-lg px-2.5 py-1.5 border text-[11px] font-semibold flex items-center gap-1.5 ${
+                                  step.done
+                                    ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500'
+                                    : active
+                                    ? 'bg-cyan-500/15 border-cyan-500/45 text-cyan-400'
+                                    : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-secondary)]'
+                                }`}
+                              >
+                                <span className="material-symbols-outlined text-[14px]">
+                                  {step.done ? 'check_circle' : active ? 'radio_button_checked' : 'schedule'}
+                                </span>
+                                <span className="truncate">{step.label}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : category === 'commercial' ? (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                        {commercialSteps.map((step) => {
+                          const active = task.task === step.key;
+                          return (
+                            <div
+                              key={step.key}
+                              className={`rounded-lg px-2 py-1.5 border text-[11px] font-semibold flex items-center gap-1 ${
+                                step.done
+                                  ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500'
+                                  : active
+                                  ? 'bg-cyan-500/15 border-cyan-500/45 text-cyan-400'
+                                  : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)]'
+                              }`}
+                            >
+                              <span className="material-symbols-outlined text-[13px]">
+                                {step.done ? 'check_circle' : active ? 'radio_button_checked' : 'schedule'}
+                              </span>
+                              <span className="truncate">{step.label}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+
+                    {/* Operational Alerts */}
+                    {task.order.yardPieceReady && (
+                      <div className="px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-500 text-xs font-bold flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                        <span>¡PIEZA LISTA EN YARDA! — Contactar al comprador para acordar entrega</span>
+                      </div>
+                    )}
+                    {task.order.status === 'espera_confirmacion' && (
+                      <div className="px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-500/35 text-amber-500 text-xs font-bold flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[16px]">hourglass_top</span>
+                        <span>Anticipo Zelle/Cash App pendiente de verificación en banco por Admin</span>
+                      </div>
+                    )}
+
+                    {/* Assignee & Sales Context Pills */}
+                    <div className="flex flex-wrap items-center gap-2">
                       <div
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-mono border ${
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${
                           isUnassigned
-                            ? 'bg-amber-950/40 border-amber-500/40 text-amber-300'
-                            : 'bg-[#040814] border-cyan-500/20 text-slate-300'
+                            ? 'bg-amber-500/15 border-amber-500/35 text-amber-500'
+                            : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-primary)]'
                         }`}
                       >
-                        <span className="w-5 h-5 rounded-lg bg-cyan-500/20 text-cyan-300 flex items-center justify-center text-[10px] font-black shrink-0">
+                        <span className="w-5 h-5 rounded-md bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-[10px] font-black shrink-0">
                           {getInitials(assignee.name)}
                         </span>
                         <span>{assignee.name}</span>
-                        {isUnassigned && (
-                          <span className="text-[10px] text-amber-400 font-bold">(Sin Asignar)</span>
-                        )}
+                        {isUnassigned && <span className="text-[10px] font-bold">(Sin Asignar)</span>}
                       </div>
 
                       {task.order.deliveredAt && task.order.advisor && (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-[#040814] border border-slate-700/50 text-slate-400 text-xs font-mono">
-                          <span className="material-symbols-outlined text-[13px] text-slate-500">storefront</span>
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--text-secondary)] text-xs font-medium">
+                          <span className="material-symbols-outlined text-[13px]">storefront</span>
                           <span>Venta: {task.order.advisor}</span>
                         </span>
                       )}
                     </div>
 
-                    {/* Highlighted Action Callout Box ("Próxima Acción") */}
-                    <div className="relative rounded-2xl bg-[#040814]/90 border border-cyan-500/25 p-3.5 space-y-1 overflow-hidden">
-                      <div className="flex items-center gap-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-cyan-400">
+                    {/* Next Action Callout Box */}
+                    <div className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3 space-y-1">
+                      <div className="flex items-center gap-1.5 text-[11px] font-bold text-cyan-400">
                         <span className="material-symbols-outlined text-[14px]">play_circle</span>
                         <span>Próxima Gestión Operativa</span>
                       </div>
-                      <p className="text-xs text-slate-200 font-medium leading-relaxed">
+                      <p className="text-xs text-[var(--text-primary)] font-medium leading-relaxed">
                         {task.nextAction}
                       </p>
                     </div>
 
                     {/* Visual Alerts: Escalated / Blocked / Regularization */}
                     {task.escalated && (
-                      <div className="p-2.5 rounded-xl bg-red-950/40 border border-red-500/30 text-red-300 text-xs font-mono flex items-center gap-2">
-                        <span className="material-symbols-outlined text-[16px] text-red-400 shrink-0">priority_high</span>
+                      <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-semibold flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[16px] shrink-0">priority_high</span>
                         <span>Aviso a supervisión: Al menos un día hábil de retraso.</span>
                       </div>
                     )}
 
                     {task.blockedBy && (
-                      <div className="p-2.5 rounded-xl bg-purple-950/40 border border-purple-500/30 text-purple-300 text-xs font-mono flex items-center gap-2">
-                        <span className="material-symbols-outlined text-[16px] text-purple-400 shrink-0">lock</span>
+                      <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400 text-xs font-semibold flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[16px] shrink-0">lock</span>
                         <span>Bloqueo externo: {task.blockedBy} · Revisión: {task.dueDate}</span>
                       </div>
                     )}
 
                     {task.regularization && (
-                      <div className="p-2.5 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-300 text-xs font-mono flex items-center gap-2">
-                        <span className="material-symbols-outlined text-[16px] text-amber-400 shrink-0">history_edu</span>
+                      <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-500 text-xs font-semibold flex items-center gap-2">
+                        <span className="material-symbols-outlined text-[16px] shrink-0">history_edu</span>
                         <span>Regularización de evidencia histórica pendiente.</span>
                       </div>
                     )}
 
-                    {/* Super Admin Followup Assignment Control */}
+                    {/* Admin Followup Assignment Control */}
                     {userRole === 'admin' && task.order.deliveredAt && (
                       <FollowupAssignment
                         key={`${task.order.id}-${task.order.version}`}
@@ -588,14 +742,14 @@ export const WorkflowTasksView: React.FC<{
                   </div>
 
                   {/* Card Action Buttons */}
-                  <div className="flex flex-wrap items-center gap-2.5 pt-3 border-t border-cyan-500/15">
+                  <div className="flex flex-wrap items-center gap-2.5 pt-3 border-t border-[var(--border-color)]">
                     <button
                       type="button"
                       onClick={() => setSelected(task)}
-                      className="cyber-btn-primary px-4 py-2 text-xs font-black flex items-center gap-1.5 flex-1 justify-center cursor-pointer shadow-[0_0_12px_rgba(6,182,212,0.3)]"
+                      className="cyber-btn-primary px-4 py-2 text-xs font-black flex items-center gap-1.5 flex-1 justify-center cursor-pointer"
                     >
                       <span className="material-symbols-outlined text-[16px]">tune</span>
-                      <span>Gestionar Tarea</span>
+                      <span>{isPostDelivery ? 'Registrar Seguimiento' : 'Gestionar Tarea'}</span>
                     </button>
 
                     <button
@@ -614,7 +768,7 @@ export const WorkflowTasksView: React.FC<{
                         onClick={() =>
                           onNavigateIncident(task.order.status === 'solicitud_reembolso' ? 'reembolsos' : 'reclamos')
                         }
-                        className="px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                        className="px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-500 border border-amber-500/35 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
                         title="Gestionar reclamo o devolución"
                       >
                         <span className="material-symbols-outlined text-[16px]">warning_amber</span>
@@ -629,46 +783,44 @@ export const WorkflowTasksView: React.FC<{
 
           {/* Supervisor Metrics Table (Admin Only) */}
           {userRole === 'admin' && (
-            <section className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden space-y-4">
-              <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_10px_#22d3ee]" />
-
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-cyan-500/15 pb-3">
+            <section className="rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] p-5 md:p-6 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[var(--border-color)] pb-3">
                 <div>
-                  <h2 className="text-base font-black text-white uppercase font-mono tracking-wider flex items-center gap-2">
+                  <h2 className="text-base font-black text-[var(--text-primary)] flex items-center gap-2">
                     <span className="material-symbols-outlined text-cyan-400 text-[20px]">supervisor_account</span>
                     <span>Supervisión y Rendimiento por Operador</span>
                   </h2>
-                  <p className="text-xs text-slate-400 mt-1">
+                  <p className="text-xs text-[var(--text-secondary)] mt-1">
                     Cumplimiento de objetivos confirmados en plazo. Los intentos y bloqueos se contabilizan de forma independiente.
                   </p>
                 </div>
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left font-mono">
+                <table className="w-full text-xs text-left">
                   <thead>
-                    <tr className="border-b border-cyan-500/20 text-slate-400 text-[11px] uppercase tracking-wider">
+                    <tr className="border-b border-[var(--border-color)] text-[var(--text-secondary)] text-[11px] uppercase tracking-wider">
                       <th className="py-3 px-3">Operador</th>
                       <th className="py-3 px-3 text-center">Confirmados</th>
                       <th className="py-3 px-3 text-center">Cumplimiento</th>
                       <th className="py-3 px-3 text-center">Intentos</th>
                       <th className="py-3 px-3 text-center text-rose-400">Vencidas</th>
-                      <th className="py-3 px-3 text-center text-amber-400">Escaladas</th>
+                      <th className="py-3 px-3 text-center text-amber-500">Escaladas</th>
                       <th className="py-3 px-3 text-center text-purple-400">Bloqueadas</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-cyan-500/10">
+                  <tbody className="divide-y divide-[var(--border-color)]">
                     {queue.operators.map((item) => {
                       const percentage = item.completed ? Math.round((item.onTime / item.completed) * 100) : null;
                       return (
-                        <tr key={String(item.userId)} className="hover:bg-slate-800/30 transition-colors">
-                          <td className="py-3 px-3 font-bold text-white flex items-center gap-2">
-                            <span className="w-6 h-6 rounded-lg bg-cyan-500/20 text-cyan-300 flex items-center justify-center text-[10px] font-black">
+                        <tr key={String(item.userId)} className="hover:bg-[var(--bg-card-subtle)] transition-colors">
+                          <td className="py-3 px-3 font-bold text-[var(--text-primary)] flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-[10px] font-black">
                               {getInitials(item.name)}
                             </span>
                             <span>{item.name}</span>
                           </td>
-                          <td className="py-3 px-3 text-center text-slate-200">{item.completed}</td>
+                          <td className="py-3 px-3 text-center text-[var(--text-primary)] tabular-nums">{item.completed}</td>
                           <td className="py-3 px-3 text-center">
                             {percentage !== null ? (
                               <span
@@ -683,13 +835,13 @@ export const WorkflowTasksView: React.FC<{
                                 {percentage}%
                               </span>
                             ) : (
-                              <span className="text-slate-500 text-[10px]">Sin datos</span>
+                              <span className="text-[var(--text-secondary)] text-[10px]">Sin datos</span>
                             )}
                           </td>
-                          <td className="py-3 px-3 text-center text-slate-300">{item.attempts}</td>
-                          <td className="py-3 px-3 text-center font-bold text-rose-400">{item.overdue}</td>
-                          <td className="py-3 px-3 text-center font-bold text-amber-400">{item.escalated}</td>
-                          <td className="py-3 px-3 text-center font-bold text-purple-400">{item.blocked}</td>
+                          <td className="py-3 px-3 text-center text-[var(--text-secondary)] tabular-nums">{item.attempts}</td>
+                          <td className="py-3 px-3 text-center font-bold text-rose-400 tabular-nums">{item.overdue}</td>
+                          <td className="py-3 px-3 text-center font-bold text-amber-500 tabular-nums">{item.escalated}</td>
+                          <td className="py-3 px-3 text-center font-bold text-purple-400 tabular-nums">{item.blocked}</td>
                         </tr>
                       );
                     })}
@@ -704,16 +856,15 @@ export const WorkflowTasksView: React.FC<{
       {/* Task Action Modal */}
       {selected && (
         <div
-          className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in"
+          className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in overflow-y-auto"
           role="dialog"
           aria-modal="true"
           aria-label="Gestionar tarea de orden"
         >
           <div
             ref={dialog}
-            className="relative w-full max-w-2xl rounded-3xl bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 p-6 md:p-8 shadow-[0_20px_60px_rgba(0,0,0,0.8)] overflow-hidden"
+            className="relative w-full max-w-3xl my-auto rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] p-5 md:p-6 shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
           >
-            <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_#22d3ee]" />
             <WorkflowActionForm
               key={`${selected.order.id}-${selected.order.version}`}
               task={selected}

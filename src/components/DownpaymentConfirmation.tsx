@@ -1,6 +1,7 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { DOWNPAYMENT_METHODS, type DownpaymentLine } from '../utils/downpaymentConfirmation';
 import { uploadOrderFile } from '../services/orderFiles';
+import { apiFetch } from '../services/apiFetch';
 
 export const uploadDownpaymentReceipt = (orderId: string, file: File) => uploadOrderFile(orderId, file);
 
@@ -12,6 +13,19 @@ export const DownpaymentFields: React.FC<{
   const [uploading, setUploading] = useState<number | null>(null);
   const uploadInFlight = useRef(false);
   const [error, setError] = useState('');
+  const [yardReceivers, setYardReceivers] = useState<{ id: number; name: string; roleLabel: string; active: boolean }[]>([]);
+  useEffect(() => {
+    let active = true;
+    apiFetch('/yard-cash-receivers')
+      .then(res => (res.ok ? res.json() : []))
+      .then(data => {
+        if (active && Array.isArray(data)) {
+          setYardReceivers(data.filter(item => item && item.active));
+        }
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
   const update = (index: number, patch: Partial<DownpaymentLine>) => onChange(value.map((item, i) => i === index ? { ...item, ...patch } : item));
   const total = value.reduce((sum, item) => sum + Math.round(item.amount * 100), 0) / 100;
   const upload = async (index: number, file: File) => {
@@ -43,6 +57,31 @@ export const DownpaymentFields: React.FC<{
             <label className="flex flex-col gap-2 text-sm font-medium">Persona que recibió el dinero {value.length > 1 ? index + 1 : ''}
               <input required minLength={2} maxLength={200} placeholder="Nombre de quien recibió el efectivo en la yarda" value={line.receivedBy || ''} onChange={event => update(index, { receivedBy: event.target.value })} />
             </label>
+            {yardReceivers.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                <span className="text-[11px] font-medium text-[var(--text-secondary)]">Yarda:</span>
+                {yardReceivers.map(emp => {
+                  const selected = (line.receivedBy || '').trim().toLowerCase() === emp.name.trim().toLowerCase();
+                  return (
+                    <button
+                      key={emp.id}
+                      type="button"
+                      onClick={() => update(index, { receivedBy: emp.name })}
+                      className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all flex items-center gap-1 ${
+                        selected
+                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 ring-1 ring-emerald-500/30'
+                          : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-primary)] hover:border-emerald-500/50'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[13px]">
+                        {selected ? 'check_circle' : 'person'}
+                      </span>
+                      <span>{emp.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <p className="text-xs text-emerald-400 font-mono">💵 Depósito en efectivo: solo requiere indicar el receptor físico en yarda.</p>
           </div>
         )}

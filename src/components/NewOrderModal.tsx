@@ -197,8 +197,13 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
   const resolveCatalogMake = (make: string) =>
     makeOptions.find((option) => option.toLowerCase() === make.toLowerCase()) || make;
 
-  const normalizePartType = (value?: string): 'Engine' | 'Transmission' =>
-    /transmi|transmission|gearbox|caja de cambios/i.test(value || '') ? 'Transmission' : 'Engine';
+  const normalizePartType = (value?: string): 'Engine' | 'Transmission' | 'Transfer Case' | 'Differential' => {
+    const v = value || '';
+    if (/transfer\s*case|caja de transferencia|transfer/i.test(v)) return 'Transfer Case';
+    if (/diferencial|differential|diff\b/i.test(v)) return 'Differential';
+    if (/transmi|transmission|gearbox|caja de cambios/i.test(v)) return 'Transmission';
+    return 'Engine';
+  };
 
   // Calculate Warranty Days automatically based on price
   const calculateAutoWarranty = (priceNum: number): number => {
@@ -1572,6 +1577,8 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       <option value="">Seleccionar tipo</option>
                       <option value="Engine">Engine (Motor)</option>
                       <option value="Transmission">Transmission (Transmisión)</option>
+                      <option value="Transfer Case">Transfer Case (Caja de Transferencia)</option>
+                      <option value="Differential">Differential (Diferencial)</option>
                     </select>
                   </div>
 

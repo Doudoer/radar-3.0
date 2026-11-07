@@ -32,7 +32,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'all' | 'Motor' | 'Transmisión'>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'Motor' | 'Transmisión' | 'Transfer Case' | 'Diferencial'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'disponible' | 'reservado' | 'vendido'>('all');
 
   // Modal / Editor State
@@ -560,6 +560,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 { id: 'all', label: 'Todos' },
                 { id: 'Motor', label: 'Motores' },
                 { id: 'Transmisión', label: 'Transmisiones' },
+                { id: 'Transfer Case', label: 'Transfer Case' },
+                { id: 'Diferencial', label: 'Diferenciales' },
               ] as const
             ).map((filter) => {
               const isActive = typeFilter === filter.id;
@@ -1016,6 +1018,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   >
                     <option value="Motor">⚙️ Motor</option>
                     <option value="Transmisión">🔄 Transmisión</option>
+                    <option value="Transfer Case">⛓️ Transfer Case</option>
+                    <option value="Diferencial">🛞 Diferencial</option>
                   </select>
                 </div>
 

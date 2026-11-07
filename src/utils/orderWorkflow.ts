@@ -5,6 +5,7 @@ import { deliveryPhotosSchema } from './orderDelivery';
 import { communicationSchema, validateCommunication } from './followupCommunication';
 
 export const WORKFLOW_CUTOFF = '2026-10-21';
+export const POST_DELIVERY_FOLLOWUP_CUTOFF = '2026-11-07T20:05:52.000Z';
 export const WORKFLOW_STAGES = [
   { id: 'quote', title: 'Cotización', requirement: 'Cotización registrada al crear la orden.' },
   { id: 'ack', title: 'Confirmación', requirement: 'Documentar el downpayment ya registrado: métodos, montos, receptor solo en cash e imágenes de comprobantes para los demás métodos.' },
@@ -34,6 +35,7 @@ export interface WorkflowOrder {
   yardPieceReadyAt?: string | null;
   downpaymentVerified?: boolean;
   downpaymentVerifiedAt?: string | null;
+  postDeliveryFinalized?: boolean;
   historicalDelivery?: { paidAt: string | null; readyAt: string | null; deliveredAt: string | null } | null;
 }
 export interface WorkflowEvent {
@@ -127,7 +129,7 @@ export function workflowTasks(order: WorkflowOrder, events: WorkflowEvent[], tod
       ? workflowDate(previous.scheduledAt) : addWorkingDays(workflowDate(previous?.createdAt ||
         (task === 'prepare' && confirmationPreapproved(order, events) ? order.confirmationPolicyAt : null) || order.createdAt), 1));
   } else {
-    if (!order.deliveredAt) return [];
+    if (!order.deliveredAt || order.postDeliveryFinalized) return [];
     const milestone = ([3, 7, 14] as const).find(day => !events.some(event => event.task === `post_${day}` && event.outcome === 'completed'));
     if (!milestone) return [];
     task = `post_${milestone}`; title = `Post-entrega · Día ${milestone}`;

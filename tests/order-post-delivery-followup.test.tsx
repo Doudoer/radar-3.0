@@ -25,4 +25,7 @@ describe('current post-delivery followup', () => {
   it('does not invent milestones for orders outside the approved historical cutoff', () => {
     expect(workflowTasks({ ...delivered, createdAt: '2026-09-22T16:00:00Z' }, [], '2026-11-05')).toEqual([]);
   });
+  it('excludes orders delivered prior to the post-delivery followup cutoff (postDeliveryFinalized)', () => {
+    expect(workflowTasks({ ...delivered, postDeliveryFinalized: true }, [], '2026-11-05')).toEqual([]);
+  });
 });

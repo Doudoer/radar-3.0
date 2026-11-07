@@ -14,6 +14,15 @@ type ManagedUser = {
   updated_at: string;
 };
 
+export type YardCashReceiver = {
+  id: number;
+  name: string;
+  roleLabel: string;
+  active: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 const permissionOptions = [
   ['orders:view', 'Consultar órdenes'],
   ['orders:edit', 'Editar órdenes'],
@@ -62,6 +71,13 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
   const [error, setError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Yard Cash Receivers (Authorized Yard Employees for Delivery Cash)
+  const [yardReceivers, setYardReceivers] = useState<YardCashReceiver[]>([]);
+  const [newReceiverName, setNewReceiverName] = useState('');
+  const [newReceiverRole, setNewReceiverRole] = useState('Encargado de Patio / Yarda');
+  const [receiverSaving, setReceiverSaving] = useState(false);
+  const [receiverError, setReceiverError] = useState<string | null>(null);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 4000);
@@ -74,9 +90,83 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
       .catch(() => setUsersList([]));
   };
 
+  const fetchYardReceivers = () => {
+    apiFetch('/yard-cash-receivers')
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((data) => setYardReceivers(Array.isArray(data) ? data : []))
+      .catch(() => setYardReceivers([]));
+  };
+
   useEffect(() => {
     fetchUsers();
+    fetchYardReceivers();
   }, []);
+
+  const handleAddYardReceiver = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const trimmed = newReceiverName.trim();
+    if (trimmed.length < 2) {
+      setReceiverError('Ingresa un nombre válido (al menos 2 caracteres).');
+      return;
+    }
+    setReceiverSaving(true);
+    setReceiverError(null);
+    try {
+      const response = await apiFetch('/yard-cash-receivers', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: trimmed,
+          roleLabel: newReceiverRole.trim() || 'Personal de Yarda',
+          active: true,
+        }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message || 'No se pudo registrar el empleado de yarda.');
+      }
+      setNewReceiverName('');
+      fetchYardReceivers();
+      showToast(`Empleado de yarda "${trimmed}" registrado para recepción de efectivo.`);
+    } catch (err) {
+      setReceiverError(err instanceof Error ? err.message : 'Error al registrar empleado.');
+    } finally {
+      setReceiverSaving(false);
+    }
+  };
+
+  const handleToggleYardReceiver = async (receiver: YardCashReceiver) => {
+    try {
+      const response = await apiFetch(`/yard-cash-receivers/${receiver.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ active: !receiver.active }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message || 'No se pudo actualizar el estado.');
+      }
+      fetchYardReceivers();
+      showToast(`Estado de "${receiver.name}" actualizado.`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al actualizar estado.');
+    }
+  };
+
+  const handleDeleteYardReceiver = async (receiver: YardCashReceiver) => {
+    if (!window.confirm(`¿Eliminar a "${receiver.name}" de la lista de receptores de efectivo en yarda?`)) return;
+    try {
+      const response = await apiFetch(`/yard-cash-receivers/${receiver.id}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message || 'No se pudo eliminar.');
+      }
+      fetchYardReceivers();
+      showToast(`"${receiver.name}" eliminado de la lista de yarda.`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al eliminar empleado.');
+    }
+  };
 
   const openEditor = (user: ManagedUser, mode: 'edit' | 'permissions') => {
     setSelectedUser(user);
@@ -390,6 +480,146 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Section: Personal de Yarda Autorizado para Recibir Efectivo en Entregas */}
+      <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-emerald-500/30 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] space-y-5">
+        <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-cyan-400 shadow-[0_0_10px_#10b981]" />
+
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5">
+            <div className="w-11 h-11 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-[24px]">payments</span>
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg md:text-xl font-black text-white tracking-tight">
+                  Personal de Yarda · Receptores de Efectivo en Entregas
+                </h2>
+                <span className="text-[11px] font-mono font-bold bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 px-2.5 py-0.5 rounded-full">
+                  {yardReceivers.filter((r) => r.active).length} activos
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">
+                Registra aquí los nombres de los empleados de la yarda autorizados para recibir pagos en efectivo durante las entregas o abonos en patio. Aparecerán como botones de selección rápida al cobrar en efectivo.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Add New Yard Receiver Form */}
+        <form onSubmit={handleAddYardReceiver} className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end bg-[#040814]/80 border border-emerald-500/20 rounded-2xl p-4">
+          <label className="sm:col-span-5 flex flex-col gap-1.5 text-xs font-semibold text-slate-300">
+            <span className="flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-[15px] text-emerald-400">badge</span>
+              <span>Nombre del empleado de la yarda *</span>
+            </span>
+            <input
+              type="text"
+              required
+              minLength={2}
+              maxLength={200}
+              value={newReceiverName}
+              onChange={(e) => setNewReceiverName(e.target.value)}
+              placeholder="Ej. Alejandro, Roberto Martínez..."
+              className="w-full rounded-xl border border-emerald-500/30 bg-[#070c18] px-3.5 py-2 text-sm text-white outline-none focus:border-emerald-400"
+            />
+          </label>
+
+          <label className="sm:col-span-4 flex flex-col gap-1.5 text-xs font-semibold text-slate-300">
+            <span className="flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-[15px] text-cyan-400">work</span>
+              <span>Cargo o función en yarda</span>
+            </span>
+            <input
+              type="text"
+              maxLength={120}
+              value={newReceiverRole}
+              onChange={(e) => setNewReceiverRole(e.target.value)}
+              placeholder="Ej. Encargado de Patio / Despacho"
+              className="w-full rounded-xl border border-cyan-500/30 bg-[#070c18] px-3.5 py-2 text-sm text-white outline-none focus:border-cyan-400"
+            />
+          </label>
+
+          <div className="sm:col-span-3">
+            <button
+              type="submit"
+              disabled={receiverSaving || newReceiverName.trim().length < 2}
+              className="w-full cyber-btn-primary px-4 py-2.5 text-xs font-black flex items-center justify-center gap-1.5 disabled:opacity-50"
+            >
+              <span className="material-symbols-outlined text-[18px]">person_add</span>
+              <span>{receiverSaving ? 'Guardando...' : 'Agregar Empleado'}</span>
+            </button>
+          </div>
+        </form>
+
+        {receiverError && (
+          <p className="rounded-xl border border-red-500/40 bg-red-950/20 px-3.5 py-2 text-xs text-red-300">
+            {receiverError}
+          </p>
+        )}
+
+        {/* Registered Yard Employees Grid */}
+        {yardReceivers.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-700/80 bg-[#040814]/50 p-6 text-center text-xs text-slate-400">
+            Aún no hay empleados de yarda registrados. Agrega arriba los nombres de quienes reciben efectivo en patio para seleccionarlos con 1 clic durante los cobros y entregas.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {yardReceivers.map((receiver) => (
+              <div
+                key={receiver.id}
+                className={`rounded-2xl border p-3.5 flex items-center justify-between gap-3 transition-all ${
+                  receiver.active
+                    ? 'bg-[#040814]/90 border-emerald-500/35 shadow-sm'
+                    : 'bg-[#040814]/40 border-slate-800 opacity-60'
+                }`}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-black text-sm border ${
+                    receiver.active
+                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                  }`}>
+                    {receiver.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <strong className="text-sm font-bold text-white truncate">{receiver.name}</strong>
+                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                        receiver.active
+                          ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                          : 'bg-slate-800 text-slate-400 border-slate-700'
+                      }`}>
+                        {receiver.active ? 'Activo' : 'Inactivo'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 truncate">{receiver.roleLabel || 'Personal de Yarda'}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => void handleToggleYardReceiver(receiver)}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/15 transition-colors"
+                    title={receiver.active ? 'Desactivar temporalmente' : 'Reactivar'}
+                  >
+                    {receiver.active ? 'Pausar' : 'Activar'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteYardReceiver(receiver)}
+                    className="p-1.5 rounded-lg text-red-400 hover:bg-red-950/40 border border-red-500/20 transition-colors"
+                    title="Eliminar empleado"
+                  >
+                    <span className="material-symbols-outlined text-[15px]">delete</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Modal: Editar Usuario / Permisos */}

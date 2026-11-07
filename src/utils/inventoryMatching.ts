@@ -4,6 +4,8 @@ const normalize = (value: string = '') => value.normalize('NFD').replace(/[\u030
   .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const partType = (value: string) => {
   const text = normalize(value);
+  if (/\b(transfer case|transfercase|caja de transferencia|transfer)\b/.test(text)) return 'transfer_case';
+  if (/\b(diferencial|diferenciales|differential|differentials|diff)\b/.test(text)) return 'diferencial';
   if (/\b(motor|engine)\b/.test(text)) return 'motor';
   if (/\b(transmision|transmission)\b/.test(text)) return 'transmision';
   return '';

@@ -41,6 +41,19 @@ export const OrderPaymentFields: React.FC<{
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const uploadingRef = useRef(false);
+  const [yardReceivers, setYardReceivers] = useState<{ id: number; name: string; roleLabel: string; active: boolean }[]>([]);
+  useEffect(() => {
+    let active = true;
+    apiFetch('/yard-cash-receivers')
+      .then(res => (res.ok ? res.json() : []))
+      .then(data => {
+        if (active && Array.isArray(data)) {
+          setYardReceivers(data.filter(item => item && item.active));
+        }
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
   let summary: ReturnType<typeof previewSettlement> | null = null;
   let previewError = '';
   try { summary = previewSettlement(detail.order, value); }
@@ -546,21 +559,48 @@ export const OrderPaymentFields: React.FC<{
 
                   {/* Cash Receiver or Non-Cash Receipt */}
                   {payment.method === 'cash' ? (
-                    <label className="flex flex-col gap-1.5 text-sm">
-                      <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                        <span className="material-symbols-outlined text-sm text-primary-400">badge</span>
-                        <span>Persona que recibió el dinero {index + 1}</span>
-                      </span>
-                      <input
-                        required
-                        minLength={2}
-                        maxLength={200}
-                        className="w-full px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-slate-500 focus:outline-none"
-                        placeholder="Nombre del personal en yarda"
-                        value={payment.receivedBy || ''}
-                        onChange={event => updatePayment(index, { receivedBy: event.target.value })}
-                      />
-                    </label>
+                    <div className="flex flex-col gap-1.5 text-sm">
+                      <label className="flex flex-col gap-1.5 text-sm">
+                        <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                          <span className="material-symbols-outlined text-sm text-primary-400">badge</span>
+                          <span>Persona que recibió el dinero {index + 1}</span>
+                        </span>
+                        <input
+                          required
+                          minLength={2}
+                          maxLength={200}
+                          className="w-full px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-slate-500 focus:outline-none"
+                          placeholder="Nombre del personal en yarda"
+                          value={payment.receivedBy || ''}
+                          onChange={event => updatePayment(index, { receivedBy: event.target.value })}
+                        />
+                      </label>
+                      {yardReceivers.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                          <span className="text-[11px] font-medium text-slate-400">Yarda:</span>
+                          {yardReceivers.map(emp => {
+                            const selected = (payment.receivedBy || '').trim().toLowerCase() === emp.name.trim().toLowerCase();
+                            return (
+                              <button
+                                key={emp.id}
+                                type="button"
+                                onClick={() => updatePayment(index, { receivedBy: emp.name })}
+                                className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all flex items-center gap-1 ${
+                                  selected
+                                    ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 ring-1 ring-emerald-500/30'
+                                    : 'bg-slate-950/70 border-slate-700 text-slate-300 hover:border-emerald-500/50 hover:text-emerald-200'
+                                }`}
+                              >
+                                <span className="material-symbols-outlined text-[13px]">
+                                  {selected ? 'check_circle' : 'person'}
+                                </span>
+                                <span>{emp.name}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <div className="flex flex-col gap-1.5 text-sm">
                       <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">

@@ -70,8 +70,10 @@ const quoteCreatorSql = `(SELECT COALESCE(a.username, creator.name) FROM audit_l
   ORDER BY a.id LIMIT 1) AS quote_created_by`;
 const confirmationPolicySql = `(SELECT r.confirmation_policy FROM order_confirmation_rollout r WHERE r.order_id=o.id) AS confirmation_policy,
   (SELECT r.confirmation_policy_at FROM order_confirmation_rollout r WHERE r.order_id=o.id) AS confirmation_policy_at`;
+const POST_DELIVERY_FOLLOWUP_CUTOFF_SQL = '2026-11-07 20:05:52';
 const deliveredHistoryDateSql = `(SELECT MIN(s.created_at) FROM status_orders s WHERE s.order_id=o.id AND LOWER(TRIM(s.status))='entregado')`;
 const deliveryHistorySql = `${deliveredHistoryDateSql} AS delivery_log_at,
+  CASE WHEN LOWER(TRIM(o.status))='entregado' AND COALESCE(o.delivered_at,${deliveredHistoryDateSql},o.created_at)<='${POST_DELIVERY_FOLLOWUP_CUTOFF_SQL}' THEN 1 ELSE 0 END AS post_delivery_finalized,
   (SELECT MIN(s.created_at) FROM status_orders s WHERE s.order_id=o.id AND LOWER(TRIM(s.status))='pagado'
     AND s.created_at<=COALESCE(o.delivered_at,${deliveredHistoryDateSql},'9999-12-31')) AS historical_paid_at,
   (SELECT MIN(s.created_at) FROM status_orders s WHERE s.order_id=o.id
@@ -94,6 +96,7 @@ export const workflowOrderFromRow = (row: RowDataPacket): WorkflowOrder => {
   advisor: row.advisor || 'Sin asignar', version: Number(row.version),
   createdAt: new Date(row.created_at).toISOString(), status,
   deliveredAt: timestamp(deliveredAt),
+  postDeliveryFinalized: status === 'entregado' && Boolean(row.post_delivery_finalized),
   historicalDelivery: status === 'entregado' ? {
     paidAt: timestamp(row.historical_paid_at), readyAt: timestamp(row.historical_ready_at), deliveredAt: timestamp(deliveredAt),
   } : null,

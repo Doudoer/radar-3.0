@@ -1534,50 +1534,104 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       {/* ========================================================================= */}
       {activeTab === 'historial' && (
         <section aria-label="Historial de la orden" className="space-y-4">
-        {showVerifiedWorkflow && <OrderWorkflowPanel orderId={order.id} view="history" />}
-        <div className="cyber-card p-4 shadow-sm flex flex-col gap-3">
-          <div className="cyber-laser-bar" />
+          {showVerifiedWorkflow && <OrderWorkflowPanel orderId={order.id} view="history" />}
 
-          <div className="flex items-center justify-between pb-2 border-b border-cyan-500/15">
-            <span className="text-xs font-mono text-cyan-400 font-bold uppercase">
-              HISTORIAL DE ACTIVIDAD & AUDITORÍA
-            </span>
-            <span className="text-xs font-mono text-[var(--text-secondary)]">Orden #{order.code}</span>
-          </div>
-
-          <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar text-xs font-mono">
-            <div className="p-2.5 rounded-xl bg-[var(--bg-card-subtle)] border border-cyan-500/15 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                <span className="text-[var(--text-primary)]">Creación de la orden en el sistema</span>
+          <div className="horizon-view-card p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[var(--border-color)]">
+              <div className="flex items-center gap-3">
+                <span className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 flex items-center justify-center shrink-0">
+                  <span className="material-symbols-outlined text-[20px]">verified_user</span>
+                </span>
+                <div>
+                  <h3 className="text-base font-bold text-[var(--text-primary)] leading-tight">
+                    Hitos de Auditoría del Sistema
+                  </h3>
+                  <p className="text-xs text-[var(--text-secondary)]">
+                    Trazabilidad de creación, asignación y entrega física de la orden #{order.code}
+                  </p>
+                </div>
               </div>
-              <span className="text-[var(--text-secondary)]">{order.createdAt || 'Fecha registrada'}</span>
+              <span className="text-xs font-mono font-semibold px-2.5 py-1 rounded-full bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--text-secondary)]">
+                Orden #{order.code}
+              </span>
             </div>
 
-            {order.deliveredAt && (
-              <div className="p-2.5 rounded-xl bg-[var(--bg-card-subtle)] border border-cyan-500/15 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-cyan-400" />
-                  <span className="text-[var(--text-primary)]">Entrega física confirmada e inicio de garantía</span>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {/* Hito 1: Creación */}
+              <div className="p-3.5 rounded-2xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 flex items-center justify-center shrink-0">
+                    <span className="material-symbols-outlined text-[18px]">add_task</span>
+                  </span>
+                  <div className="min-w-0">
+                    <strong className="text-xs sm:text-sm font-bold text-[var(--text-primary)] block truncate">
+                      Creación de la orden en el sistema
+                    </strong>
+                    <span className="text-xs text-[var(--text-secondary)] block truncate">
+                      Asesor asignado: {order.sellerName || 'Operador'}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[var(--text-secondary)]">{new Date(order.deliveredAt).toLocaleDateString('es-ES')}</span>
-                  {isSuperAdmin && order.status === 'entregado' && (
-                    <button
-                      type="button"
-                      onClick={() => setIsDeliveryDateModalOpen(true)}
-                      className="px-2 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[10px] font-mono font-bold flex items-center gap-1 cursor-pointer transition-colors"
-                      title="Corregir fecha real de entrega (administrador)"
-                    >
-                      <span className="material-symbols-outlined text-[12px]">edit</span>
-                      <span>Modificar fecha</span>
-                    </button>
-                  )}
-                </div>
+                <span className="text-xs font-semibold tabular-nums text-[var(--text-primary)] shrink-0">
+                  {order.createdAt || 'Fecha registrada'}
+                </span>
               </div>
-            )}
+
+              {/* Hito 2: Entrega física */}
+              {order.deliveredAt ? (
+                <div className="p-3.5 rounded-2xl bg-emerald-500/5 border border-emerald-500/30 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-500 flex items-center justify-center shrink-0">
+                      <span className="material-symbols-outlined text-[18px]">local_shipping</span>
+                    </span>
+                    <div className="min-w-0">
+                      <strong className="text-xs sm:text-sm font-bold text-[var(--text-primary)] block truncate">
+                        Entrega física confirmada e inicio de garantía
+                      </strong>
+                      <span className="text-xs text-emerald-500 font-medium block truncate">
+                        {warrantyLabel}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs font-bold tabular-nums text-[var(--text-primary)]">
+                      {new Date(order.deliveredAt).toLocaleDateString('es-ES')}
+                    </span>
+                    {isSuperAdmin && order.status === 'entregado' && (
+                      <button
+                        type="button"
+                        onClick={() => setIsDeliveryDateModalOpen(true)}
+                        className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 text-amber-500 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                        title="Corregir fecha real de entrega (administrador)"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">edit</span>
+                        <span>Modificar fecha</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-2xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] flex items-center justify-between gap-3 opacity-80">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="w-8 h-8 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] text-[var(--text-secondary)] flex items-center justify-center shrink-0">
+                      <span className="material-symbols-outlined text-[18px]">schedule</span>
+                    </span>
+                    <div className="min-w-0">
+                      <strong className="text-xs sm:text-sm font-bold text-[var(--text-primary)] block truncate">
+                        Entrega física pendiente
+                      </strong>
+                      <span className="text-xs text-[var(--text-secondary)] block truncate">
+                        La garantía iniciará al confirmar la entrega de la pieza
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-xs font-semibold text-[var(--text-secondary)] shrink-0">
+                    En curso
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
         </section>
       )}
 

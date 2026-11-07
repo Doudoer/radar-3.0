@@ -54,6 +54,16 @@ export const getClaims = async () => {
     ];
     const uniqueCalls = Array.from(new Map(claimCalls.map((c) => [c.id, c])).values());
 
+    let evidenceFiles: string[] = [];
+    try {
+      if (row.evidence_files) {
+        const parsed = typeof row.evidence_files === 'string' ? JSON.parse(row.evidence_files) : row.evidence_files;
+        if (Array.isArray(parsed)) evidenceFiles = parsed;
+      }
+    } catch {
+      evidenceFiles = [];
+    }
+
     return {
       id: `REC-${row.id}`,
       orderId: String(row.order_id || ''),
@@ -70,6 +80,10 @@ export const getClaims = async () => {
       type: 'Reclamo de orden',
       priority: 'Media' as const,
       status: mapClaimStatus(row.status || ''),
+      stage: row.stage || (mapClaimStatus(row.status || '') === 'Resolved' ? 'resolved' : mapClaimStatus(row.status || '') === 'Denied' ? 'denied' : mapClaimStatus(row.status || '') === 'In Process' ? 'review' : 'registered'),
+      nextReviewDate: row.next_review_date ? new Date(row.next_review_date).toISOString().slice(0, 10) : undefined,
+      evidenceFiles,
+      assignedUserId: row.assigned_user_id ? Number(row.assigned_user_id) : null,
       previousOrderStatus: row.previous_order_status || row.previous_status ? statusFromDatabase(row.previous_order_status || row.previous_status) : undefined,
       advisor: row.advisor || 'Sin asignar',
       createdAt: row.created_at,

@@ -1477,6 +1477,7 @@ const server = createServer(async (request, response) => {
         WHERE o.deleted_at IS NULL
           AND (o.status = 'Entregado' OR o.status = 'entregado')
           AND o.created_at < '2026-10-21 04:00:00'
+          AND o.delivered_at > '2026-11-07 20:05:52'
           AND (? = 'admin' OR o.user_id = ?)
         ORDER BY o.delivered_at DESC, o.id DESC
       `, [authenticatedClaims?.role, Number(authenticatedClaims?.sub)]);
@@ -3189,13 +3190,226 @@ const server = createServer(async (request, response) => {
     }
 
     // ==========================================
+    // YARD CASH RECEIVERS (AUTHORIZED YARD EMPLOYEES FOR CASH DELIVERIES)
+    // Stored in finance_state (id = 2) so runtime DB user only needs DML privileges
+    // ==========================================
+    type StoredYardReceiver = {
+      id: number;
+      name: string;
+      roleLabel: string;
+      active: boolean;
+      createdAt: string;
+      updatedAt: string;
+    };
+
+    const parseYardReceiversPayload = (payload: unknown): StoredYardReceiver[] => {
+      let raw: unknown = payload;
+      if (typeof payload === 'string') {
+        try {
+          raw = JSON.parse(payload);
+        } catch {
+          raw = [];
+        }
+      }
+      const list = Array.isArray(raw)
+        ? raw
+        : raw && typeof raw === 'object' && Array.isArray((raw as { receivers?: unknown[] }).receivers)
+        ? (raw as { receivers: unknown[] }).receivers
+        : [];
+      return list
+        .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+        .map((r) => ({
+          id: Number(r.id) || 0,
+          name: String(r.name || '').trim().slice(0, 200),
+          roleLabel: r.roleLabel ? String(r.roleLabel).trim().slice(0, 120) : 'Personal de Yarda',
+          active: Boolean(r.active),
+          createdAt: String(r.createdAt || new Date().toISOString()),
+          updatedAt: String(r.updatedAt || new Date().toISOString()),
+        }))
+        .filter((r) => r.id > 0 && r.name.length >= 2)
+        .sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name));
+    };
+
+    const loadYardCashReceivers = async (): Promise<StoredYardReceiver[]> => {
+      await pool.execute(
+        "INSERT IGNORE INTO finance_state (id, version, payload) VALUES (2, 1, '[]')"
+      );
+      const [rows] = await pool.query<RowDataPacket[]>(
+        'SELECT payload FROM finance_state WHERE id = 2 LIMIT 1'
+      );
+      if (!rows[0]) return [];
+      return parseYardReceiversPayload(rows[0].payload);
+    };
+
+    if (request.method === 'GET' && pathname === '/api/yard-cash-receivers') {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) return;
+      const list = await loadYardCashReceivers();
+      return sendJson(response, 200, list);
+    }
+
+    if (request.method === 'POST' && pathname === '/api/yard-cash-receivers') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const body = z.object({
+        name: z.string().trim().min(2, 'Ingresa al menos 2 caracteres').max(200),
+        roleLabel: z.string().trim().max(120).optional().default('Personal de Yarda'),
+        active: z.boolean().optional().default(true),
+      }).strict().parse(await readBody(request));
+
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        await connection.execute("INSERT IGNORE INTO finance_state (id, version, payload) VALUES (2, 1, '[]')");
+        const [rows] = await connection.query<RowDataPacket[]>(
+          'SELECT payload FROM finance_state WHERE id = 2 LIMIT 1 FOR UPDATE'
+        );
+        const list = rows[0] ? parseYardReceiversPayload(rows[0].payload) : [];
+        if (list.length >= 200) fail(400, 'Se alcanzó el límite máximo de empleados de yarda registrados.');
+        if (list.some((item) => item.name.toLowerCase() === body.name.toLowerCase())) {
+          fail(409, 'Ya existe un empleado de yarda registrado con ese nombre.');
+        }
+        const nextId = list.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0) + 1;
+        const now = new Date().toISOString();
+        const created: StoredYardReceiver = {
+          id: nextId,
+          name: body.name,
+          roleLabel: body.roleLabel || 'Personal de Yarda',
+          active: Boolean(body.active),
+          createdAt: now,
+          updatedAt: now,
+        };
+        const nextList = [...list, created];
+        await connection.execute(
+          'UPDATE finance_state SET payload = ?, version = version + 1 WHERE id = 2',
+          [JSON.stringify(nextList)]
+        );
+        await connection.commit();
+        void recordAuditLog(pool, {
+          userId: Number(authenticatedClaims.sub),
+          username: authenticatedClaims.email,
+          action: 'YARD_RECEIVER_CREATED',
+          resourceType: 'yard_receiver',
+          resourceId: String(created.id),
+          details: { name: created.name, roleLabel: created.roleLabel, active: created.active },
+          ipAddress: clientAddress(request),
+          userAgent: request.headers['user-agent'] || null,
+        });
+        return sendJson(response, 201, created);
+      } catch (err) {
+        await connection.rollback();
+        throw err;
+      } finally {
+        connection.release();
+      }
+    }
+
+    const yardReceiverId = pathname.match(/^\/api\/yard-cash-receivers\/(\d+)$/)?.[1];
+    if (request.method === 'PUT' && yardReceiverId) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const body = z.object({
+        name: z.string().trim().min(2).max(200).optional(),
+        roleLabel: z.string().trim().max(120).optional(),
+        active: z.boolean().optional(),
+      }).strict().parse(await readBody(request));
+
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        await connection.execute("INSERT IGNORE INTO finance_state (id, version, payload) VALUES (2, 1, '[]')");
+        const [rows] = await connection.query<RowDataPacket[]>(
+          'SELECT payload FROM finance_state WHERE id = 2 LIMIT 1 FOR UPDATE'
+        );
+        const list = rows[0] ? parseYardReceiversPayload(rows[0].payload) : [];
+        const idx = list.findIndex((item) => item.id === Number(yardReceiverId));
+        if (idx === -1) {
+          await connection.rollback();
+          return sendJson(response, 404, { message: 'Empleado de yarda no encontrado' });
+        }
+        if (
+          body.name !== undefined &&
+          list.some((item, i) => i !== idx && item.name.toLowerCase() === body.name!.toLowerCase())
+        ) {
+          fail(409, 'Ya existe otro empleado de yarda con ese nombre.');
+        }
+        const updated: StoredYardReceiver = {
+          ...list[idx],
+          ...(body.name !== undefined ? { name: body.name } : {}),
+          ...(body.roleLabel !== undefined ? { roleLabel: body.roleLabel || 'Personal de Yarda' } : {}),
+          ...(body.active !== undefined ? { active: body.active } : {}),
+          updatedAt: new Date().toISOString(),
+        };
+        const nextList = list.map((item, i) => (i === idx ? updated : item));
+        await connection.execute(
+          'UPDATE finance_state SET payload = ?, version = version + 1 WHERE id = 2',
+          [JSON.stringify(nextList)]
+        );
+        await connection.commit();
+        void recordAuditLog(pool, {
+          userId: Number(authenticatedClaims.sub),
+          username: authenticatedClaims.email,
+          action: 'YARD_RECEIVER_UPDATED',
+          resourceType: 'yard_receiver',
+          resourceId: String(updated.id),
+          details: { before: list[idx], after: updated },
+          ipAddress: clientAddress(request),
+          userAgent: request.headers['user-agent'] || null,
+        });
+        return sendJson(response, 200, updated);
+      } catch (err) {
+        await connection.rollback();
+        throw err;
+      } finally {
+        connection.release();
+      }
+    }
+
+    if (request.method === 'DELETE' && yardReceiverId) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        await connection.execute("INSERT IGNORE INTO finance_state (id, version, payload) VALUES (2, 1, '[]')");
+        const [rows] = await connection.query<RowDataPacket[]>(
+          'SELECT payload FROM finance_state WHERE id = 2 LIMIT 1 FOR UPDATE'
+        );
+        const list = rows[0] ? parseYardReceiversPayload(rows[0].payload) : [];
+        const target = list.find((item) => item.id === Number(yardReceiverId));
+        if (!target) {
+          await connection.rollback();
+          return sendJson(response, 404, { message: 'Empleado de yarda no encontrado' });
+        }
+        const nextList = list.filter((item) => item.id !== Number(yardReceiverId));
+        await connection.execute(
+          'UPDATE finance_state SET payload = ?, version = version + 1 WHERE id = 2',
+          [JSON.stringify(nextList)]
+        );
+        await connection.commit();
+        void recordAuditLog(pool, {
+          userId: Number(authenticatedClaims.sub),
+          username: authenticatedClaims.email,
+          action: 'YARD_RECEIVER_DELETED',
+          resourceType: 'yard_receiver',
+          resourceId: String(yardReceiverId),
+          details: { deleted: target },
+          ipAddress: clientAddress(request),
+          userAgent: request.headers['user-agent'] || null,
+        });
+        return sendJson(response, 200, { ok: true, id: Number(yardReceiverId) });
+      } catch (err) {
+        await connection.rollback();
+        throw err;
+      } finally {
+        connection.release();
+      }
+    }
+
+    // ==========================================
     // INVENTORY (HOLD & STOCK PARTS)
     // ==========================================
     if (request.method === 'GET' && pathname === '/api/inventory/export.csv') {
       const url = new URL(request.url || '/', 'http://localhost');
       const filters = z.object({
         query: z.string().max(500),
-        type: z.enum(['all', 'Motor', 'Transmisión']),
+        type: z.enum(['all', 'Motor', 'Transmisión', 'Transfer Case', 'Diferencial']),
         status: z.enum(['all', 'disponible', 'reservado', 'vendido', 'en_revision']),
       }).parse({
         query: url.searchParams.get('query') || '',

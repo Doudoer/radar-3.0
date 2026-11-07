@@ -15,7 +15,7 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
   items,
 }) => {
   const [selectedBrand, setSelectedBrand] = useState<string>('all');
-  const [selectedType, setSelectedType] = useState<'all' | 'Motor' | 'Transmisión'>('all');
+  const [selectedType, setSelectedType] = useState<'all' | 'Motor' | 'Transmisión' | 'Transfer Case' | 'Diferencial'>('all');
   const [selectedStatus, setSelectedStatus] = useState<'all' | 'disponible' | 'reservado' | 'vendido'>('all');
   const [showNotes, setShowNotes] = useState(true);
   const [showVin, setShowVin] = useState(true);
@@ -481,6 +481,8 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
               <option value="all">Todas las piezas</option>
               <option value="Motor">⚙️ Motores</option>
               <option value="Transmisión">🔄 Transmisiones</option>
+              <option value="Transfer Case">⛓️ Transfer Case</option>
+              <option value="Diferencial">🛞 Diferenciales</option>
             </select>
           </div>
 

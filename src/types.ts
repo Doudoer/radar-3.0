@@ -270,6 +270,10 @@ export interface Claim {
   type: string; // e.g. "Garantía Tren Motriz", "Defecto de Pieza", "Daño en Transporte"
   priority: 'Alta' | 'Media' | 'Baja';
   status: ClaimStatus;
+  stage?: string;
+  nextReviewDate?: string;
+  evidenceFiles?: string[];
+  assignedUserId?: number | null;
   previousOrderStatus: OrderStatus;
   advisor: string;
   createdAt: string;

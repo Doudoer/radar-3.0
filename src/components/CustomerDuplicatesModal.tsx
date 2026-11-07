@@ -471,4 +471,3 @@ export const CustomerDuplicatesModal: React.FC<CustomerDuplicatesModalProps> = (
     </div>
   );
 };
-
