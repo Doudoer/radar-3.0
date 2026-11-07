@@ -18,6 +18,33 @@ interface OrdersTableViewProps {
 
 const PAGE_SIZE_OPTIONS = [10, 20, 30, 50, 100] as const;
 
+type QuickFilterType = 'all' | 'pending_balance' | 'with_core' | 'ready' | 'auction';
+
+const QUICK_FILTER_LABELS: Record<Exclude<QuickFilterType, 'all'>, string> = {
+  pending_balance: 'Con saldo pendiente',
+  with_core: 'Con core por cobrar',
+  ready: 'Listos para retiro / envío',
+  auction: 'Subasta activa',
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  cotizacion: 'Cotización',
+  espera_confirmacion: 'En espera de confirmación',
+  pagado: 'Pagado',
+  en_preparacion: 'En preparación',
+  listo_despacho: 'Listo para despacho',
+  listo_retiro: 'Listo para retiro',
+  en_camino: 'En camino',
+  entregado: 'Entregado',
+  reclamo: 'Reclamo',
+  cancelado: 'Cancelado',
+  solicitud_reembolso: 'Solicitud de reembolso',
+  reembolsado: 'Reembolsado',
+  archivado: 'Archivado',
+};
+
+const PIPELINE_STEP_NAMES = ['Cotización', 'Anticipo', 'Preparación', 'Entrega'] as const;
+
 export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
   orders,
   onSelectOrder,
@@ -41,9 +68,11 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
+  const [quickFilter, setQuickFilter] = useState<QuickFilterType>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(10);
   const [activeActionMenu, setActiveActionMenu] = useState<string | null>(null);
+  const [copiedVinId, setCopiedVinId] = useState<string | null>(null);
 
   const handleToggleArchived = () => {
     if (isArchivedView) {
@@ -55,6 +84,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
       setSegmentView('archived');
       setStatusFilter('all');
     }
+    setQuickFilter('all');
     setCurrentPage(1);
   };
 
@@ -66,6 +96,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
       setIsArchivedView(false);
     }
     setStatusFilter('all');
+    setQuickFilter('all');
     setCurrentPage(1);
   };
 
@@ -79,6 +110,11 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
     setCurrentPage(1);
   };
 
+  const handleQuickFilterToggle = (filter: Exclude<QuickFilterType, 'all'>) => {
+    setQuickFilter((prev) => (prev === filter ? 'all' : filter));
+    setCurrentPage(1);
+  };
+
   const handleClearFilters = () => {
     setStatusFilter('all');
     setOperatorFilter('all');
@@ -87,9 +123,22 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
     setFromDate('');
     setToDate('');
     setSearchQuery('');
+    setQuickFilter('all');
     setIsArchivedView(false);
     setSegmentView('active');
     setCurrentPage(1);
+  };
+
+  const handleCopyVin = (e: React.MouseEvent, vin: string, orderId: string) => {
+    e.stopPropagation();
+    if (!vin) return;
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(vin).catch(() => {});
+    }
+    setCopiedVinId(orderId);
+    setTimeout(() => {
+      setCopiedVinId((prev) => (prev === orderId ? null : prev));
+    }, 1800);
   };
 
   // Helper to robustly extract order date as YYYY-MM-DD
@@ -154,6 +203,55 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
     return daysSinceDelivery > limit;
   };
 
+  // Financial snapshot per order (same formula used historically by this table)
+  const getOrderFinancials = (order: Order) => {
+    const partPrice = order.financials.partPrice ?? order.financials.baseMSRP ?? 1000;
+    const downPayment = order.financials.downPayment ?? order.financials.advancePayment ?? 0;
+    const deliveryFee = order.financials.deliveryFee ?? 0;
+    const coreFee = order.financials.coreFee ?? 0;
+    const grossSubtotal = partPrice + deliveryFee + coreFee;
+    const totalPayable = Math.max(0, grossSubtotal - downPayment);
+    const paidPercentage = grossSubtotal > 0 ? Math.min(100, Math.round((downPayment / grossSubtotal) * 100)) : 100;
+    return { downPayment, coreFee, grossSubtotal, totalPayable, paidPercentage };
+  };
+
+  const hasCoreCommitment = (order: Order): boolean => {
+    const prep = (order as unknown as { preparation?: { coreOption?: string } | null }).preparation;
+    return (order.financials.coreFee ?? 0) > 0 || prep?.coreOption === 'pay_core';
+  };
+
+  // Workflow pipeline stage (1..4) derived from status
+  const getOrderPipeline = (order: Order): { step: number; label: string; isDone: boolean; isHalted: boolean } => {
+    switch (order.status) {
+      case 'entregado':
+        return { step: 4, label: 'Entregado', isDone: true, isHalted: false };
+      case 'listo_retiro':
+      case 'listo_despacho':
+      case 'en_camino':
+        return { step: 4, label: 'Entrega y liquidación', isDone: false, isHalted: false };
+      case 'en_preparacion':
+        return { step: 3, label: 'Preparación y cita', isDone: false, isHalted: false };
+      case 'pagado':
+      case 'facturado':
+        return order.workflowStep >= 3
+          ? { step: 3, label: 'Preparación y cita', isDone: false, isHalted: false }
+          : { step: 2, label: 'Confirmación de anticipo', isDone: false, isHalted: false };
+      case 'cancelado':
+      case 'archivado':
+      case 'solicitud_reembolso':
+      case 'reembolsado':
+      case 'reclamo':
+        return {
+          step: Math.min(4, Math.max(1, order.workflowStep || 1)),
+          label: STATUS_LABELS[order.status] || order.status,
+          isDone: false,
+          isHalted: true,
+        };
+      default:
+        return { step: 1, label: 'Cotización', isDone: false, isHalted: false };
+    }
+  };
+
   // Unique lists for dynamic dropdown filters
   const uniqueOperators = useMemo(() => {
     const set = new Set<string>();
@@ -191,8 +289,9 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
     if (partTypeFilter !== 'all') count++;
     if (fromDate) count++;
     if (toDate) count++;
+    if (quickFilter !== 'all') count++;
     return count;
-  }, [statusFilter, operatorFilter, makeFilter, partTypeFilter, fromDate, toDate]);
+  }, [statusFilter, operatorFilter, makeFilter, partTypeFilter, fromDate, toDate, quickFilter]);
 
   // Helper to check if order has auction search active or has links (solo órdenes pagadas)
   const isOrderAuction = (o: Order) => o.status === 'pagado' && Boolean(o.auctionActive || (o.auctionLinks && o.auctionLinks.length > 0));
@@ -230,7 +329,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
     return { active, readyPickup, expiredWarranty, cancelled, refunds, archived, auction, total: orders.length };
   }, [orders]);
 
-  // Filtered orders by Segment View, Dropdown Filters, Date Range & Search
+  // Filtered orders by Segment View, Dropdown Filters, Date Range, Quick Filters & Search
   const filteredOrders = useMemo(() => {
     const isSearching = Boolean(searchQuery.trim());
 
@@ -298,7 +397,18 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         if (toDate && (!orderDate || orderDate > toDate)) return false;
       }
 
-      // 6. Search query
+      // 6. Quick Filters
+      if (quickFilter === 'pending_balance') {
+        if (getOrderFinancials(order).totalPayable <= 0) return false;
+      } else if (quickFilter === 'with_core') {
+        if (!hasCoreCommitment(order)) return false;
+      } else if (quickFilter === 'ready') {
+        if (order.status !== 'listo_retiro' && order.status !== 'listo_despacho' && order.status !== 'en_camino') return false;
+      } else if (quickFilter === 'auction') {
+        if (!isOrderAuction(order)) return false;
+      }
+
+      // 7. Search query
       if (isSearching) {
         const query = searchQuery.toLowerCase().trim();
         const matchesCode = (order.code || '').toLowerCase().includes(query) || (order.id || '').toLowerCase().includes(query);
@@ -335,6 +445,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
     partTypeFilter,
     fromDate,
     toDate,
+    quickFilter,
     searchQuery,
   ]);
 
@@ -396,6 +507,13 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
             Pagado / Facturado
           </span>
         );
+      case 'en_preparacion':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.3)]">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+            En Preparación
+          </span>
+        );
       case 'cotizacion':
       case 'espera_confirmacion':
         return (
@@ -440,6 +558,54 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         );
     }
   };
+
+  const renderDismissChip = (label: string, onDismiss: () => void, tone: string) => (
+    <span className={`inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-lg border font-mono text-[10.5px] ${tone}`}>
+      {label}
+      <button
+        type="button"
+        onClick={() => {
+          onDismiss();
+          setCurrentPage(1);
+        }}
+        aria-label={`Quitar filtro ${label}`}
+        className="w-4 h-4 rounded-md flex items-center justify-center hover:bg-white/10 hover:text-white cursor-pointer"
+      >
+        <span className="material-symbols-outlined text-[12px]">close</span>
+      </button>
+    </span>
+  );
+
+  const quickFilterButtons: { id: Exclude<QuickFilterType, 'all'>; icon: string; active: string; idle: string; iconColor: string }[] = [
+    {
+      id: 'pending_balance',
+      icon: 'payments',
+      active: 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.35)]',
+      idle: 'hover:border-amber-400/50',
+      iconColor: 'text-amber-400',
+    },
+    {
+      id: 'with_core',
+      icon: 'autorenew',
+      active: 'bg-purple-500/20 border-purple-400 text-purple-300 shadow-[0_0_12px_rgba(168,85,247,0.35)]',
+      idle: 'hover:border-purple-400/50',
+      iconColor: 'text-purple-400',
+    },
+    {
+      id: 'ready',
+      icon: 'local_shipping',
+      active: 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.35)]',
+      idle: 'hover:border-emerald-400/50',
+      iconColor: 'text-emerald-400',
+    },
+    {
+      id: 'auction',
+      icon: 'gavel',
+      active: 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.35)]',
+      idle: 'hover:border-amber-400/50',
+      iconColor: 'text-amber-400',
+    },
+  ];
 
   return (
     <div className="radar-view horizon-view horizon-orders select-none pb-8">
@@ -639,7 +805,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         </button>
       </nav>
 
-      {/* Main Search & Filters Bar (Matching Screenshot UI) */}
+      {/* Main Search & Filters Card */}
       <div className="horizon-order-filters relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-4 shadow-[0_15px_35px_rgba(0,0,0,0.6)] flex flex-col gap-3.5 overflow-hidden">
         <div className="absolute top-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_10px_#22d3ee]" />
 
@@ -666,9 +832,9 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
             )}
           </button>
 
-          {/* Center Search Input */}
+          {/* Search Input Box */}
           <div className="relative flex-1 group">
-            <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400/70 text-[19px] group-focus-within:text-cyan-300 transition-colors pointer-events-none">
+            <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400 text-[18px] group-focus-within:text-cyan-300 pointer-events-none transition-colors">
               search
             </span>
             <input
@@ -694,6 +860,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
           <button
             type="button"
             onClick={() => setShowFilters((prev) => !prev)}
+            aria-expanded={showFilters}
             className={`px-4 py-2.5 rounded-2xl border text-xs font-mono font-bold flex items-center justify-center gap-2 cursor-pointer transition-all shrink-0 ${
               showFilters || activeFiltersCount > 0
                 ? 'bg-blue-600/20 border-blue-400 text-blue-300 shadow-[0_0_15px_rgba(59,130,246,0.35)]'
@@ -712,13 +879,42 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
           </button>
         </div>
 
-        {/* Row 2: Filter Grid (ESTADO, OPERADOR, MARCA, TIPO DE PIEZA, DESDE, HASTA) */}
+        {/* Row 2: Quick Filter Pills (1-click) */}
+        <div className="flex items-center gap-2 flex-wrap" role="group" aria-label="Filtros rápidos">
+          <span className="text-[10.5px] font-mono font-bold uppercase text-slate-400 mr-1 flex items-center gap-1">
+            <span className="material-symbols-outlined text-[14px] text-cyan-400">bolt</span>
+            Acceso rápido
+          </span>
+          {quickFilterButtons.map((qf) => {
+            const isActive = quickFilter === qf.id;
+            return (
+              <button
+                key={qf.id}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => handleQuickFilterToggle(qf.id)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer border ${
+                  isActive
+                    ? qf.active
+                    : `bg-[#040814] border-slate-700/80 text-slate-300 hover:text-white ${qf.idle}`
+                }`}
+              >
+                <span className={`material-symbols-outlined text-[14px] ${qf.iconColor}`}>{qf.icon}</span>
+                <span>{QUICK_FILTER_LABELS[qf.id]}</span>
+                {isActive && <span className="material-symbols-outlined text-[13px]">close</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Row 3: Filter Grid (ESTADO, OPERADOR, MARCA, TIPO DE PIEZA, DESDE, HASTA) */}
         {showFilters && (
-          <div className="pt-2 border-t border-cyan-500/15 animate-in fade-in duration-200">
+          <div className="pt-3 border-t border-cyan-500/15 animate-in fade-in duration-200">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
               {/* 1. ESTADO */}
               <div>
-                <label className="block text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
+                <label className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
+                  <span className="material-symbols-outlined text-[13px] text-cyan-400">flag</span>
                   ESTADO
                 </label>
                 <div className="relative">
@@ -753,7 +949,8 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
 
               {/* 2. OPERADOR */}
               <div>
-                <label className="block text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
+                <label className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
+                  <span className="material-symbols-outlined text-[13px] text-cyan-400">person</span>
                   OPERADOR
                 </label>
                 <div className="relative">
@@ -765,7 +962,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
                     }}
                     className="w-full appearance-none bg-[#040814]/90 border border-slate-700/80 hover:border-cyan-500/40 focus:border-cyan-400 text-xs text-white rounded-xl pl-3 pr-8 py-2 focus:outline-none focus:ring-1 focus:ring-cyan-400/40 transition cursor-pointer"
                   >
-                    <option value="all" className="bg-[#060c18] text-white">Todos los Operadores</option>
+                    <option value="all" className="bg-[#060c18] text-white">Todos</option>
                     {uniqueOperators.map((op) => (
                       <option key={op} value={op} className="bg-[#060c18] text-white">
                         {op}
@@ -780,7 +977,8 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
 
               {/* 3. MARCA */}
               <div>
-                <label className="block text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
+                <label className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
+                  <span className="material-symbols-outlined text-[13px] text-cyan-400">directions_car</span>
                   MARCA
                 </label>
                 <div className="relative">
@@ -807,7 +1005,8 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
 
               {/* 4. TIPO DE PIEZA */}
               <div>
-                <label className="block text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
+                <label className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
+                  <span className="material-symbols-outlined text-[13px] text-cyan-400">settings</span>
                   TIPO DE PIEZA
                 </label>
                 <div className="relative">
@@ -834,7 +1033,8 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
 
               {/* 5. DESDE */}
               <div>
-                <label className="block text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
+                <label className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
+                  <span className="material-symbols-outlined text-[13px] text-cyan-400">event</span>
                   DESDE
                 </label>
                 <input
@@ -850,7 +1050,8 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
 
               {/* 6. HASTA */}
               <div>
-                <label className="block text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
+                <label className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
+                  <span className="material-symbols-outlined text-[13px] text-cyan-400">event</span>
                   HASTA
                 </label>
                 <input
@@ -864,35 +1065,50 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
                 />
               </div>
             </div>
+          </div>
+        )}
 
-            {/* Active filters summary and clear button */}
-            {(activeFiltersCount > 0 || searchQuery.trim() !== '' || isArchivedView) && (
-              <div className="flex items-center justify-between gap-2 mt-3 pt-2.5 border-t border-cyan-500/10 text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="text-cyan-300 font-mono text-[11px] font-bold">
-                    {filteredOrders.length} {filteredOrders.length === 1 ? 'orden encontrada' : 'órdenes encontradas'}
-                  </span>
-                  {activeFiltersCount > 0 && (
-                    <span className="text-slate-400 text-[10.5px] font-mono">
-                      ({activeFiltersCount} {activeFiltersCount === 1 ? 'filtro activo' : 'filtros activos'})
-                    </span>
-                  )}
-                  {searchQuery.trim() !== '' && (
-                    <span className="text-cyan-400/90 text-[10.5px] font-mono">
-                      • Búsqueda global en todos los estatus
-                    </span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={handleClearFilters}
-                  className="px-2.5 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-300 text-[11px] font-mono font-bold flex items-center gap-1 transition cursor-pointer"
-                >
-                  <span className="material-symbols-outlined text-[14px]">restart_alt</span>
-                  <span>Limpiar filtros</span>
-                </button>
-              </div>
-            )}
+        {/* Active filters: summary + dismissible chips + clear button (visible even when grid is collapsed) */}
+        {(activeFiltersCount > 0 || searchQuery.trim() !== '' || isArchivedView) && (
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-2.5 border-t border-cyan-500/10 text-xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-cyan-300 font-mono text-[11px] font-bold">
+                {filteredOrders.length} {filteredOrders.length === 1 ? 'orden encontrada' : 'órdenes encontradas'}
+              </span>
+              {activeFiltersCount > 0 && (
+                <span className="text-slate-400 text-[10.5px] font-mono">
+                  ({activeFiltersCount} {activeFiltersCount === 1 ? 'filtro activo' : 'filtros activos'})
+                </span>
+              )}
+              {searchQuery.trim() !== '' && (
+                <span className="text-cyan-400/90 text-[10.5px] font-mono">
+                  • Búsqueda global en todos los estatus
+                </span>
+              )}
+
+              {statusFilter !== 'all' &&
+                renderDismissChip(`Estado: ${STATUS_LABELS[statusFilter] || statusFilter}`, () => setStatusFilter('all'), 'bg-blue-500/15 border-blue-400/30 text-blue-300')}
+              {operatorFilter !== 'all' &&
+                renderDismissChip(`Operador: ${operatorFilter}`, () => setOperatorFilter('all'), 'bg-purple-500/15 border-purple-400/30 text-purple-300')}
+              {makeFilter !== 'all' &&
+                renderDismissChip(`Marca: ${makeFilter}`, () => setMakeFilter('all'), 'bg-cyan-500/15 border-cyan-400/30 text-cyan-300')}
+              {partTypeFilter !== 'all' &&
+                renderDismissChip(`Pieza: ${partTypeFilter}`, () => setPartTypeFilter('all'), 'bg-cyan-500/15 border-cyan-400/30 text-cyan-300')}
+              {fromDate &&
+                renderDismissChip(`Desde: ${fromDate}`, () => setFromDate(''), 'bg-slate-500/15 border-slate-400/30 text-slate-300')}
+              {toDate &&
+                renderDismissChip(`Hasta: ${toDate}`, () => setToDate(''), 'bg-slate-500/15 border-slate-400/30 text-slate-300')}
+              {quickFilter !== 'all' &&
+                renderDismissChip(QUICK_FILTER_LABELS[quickFilter], () => setQuickFilter('all'), 'bg-amber-500/15 border-amber-400/30 text-amber-300')}
+            </div>
+            <button
+              type="button"
+              onClick={handleClearFilters}
+              className="px-2.5 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-300 text-[11px] font-mono font-bold flex items-center gap-1 transition cursor-pointer shrink-0"
+            >
+              <span className="material-symbols-outlined text-[14px]">restart_alt</span>
+              <span>Limpiar filtros</span>
+            </button>
           </div>
         )}
       </div>
@@ -902,27 +1118,26 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee]" />
 
         <div className="table-responsive-wrapper custom-scrollbar">
-          <table className="w-full text-left whitespace-nowrap border-collapse min-w-[920px]">
+          <table className="w-full text-left whitespace-nowrap border-collapse min-w-[1080px]">
             <thead className="bg-[#040814]/95 border-b border-cyan-500/20 sticky top-0 z-10">
               <tr className="font-mono text-[10px] sm:text-[10.5px] text-cyan-400/80 uppercase tracking-wider">
                 <th className="px-4 py-3 font-bold">Código & Fecha</th>
                 <th className="px-4 py-3 font-bold">Cliente</th>
                 <th className="px-4 py-3 font-bold">Vehículo & VIN</th>
                 <th className="px-4 py-3 font-bold">Refacción Solicitada</th>
+                <th className="px-4 py-3 font-bold text-center">Flujo</th>
                 <th className="px-4 py-3 font-bold">Tipo Entrega</th>
                 <th className="px-4 py-3 font-bold">Estatus</th>
                 <th className="px-4 py-3 font-bold text-right">Balance Financiero</th>
-                <th className="px-4 py-3 font-bold text-center w-14">Acciones</th>
+                <th className="px-4 py-3 font-bold text-center w-28">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-cyan-500/10 text-xs">
               {paginatedOrders.map((order) => {
-                const partPrice = order.financials.partPrice ?? order.financials.baseMSRP ?? 1000;
-                const downPayment = order.financials.downPayment ?? order.financials.advancePayment ?? 0;
-                const deliveryFee = order.financials.deliveryFee ?? 0;
-                const coreFee = order.financials.coreFee ?? 0;
-                const grossSubtotal = partPrice + deliveryFee + coreFee;
-                const totalPayable = Math.max(0, grossSubtotal - downPayment);
+                const { downPayment, coreFee, totalPayable, paidPercentage } = getOrderFinancials(order);
+                const pipeline = getOrderPipeline(order);
+                const coreCommitted = hasCoreCommitment(order);
+                const waDigits = (order.customer.whatsapp || order.customer.phone || '').replace(/\D/g, '');
 
                 return (
                   <tr
@@ -932,57 +1147,85 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
                   >
                     {/* Código & Fecha */}
                     <td className="px-4 py-3 sm:px-5 sm:py-3.5">
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="font-mono font-black text-xs sm:text-sm text-cyan-300 group-hover:text-cyan-200 group-hover:underline drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">
-                            {order.code}
-                          </span>
-                          {isOrderAuction(order) && (
-                            <span
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 border border-amber-400/80 dark:border-amber-500/40 shadow-[0_0_8px_rgba(245,158,11,0.25)] animate-pulse shrink-0"
-                              title={`Orden marcada para Búsqueda en Subasta${order.auctionLinks && order.auctionLinks.length > 0 ? ` (${order.auctionLinks.length} enlace${order.auctionLinks.length > 1 ? 's' : ''} registrado${order.auctionLinks.length > 1 ? 's' : ''})` : ' (Búsqueda pendiente)'}`}
-                            >
-                              <span className="material-symbols-outlined text-[13px] text-amber-600 dark:text-amber-400">gavel</span>
-                              <span className="font-bold">
-                                {order.auctionLinks && order.auctionLinks.length > 0
-                                  ? `Subasta (${order.auctionLinks.length})`
-                                  : 'Subasta'}
-                              </span>
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-[10.5px] text-slate-400 font-mono mt-0.5">
+                      <div className="flex flex-col gap-1">
+                        <span className="inline-flex w-fit items-center font-mono text-[11.5px] font-black text-cyan-300 bg-cyan-500/10 border border-cyan-400/30 px-2 py-0.5 rounded-lg group-hover:text-cyan-200 group-hover:border-cyan-400/60 transition">
+                          {order.code}
+                        </span>
+                        <span className="text-slate-400 text-[10.5px] font-mono flex items-center gap-1">
+                          <span className="material-symbols-outlined text-[12px] text-slate-500">calendar_today</span>
                           {order.createdAt}
                         </span>
+                        {order.advisor && (
+                          <span className="text-slate-400 text-[10px] font-mono flex items-center gap-1" title={`Asesor: ${order.advisor}`}>
+                            <span className="material-symbols-outlined text-[12px] text-slate-500">person</span>
+                            <span className="truncate max-w-[120px]">{order.advisor}</span>
+                          </span>
+                        )}
                       </div>
                     </td>
 
                     {/* Cliente */}
                     <td className="px-4 py-3 sm:px-5 sm:py-3.5">
                       <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-[#0b162b] flex items-center justify-center text-cyan-300 font-bold text-[11px] sm:text-xs border border-cyan-400/30 shrink-0 shadow-[0_0_8px_rgba(6,182,212,0.2)]">
+                        <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-gradient-to-br from-cyan-500/25 to-blue-600/25 flex items-center justify-center text-cyan-300 font-bold text-[11px] sm:text-xs border border-cyan-400/30 shrink-0 shadow-[0_0_8px_rgba(6,182,212,0.2)]">
                           {order.customer.initials}
                         </div>
                         <div className="flex flex-col min-w-0">
-                          <span className="text-white font-bold leading-tight group-hover:text-cyan-200 truncate">
+                          <span className="text-white font-bold leading-tight group-hover:text-cyan-200 truncate max-w-[160px]">
                             {order.customer.name}
                           </span>
-                          <span className="text-slate-400 text-[10.5px] font-mono truncate">
-                            {order.customer.phone}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-400 text-[10.5px] font-mono truncate">
+                              {order.customer.phone}
+                            </span>
+                            {waDigits && (
+                              <a
+                                href={`https://wa.me/${waDigits}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-5 h-5 rounded-md flex items-center justify-center text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/15 transition"
+                                title="Abrir WhatsApp del cliente"
+                                aria-label={`WhatsApp a ${order.customer.name}`}
+                              >
+                                <span className="material-symbols-outlined text-[14px]">chat</span>
+                              </a>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </td>
 
                     {/* Vehículo & VIN */}
                     <td className="px-4 py-3 sm:px-5 sm:py-3.5">
-                      <div className="flex flex-col">
+                      <div className="flex flex-col gap-0.5">
                         <span className="text-slate-200 font-medium leading-tight">
                           {order.vehicle.year} {order.vehicle.make} {order.vehicle.model}
                         </span>
-                        <span className="font-mono text-[10.5px] text-slate-400 truncate max-w-[170px]">
-                          {order.vehicle.vin ? `VIN: ${order.vehicle.vin}` : 'Sin VIN'}
-                        </span>
+                        {order.vehicle.vin ? (
+                          <div className="flex items-center gap-1">
+                            <span className="font-mono text-[10.5px] text-slate-400 truncate max-w-[150px]">
+                              VIN: {order.vehicle.vin}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => handleCopyVin(e, order.vehicle.vin || '', order.id)}
+                              className={`w-5 h-5 rounded-md flex items-center justify-center transition cursor-pointer ${
+                                copiedVinId === order.id
+                                  ? 'text-emerald-400 bg-emerald-500/15'
+                                  : 'text-slate-500 hover:text-cyan-300 hover:bg-cyan-500/10'
+                              }`}
+                              title={copiedVinId === order.id ? 'VIN copiado' : 'Copiar VIN'}
+                              aria-label="Copiar VIN"
+                            >
+                              <span className="material-symbols-outlined text-[13px]">
+                                {copiedVinId === order.id ? 'check' : 'content_copy'}
+                              </span>
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="font-mono text-[10.5px] text-slate-500">Sin VIN</span>
+                        )}
                       </div>
                     </td>
 
@@ -1010,16 +1253,56 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
                       </div>
                     </td>
 
+                    {/* Flujo (pipeline stepper) */}
+                    <td className="px-4 py-3 sm:px-5 sm:py-3.5">
+                      <div className="flex flex-col items-center gap-1" title={`Etapa: ${pipeline.label}`}>
+                        <div className="flex items-center">
+                          {PIPELINE_STEP_NAMES.map((name, idx) => {
+                            const stepNum = idx + 1;
+                            const isDone = pipeline.isDone || stepNum < pipeline.step;
+                            const isCurrent = !pipeline.isDone && stepNum === pipeline.step;
+                            const dotClass = pipeline.isHalted
+                              ? isDone || isCurrent
+                                ? 'bg-slate-600 text-slate-200 border border-slate-500'
+                                : 'bg-slate-800 text-slate-600 border border-slate-700'
+                              : isDone
+                              ? 'bg-emerald-500 text-slate-950 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
+                              : isCurrent
+                              ? 'bg-cyan-400 text-slate-950 ring-2 ring-cyan-400/40 shadow-[0_0_8px_rgba(6,182,212,0.6)]'
+                              : 'bg-slate-800 text-slate-500 border border-slate-700';
+                            return (
+                              <div key={name} className="flex items-center">
+                                <div
+                                  className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-mono font-black ${dotClass}`}
+                                  title={`${stepNum}. ${name}`}
+                                >
+                                  {isDone && !pipeline.isHalted ? '✓' : stepNum}
+                                </div>
+                                {stepNum < PIPELINE_STEP_NAMES.length && (
+                                  <div
+                                    className={`w-3 h-0.5 ${
+                                      !pipeline.isHalted && (pipeline.isDone || stepNum < pipeline.step)
+                                        ? 'bg-emerald-400'
+                                        : 'bg-slate-700'
+                                    }`}
+                                  />
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <span className={`text-[10px] font-mono font-medium ${pipeline.isHalted ? 'text-slate-500' : pipeline.isDone ? 'text-emerald-300' : 'text-cyan-300'}`}>
+                          {pipeline.label}
+                        </span>
+                      </div>
+                    </td>
+
                     {/* Tipo Entrega */}
                     <td className="px-4 py-3 sm:px-5 sm:py-3.5">
                       <div className="flex items-center gap-1.5">
-                        <span
-                          className={`w-2 h-2 rounded-full shrink-0 ${
-                            order.deliveryType === 'envio_domicilio'
-                              ? 'bg-cyan-400 shadow-[0_0_6px_#22d3ee]'
-                              : 'bg-emerald-400 shadow-[0_0_6px_#34d399]'
-                          }`}
-                        />
+                        <span className={`material-symbols-outlined text-[15px] ${order.deliveryType === 'envio_domicilio' ? 'text-cyan-400' : 'text-emerald-400'}`}>
+                          {order.deliveryType === 'envio_domicilio' ? 'local_shipping' : 'storefront'}
+                        </span>
                         <span className="text-[11.5px] font-mono text-slate-300">
                           {order.deliveryType === 'envio_domicilio' ? 'Envío Domicilio' : 'Retiro Tienda'}
                         </span>
@@ -1033,17 +1316,38 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
 
                     {/* Finanzas */}
                     <td className="px-4 py-3 sm:px-5 sm:py-3.5 text-right">
-                      <div className="flex flex-col items-end">
-                        <span className="font-mono text-xs sm:text-sm font-black text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.3)]">
-                          ${totalPayable.toFixed(2)}
-                        </span>
-                        {downPayment > 0 ? (
-                          <span className="font-mono text-[10.5px] text-emerald-400 font-semibold">
-                            Abono: ${downPayment.toFixed(2)}
+                      <div className="flex flex-col items-end gap-1">
+                        {totalPayable <= 0 ? (
+                          <span className="inline-flex items-center gap-1 font-mono text-xs font-black text-emerald-300 bg-emerald-500/15 border border-emerald-400/40 px-2 py-0.5 rounded-lg">
+                            <span className="material-symbols-outlined text-[13px]">check_circle</span>
+                            Liquidado
                           </span>
                         ) : (
-                          <span className="font-mono text-[10.5px] text-red-400">
-                            Sin Abono ($0.00)
+                          <span className="font-mono text-xs sm:text-sm font-black text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.3)]" title="Saldo pendiente por cobrar">
+                            ${totalPayable.toFixed(2)}
+                          </span>
+                        )}
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-14 h-1.5 bg-slate-800 rounded-full overflow-hidden" title={`${paidPercentage}% cubierto`}>
+                            <div
+                              className={`h-full rounded-full ${paidPercentage >= 100 ? 'bg-emerald-400' : paidPercentage > 0 ? 'bg-gradient-to-r from-emerald-400 to-cyan-400' : 'bg-red-400/60'}`}
+                              style={{ width: `${Math.max(paidPercentage, 4)}%` }}
+                            />
+                          </div>
+                          {downPayment > 0 ? (
+                            <span className="font-mono text-[10.5px] text-emerald-400 font-semibold">
+                              Abono: ${downPayment.toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="font-mono text-[10.5px] text-red-400">
+                              Sin Abono ($0.00)
+                            </span>
+                          )}
+                        </div>
+                        {coreCommitted && (
+                          <span className="inline-flex items-center gap-0.5 text-[9.5px] font-mono font-bold text-purple-300 bg-purple-500/15 border border-purple-400/30 px-1.5 py-0.5 rounded">
+                            <span className="material-symbols-outlined text-[11px]">autorenew</span>
+                            {coreFee > 0 ? `Core: $${coreFee.toFixed(2)}` : 'Core pactado'}
                           </span>
                         )}
                       </div>
@@ -1051,17 +1355,31 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
 
                     {/* Acciones */}
                     <td className="px-3 py-3 sm:px-4 sm:py-3.5 text-center relative" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => setActiveActionMenu(activeActionMenu === order.id ? null : order.id)}
-                        className="text-slate-400 hover:text-cyan-300 p-1.5 rounded-xl hover:bg-slate-800 transition cursor-pointer"
-                        title="Opciones"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">more_vert</span>
-                      </button>
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => onSelectOrder(order.id)}
+                          className="px-2.5 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/25 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 text-[11px] font-mono font-bold flex items-center gap-1 transition cursor-pointer"
+                          title="Abrir la orden y su flujo"
+                        >
+                          <span>Abrir</span>
+                          <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveActionMenu(activeActionMenu === order.id ? null : order.id)}
+                          className="text-slate-400 hover:text-cyan-300 p-1.5 rounded-xl hover:bg-slate-800 transition cursor-pointer"
+                          title="Opciones"
+                          aria-haspopup="menu"
+                          aria-expanded={activeActionMenu === order.id}
+                        >
+                          <span className="material-symbols-outlined text-[18px]">more_vert</span>
+                        </button>
+                      </div>
 
                       {/* Dropdown Menu */}
                       {activeActionMenu === order.id && (
-                        <div className="absolute right-4 top-10 w-52 bg-[#060c18] border border-cyan-500/30 rounded-2xl shadow-[0_15px_40px_rgba(0,0,0,0.85)] z-30 py-2 text-left text-xs overflow-hidden backdrop-blur-2xl">
+                        <div className="absolute right-4 top-12 w-52 bg-[#060c18] border border-cyan-500/30 rounded-2xl shadow-[0_15px_40px_rgba(0,0,0,0.85)] z-30 py-2 text-left text-xs overflow-hidden backdrop-blur-2xl">
                           <button
                             onClick={() => {
                               if (onEditOrder) onEditOrder(order);
@@ -1093,7 +1411,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
 
               {filteredOrders.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-5 py-14 text-center text-slate-400">
+                  <td colSpan={9} className="px-5 py-14 text-center text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <span className="material-symbols-outlined text-5xl text-cyan-400/50">search_off</span>
                       <p className="font-bold text-white text-sm">
@@ -1106,6 +1424,16 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
                           ? 'Prueba con otro término de búsqueda (nombre, teléfono, VIN o pieza) o limpia el buscador.'
                           : 'Prueba seleccionando otra de las vistas segmentadas o ajusta tu búsqueda.'}
                       </p>
+                      {(activeFiltersCount > 0 || searchQuery.trim() !== '') && (
+                        <button
+                          type="button"
+                          onClick={handleClearFilters}
+                          className="mt-2 px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-[11px] font-mono font-bold flex items-center gap-1 transition cursor-pointer"
+                        >
+                          <span className="material-symbols-outlined text-[14px]">restart_alt</span>
+                          Limpiar filtros y búsqueda
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -1114,8 +1442,8 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
           </table>
         </div>
 
-        {/* Table Footer with Pagination & Page Size Selector */}
-        <div className="bg-[#040814]/95 border-t border-cyan-500/20 px-5 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-4">
+        {/* Table Footer with Pagination & Page Size Pills */}
+        <div className="sticky bottom-0 z-10 bg-[#040814]/95 backdrop-blur-xl border-t border-cyan-500/20 px-5 py-3.5 flex flex-col lg:flex-row items-center justify-between gap-4">
           {/* Left: Summary info */}
           <div className="flex items-center gap-3 text-xs text-slate-400 font-mono">
             <span>
@@ -1127,31 +1455,30 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
             </span>
             <span className="hidden md:inline-block text-slate-600">|</span>
             <span className="hidden md:inline-block text-[11px] text-slate-400">
-              Vista: <strong className="text-cyan-400 uppercase">{segmentView}</strong>
+              Página <strong className="text-cyan-400">{validCurrentPage}</strong> de <strong className="text-white">{totalPages}</strong>
             </span>
           </div>
 
-          {/* Right: Controls (Page Size Selector + Pagination) */}
-          <div className="flex flex-wrap items-center gap-4">
-            {/* Page Size Selector */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-400 font-mono">Mostrar:</span>
-              <div className="relative">
-                <select
-                  value={pageSize}
-                  onChange={(e) => handlePageSizeChange(Number(e.target.value))}
-                  className="appearance-none bg-[#070e1c] border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 rounded-xl pl-3 pr-8 py-1.5 text-xs font-mono font-bold focus:outline-none focus:ring-1 focus:ring-cyan-400/50 cursor-pointer shadow-[0_0_12px_rgba(6,182,212,0.15)] transition"
+          {/* Right: Controls (Page Size Pills + Pagination) */}
+          <div className="flex flex-wrap items-center justify-center gap-4">
+            {/* Page Size Pills */}
+            <div className="flex items-center gap-1 bg-[#02050e]/80 p-1 rounded-2xl border border-cyan-500/20" role="group" aria-label="Órdenes por página">
+              <span className="text-[10.5px] text-slate-400 font-mono px-1.5">Por pág.</span>
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  aria-pressed={pageSize === size}
+                  onClick={() => handlePageSizeChange(size)}
+                  className={`min-w-[30px] h-7 px-2 rounded-xl text-xs font-mono font-bold transition cursor-pointer ${
+                    pageSize === size
+                      ? 'bg-cyan-500 text-slate-950 font-black shadow-[0_0_10px_rgba(6,182,212,0.4)]'
+                      : 'text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/10'
+                  }`}
                 >
-                  {PAGE_SIZE_OPTIONS.map((size) => (
-                    <option key={size} value={size} className="bg-[#060c18] text-white">
-                      {size} por pág.
-                    </option>
-                  ))}
-                </select>
-                <span className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-cyan-400 text-[16px] pointer-events-none">
-                  expand_more
-                </span>
-              </div>
+                  {size}
+                </button>
+              ))}
             </div>
 
             {/* Pagination Controls */}
@@ -1195,6 +1522,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
                     <button
                       key={pageNum}
                       onClick={() => setCurrentPage(pageNum)}
+                      aria-current={isActive ? 'page' : undefined}
                       className={`min-w-[28px] h-7 px-2 rounded-xl font-mono text-xs font-bold transition flex items-center justify-center cursor-pointer ${
                         isActive
                           ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 font-black shadow-[0_0_12px_rgba(6,182,212,0.45)]'
