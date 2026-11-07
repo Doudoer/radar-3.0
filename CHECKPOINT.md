@@ -1,12 +1,43 @@
 # 📍 CHECKPOINT RADAR 3.0 — 2026-11-06
 
-**Fecha y Hora:** 6 de Noviembre, 2026 — 22:00 UTC-4  
-**Rama:** `main` (Local)  
-**Estado:** Probado y compilado con 100% de tests pasando (478/478 en 64 suites, TypeScript sin errores)
+**Fecha y Hora:** 6 de Noviembre, 2026 — 23:30 UTC-4  
+**Rama:** `main` (Local: commit `4a8bc49`)  
+**Estado:** Probado y compilado con 100% de tests pasando (479/479 en 65 suites, TypeScript/Lint sin errores)
 
 ---
 
 ## 🚀 Resumen de Actualización Reciente (6 de Noviembre, 2026)
+
+### 5. Detección Inteligente y Asistente de Fusión de Clientes Duplicados (Estilo Contactos de Teléfono)
+- **Requerimiento:** Detección de clientes duplicados en la base de datos para corrección/limpieza asistida, similar a la herramienta de "Contactos duplicados" en teléfonos inteligentes (Google Contacts / Apple Contacts).
+- **Diagnóstico en Base de Datos:**
+  - Se analizaron los 590 clientes registrados.
+  - Se detectaron 100 grupos de duplicados (66 por coincidencia de teléfono normalizado de al menos 7 dígitos, 34 por nombre y apellido idéntico).
+- **Backend & Seguridad Transaccional:**
+  - **Endpoint de Detección (`GET /api/customers/duplicates` en [`server.ts`](file:///Users/doudoer/Desktop/Radar/server.ts)):** Agrupa automáticamente clientes activos coincidentes por teléfono normalizado (últimos 10 dígitos), email o nombre normalizado. Para cada cliente expone conteo de órdenes asociadas, llamadas de seguimiento registradas, teléfono, dirección, notas y fecha de creación.
+  - **Endpoint de Fusión Transaccional (`POST /api/customers/merge` en [`server.ts`](file:///Users/doudoer/Desktop/Radar/server.ts)):**
+    - Valida esquema estricto con Zod (`customerMergeSchema` en [`src/server/schemas.ts`](file:///Users/doudoer/Desktop/Radar/src/server/schemas.ts)): `primaryId`, `duplicateIds` (mínimo 1, sin duplicar el principal), y flag `copyMissingFields`.
+    - Ejecuta en una transacción MySQL atómica (`BEGIN ... COMMIT / ROLLBACK`) con bloqueo de filas `FOR UPDATE`.
+    - Reasigna todas las órdenes asociadas (`UPDATE orders SET customer_id = primaryId WHERE customer_id IN (duplicates)`).
+    - Reasigna todas las llamadas y bitácoras (`UPDATE call_register SET customer_id = primaryId WHERE customer_id IN (duplicates)`).
+    - Si `copyMissingFields: true`, transfiere automáticamente al cliente principal cualquier dato faltante (teléfono, whatsapp, email, dirección de envío, código postal, compañía, notas) que estuviera presente en los duplicados.
+    - Aplica borrado lógico seguro (`UPDATE customers SET deleted_at = NOW() WHERE id IN (duplicates)`).
+    - Registra auditoría del sistema con acción `CUSTOMER_MERGED` detallando IDs, órdenes reasignadas y llamadas transferidas.
+- **Frontend & Experiencia de Usuario:**
+  - **Componente Modal Moderno ([`src/components/CustomerDuplicatesModal.tsx`](file:///Users/doudoer/Desktop/Radar/src/components/CustomerDuplicatesModal.tsx)):**
+    - Interfaz visual interactiva estilo asistente de contactos móviles.
+    - Contador de progreso ("Grupo X de N"), selector de cliente principal (por defecto el que tiene más órdenes o antigüedad), comparador de atributos en tarjetas lado a lado.
+    - Resumen de impacto en vivo: cálculo automático de órdenes a transferir, llamadas a conservar y campos que se enriquecerán.
+    - Checkbox para rellenar campos vacíos en el contacto principal con datos de los duplicados.
+    - Botones de navegación "Omitir por ahora" o "Siguiente", y botón de confirmación "Fusionar X clientes".
+  - **Integración en Clientes CRM ([`src/components/ClientsView.tsx`](file:///Users/doudoer/Desktop/Radar/src/components/ClientsView.tsx)):**
+    - Botón de acción con icono de combinación en la cabecera junto a "Nuevo Cliente": `[🔀 Fusionar Duplicados]`.
+    - Al completar una fusión, refresca automáticamente el listado de clientes y el catálogo de duplicados.
+- **Pruebas Automatizadas:**
+  - Suite de validación en [`tests/server-schemas.test.ts`](file:///Users/doudoer/Desktop/Radar/tests/server-schemas.test.ts) cubriendo validación de IDs, duplicación de IDs y flags booleanos.
+  - 100% de la suite de pruebas (479 pruebas) pasando.
+
+---
 
 ### 1. Restricción de Búsqueda en Subasta Exclusivamente a Órdenes Pagadas
 - **Requerimiento:** Las órdenes entregadas no deben tener marca ni opción de buscar en subasta. Solo las órdenes en estado `pagado` pueden tener activa la opción de subasta.
