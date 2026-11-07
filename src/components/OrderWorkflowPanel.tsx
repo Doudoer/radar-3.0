@@ -200,7 +200,7 @@ const WorkflowManagementForm: React.FC<{
   return <form onSubmit={submit} className="horizon-workflow-form space-y-4">
     <h3 className="text-lg font-bold">{task.title} · {task.order.code}</h3>
     <p className="text-sm text-[var(--text-secondary)]">{task.requirement}</p>
-    <p className="text-sm">Estado logístico: {ORDER_STATUS_LABELS[task.order.status]}. {task.task === 'delivery' && 'La pieza queda lista para retiro o despacho al completar Preparación y cita. Aquí se confirma la entrega física, no se cambia el estado manualmente.'}</p>
+    {task.task !== 'delivery' && <p className="text-sm">Estado logístico: {ORDER_STATUS_LABELS[task.order.status]}.</p>}
     {task.regularization && <p className="text-sm text-amber-600">Orden ya entregada: documenta la gestión histórica real. No se cambiará su fecha de entrega.</p>}
     {postDelivery && <section className="rounded-xl bg-[var(--bg-card-subtle)] p-4 space-y-4">
       <label className={field}>Canal de comunicación<select disabled={busy || uploading} value={channel} onChange={event => {
@@ -228,14 +228,14 @@ const WorkflowManagementForm: React.FC<{
         imageLabel="Ver captura de conversación" disabled={busy}
         onUploadingChange={value => { uploadInFlight.current = value; setUploading(value); }} />}
     </section>}
-    <label className={field}>Resultado
+    {task.task !== 'delivery' && <label className={field}>Resultado
       <select disabled={busy || uploading} value={outcome} onChange={event => setOutcome(event.target.value as WorkflowAction['outcome'])}>
         {task.task !== 'incident' && <option value="completed" disabled={postDelivery && !directContact}>{postDelivery ? 'Objetivo confirmado por el cliente' : 'Objetivo confirmado con evidencia'}</option>}
         <option value="no_response" disabled={postDelivery && (directContact || contactResult === 'wrong_number')}>Sin respuesta · reintentar</option>
         <option value="blocked">Bloqueada por un tercero</option>
         <option value="incident">Incidencia · requiere gestión del caso</option>
       </select>
-    </label>
+    </label>}
     {deliverySettlement && <div className="space-y-4">
       {paymentError ? <><p role="alert" className="text-red-600">{paymentError}</p><button type="button" onClick={reloadPayments}>Recargar cobros</button></>
         : !paymentDetail ? <p role="status">Cargando cobros…</p> : <OrderPaymentFields orderId={task.order.id} detail={{ ...paymentDetail, remainingMethodsOnly: true }} value={settlement} onChange={value => { setSettlement(value); setPaymentsVerified(false); }} disabled={busy || uploading} onUploadingChange={value => { uploadInFlight.current = value; setUploading(value); }} />}
