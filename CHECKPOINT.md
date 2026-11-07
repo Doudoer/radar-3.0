@@ -44,11 +44,27 @@
   - **Acceso inicial a configuración 2FA ([`server.ts`](file:///Users/doudoer/Desktop/Radar/server.ts)):** Se ajustó `GET /api/auth/2fa/totp-setup` para que, si el usuario administrador aún no tiene configurado un secreto TOTP (`totp_secret` nulo), pueda inicializar y ver el código QR de Google Authenticator sin requerir la bóveda previamente desbloqueada, evitando el bloqueo cuando WhatsApp no está configurado.
   - **Conexión en vivo de Salud de Base de Datos ([`src/components/SystemSettingsView.tsx`](file:///Users/doudoer/Desktop/Radar/src/components/SystemSettingsView.tsx)):** Se vinculó el bloque "Conexión de Base de Datos y Servidor" con el endpoint `/health`, mostrando el estado en tiempo real del motor MySQL (`En Línea (Conectado)`), la base de datos activa (`radar_v3 (MariaDB InnoDB)`) y los puertos de servicio (`3000 (API) / 3306 (SQL)`).
 
-### 4. Estado de Ejecución y Despliegue
-- Todos los cambios fueron consolidados y confirmados en la rama `main` local (`ad237a3`).
+### 4. Modernización Visual de "Mi Trabajo de Hoy" (Workflow Tasks View)
+- **Objetivo:** Transformar la vista de tareas operativas para que esté alineada con el lenguaje de diseño Horizon / Cyber de Radar 3.0, eliminando párrafos densos de texto y sustituyéndolos por tarjetas visuales con alta jerarquía gráfica.
+- **Implementación ([`src/components/WorkflowTasksView.tsx`](file:///Users/doudoer/Desktop/Radar/src/components/WorkflowTasksView.tsx)):**
+  - **Encabezado Horizon:** Icono de tarea en contenedor cibernético con indicador de pulso luminoso, título estilizado y botones de acción rápida con iconos.
+  - **Tarjetas de Métricas Ciber:** Rediseño de los 4 contadores superiores con acentos de color graduados (Tareas Activas en cian, Vencidas en rosa/rojo, Escaladas en ámbar y Bloqueadas en morado), iconos representativos y tipografía monospace de alto impacto.
+  - **Barra Segmentada de Filtros con Contadores:** Botones de filtro por bucket (Todas, Vencidas, Para hoy, Esperando, Bloqueadas, Próximas) con insignias numéricas en vivo y gradiente activo cian-esmeralda.
+  - **Tarjetas Visuales de Tarea en Grid Responsivo (1 col en móvil, 2 cols en pantallas anchas):**
+    - **Acento Superior Dinámico:** Barra de gradiente superior que cambia según la urgencia (rosa para vencidas, ámbar para escaladas, morado para bloqueadas, cian para estándar).
+    - **Identificador de Orden & Cliente:** Insignia monospace `ORD-2026-XXX` con icono de factura y etiqueta de cliente con avatar/icono.
+    - **Insignia de Estado / Vencimiento:** Badges visuales con iconos dinámicos (`warning`, `today`, `hourglass_top`, `lock`, `schedule`).
+    - **Iconografía por Categoría de Tarea:** Iconos dedicados según el tipo de gestión (`contact_phone` para post-venta, `payments` para anticipo, `verified_user` para confirmación, `inventory_2` para preparación, `storefront` para retiro, `local_shipping` para entrega, `gavel` para incidencias).
+    - **Pills de Contexto Operativo:** Avatar con iniciales del responsable asignado, etiqueta de asesor de venta y badge de venta de yarda.
+    - **Caja de Acción Directa ("Próxima Gestión Operativa"):** Bloque destacado con borde de acento y tipografía limpia que resalta la acción concreta a ejecutar sin párrafos genéricos.
+    - **Banners de Alerta Limpios:** Alertas condensadas con iconos para tareas escaladas a supervisor o bloqueos de terceros.
+    - **Botones de Acción con Iconos:** "Gestionar Tarea" (botón primario cian con icono `tune`), "Ver Orden" (`visibility`) e "Incidencia" (`warning_amber`).
+  - **Tabla de Supervisión de Operadores:** Rediseñada con estética glassmorphic, iniciales de operadores, porcentajes de cumplimiento con insignias de color neon y conteos destacados.
+
+### 5. Estado de Ejecución y Despliegue
+- Todos los cambios fueron consolidados y confirmados en la rama `main` local (`3ee4ce1`).
 - Contenedor local `radar-desktop-app:local` reconstruido y activo en `http://127.0.0.1:3000`.
-- El endpoint `GET /api/system/backups` responde exitosamente HTTP 200 con el catálogo completo de 55 respaldos.
-- La suite completa de pruebas unitarias pasó al 100% (478 pruebas en 64 suites).
+- 100% de tests pasando (478 pruebas en 64 suites) y TypeScript sin errores.
 - **Ningún cambio ha sido subido a producción (respetando la regla de trabajo local).**
 
 ---
