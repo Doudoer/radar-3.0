@@ -127,7 +127,7 @@ export const OrderPaymentFields: React.FC<{
                     onChange({
                       ...value,
                       coreAction: 'charge',
-                      coreAmount: value.coreAmount !== undefined ? value.coreAmount : (detail.order.core > 0 ? detail.order.core : 0),
+                      coreAmount: value.coreAmount !== undefined && value.coreAmount > 0 ? value.coreAmount : 150,
                       coreReference: '',
                       coreConfirmed: false,
                     });
@@ -135,7 +135,7 @@ export const OrderPaymentFields: React.FC<{
                     onChange({
                       ...value,
                       coreAction: 'keep',
-                      coreAmount: detail.order.core > 0 ? detail.order.core : undefined,
+                      coreAmount: detail.order.core > 0 ? detail.order.core : 150,
                       coreReference: '',
                       coreConfirmed: false,
                     });
@@ -189,7 +189,7 @@ export const OrderPaymentFields: React.FC<{
                     onChange({
                       ...value,
                       coreAction: 'charge',
-                      coreAmount: value.coreAmount !== undefined ? value.coreAmount : 0,
+                      coreAmount: value.coreAmount !== undefined && value.coreAmount > 0 ? value.coreAmount : 150,
                       coreReference: '',
                       coreConfirmed: false,
                     });
@@ -301,21 +301,22 @@ export const OrderPaymentFields: React.FC<{
           {(value.coreAction === 'charge' || (value.coreAction === 'keep' && detail.order.core > 0)) && (
             <div className="rounded-xl bg-cyan-950/20 p-4 border border-cyan-500/40 space-y-2">
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="font-semibold text-cyan-300 flex items-center gap-2">
-                  <span className="material-symbols-outlined text-base">attach_money</span>
+                <span className="font-semibold text-cyan-300">
                   {detail.order.core === 0 ? 'Monto a cobrar por el core (USD)' : 'Monto del cargo de core (USD)'}
                 </span>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400 font-bold">$</span>
+                <div className="flex items-stretch rounded-xl overflow-hidden border border-cyan-500/50 bg-[var(--bg-card)] focus-within:ring-2 focus-within:ring-cyan-500 shadow-sm">
+                  <span className="flex items-center justify-center px-4 bg-cyan-950/50 text-cyan-400 font-bold text-base border-r border-cyan-500/30 select-none">
+                    $
+                  </span>
                   <input
                     type="number"
                     min="0.01"
                     step="0.01"
                     max="99999999"
                     required
-                    className="w-full bg-slate-950/90 border border-slate-700 rounded-xl pl-8 pr-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                    placeholder="Ej: 150.00"
-                    value={value.coreAmount !== undefined && value.coreAmount !== null ? value.coreAmount : (detail.order.core > 0 ? detail.order.core : '')}
+                    className="w-full bg-transparent px-3.5 py-2.5 text-base font-bold text-[var(--text-primary)] placeholder-slate-400 focus:outline-none font-mono"
+                    placeholder="150.00"
+                    value={value.coreAmount !== undefined && value.coreAmount !== null ? value.coreAmount : (detail.order.core > 0 ? detail.order.core : 150)}
                     onChange={event => {
                       const val = event.target.value === '' ? undefined : Number(event.target.value);
                       onChange({
@@ -523,14 +524,16 @@ export const OrderPaymentFields: React.FC<{
                     <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
                       Importe {index + 1} (USD)
                     </span>
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                    <div className="flex items-stretch rounded-xl overflow-hidden border border-slate-700 bg-[var(--bg-card)] focus-within:ring-2 focus-within:ring-primary-500 shadow-sm">
+                      <span className="flex items-center justify-center px-4 bg-slate-800/40 text-slate-400 font-bold text-sm border-r border-slate-700 select-none">
+                        $
+                      </span>
                       <input
                         type="number"
                         min="0.01"
                         step="0.01"
                         max="99999999"
-                        className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 font-mono font-medium"
+                        className="w-full bg-transparent px-3.5 py-2.5 text-sm font-semibold text-[var(--text-primary)] placeholder-slate-500 focus:outline-none font-mono"
                         placeholder="0.00"
                         value={payment.amount || ''}
                         onChange={event => updatePayment(index, { amount: Number(event.target.value) })}
