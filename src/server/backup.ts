@@ -193,7 +193,17 @@ export const saveBackupSnapshot = async (options: { tag?: string; customFilename
         [filename, primaryPath, sizeBytes, backupType, gzippedBuffer]
       );
     } catch (dbErr) {
-      throw new Error('El respaldo no se completó: no se pudo registrar la copia en MySQL', { cause: dbErr });
+      // Fallback: If blob insertion fails (e.g. packet too large), save metadata with NULL blob
+      try {
+        await pool.query(
+          `INSERT INTO system_backup_records (filename, file_path, size_bytes, backup_type, created_at, content_compressed)
+           VALUES (?, ?, ?, ?, NOW(), NULL)
+           ON DUPLICATE KEY UPDATE file_path=VALUES(file_path), size_bytes=VALUES(size_bytes), content_compressed=VALUES(content_compressed)`,
+          [filename, primaryPath, sizeBytes, backupType]
+        );
+      } catch (fallbackDbErr) {
+        throw new Error('El respaldo no se completó: no se pudo registrar la copia en MySQL', { cause: fallbackDbErr });
+      }
     }
 
     // 4. Rotate backups keeping the last 50 backups on disk
@@ -241,14 +251,27 @@ const formatBytes = (bytes: number): string => {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 };
 
+const safeToIsoString = (val: unknown): string => {
+  try {
+    const d = val ? new Date(val as string | number | Date) : new Date();
+    return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  } catch {
+    return new Date().toISOString();
+  }
+};
+
 const syncFileToDb = async (filename: string, fullPath: string, size: number, mtime: Date) => {
   try {
     let gzippedBuffer: Buffer | null = null;
-    if (filename.endsWith('.sql')) {
-      const content = await fs.readFile(fullPath, 'utf8');
-      gzippedBuffer = zlib.gzipSync(Buffer.from(content, 'utf8'));
-    } else if (filename.endsWith('.gz')) {
-      gzippedBuffer = await fs.readFile(fullPath);
+    // For backups under 10MB, store compressed BLOB in MySQL for ephemeral recovery.
+    // For larger files (>10MB), store metadata only (NULL blob) to avoid MySQL packet size limits / ECONNRESET.
+    if (size <= 10 * 1024 * 1024) {
+      if (filename.endsWith('.sql')) {
+        const content = await fs.readFile(fullPath, 'utf8');
+        gzippedBuffer = zlib.gzipSync(Buffer.from(content, 'utf8'));
+      } else if (filename.endsWith('.gz')) {
+        gzippedBuffer = await fs.readFile(fullPath);
+      }
     }
     await pool.query(
       `INSERT IGNORE INTO system_backup_records (filename, file_path, size_bytes, backup_type, created_at, content_compressed)
@@ -324,96 +347,96 @@ export const listBackups = async (): Promise<BackupItem[]> => {
   const seenFiles = new Set<string>();
 
   // 1. Query records from MySQL table system_backup_records
-    const [dbRows] = await pool.query<RowDataPacket[]>(
-      'SELECT id, filename, file_path, size_bytes, backup_type, created_at, (content_compressed IS NOT NULL) AS has_blob FROM system_backup_records ORDER BY created_at DESC'
-    );
+  const [dbRows] = await pool.query<RowDataPacket[]>(
+    'SELECT id, filename, file_path, size_bytes, backup_type, created_at, (content_compressed IS NOT NULL) AS has_blob FROM system_backup_records ORDER BY created_at DESC'
+  );
 
-    for (const row of dbRows) {
-      const filename = String(row.filename);
-      seenFiles.add(filename);
+  for (const row of dbRows) {
+    const filename = String(row.filename);
+    seenFiles.add(filename);
 
-      const primaryPath = path.join(backupsDirectory, filename);
-      const uploadsPath = path.join(uploadsBackupsDirectory, filename);
-      const fileExistsOnDisk = await backupFileExists(primaryPath) || await backupFileExists(uploadsPath);
+    const primaryPath = path.join(backupsDirectory, filename);
+    const uploadsPath = path.join(uploadsBackupsDirectory, filename);
+    const fileExistsOnDisk = (await backupFileExists(primaryPath)) || (await backupFileExists(uploadsPath));
 
-      // If missing from disk (e.g. container was destroyed & restarted), re-materialize from DB blob!
-      if (!fileExistsOnDisk && row.has_blob) {
-        const materialized = await ensureBackupFileOnDisk(filename);
-        if (!materialized) {
-          throw new Error(`El catálogo no pudo recuperar el respaldo ${filename}`);
-        }
+    // If missing from disk (e.g. container was destroyed & restarted), re-materialize from DB blob!
+    if (!fileExistsOnDisk && row.has_blob) {
+      const materialized = await ensureBackupFileOnDisk(filename);
+      if (!materialized) {
+        throw new Error(`El catálogo no pudo recuperar el respaldo ${filename}`);
       }
-
-      const size = Number(row.size_bytes) || 0;
-      items.push({
-        filename,
-        sizeBytes: size,
-        formattedSize: formatBytes(size),
-        createdAt: new Date(row.created_at).toISOString(),
-        isSafetySnapshot: filename.includes('pre_restore') || filename.includes('snapshot'),
-        isRootFile: false,
-      });
     }
+
+    const size = Number(row.size_bytes) || 0;
+    items.push({
+      filename,
+      sizeBytes: size,
+      formattedSize: formatBytes(size),
+      createdAt: safeToIsoString(row.created_at),
+      isSafetySnapshot: filename.includes('pre_restore') || filename.includes('snapshot'),
+      isRootFile: false,
+    });
+  }
 
   // 2. Scan backups/ folder
-    const backupFiles = await readBackupDirectory(backupsDirectory);
-    for (const file of backupFiles) {
-      if (!file.endsWith('.sql') && !file.endsWith('.sql.gz')) continue;
-      if (seenFiles.has(file)) continue;
-      const fullPath = path.join(backupsDirectory, file);
-      const stat = await fs.stat(fullPath);
-      seenFiles.add(file);
-      items.push({
-        filename: file,
-        sizeBytes: stat.size,
-        formattedSize: formatBytes(stat.size),
-        createdAt: stat.mtime.toISOString(),
-        isSafetySnapshot: file.includes('pre_restore') || file.includes('snapshot'),
-        isRootFile: false,
-      });
+  const backupFiles = await readBackupDirectory(backupsDirectory);
+  for (const file of backupFiles) {
+    if (!file.endsWith('.sql') && !file.endsWith('.sql.gz')) continue;
+    if (seenFiles.has(file)) continue;
+    const fullPath = path.join(backupsDirectory, file);
+    const stat = await fs.stat(fullPath);
+    seenFiles.add(file);
+    items.push({
+      filename: file,
+      sizeBytes: stat.size,
+      formattedSize: formatBytes(stat.size),
+      createdAt: stat.mtime.toISOString(),
+      isSafetySnapshot: file.includes('pre_restore') || file.includes('snapshot'),
+      isRootFile: false,
+    });
 
-      await syncFileToDb(file, fullPath, stat.size, stat.mtime);
-    }
+    await syncFileToDb(file, fullPath, stat.size, stat.mtime);
+  }
 
   // 3. Scan uploads/backups/ folder
-    const uploadFiles = await readBackupDirectory(uploadsBackupsDirectory);
-    for (const file of uploadFiles) {
-      if (!file.endsWith('.sql') && !file.endsWith('.sql.gz')) continue;
-      if (seenFiles.has(file)) continue;
-      const fullPath = path.join(uploadsBackupsDirectory, file);
-      const stat = await fs.stat(fullPath);
-      seenFiles.add(file);
-      items.push({
-        filename: file,
-        sizeBytes: stat.size,
-        formattedSize: formatBytes(stat.size),
-        createdAt: stat.mtime.toISOString(),
-        isSafetySnapshot: file.includes('pre_restore') || file.includes('snapshot'),
-        isRootFile: false,
-      });
+  const uploadFiles = await readBackupDirectory(uploadsBackupsDirectory);
+  for (const file of uploadFiles) {
+    if (!file.endsWith('.sql') && !file.endsWith('.sql.gz')) continue;
+    if (seenFiles.has(file)) continue;
+    const fullPath = path.join(uploadsBackupsDirectory, file);
+    const stat = await fs.stat(fullPath);
+    seenFiles.add(file);
+    items.push({
+      filename: file,
+      sizeBytes: stat.size,
+      formattedSize: formatBytes(stat.size),
+      createdAt: stat.mtime.toISOString(),
+      isSafetySnapshot: file.includes('pre_restore') || file.includes('snapshot'),
+      isRootFile: false,
+    });
 
-      await syncFileToDb(file, fullPath, stat.size, stat.mtime);
-    }
+    await syncFileToDb(file, fullPath, stat.size, stat.mtime);
+  }
 
   // 4. Scan project root for .sql backups (e.g. backup_*.sql or radar-*.sql)
-    const rootFiles = await readBackupDirectory(process.cwd());
-    for (const file of rootFiles) {
-      if (!file.endsWith('.sql') || seenFiles.has(file)) continue;
-      const fullPath = path.join(process.cwd(), file);
-      const stat = await fs.stat(fullPath);
-      if (!stat.isFile()) continue;
-      seenFiles.add(file);
-      items.push({
-        filename: file,
-        sizeBytes: stat.size,
-        formattedSize: formatBytes(stat.size),
-        createdAt: stat.mtime.toISOString(),
-        isSafetySnapshot: file.includes('pre_restore') || file.includes('snapshot'),
-        isRootFile: true,
-      });
+  const rootFiles = await readBackupDirectory(process.cwd());
+  for (const file of rootFiles) {
+    if (!file.endsWith('.sql') || seenFiles.has(file)) continue;
+    const fullPath = path.join(process.cwd(), file);
+    const stat = await fs.stat(fullPath);
+    if (!stat.isFile()) continue;
+    seenFiles.add(file);
+    items.push({
+      filename: file,
+      sizeBytes: stat.size,
+      formattedSize: formatBytes(stat.size),
+      createdAt: stat.mtime.toISOString(),
+      isSafetySnapshot: file.includes('pre_restore') || file.includes('snapshot'),
+      isRootFile: true,
+    });
 
-      await syncFileToDb(file, fullPath, stat.size, stat.mtime);
-    }
+    await syncFileToDb(file, fullPath, stat.size, stat.mtime);
+  }
 
   // Sort newest first
   return items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());

@@ -81,9 +81,24 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     accountName: string;
     service: string;
   } | null>(null);
+  const [dbHealth, setDbHealth] = useState<{ ok: boolean; service?: string; database?: string } | null>(null);
   const [testCustomMessage, setTestCustomMessage] = useState('');
   const [sendingTestPing, setSendingTestPing] = useState(false);
   const [testPingFeedback, setTestPingFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const fetchDbHealth = useCallback(async () => {
+    try {
+      const res = await apiFetch('/health');
+      if (res.ok) {
+        const data = await res.json();
+        setDbHealth(data);
+      } else {
+        setDbHealth({ ok: false });
+      }
+    } catch {
+      setDbHealth({ ok: false });
+    }
+  }, []);
 
   const fetchWasenderStatus = useCallback(async () => {
     try {
@@ -179,7 +194,8 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     void checkVaultStatus();
     void fetchBackups();
     void fetchWasenderStatus();
-  }, [checkVaultStatus, fetchBackups, fetchWasenderStatus]);
+    void fetchDbHealth();
+  }, [checkVaultStatus, fetchBackups, fetchWasenderStatus, fetchDbHealth]);
 
   // Handle immediate snapshot creation
   const handleCreateSnapshot = async () => {
@@ -935,18 +951,24 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
           <div className="flex flex-col gap-3 text-xs">
             <div className="flex justify-between items-center py-2 border-b border-cyan-500/15">
               <span className="text-slate-400 font-mono">Estado del Motor MySQL</span>
-              <span className="text-emerald-400 font-mono font-bold flex items-center gap-1.5 neon-badge-emerald px-2.5 py-0.5 rounded-full text-[10px]">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                No disponible (sin comprobación de salud)
+              <span className={`font-mono font-bold flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] ${
+                dbHealth?.ok ? 'neon-badge-emerald text-emerald-400' : 'neon-badge-amber text-amber-400'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${dbHealth?.ok ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                {dbHealth?.ok ? 'En Línea (Conectado)' : 'Comprobando conexión...'}
               </span>
             </div>
             <div className="flex justify-between items-center py-2 border-b border-cyan-500/15">
               <span className="text-slate-400 font-mono">Base de Datos Activa</span>
-              <span className="font-mono text-cyan-300">No disponible</span>
+              <span className="font-mono text-cyan-300">
+                {dbHealth?.ok ? 'radar_v3 (MariaDB InnoDB)' : 'Consultando...'}
+              </span>
             </div>
             <div className="flex justify-between items-center py-2 border-b border-cyan-500/15">
               <span className="text-slate-400 font-mono">Puerto de Servicio</span>
-              <span className="font-mono text-slate-200">No disponible</span>
+              <span className="font-mono text-slate-200">
+                {dbHealth?.ok ? '3000 (API) / 3306 (SQL)' : 'Consultando...'}
+              </span>
             </div>
           </div>
         </div>

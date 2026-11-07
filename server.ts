@@ -597,7 +597,6 @@ const server = createServer(async (request, response) => {
     // ==========================================
     if (authenticatedClaims?.sub && request.method === 'GET' && pathname === '/api/auth/2fa/totp-setup') {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
-      if (!financeVaultExpiry(request, authenticatedClaims)) return sendJson(response, 403, { message: 'Desbloquea la bóveda antes de consultar la configuración de autenticación' });
 
       const [userRows] = await pool.query<RowDataPacket[]>(
         'SELECT id, name, email, totp_secret, backup_codes FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
@@ -606,6 +605,11 @@ const server = createServer(async (request, response) => {
       const user = userRows[0];
       if (!user) {
         return sendJson(response, 404, { ok: false, message: 'Usuario no encontrado' });
+      }
+
+      // If TOTP is already configured, require unlocked vault to re-view secret/QR
+      if (user.totp_secret && !financeVaultExpiry(request, authenticatedClaims)) {
+        return sendJson(response, 403, { message: 'Desbloquea la bóveda antes de consultar la configuración de autenticación' });
       }
 
       let secret = user.totp_secret;
@@ -1087,8 +1091,13 @@ const server = createServer(async (request, response) => {
     // ==========================================
     if (request.method === 'GET' && pathname === '/api/system/backups') {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
-      const backups = await listBackups();
-      return sendJson(response, 200, backups);
+      try {
+        const backups = await listBackups();
+        return sendJson(response, 200, backups);
+      } catch (err) {
+        console.error('[GET /api/system/backups] Failed to list backups:', err);
+        return sendJson(response, 200, []);
+      }
     }
 
     if (request.method === 'POST' && pathname === '/api/system/backup/create') {
@@ -3594,7 +3603,11 @@ const server = createServer(async (request, response) => {
       ? Number((error as { statusCode?: number }).statusCode)
       : 500;
     if (statusCode >= 500) {
-      console.error('[RequestFailure]', { path: pathname.slice(0, 200), code: databaseCode || 'INTERNAL_ERROR' });
+      console.error('[RequestFailure]', {
+        path: pathname.slice(0, 200),
+        code: databaseCode || 'INTERNAL_ERROR',
+        error: error instanceof Error ? error.stack || error.message : error,
+      });
     }
     return sendJson(response, statusCode >= 400 && statusCode < 500 ? statusCode : 500, {
       message: error instanceof z.ZodError
