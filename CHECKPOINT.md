@@ -24,22 +24,27 @@
     - La orden pasa al estado `espera_confirmacion` con badge de advertencia.
     - El Administrador cuenta con un botón en la orden `[Aprobar Anticipo (Banco)]` (`POST /api/orders/:id/verify-downpayment`) para verificar y cambiar el estado a `pagado`.
 
-#### 2. Preparación y Cita con Yarda y Cliente:
-- **Confirmación de Pieza Lista por Yarda:**
-  - El Administrador dispone del botón `[Marcar Pieza Lista en Yarda]` (`POST /api/orders/:id/yard-ready`).
-  - Muestra un banner visual prominente en verde esmeralda: `¡PIEZA LISTA EN YARDA! La yarda confirmó que la pieza está desmontada y lista para entrega.`
-  - Si aún no está lista, muestra un banner ámbar informativo: `Esperando confirmación de Yarda.`
-- **Contacto con el Comprador:**
-  - Selector de canal: Llamada telefónica vs Mensaje (SMS / WhatsApp).
-  - Campo de texto obligatorio: **¿Qué respondió el cliente? (Detalle de la conversación)**.
-  - Verificación de recordatorios (Checkboxes):
-    - Se le recordaron los métodos de pago aceptados en yarda (efectivo, Cash App, Zelle; no cheques).
-    - Se le informó sobre la política de core y tiempos de devolución.
-  - Elección de Core:
-    - `return_core`: El cliente llevará el core a la yarda.
-    - `pay_core`: El cliente pagará el valor del core.
-  - Modalidad de entrega: Retiro en tienda vs Envío a domicilio (solicita dirección completa).
-  - Si el contacto fue por **Mensaje**, el sistema exige subir captura(s) de pantalla de la conversación donde se notificó al cliente.
+#### 2. Preparación y Cita Asistida (Interfaz Visual e Interactiva por Tarjetas):
+- **Hero Card de Estado de Yarda:**
+  - Tarjeta grande interactiva con gradiente y pulsos de estado (`¡PIEZA LISTA EN YARDA!` vs `Esperando confirmación`).
+  - Botón táctil rápido para conmutar notificación de yarda sin necesidad de marcar checkboxes ocultos.
+- **Selector Visual de Canal de Contacto:**
+  - Tarjetas interactivas con iconos y descripciones contextuales:
+    - 📞 **Llamada contestada**
+    - 💬 **Mensaje de texto / Chat**
+    - 🏪 **Cliente en yarda** (entrega inmediata)
+- **Bitácora de Conversación con el Comprador:**
+  - Caja de texto moderna con contador en vivo de caracteres y placeholder contextual para registrar la respuesta del cliente.
+- **Acuerdo del Core en Tarjetas de Decisión:**
+  - 🔄 **El cliente llevará el core a la yarda** (traerá el casco viejo)
+  - 💵 **El cliente pagará el valor del core** (abono en el saldo restante)
+- **Modalidad de Despacho:**
+  - 🏢 **Recogida en yarda**
+  - 🚚 **Delivery / envío** (despliega dirección de entrega con diseño limpio)
+- **Cita con Atajos Rápidos:**
+  - Botones de 1 clic: `[Hoy]`, `[Mañana]`, `[En 2 días]`, más selector de fecha rango tentativo.
+- **Checklist Táctil de Verificaciones:**
+  - 4 bloques interactivos con iconos y estados de confirmación que se iluminan al seleccionarse (saldo, métodos de pago aceptados, garantía/core y confirmación expresa del cliente).
 
 ---
 
