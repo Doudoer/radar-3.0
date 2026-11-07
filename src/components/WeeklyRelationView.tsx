@@ -488,6 +488,11 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
     return sumMoney(weeklyOtherExpenses.map((exp) => exp.amount));
   }, [weeklyOtherExpenses]);
 
+  // Total a pagar in Tab 1 (Official Format) = Total Employee Salaries + Due Recurring Expenses + Weekly Imprevistos/Ad-Hoc + 2% Manager Commission
+  const totalOfficialPayout = useMemo(() => {
+    return sumMoney([totalPayrollFixed, totalDueRecurringExpenses, totalOtherExpenses, managerCommission]);
+  }, [totalPayrollFixed, totalDueRecurringExpenses, totalOtherExpenses, managerCommission]);
+
   // Total Office Outflows = Total Payroll + Due Recurring Expenses + Other Expenses + 2% Manager Commission
   const totalExpensesWithCommission = useMemo(() => {
     return sumMoney([totalPayrollFixed, totalDueRecurringExpenses, totalOtherExpenses, managerCommission]);
@@ -497,11 +502,6 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   const netWeeklyBalance = useMemo(() => {
     return sumMoney([totalSalesVolume, -totalExpensesWithCommission]);
   }, [totalSalesVolume, totalExpensesWithCommission]);
-
-  // Total a pagar in Tab 1 (Official Format) = Total Employee Salaries + Due Recurring Expenses + 2% Manager Commission
-  const totalOfficialPayout = useMemo(() => {
-    return sumMoney([totalPayrollFixed, totalDueRecurringExpenses, managerCommission]);
-  }, [totalPayrollFixed, totalDueRecurringExpenses, managerCommission]);
 
   // Combined Expenses List for Tab 4 (Relación General)
   // Sorted from highest salary/expense to lowest (de mayor a menor)
@@ -641,6 +641,10 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
           commissionNote: totalYardDeliveredVolume > 0 ? `Excluye ventas yarda ($${totalYardDeliveredVolume.toFixed(2)})` : undefined,
           employees,
           recurringExpenses: dueRecurringExpensesThisWeek,
+          adHocExpenses: weeklyOtherExpenses.map((e) => ({
+            description: e.description,
+            amount: e.amount,
+          })),
           totalPayout: totalOfficialPayout,
           subtotalDeliveries: totalDeliveredCollected,
           weekLabel: `${weekRangeLabel} · Solo precio de pieza, no comprobante de cobro`,
@@ -657,6 +661,164 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   };
 
   const handlePrint = handleExportPdf;
+
+  const renderExpensesBreakdownTable = (
+    title = 'Desglose General de Gastos Operativos y Comisiones',
+    subtitle = 'Consolidado de comisión de gerencia (2%), nómina de empleados y egresos operativos.',
+    extraHeaderAction?: React.ReactNode
+  ) => (
+    <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl overflow-hidden shadow-xl">
+      <div className="p-4 sm:p-5 bg-[#111827] border-b border-[#1e293b] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h3 className="font-bold text-sm sm:text-base text-white flex items-center gap-2">
+            <span className="material-symbols-outlined text-amber-400 text-lg">receipt_long</span>
+            <span>{title}</span>
+          </h3>
+          <p className="text-xs text-[#94a3b8] mt-0.5">{subtitle}</p>
+        </div>
+        {extraHeaderAction}
+      </div>
+
+      <div className="table-responsive-wrapper custom-scrollbar">
+        <table className="w-full text-left text-xs min-w-[780px]">
+          <thead className="bg-[#0b1329] text-[#94a3b8] uppercase text-[10px] tracking-wider border-b border-[#1e293b]">
+            <tr>
+              <th className="py-3.5 px-4">FECHA</th>
+              <th className="py-3.5 px-4">CATEGORÍA</th>
+              <th className="py-3.5 px-4">DESCRIPCIÓN / CONCEPTO</th>
+              <th className="py-3.5 px-4">MÉTODO</th>
+              <th className="py-3.5 px-4 text-right">MONTO</th>
+              <th className="py-3.5 px-4 text-center">ACCIONES</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#1e293b] text-[#cbd5e1]">
+            {/* Row 1: Fixed Manager 2% Commission Calculation */}
+            <tr className="bg-[#f59e0b]/5 hover:bg-[#f59e0b]/10 transition-colors">
+              <td className="py-3.5 px-4 font-mono text-[#cbd5e1]">
+                {financeDateKey(currentWeekRange.start)}
+              </td>
+              <td className="py-3.5 px-4 font-semibold text-[#f59e0b] flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[16px]">percent</span>
+                <span>Comisiones y Bonificaciones</span>
+              </td>
+              <td className="py-3.5 px-4 font-bold text-white">
+                Comisión Fija del Gerente (2% de piezas de oficina: ${totalOfficeDeliveredForCommission.toFixed(2)})
+              </td>
+              <td className="py-3.5 px-4">
+                <span className="px-2.5 py-1 rounded-full bg-[#f59e0b]/15 border border-[#f59e0b]/30 text-[#fbbf24] text-[10.5px] font-mono font-medium">
+                  Cálculo Automático (2%)
+                </span>
+              </td>
+              <td className="py-3.5 px-4 text-right font-mono font-bold text-[#ef4444]">
+                -${managerCommission.toFixed(2)}
+              </td>
+              <td className="py-3.5 px-4 text-center text-[#64748b] text-[11px] font-mono italic">
+                Fijo (2%)
+              </td>
+            </tr>
+
+            {/* Rows 2..N: Dynamic Employee Salaries & Additional Operational Expenses */}
+            {allGeneralConcepts.map((item) => (
+              <tr key={item.id} className="hover:bg-[#1e293b]/40 transition-colors">
+                <td className="py-3.5 px-4 font-mono text-[#94a3b8]">{item.date}</td>
+                <td className="py-3.5 px-4 font-semibold text-white">
+                  {item.isEmployee ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[#38bdf8] flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[15px]">person</span>
+                        <span>Nómina / Personal</span>
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-[#388bfd]/15 text-[#38bdf8] border border-[#388bfd]/30 font-bold">
+                        Semanal
+                      </span>
+                    </div>
+                  ) : item.isRecurring ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[#fbbf24] flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[15px]">event_repeat</span>
+                        <span>{item.category}</span>
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-[#f59e0b]/15 text-[#fbbf24] border border-[#f59e0b]/30 font-bold">
+                        Auto Mes
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-amber-300 flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[15px]">bolt</span>
+                        <span>{item.category}</span>
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold">
+                        Imprevisto
+                      </span>
+                    </div>
+                  )}
+                </td>
+                <td className="py-3.5 px-4 text-[#cbd5e1] max-w-xs truncate font-medium">
+                  {item.description}
+                </td>
+                <td className="py-3.5 px-4">
+                  <span className="px-2.5 py-0.5 rounded-full border border-[#334155] bg-[#1e293b] text-[#cbd5e1] font-mono text-[11px]">
+                    {item.paymentMethod}
+                  </span>
+                </td>
+                <td className="py-3.5 px-4 text-right font-mono font-bold text-[#ef4444]">
+                  -${item.amount.toFixed(2)}
+                </td>
+                <td className="py-3.5 px-4 text-center print:hidden">
+                  {item.isEmployee ? (
+                    <button
+                      onClick={() => {
+                        setIsEmployeesModalOpen(true);
+                        if (item.rawEmployee) {
+                          handleEditEmployee(item.rawEmployee);
+                        }
+                      }}
+                      className="p-1 text-[#38bdf8] hover:bg-[#38bdf8]/15 rounded transition-colors cursor-pointer"
+                      title="Editar salario o cargo"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">edit</span>
+                    </button>
+                  ) : item.isRecurring ? (
+                    <button
+                      onClick={() => {
+                        setIsRecurringModalOpen(true);
+                        if (item.rawRecurring) {
+                          handleEditRecurring(item.rawRecurring);
+                        }
+                      }}
+                      className="p-1 text-[#fbbf24] hover:bg-[#f59e0b]/15 rounded transition-colors cursor-pointer"
+                      title="Editar regla de gasto recurrente"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">edit</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleDeleteOtherExpense(item.id)}
+                      className="p-1 text-[#ef4444] hover:bg-[#ef4444]/15 rounded transition-colors cursor-pointer"
+                      title="Eliminar gasto"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">delete</span>
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Footer Total Row */}
+      <div className="bg-[#0b1329] border-t-2 border-[#1e293b] py-4 px-6 flex items-center justify-end gap-3 text-xs sm:text-sm font-black">
+        <span className="text-[#94a3b8] uppercase tracking-wider">
+          TOTAL GASTOS Y DEDUCCIONES:
+        </span>
+        <span className="font-mono text-base sm:text-lg text-[#ef4444]">
+          -${totalExpensesWithCommission.toFixed(2)} USD
+        </span>
+      </div>
+    </div>
+  );
 
   if (!finance.state) {
     return <div className="radar-view horizon-view space-y-4 p-6 text-slate-200">
@@ -754,6 +916,27 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
             <span>Gastos Recurrentes ({recurringExpenses.filter((r) => r.active).length})</span>
           </button>
 
+          {/* Quick Add Ad-Hoc / Imprevisto Expense Button */}
+          <button
+            onClick={() => {
+              setNewExpenseForm({
+                description: '',
+                category: 'Mantenimiento y Limpieza',
+                amount: '',
+                date: financeDateKey(currentWeekRange.start),
+                paymentMethod: 'Transferencia',
+                receiptNr: '',
+              });
+              setIsNewExpenseModalOpen(true);
+            }}
+            disabled={!finance.state || finance.saving}
+            className="bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-slate-950 font-black text-xs py-2 px-3.5 rounded-xl transition-all cursor-pointer shadow-md flex items-center gap-1.5"
+            title="Registrar gasto imprevisto de la semana para sumar a la nómina (Ej: Servicio de Aires Acondicionados)"
+          >
+            <span className="material-symbols-outlined text-[18px]">bolt</span>
+            <span>+ Imprevisto a Nómina</span>
+          </button>
+
           {/* Print PDF Button */}
           <button
             onClick={handleExportPdf}
@@ -769,7 +952,21 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
           {/* New Expense Button */}
           {activeTab === 'general' && (
             <button
-              onClick={() => setIsNewExpenseModalOpen(true)}
+              onClick={() => {
+                const today = new Date();
+                const defaultDate = isDateInWeek(financeDateKey(today), currentWeekRange)
+                  ? financeDateKey(today)
+                  : financeDateKey(currentWeekRange.start);
+                setNewExpenseForm({
+                  description: '',
+                  category: 'Gastos Administrativos',
+                  amount: '',
+                  date: defaultDate,
+                  paymentMethod: 'Transferencia',
+                  receiptNr: '',
+                });
+                setIsNewExpenseModalOpen(true);
+              }}
               className="bg-gradient-to-r from-[#2563eb] to-[#1d4ed8] hover:from-[#1d4ed8] hover:to-[#1e40af] text-white font-bold text-xs py-2 px-3.5 rounded-xl transition-all cursor-pointer shadow-[0_0_15px_rgba(37,99,235,0.35)] flex items-center gap-1.5"
             >
               <span className="material-symbols-outlined text-[18px]">add</span>
@@ -878,6 +1075,29 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
               </div>
               <span className="font-mono text-xs font-bold bg-[#0284c7]/30 px-3 py-1 rounded-xl text-white border border-[#0284c7]/40 self-start sm:self-auto shrink-0">
                 +${totalDueRecurringExpenses.toFixed(2)} USD
+              </span>
+            </div>
+          )}
+
+          {/* Ad-Hoc / Imprevistos Expenses Notice Alert (if active this week) */}
+          {weeklyOtherExpenses.length > 0 && (
+            <div className="bg-amber-500/15 border border-amber-500/40 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-300 shadow-lg print:border-black print:text-black">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 shrink-0">
+                  <span className="material-symbols-outlined text-[20px]">bolt</span>
+                </div>
+                <div>
+                  <span className="font-mono text-[10px] uppercase font-bold text-amber-300 block tracking-wider">
+                    ⚡ GASTOS IMPREVISTOS SUMADOS A LA NÓMINA DE ESTA SEMANA
+                  </span>
+                  <div className="text-white text-xs mt-0.5">
+                    Incluye los gastos eventuales:{' '}
+                    <strong>{weeklyOtherExpenses.map((r) => `${r.description} ($${r.amount.toFixed(2)})`).join(', ')}</strong>.
+                  </div>
+                </div>
+              </div>
+              <span className="font-mono text-xs font-bold bg-amber-500/30 px-3 py-1 rounded-xl text-white border border-amber-500/40 self-start sm:self-auto shrink-0">
+                +${totalOtherExpenses.toFixed(2)} USD
               </span>
             </div>
           )}
@@ -1034,6 +1254,27 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                   </div>
                 ))}
 
+                {/* Ad-hoc / Imprevistos Expenses of this week (e.g. Servicio de Aires Acondicionados) */}
+                {weeklyOtherExpenses.map((adHoc) => (
+                  <div key={adHoc.id} className="flex justify-between items-center py-0.5 text-amber-300 print:text-black group">
+                    <span className="truncate pr-2 font-medium flex items-center gap-1 print:text-black">
+                      <span className="material-symbols-outlined text-[14px] text-amber-400 print:hidden">bolt</span>
+                      <span>{adHoc.description}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteOtherExpense(adHoc.id)}
+                        className="opacity-0 group-hover:opacity-100 p-0.5 text-red-400 hover:text-red-300 transition-opacity print:hidden cursor-pointer"
+                        title="Eliminar este gasto imprevisto"
+                      >
+                        <span className="material-symbols-outlined text-[13px]">delete</span>
+                      </button>
+                    </span>
+                    <span className="font-mono font-bold text-amber-300 print:text-black">
+                      $ {adHoc.amount.toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+
                 {/* Heavy Divider Line */}
                 <div className="official-print-divider border-t-2 border-[#334155] print:border-[#0f172a] my-2 pt-2" />
 
@@ -1046,6 +1287,35 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Desglose de Gastos Operativos y Deducciones de la Semana (Visible en pantalla) */}
+          <div className="print:hidden space-y-3 mt-6">
+            {renderExpensesBreakdownTable(
+              'Gastos Operativos y Deducciones de la Semana',
+              'Consolidado de comisión del gerente (2%), nómina de empleados, gastos recurrentes e imprevistos sumados a esta entrega.',
+              <button
+                onClick={() => {
+                  const today = new Date();
+                  const defaultDate = isDateInWeek(financeDateKey(today), currentWeekRange)
+                    ? financeDateKey(today)
+                    : financeDateKey(currentWeekRange.start);
+                  setNewExpenseForm({
+                    description: '',
+                    category: 'Mantenimiento y Limpieza',
+                    amount: '',
+                    date: defaultDate,
+                    paymentMethod: 'Transferencia',
+                    receiptNr: '',
+                  });
+                  setIsNewExpenseModalOpen(true);
+                }}
+                className="bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-slate-950 font-black text-xs py-2 px-3.5 rounded-xl transition-all cursor-pointer shadow-md flex items-center gap-1.5 shrink-0"
+              >
+                <span className="material-symbols-outlined text-[17px]">bolt</span>
+                <span>+ Imprevisto a Nómina</span>
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -1349,6 +1619,38 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
               </table>
             </div>
           </div>
+
+          {/* Desglose de Gastos Operativos y Comisiones de la Semana */}
+          <div className="space-y-4">
+            <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 text-xs shadow-md">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-300">
+                  <span className="material-symbols-outlined text-[22px]">payments</span>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-[#94a3b8] tracking-wider block">Balance de Entregas vs Gastos</span>
+                  <div className="text-sm font-bold text-white mt-0.5">
+                    Entregas: <span className="font-mono text-[#38bdf8]">${totalDeliveredCollected.toFixed(2)}</span> · Gastos y Deducciones: <span className="font-mono text-[#ef4444]">-${totalExpensesWithCommission.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[#94a3b8]">Margen Neto:</span>
+                <span className={`font-mono text-base font-black px-3 py-1 rounded-xl border ${
+                  (totalDeliveredCollected - totalExpensesWithCommission) >= 0
+                    ? 'bg-emerald-500/15 border-emerald-500/30 text-[#34d399]'
+                    : 'bg-rose-500/15 border-rose-500/30 text-[#f87171]'
+                }`}>
+                  ${(totalDeliveredCollected - totalExpensesWithCommission).toFixed(2)} USD
+                </span>
+              </div>
+            </div>
+
+            {renderExpensesBreakdownTable(
+              'Gastos Operativos y Deducciones de la Semana',
+              'Consolidado de comisión de gerencia (2%), nómina de empleados y egresos operativos registrados para esta semana.'
+            )}
+          </div>
         </div>
       )}
 
@@ -1419,159 +1721,20 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
           </div>
 
           {/* Desglose General de Gastos Operativos y Comisiones Table Card */}
-          <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl overflow-hidden shadow-xl">
-            <div className="p-4 sm:p-5 bg-[#111827] border-b border-[#1e293b] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="font-bold text-sm sm:text-base text-white">
-                  Desglose General de Gastos Operativos y Comisiones
-                </h3>
-                <p className="text-xs text-[#94a3b8] mt-0.5">
-                  Consolidado de comisión de gerencia (2%), nómina de empleados y egresos operativos.
-                </p>
-              </div>
-              <button
-                onClick={handleExportPdf}
-                disabled={isGeneratingPdf}
-                className="bg-[#f59e0b]/15 hover:bg-[#f59e0b]/25 text-[#fbbf24] border border-[#f59e0b]/35 font-bold text-xs py-2 px-3.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shadow-sm disabled:opacity-50 shrink-0"
-              >
-                <span className="material-symbols-outlined text-[17px]">
-                  {isGeneratingPdf ? 'hourglass_top' : 'picture_as_pdf'}
-                </span>
-                <span>{isGeneratingPdf ? 'Generando PDF...' : 'Descargar PDF Relación'}</span>
-              </button>
-            </div>
-
-            <div className="table-responsive-wrapper custom-scrollbar">
-              <table className="w-full text-left text-xs min-w-[780px]">
-                <thead className="bg-[#0b1329] text-[#94a3b8] uppercase text-[10px] tracking-wider border-b border-[#1e293b]">
-                  <tr>
-                    <th className="py-3.5 px-4">FECHA</th>
-                    <th className="py-3.5 px-4">CATEGORÍA</th>
-                    <th className="py-3.5 px-4">DESCRIPCIÓN / CONCEPTO</th>
-                    <th className="py-3.5 px-4">MÉTODO</th>
-                    <th className="py-3.5 px-4 text-right">MONTO</th>
-                    <th className="py-3.5 px-4 text-center">ACCIONES</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#1e293b] text-[#cbd5e1]">
-                  {/* Row 1: Fixed Manager 2% Commission Calculation */}
-                  <tr className="bg-[#f59e0b]/5 hover:bg-[#f59e0b]/10 transition-colors">
-                    <td className="py-3.5 px-4 font-mono text-[#cbd5e1]">
-                      {new Date().toISOString().split('T')[0]}
-                    </td>
-                    <td className="py-3.5 px-4 font-semibold text-[#f59e0b] flex items-center gap-1.5">
-                      <span className="material-symbols-outlined text-[16px]">percent</span>
-                      <span>Comisiones y Bonificaciones</span>
-                    </td>
-                    <td className="py-3.5 px-4 font-bold text-white">
-                      Comisión Fija del Gerente (2% de piezas de oficina: ${totalOfficeDeliveredForCommission.toFixed(2)})
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <span className="px-2.5 py-1 rounded-full bg-[#f59e0b]/15 border border-[#f59e0b]/30 text-[#fbbf24] text-[10.5px] font-mono font-medium">
-                        Cálculo Automático (2%)
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-mono font-bold text-[#ef4444]">
-                      -${managerCommission.toFixed(2)}
-                    </td>
-                    <td className="py-3.5 px-4 text-center text-[#64748b] text-[11px] font-mono italic">
-                      Fijo (2%)
-                    </td>
-                  </tr>
-
-                  {/* Rows 2..N: Dynamic Employee Salaries & Additional Operational Expenses */}
-                  {allGeneralConcepts.map((item) => (
-                    <tr key={item.id} className="hover:bg-[#1e293b]/40 transition-colors">
-                      <td className="py-3.5 px-4 font-mono text-[#94a3b8]">{item.date}</td>
-                      <td className="py-3.5 px-4 font-semibold text-white">
-                        {item.isEmployee ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[#38bdf8] flex items-center gap-1">
-                              <span className="material-symbols-outlined text-[15px]">person</span>
-                              <span>Nómina / Personal</span>
-                            </span>
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-[#388bfd]/15 text-[#38bdf8] border border-[#388bfd]/30 font-bold">
-                              Semanal
-                            </span>
-                          </div>
-                        ) : item.isRecurring ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[#fbbf24] flex items-center gap-1">
-                              <span className="material-symbols-outlined text-[15px]">event_repeat</span>
-                              <span>{item.category}</span>
-                            </span>
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-[#f59e0b]/15 text-[#fbbf24] border border-[#f59e0b]/30 font-bold">
-                              Auto Mes
-                            </span>
-                          </div>
-                        ) : (
-                          item.category
-                        )}
-                      </td>
-                      <td className="py-3.5 px-4 text-[#cbd5e1] max-w-xs truncate font-medium">
-                        {item.description}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <span className="px-2.5 py-0.5 rounded-full border border-[#334155] bg-[#1e293b] text-[#cbd5e1] font-mono text-[11px]">
-                          {item.paymentMethod}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-[#ef4444]">
-                        -${item.amount.toFixed(2)}
-                      </td>
-                      <td className="py-3.5 px-4 text-center print:hidden">
-                        {item.isEmployee ? (
-                          <button
-                            onClick={() => {
-                              setIsEmployeesModalOpen(true);
-                              if (item.rawEmployee) {
-                                handleEditEmployee(item.rawEmployee);
-                              }
-                            }}
-                            className="p-1 text-[#38bdf8] hover:bg-[#38bdf8]/15 rounded transition-colors cursor-pointer"
-                            title="Editar salario o cargo"
-                          >
-                            <span className="material-symbols-outlined text-[16px]">edit</span>
-                          </button>
-                        ) : item.isRecurring ? (
-                          <button
-                            onClick={() => {
-                              setIsRecurringModalOpen(true);
-                              if (item.rawRecurring) {
-                                handleEditRecurring(item.rawRecurring);
-                              }
-                            }}
-                            className="p-1 text-[#fbbf24] hover:bg-[#f59e0b]/15 rounded transition-colors cursor-pointer"
-                            title="Editar regla de gasto recurrente"
-                          >
-                            <span className="material-symbols-outlined text-[16px]">edit</span>
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleDeleteOtherExpense(item.id)}
-                            className="p-1 text-[#ef4444] hover:bg-[#ef4444]/15 rounded transition-colors cursor-pointer"
-                            title="Eliminar gasto"
-                          >
-                            <span className="material-symbols-outlined text-[16px]">delete</span>
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              {/* Footer Total Row */}
-              <div className="bg-[#0b1329] border-t-2 border-[#1e293b] py-4 px-6 flex items-center justify-end gap-3 text-xs sm:text-sm font-black">
-                <span className="text-[#94a3b8] uppercase tracking-wider">
-                  TOTAL EGRESOS OFICINA + COMISIONES:
-                </span>
-                <span className="font-mono text-base sm:text-lg text-[#ef4444]">
-                  -${totalExpensesWithCommission.toFixed(2)}
-                </span>
-              </div>
-            </div>
-          </div>
+          {renderExpensesBreakdownTable(
+            'Desglose General de Gastos Operativos y Comisiones',
+            'Consolidado de comisión de gerencia (2%), nómina de empleados y egresos operativos.',
+            <button
+              onClick={handleExportPdf}
+              disabled={isGeneratingPdf}
+              className="bg-[#f59e0b]/15 hover:bg-[#f59e0b]/25 text-[#fbbf24] border border-[#f59e0b]/35 font-bold text-xs py-2 px-3.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shadow-sm disabled:opacity-50 shrink-0"
+            >
+              <span className="material-symbols-outlined text-[17px]">
+                {isGeneratingPdf ? 'hourglass_top' : 'picture_as_pdf'}
+              </span>
+              <span>{isGeneratingPdf ? 'Generando PDF...' : 'Descargar PDF Relación'}</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -1792,6 +1955,15 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
             </div>
 
             <form onSubmit={handleAddExpenseSubmit} className="p-5 space-y-4 text-xs flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+              {/* Informative notice about impact on payroll */}
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-start gap-2.5 text-amber-300">
+                <span className="material-symbols-outlined text-[18px] text-amber-400 shrink-0 mt-0.5">bolt</span>
+                <div className="text-[11px] leading-relaxed">
+                  <strong className="text-white block font-semibold mb-0.5">Anexo al Recibo de Nómina Semanal:</strong>
+                  Cualquier gasto registrado con fecha de la semana ({weekRangeLabel}) se sumará automáticamente a la liquidación de nómina de la semana actual y al total a pagar en el PDF oficial.
+                </div>
+              </div>
+
               <div>
                 <label className="block font-bold text-[#cbd5e1] mb-1">
                   Descripción del Egreso / Concepto <span className="text-[#ef4444]">*</span>

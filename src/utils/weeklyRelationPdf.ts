@@ -13,6 +13,7 @@ export interface OfficialDeliveriesPdfData {
   commissionNote?: string;
   employees: OfficeEmployee[];
   recurringExpenses: RecurringExpense[];
+  adHocExpenses?: Array<{ description: string; amount: number }>;
   totalPayout: number;
   subtotalDeliveries: number;
   weekLabel?: string;
@@ -299,7 +300,8 @@ export const generateOfficialDeliveriesPdf = async (
   y -= subtotalHeight + 16;
 
   // Check room for Financial Breakdown box (needs ~120pt)
-  const breakdownRowsCount = 1 + data.employees.length + data.recurringExpenses.length + 1;
+  const adHocCount = data.adHocExpenses?.length || 0;
+  const breakdownRowsCount = 1 + data.employees.length + data.recurringExpenses.length + adHocCount + 1;
   const breakdownBoxHeight = breakdownRowsCount * 14 + 20;
 
   if (y - breakdownBoxHeight < margin) {
@@ -384,6 +386,29 @@ export const generateOfficialDeliveriesPdf = async (
     });
     lineY -= 14;
   });
+
+  // 4. Ad-Hoc / Imprevistos Expenses for this week (e.g. Servicio de Aires Acondicionados)
+  if (data.adHocExpenses && data.adHocExpenses.length > 0) {
+    data.adHocExpenses.forEach((adHoc) => {
+      page.drawText(cleanPdfText(adHoc.description, 25), {
+        x: boxX,
+        y: lineY,
+        size: 8.5,
+        font: regular,
+        color: textDark,
+      });
+      const adHocVal = formatMoney(adHoc.amount);
+      const adHocValWidth = bold.widthOfTextAtSize(adHocVal, 8.5);
+      page.drawText(adHocVal, {
+        x: boxX + boxWidth - adHocValWidth,
+        y: lineY,
+        size: 8.5,
+        font: bold,
+        color: textDark,
+      });
+      lineY -= 14;
+    });
+  }
 
   // Divider Line
   lineY += 2;

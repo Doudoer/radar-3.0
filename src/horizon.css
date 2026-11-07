@@ -472,33 +472,35 @@
   html #root .horizon-topbar {
     background: color-mix(in srgb, var(--bg-primary) 85%, transparent) !important;
     border: 0 !important;
+    border-bottom: 1px solid var(--border-subtle) !important;
     box-shadow: none !important;
     backdrop-filter: blur(20px);
-    min-height: 88px;
-    padding: 16px 20px;
+    min-height: 74px;
+    padding: 12px 24px;
     gap: 16px;
   }
-  #root .horizon-header-title { flex-shrink: 0; max-width: 30%; }
+  #root .horizon-header-title { flex-shrink: 0; min-width: 0; max-width: 50%; }
   #root .horizon-header-tools {
     background: var(--bg-card);
-    border-radius: 30px;
-    padding: 8px;
-    box-shadow: var(--card-shadow);
+    border: 1px solid var(--border-subtle);
+    border-radius: 20px;
+    padding: 6px 10px;
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
   }
   html #root .horizon-topbar input {
     background: var(--bg-primary) !important;
-    border: 0 !important;
-    border-radius: 30px;
-    min-height: 40px;
+    border: 1px solid var(--border-subtle) !important;
+    border-radius: 12px !important;
+    min-height: 38px;
     font-size: 12px;
   }
-  #root .horizon-topbar button { min-height: 36px; border-radius: 30px; }
+  #root .horizon-topbar button { min-height: 36px; }
   html #root .horizon-topbar button[class*="bg-[#0"] {
     background: var(--bg-card) !important;
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
   }
-  #root .horizon-topbar .animate-pulse { animation: none; }
+  #root .horizon-topbar .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
   #root main { scrollbar-color: var(--input-border) var(--bg-primary); }
   #root .radar-view { gap: 20px; }
   #root .horizon-dashboard > div { margin-top: 0; }
@@ -566,31 +568,7 @@
     color: var(--text-secondary);
     cursor: pointer;
   }
-  #root .horizon-header-tools { gap: 10px; }
-  #root .horizon-header-tools button[title^="Seguimiento"] {
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    justify-content: center;
-    border: 0;
-  }
-  #root .horizon-header-tools button[title^="Seguimiento"] > span:last-child:not(.sr-only) {
-    position: absolute;
-    top: -3px;
-    right: -3px;
-  }
-  html #root .horizon-header-tools button[title^="Mi Perfil"] {
-    padding: 0;
-    border: 0;
-    background: transparent !important;
-  }
-  #root .horizon-header-tools button[title^="Mi Perfil"] img { border-radius: 50%; }
-  #root .horizon-header-tools button[title^="Mi Perfil"] > div:first-child {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    border: 0;
-  }
+  #root .horizon-header-tools { gap: 8px; }
   #root .horizon-section-title { font-size: 20px; font-weight: 700; line-height: 1.35; }
   #root .horizon-dashboard-toolbar {
     display: flex;
