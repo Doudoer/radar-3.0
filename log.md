@@ -1,8 +1,32 @@
 # Radar 3.0 - Registro de continuidad
 
-Actualizado: 2026-09-19
+Actualizado: 2026-11-06
 
 ## Punto actual
+
+- Rama local: `main` (Merge `0cd472e`)
+- Producción: `https://radar-rsy.store/` (Dokploy en VPS, intacto sin cambios)
+- Desarrollo local: `http://127.0.0.1:3000` (Docker Compose `radar-desktop-app:local` actualizado)
+- **100% en local: Ningún cambio se ha subido al remoto ni a producción sin autorización.**
+
+---
+
+## Cambios Recientes (6 de Noviembre, 2026)
+
+### 1. Restricción de búsqueda en subastas
+- Exclusiva para órdenes pagadas (`order.status === 'pagado'`).
+- Desactivación automática al entregar (`completeOrderDelivery` -> `auction_search_active = 0`).
+- Ocultado de selectores e insignias para órdenes entregadas en tabla y detalle.
+
+### 2. Disaster Recovery y Bóveda 2FA (Sudo Mode - Opción A)
+- `GET /api/system/backups` permite lectura a usuarios `admin` sin requerir 2FA previo (eliminando el 403 de consola).
+- Acciones críticas (descargar dump SQL, crear snapshots o rollback) protegidas bajo demanda mediante `VaultUnlockModal` (WhatsApp OTP / Google Authenticator / Backup codes).
+- Eliminación de alertas rojas bloqueantes y avisos naranjas confusos en la vista.
+- Pruebas unitarias nuevas en `tests/vault-unlock-modal.test.tsx` (478 tests pasando, TypeScript sin errores).
+
+---
+
+## Punto histórico (2026-09-19)
 
 - Proyecto: `/Users/user/Desktop/Radar V3/radar-3.0`
 - Rama: `main`

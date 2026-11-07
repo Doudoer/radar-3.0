@@ -1,3 +1,44 @@
+# 📍 CHECKPOINT RADAR 3.0 — 2026-11-06
+
+**Fecha y Hora:** 6 de Noviembre, 2026 — 22:00 UTC-4  
+**Rama:** `main` (Local)  
+**Estado:** Probado y compilado con 100% de tests pasando (478/478 en 64 suites, TypeScript sin errores)
+
+---
+
+## 🚀 Resumen de Actualización Reciente (6 de Noviembre, 2026)
+
+### 1. Restricción de Búsqueda en Subasta Exclusivamente a Órdenes Pagadas
+- **Requerimiento:** Las órdenes entregadas no deben tener marca ni opción de buscar en subasta. Solo las órdenes en estado `pagado` pueden tener activa la opción de subasta.
+- **Implementación en Frontend:**
+  - [`src/components/OrdersTableView.tsx`](file:///Users/doudoer/Desktop/Radar/src/components/OrdersTableView.tsx): La función `isOrderAuction` solo retorna verdadero si `order.status === 'pagado'`. Órdenes entregadas o en otros estados quedan excluidas de la insignia y filtro de subasta.
+  - [`src/components/OrderDetailView.tsx`](file:///Users/doudoer/Desktop/Radar/src/components/OrderDetailView.tsx): El botón y panel de "Buscar en Subasta" solo se renderizan cuando `order.status === 'pagado'`.
+  - [`src/components/NewOrderModal.tsx`](file:///Users/doudoer/Desktop/Radar/src/components/NewOrderModal.tsx): El selector/checkbox de búsqueda en subasta solo se renderiza si el estado inicial seleccionado es `pagado`.
+- **Implementación en Backend & Base de Datos:**
+  - [`src/server/orders.ts`](file:///Users/doudoer/Desktop/Radar/src/server/orders.ts): En `mapOrder`, `auctionActive` se fuerza a `false` si el estatus no es `pagado`.
+  - [`src/server/orderPayments.ts`](file:///Users/doudoer/Desktop/Radar/src/server/orderPayments.ts): En `completeOrderDelivery`, al registrar la entrega física se desactiva automáticamente `auction_search_active = 0`.
+  - [`server.ts`](file:///Users/doudoer/Desktop/Radar/server.ts): En `PUT /api/orders/:id`, si el estatus cambia a cualquier estado distinto de `pagado`, se resetea `auction_search_active = 0`. Consulta de saneamiento al inicio para poner en `0` cualquier orden entregada histórica.
+  - Pruebas unitarias actualizadas en [`tests/order-mapping.test.ts`](file:///Users/doudoer/Desktop/Radar/tests/order-mapping.test.ts).
+
+### 2. Centro de Respaldos (Disaster Recovery): Sudo Mode 2FA y Desbloqueo de Bóveda en Línea
+- **Diagnóstico del Error 403:** Al ingresar a *Configuración del Sistema -> Centro de Respaldos & Rollback*, el frontend ejecutaba `GET /api/system/backups`, el cual estaba protegido por la bóveda 2FA. Si la bóveda estaba cerrada, el servidor retornaba `403 FINANCE_LOCKED` y la interfaz mostraba una alerta roja bloqueante sin opción para ingresar el código ni indicar qué hacer.
+- **Implementación de Sudo Mode (Opción A):**
+  - **Backend ([`server.ts`](file:///Users/doudoer/Desktop/Radar/server.ts)):** `GET /api/system/backups` se flexibilizó para permitir lectura sin 2FA previo a usuarios con rol `admin`. Las operaciones de extracción y destrucción (`GET /api/system/backup`, `GET /api/system/backup/download`, `POST /api/system/backup/create`, restauraciones y acceso a `/api/uploads/backups/`) siguen exigiendo estrictamente la cookie `radar_finance` activa de 15 minutos.
+  - **Nuevo Componente ([`src/components/VaultUnlockModal.tsx`](file:///Users/doudoer/Desktop/Radar/src/components/VaultUnlockModal.tsx)):** Modal accesible con estándar `horizon-modal` que permite solicitar el código de 6 dígitos por WhatsApp (con contador de reenvío de 60s), ingresar Google Authenticator (TOTP) o usar códigos de respaldo de 8 dígitos.
+  - **Frontend ([`src/components/SystemSettingsView.tsx`](file:///Users/doudoer/Desktop/Radar/src/components/SystemSettingsView.tsx)):**
+    - Se eliminó el aviso naranja superior confuso sobre la restauración directa.
+    - Se eliminó la alerta roja bloqueante; el listado de respaldos carga limpiamente de inmediato sin errores 403 en la consola.
+    - Indicador de estado claro en el encabezado: `[🛡️ Protegido con 2FA]` si está bloqueada, o `[🟢 Bóveda Desbloqueada]` con botón para bloquear.
+    - Elevación bajo demanda: Al pulsar "Crear Respaldo Ahora", "Descarga Directa" o "Rollback", si la bóveda está bloqueada, se abre automáticamente el modal 2FA. Al validar el código, la acción solicitada se ejecuta de inmediato y la sesión queda abierta por 15 minutos.
+  - **Nuevas Pruebas ([`tests/vault-unlock-modal.test.tsx`](file:///Users/doudoer/Desktop/Radar/tests/vault-unlock-modal.test.tsx)):** Cobertura unitaria para el modal 2FA, cierre, apertura y renderizado del Centro de Respaldos.
+
+### 3. Estado de Ejecución y Despliegue
+- Todos los cambios fueron consolidados y fusionados en la rama `main` local (`0cd472e`).
+- Contenedor local `radar-desktop-app:local` reconstruido y activo en `http://127.0.0.1:3000`.
+- **Ningún cambio ha sido subido a producción (respetando la regla de trabajo local).**
+
+---
+
 # 📍 CHECKPOINT RADAR 3.0 — 2026-10-12
 
 **Fecha y Hora:** 12 de Octubre, 2026 — 10:05 UTC-4  
