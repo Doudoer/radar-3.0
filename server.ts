@@ -1947,8 +1947,6 @@ const server = createServer(async (request, response) => {
         return sendJson(response, 400, { message: 'El código de seguridad ingresado es incorrecto.' });
       }
 
-      activeRevertToPaidOtps.delete(targetOrderId);
-
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
@@ -1979,7 +1977,7 @@ const server = createServer(async (request, response) => {
         );
         const adminName = adminRows[0]?.name || 'Super Admin';
         await connection.execute(
-          `INSERT INTO order_workflow_events (order_id, task, outcome, actor_id, actor_name, notes) VALUES (?, 'prepare', 'reopened', ?, ?, ?)`,
+          `INSERT INTO order_workflow_events (order_id, task, outcome, actor_id, actor_name, notes, evidence) VALUES (?, 'prepare', 'reopened', ?, ?, ?, '[]')`,
           [targetOrderId, currentUserId, adminName, `Reversión administrativa de Listo para Retiro a Pagado con OTP verificado. Motivo: ${data.reason.trim()}`]
         );
 
@@ -2008,6 +2006,9 @@ const server = createServer(async (request, response) => {
 
         await connection.commit();
 
+        // Invalidate OTP only upon confirmed transaction commit
+        activeRevertToPaidOtps.delete(targetOrderId);
+
         broadcastRealtimeEvent('order:updated', {
           orderId: targetOrderId,
           action: 'STATUS_REVERTED_TO_PAID',
@@ -2021,6 +2022,7 @@ const server = createServer(async (request, response) => {
         });
       } catch (error) {
         await connection.rollback();
+        console.error('[RevertToPaid Error]:', error);
         throw error;
       } finally {
         connection.release();
