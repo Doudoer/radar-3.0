@@ -196,13 +196,13 @@ export const OrderPaymentFields: React.FC<{
                   }
                 }}
                 className={`p-3.5 rounded-xl border text-left transition-all flex items-start gap-3 ${
-                  (value.coreAction === 'charge' || (value.coreAction === 'keep' && detail.order.core > 0))
+                  (value.coreAction === 'charge' || (value.coreAction === 'keep' && (detail.order.core > 0 || detail.preparationPlan === 'pay_core')))
                     ? 'bg-cyan-500/15 border-cyan-500 text-white shadow-[0_0_15px_rgba(6,182,212,0.2)] ring-1 ring-cyan-500/40'
                     : 'bg-slate-900/60 border-slate-700/80 text-slate-300 hover:border-slate-600 hover:bg-slate-800/50'
                 }`}
               >
                 <div className={`p-1.5 rounded-lg shrink-0 ${
-                  (value.coreAction === 'charge' || (value.coreAction === 'keep' && detail.order.core > 0))
+                  (value.coreAction === 'charge' || (value.coreAction === 'keep' && (detail.order.core > 0 || detail.preparationPlan === 'pay_core')))
                     ? 'bg-cyan-500 text-slate-950 font-bold'
                     : 'bg-slate-800 text-slate-400'
                 }`}>
@@ -211,7 +211,7 @@ export const OrderPaymentFields: React.FC<{
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="font-bold text-xs sm:text-sm">Cliente pagará core</span>
-                    {(value.coreAction === 'charge' || (value.coreAction === 'keep' && detail.order.core > 0)) && (
+                    {(value.coreAction === 'charge' || (value.coreAction === 'keep' && (detail.order.core > 0 || detail.preparationPlan === 'pay_core'))) && (
                       <span className="text-cyan-400 material-symbols-outlined text-sm">check_circle</span>
                     )}
                   </div>
@@ -227,13 +227,23 @@ export const OrderPaymentFields: React.FC<{
               <button
                 type="button"
                 onClick={() => {
-                  onChange({
-                    ...value,
-                    coreAction: 'received',
-                    coreAmount: undefined,
-                    coreReference: value.coreReference || '',
-                    coreConfirmed: value.coreConfirmed || false,
-                  });
+                  if (detail.order.core > 0) {
+                    onChange({
+                      ...value,
+                      coreAction: 'received',
+                      coreAmount: undefined,
+                      coreReference: value.coreReference || '',
+                      coreConfirmed: value.coreConfirmed || false,
+                    });
+                  } else {
+                    onChange({
+                      ...value,
+                      coreAction: 'none',
+                      coreAmount: 0,
+                      coreReference: '',
+                      coreConfirmed: false,
+                    });
+                  }
                 }}
                 className={`p-3.5 rounded-xl border text-left transition-all flex items-start gap-3 ${
                   value.coreAction === 'received'
@@ -298,7 +308,7 @@ export const OrderPaymentFields: React.FC<{
           </div>
 
           {/* Conditional Detail Card based on Selection */}
-          {(value.coreAction === 'charge' || (value.coreAction === 'keep' && detail.order.core > 0)) && (
+          {(value.coreAction === 'charge' || (value.coreAction === 'keep' && (detail.order.core > 0 || detail.preparationPlan === 'pay_core'))) && (
             <div className="rounded-xl bg-cyan-950/20 p-4 border border-cyan-500/40 space-y-2">
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-semibold text-cyan-300">
@@ -700,6 +710,18 @@ export const OrderPaymentsModal: React.FC<{
         const data = await paymentResponse<{ order: WorkflowOrder; events: WorkflowEvent[] }>(await apiFetch(`/orders/${orderId}/workflow`));
         if (active) {
           setWorkflow(data); setDownpayment([{ method: 'cash', amount: data.order.paid, receivedBy: '', receipt: null }]);
+          if (data.order.preparation?.corePlan === 'pay_core') {
+            setValue(prev => {
+              if (prev.coreAction === 'keep' && !prev.coreAmount) {
+                return {
+                  ...prev,
+                  coreAction: 'charge',
+                  coreAmount: (data.order.core || 0) > 0 ? data.order.core! : 150,
+                };
+              }
+              return prev;
+            });
+          }
         }
       } catch (reason) { if (active) setWorkflowError(reason instanceof Error ? reason.message : 'No se pudo cargar el flujo.'); }
     })();

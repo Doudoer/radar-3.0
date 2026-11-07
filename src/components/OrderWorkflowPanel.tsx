@@ -116,10 +116,41 @@ const WorkflowManagementForm: React.FC<{
     else if (outcome === 'no_response') setOutcome('completed');
   };
   const template = followupTemplate(task.task, templateLanguage, task.order.customerName || 'Cliente', task.order.code, task.order.warrantyTerms);
-  const [settlement, setSettlement] = useState(emptySettlement);
+  const initialSettlement = (): Settlement => {
+    const plan = task.order.preparation?.corePlan;
+    if (plan === 'pay_core') {
+      const defaultAmount = (task.order.core || 0) > 0 ? task.order.core! : 150;
+      return {
+        payments: [],
+        coreAction: (task.order.core || 0) > 0 ? 'keep' : 'charge',
+        coreAmount: defaultAmount,
+        coreReference: '',
+        coreConfirmed: false,
+      };
+    }
+    return emptySettlement();
+  };
+  const [settlement, setSettlement] = useState(initialSettlement);
   const [paymentsVerified, setPaymentsVerified] = useState(false);
   const deliverySettlement = task.task === 'delivery' && completed;
   const { detail: paymentDetail, error: paymentError, reload: reloadPayments } = usePaymentDetail(task.order.id, task.order.version, deliverySettlement);
+
+  useEffect(() => {
+    if (!deliverySettlement || !paymentDetail) return;
+    const plan = task.order.preparation?.corePlan || paymentDetail.preparationPlan;
+    if (plan === 'pay_core') {
+      setSettlement(prev => {
+        if (prev.coreAction === 'keep' && paymentDetail.order.core === 0 && !prev.coreAmount) {
+          return {
+            ...prev,
+            coreAction: 'charge',
+            coreAmount: 150,
+          };
+        }
+        return prev;
+      });
+    }
+  }, [deliverySettlement, paymentDetail, task.order.preparation?.corePlan]);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (saving.current || uploadInFlight.current) return;

@@ -123,8 +123,16 @@ export async function handlePaymentRequest(
         LEFT JOIN users u ON u.id=m.user_id WHERE m.order_id=? AND m.kind='payment' ORDER BY m.id`, [row.id]);
       const [receipts] = await connection.query<RowDataPacket[]>(`SELECT r.*,u.name AS actor FROM order_core_receipts r LEFT JOIN users u ON u.id=r.actor_id WHERE r.order_id=?`, [row.id]);
       await connection.commit();
+      let prepPlan: 'return_core' | 'pay_core' | null = null;
+      if (row.preparation_details) {
+        try {
+          const parsed = typeof row.preparation_details === 'string' ? JSON.parse(row.preparation_details) : row.preparation_details;
+          prepPlan = parsed?.corePlan || null;
+        } catch { /* ignore */ }
+      }
       sendJson(response, 200, {
         version: Number(row.version), order: settlementOrderFromRow(row), canRecord: claims.role === 'admin', remainingMethodsOnly: Boolean(row.preparation_details),
+        preparationPlan: prepPlan,
         payments: payments.map(item => ({ id: String(item.id), amount: Number(item.amount), method: item.payment_method || null, reference: item.payment_reference || null, receipt: item.payment_receipt || null, receivedBy: item.payment_received_by || null, date: item.effective_at ? new Date(item.effective_at).toISOString() : null, actor: item.actor || null })),
         coreReceipt: receipts[0] ? { amount: Number(receipts[0].amount), reference: receipts[0].reference, actor: receipts[0].actor, date: new Date(receipts[0].created_at).toISOString() } : null,
       });

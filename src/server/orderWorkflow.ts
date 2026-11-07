@@ -100,6 +100,7 @@ export const workflowOrderFromRow = (row: RowDataPacket): WorkflowOrder => {
   scheduledPickupAt: row.scheduled_pickup_at ? new Date(row.scheduled_pickup_at).toISOString() : null,
   total: Number(row.price || 0) + Number(row.core_fee || 0) + Number(row.shipping_cost || 0),
   paid: Number(row.down_payment || 0),
+  core: Number(row.core_fee || 0),
   quoteCreatedBy: row.quote_created_by || null,
   confirmationPolicy,
   confirmationPolicyAt: row.confirmation_policy_at ? new Date(row.confirmation_policy_at).toISOString() : null,

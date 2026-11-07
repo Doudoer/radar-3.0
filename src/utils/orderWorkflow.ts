@@ -23,7 +23,7 @@ export interface WorkflowOrder {
   customerName?: string;
   id: string; code: string; userId: number | null; advisor: string; version: number;
   createdAt: string; status: OrderStatus; deliveredAt: string | null;
-  scheduledPickupAt: string | null; total: number; paid: number;
+  scheduledPickupAt: string | null; total: number; paid: number; core?: number;
   incidentCreatedAt?: string | null;
   incidentNextDueDate?: string | null;
   quoteCreatedBy?: string | null;

@@ -69,6 +69,7 @@ export function previewSettlement(order: SettlementOrder, input: Settlement) {
 export interface PaymentDetail {
   version: number; order: SettlementOrder; canRecord: boolean;
   remainingMethodsOnly?: boolean;
+  preparationPlan?: 'return_core' | 'pay_core' | null;
   coreReceipt: { amount: number; reference: string; actor: string; date: string } | null;
   payments: { id: string; amount: number; method: keyof typeof PAYMENT_METHODS | null; reference: string | null; date: string | null; actor: string | null; receipt?: string | null; receivedBy?: string | null }[];
 }
