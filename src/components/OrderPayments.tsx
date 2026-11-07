@@ -312,32 +312,28 @@ export const OrderPaymentFields: React.FC<{
           {(value.coreAction === 'charge' || (value.coreAction === 'keep' && (detail.order.core > 0 || detail.preparationPlan === 'pay_core'))) && (
             <div className="rounded-xl bg-cyan-950/20 p-4 border border-cyan-500/40 space-y-2">
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="font-semibold text-cyan-300">
-                  {detail.order.core === 0 ? 'Monto a cobrar por el core (USD)' : 'Monto del cargo de core (USD)'}
+                <span className="flex items-center gap-1.5 font-semibold text-cyan-300">
+                  <span className="material-symbols-outlined text-base">attach_money</span>
+                  <span>{detail.order.core === 0 ? 'Monto a cobrar por el core (USD)' : 'Monto del cargo de core (USD)'}</span>
                 </span>
-                <div className="flex items-stretch rounded-xl overflow-hidden border border-cyan-500/50 bg-[var(--bg-card)] focus-within:ring-2 focus-within:ring-cyan-500 shadow-sm">
-                  <span className="flex items-center justify-center px-4 bg-cyan-950/50 text-cyan-400 font-bold text-base border-r border-cyan-500/30 select-none">
-                    $
-                  </span>
-                  <input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    max="99999999"
-                    required
-                    className="w-full bg-transparent px-3.5 py-2.5 text-base font-bold text-[var(--text-primary)] placeholder-slate-400 focus:outline-none font-mono"
-                    placeholder="150.00"
-                    value={value.coreAmount !== undefined && value.coreAmount !== null ? value.coreAmount : (detail.order.core > 0 ? detail.order.core : 150)}
-                    onChange={event => {
-                      const val = event.target.value === '' ? undefined : Number(event.target.value);
-                      onChange({
-                        ...value,
-                        coreAction: 'charge',
-                        coreAmount: val,
-                      });
-                    }}
-                  />
-                </div>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  max="99999999"
+                  required
+                  className="w-full px-3.5 py-2.5 text-base font-bold text-[var(--text-primary)] placeholder-slate-400 focus:outline-none font-mono"
+                  placeholder="150.00"
+                  value={value.coreAmount !== undefined && value.coreAmount !== null ? value.coreAmount : (detail.order.core > 0 ? detail.order.core : 150)}
+                  onChange={event => {
+                    const val = event.target.value === '' ? undefined : Number(event.target.value);
+                    onChange({
+                      ...value,
+                      coreAction: 'charge',
+                      coreAmount: val,
+                    });
+                  }}
+                />
               </label>
               <p className="text-xs text-slate-400 leading-relaxed">
                 {detail.order.core === 0
@@ -497,7 +493,7 @@ export const OrderPaymentFields: React.FC<{
                   <select
                     className="sr-only"
                     value={payment.method}
-                    onChange={event => updatePayment(index, { method: event.target.value as typeof payment.method, receipt: null, receivedBy: '' })}
+                    onChange={event => updatePayment(index, { method: event.target.value as typeof payment.method, receipt: null, receivedBy: '', ...(event.target.value === 'cash' ? { reference: '' } : {}) })}
                   >
                     {allowedMethods.map(([key, label]) => (
                       <option key={key} value={key}>{label}</option>
@@ -512,7 +508,7 @@ export const OrderPaymentFields: React.FC<{
                         <button
                           key={key}
                           type="button"
-                          onClick={() => updatePayment(index, { method: key as typeof payment.method, receipt: null, receivedBy: '' })}
+                          onClick={() => updatePayment(index, { method: key as typeof payment.method, receipt: null, receivedBy: '', ...(key === 'cash' ? { reference: '' } : {}) })}
                           className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all flex items-center gap-2 ${
                             isSelected
                               ? 'bg-primary-500/20 border-primary-500 text-white font-bold ring-1 ring-primary-500/40 shadow-sm'
@@ -532,44 +528,38 @@ export const OrderPaymentFields: React.FC<{
                 <div className="grid gap-3.5 sm:grid-cols-2 pt-1">
                   {/* Amount Field */}
                   <label className="flex flex-col gap-1.5 text-sm">
-                    <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                      Importe {index + 1} (USD)
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                      <span className="material-symbols-outlined text-sm text-primary-400">attach_money</span>
+                      <span>Importe {index + 1} (USD)</span>
                     </span>
-                    <div className="flex items-stretch rounded-xl overflow-hidden border border-slate-700 bg-[var(--bg-card)] focus-within:ring-2 focus-within:ring-primary-500 shadow-sm">
-                      <span className="flex items-center justify-center px-4 bg-slate-800/40 text-slate-400 font-bold text-sm border-r border-slate-700 select-none">
-                        $
-                      </span>
-                      <input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        max="99999999"
-                        className="w-full bg-transparent px-3.5 py-2.5 text-sm font-semibold text-[var(--text-primary)] placeholder-slate-500 focus:outline-none font-mono"
-                        placeholder="0.00"
-                        value={payment.amount || ''}
-                        onChange={event => updatePayment(index, { amount: Number(event.target.value) })}
-                      />
-                    </div>
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      max="99999999"
+                      className="w-full px-3.5 py-2.5 text-sm font-semibold text-[var(--text-primary)] placeholder-slate-500 focus:outline-none font-mono"
+                      placeholder="0.00"
+                      value={payment.amount || ''}
+                      onChange={event => updatePayment(index, { amount: Number(event.target.value) })}
+                    />
                   </label>
 
                   {/* Cash Receiver or Non-Cash Receipt */}
                   {payment.method === 'cash' ? (
                     <label className="flex flex-col gap-1.5 text-sm">
-                      <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                        Persona que recibió el dinero {index + 1}
+                      <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                        <span className="material-symbols-outlined text-sm text-primary-400">badge</span>
+                        <span>Persona que recibió el dinero {index + 1}</span>
                       </span>
-                      <div className="relative">
-                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 material-symbols-outlined text-base">badge</span>
-                        <input
-                          required
-                          minLength={2}
-                          maxLength={200}
-                          className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                          placeholder="Nombre del personal en yarda"
-                          value={payment.receivedBy || ''}
-                          onChange={event => updatePayment(index, { receivedBy: event.target.value })}
-                        />
-                      </div>
+                      <input
+                        required
+                        minLength={2}
+                        maxLength={200}
+                        className="w-full px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder-slate-500 focus:outline-none"
+                        placeholder="Nombre del personal en yarda"
+                        value={payment.receivedBy || ''}
+                        onChange={event => updatePayment(index, { receivedBy: event.target.value })}
+                      />
                     </label>
                   ) : (
                     <div className="flex flex-col gap-1.5 text-sm">
@@ -613,22 +603,22 @@ export const OrderPaymentFields: React.FC<{
                   )}
                 </div>
 
-                {/* Reference */}
-                <label className="flex flex-col gap-1.5 text-sm pt-1">
-                  <span className="text-xs font-medium text-slate-400">
-                    Referencia {index + 1} (opcional)
-                  </span>
-                  <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 material-symbols-outlined text-base">tag</span>
+                {/* Reference (only for non-cash methods) */}
+                {payment.method !== 'cash' && (
+                  <label className="flex flex-col gap-1.5 text-sm pt-1">
+                    <span className="flex items-center gap-1.5 text-xs font-medium text-slate-400">
+                      <span className="material-symbols-outlined text-sm text-primary-400">tag</span>
+                      <span>Referencia {index + 1} (opcional)</span>
+                    </span>
                     <input
                       maxLength={200}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-10 pr-3.5 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      className="w-full px-3.5 py-2 text-sm text-[var(--text-primary)] placeholder-slate-500 focus:outline-none"
                       value={payment.reference}
                       onChange={event => updatePayment(index, { reference: event.target.value })}
                       placeholder="Referencia de transacción, cheque o recibo; nunca datos de tarjeta"
                     />
-                  </div>
-                </label>
+                  </label>
+                )}
               </div>
             );
           })}
