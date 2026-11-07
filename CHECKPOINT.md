@@ -69,6 +69,13 @@
   - Entradas de texto e importe con iconos, diseño oscuro moderno y bordes de enfoque visuales.
   - Acciones claras para agregar o quitar métodos de cobro con confirmaciones visibles.
 
+#### 5. Banner Ejecutivo de Cita y Modalidad Verificadas:
+- Se rediseñó la tarjeta de resumen del paso de preparación completado que se muestra en el panel de flujo:
+  - Cabecera con icono `event_available`, badges interactivos del canal de contacto (Llamada 📞 / Mensaje 💬 / Presencial 🏪) y modalidad de entrega (Retiro en Yarda 🏢 / Delivery 🚚).
+  - Cuadrícula de 3 columnas para la **Fecha acordada**, **Acuerdo de core** con badges visuales, y **Punto de retiro o destino**.
+  - Burbuja destacada con la **Respuesta y notas reales del cliente** (`customerNotes`).
+  - Accesos directos para previsualizar capturas de chat si la confirmación fue vía SMS.
+
 ---
 
 ---
