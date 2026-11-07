@@ -6,7 +6,7 @@ import {
   parseOrderDate,
 } from '../src/components/DashboardView';
 import { Order } from '../src/types';
-import { financeDateKey } from '../src/utils/finance';
+import { financeDateKey, financeMidnight } from '../src/utils/finance';
 
 afterEach(() => vi.useRealTimers());
 
@@ -69,10 +69,9 @@ describe('Panorama Operativo & Finanzas - Dashboard Period & Analytics', () => {
       createdAt: 'Hoy, 09:00',
     };
     const parsedHoy = parseOrderDate(orderHoy as Order);
-    const today = new Date();
+    const expectedToday = financeMidnight(financeDateKey(new Date()));
     expect(parsedHoy).not.toBeNull();
-    expect(parsedHoy!.getDate()).toBe(today.getDate());
-    expect(parsedHoy!.getMonth()).toBe(today.getMonth());
+    expect(parsedHoy!.getTime()).toBe(expectedToday.getTime());
 
     // Spanish text
     const orderSpanish: Partial<Order> = {
