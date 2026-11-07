@@ -104,7 +104,7 @@ describe('database order mapping', () => {
       id: 11,
       order_code: 'ORD-11',
       created_at: new Date('2026-09-18T12:00:00Z'),
-      status: 'Cotización',
+      status: 'Pagado',
       product_type: 'Transmisión',
       auction_search_active: 1,
     } as never);
@@ -117,7 +117,7 @@ describe('database order mapping', () => {
         id: 12,
         order_code: 'ORD-12',
         created_at: new Date('2026-09-18T12:00:00Z'),
-        status: 'Cotización',
+        status: 'Pagado',
         product_type: 'Motor',
         auction_search_active: 0,
       } as never,
@@ -131,13 +131,24 @@ describe('database order mapping', () => {
       id: 13,
       order_code: 'ORD-13',
       created_at: new Date('2026-09-18T12:00:00Z'),
-      status: 'Cotización',
+      status: 'Pagado',
       product_type: 'Puerta',
       auction_search_active: 0,
     } as never);
 
     expect(normalOrder.auctionActive).toBe(false);
     expect(normalOrder.auctionLinks).toEqual([]);
+
+    const deliveredOrder = mapOrder({
+      id: 14,
+      order_code: 'ORD-14',
+      created_at: new Date('2026-09-18T12:00:00Z'),
+      status: 'Entregado',
+      product_type: 'Motor',
+      auction_search_active: 1,
+    } as never, [{ id: '2', url: 'https://iaai.com/vehicledetails/456', auctionHouse: 'IAAI' }]);
+
+    expect(deliveredOrder.auctionActive).toBe(false);
   });
 
   it('returns null for empty or invalid SQL dates', () => {

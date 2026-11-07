@@ -120,7 +120,7 @@ export const mapOrder = (row: RowDataPacket, auctionLinks: any[] = []) => {
     warrantyTerms: row.warranty_terms ? warrantyTermsSchema.parse(typeof row.warranty_terms === 'string' ? JSON.parse(row.warranty_terms) : row.warranty_terms) : null,
     claimReason: row.claim_reason || undefined,
     notes: row.description || '',
-    auctionActive: Boolean(row.auction_search_active) || (auctionLinks && auctionLinks.length > 0),
+    auctionActive: (statusFromDatabase(row.status) === 'pagado') && (Boolean(row.auction_search_active) || (auctionLinks && auctionLinks.length > 0)),
     auctionLinks: auctionLinks || [],
     ...(typeof row.workflow_data === 'string' ? JSON.parse(row.workflow_data) : row.workflow_data || {}),
     preparation: row.preparation_details ? preparationSchema.parse(typeof row.preparation_details === 'string' ? JSON.parse(row.preparation_details) : row.preparation_details) : null,

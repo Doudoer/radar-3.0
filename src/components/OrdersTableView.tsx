@@ -194,8 +194,8 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
     return count;
   }, [statusFilter, operatorFilter, makeFilter, partTypeFilter, fromDate, toDate]);
 
-  // Helper to check if order has auction search active or has links
-  const isOrderAuction = (o: Order) => Boolean(o.auctionActive || (o.auctionLinks && o.auctionLinks.length > 0));
+  // Helper to check if order has auction search active or has links (solo órdenes pagadas)
+  const isOrderAuction = (o: Order) => o.status === 'pagado' && Boolean(o.auctionActive || (o.auctionLinks && o.auctionLinks.length > 0));
 
   // Segment Counts
   const counts = useMemo(() => {

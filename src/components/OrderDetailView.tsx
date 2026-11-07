@@ -50,9 +50,9 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   const [stockAssigned, setStockAssigned] = useState<string | null>(order.stockNumber || null);
   const [copiedNotification, setCopiedNotification] = useState<string | null>(null);
 
-  // Auction Search & Refund State
+  // Auction Search & Refund State - Solo disponible para órdenes pagadas
   const [isAuctionActive, setIsAuctionActive] = useState<boolean>(
-    Boolean(order.auctionActive || (order.auctionLinks && order.auctionLinks.length > 0))
+    order.status === 'pagado' && Boolean(order.auctionActive || (order.auctionLinks && order.auctionLinks.length > 0))
   );
   const [auctionLinks, setAuctionLinks] = useState<AuctionLink[]>(order.auctionLinks || []);
   const [newAuctionUrl, setNewAuctionUrl] = useState<string>('');
@@ -734,20 +734,22 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
 
 
-            {/* Quick Subasta Toggle Button */}
-            <button
-              type="button"
-              onClick={handleToggleAuction}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono flex items-center gap-1 transition-all cursor-pointer border ${
-                isAuctionActive || showAuctionPanel
-                  ? 'bg-amber-100 dark:bg-amber-500/20 border-amber-500 dark:border-amber-400 text-amber-900 dark:text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.25)]'
-                  : 'cyber-btn-secondary text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-              }`}
-              title="Ver o gestionar búsqueda en subasta"
-            >
-              <span className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">gavel</span>
-              <span>Subasta{auctionLinks.length > 0 ? ` (${auctionLinks.length})` : ''}</span>
-            </button>
+            {/* Quick Subasta Toggle Button - Solo órdenes pagadas */}
+            {order.status === 'pagado' && (
+              <button
+                type="button"
+                onClick={handleToggleAuction}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono flex items-center gap-1 transition-all cursor-pointer border ${
+                  isAuctionActive || showAuctionPanel
+                    ? 'bg-amber-100 dark:bg-amber-500/20 border-amber-500 dark:border-amber-400 text-amber-900 dark:text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.25)]'
+                    : 'cyber-btn-secondary text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+                title="Ver o gestionar búsqueda en subasta"
+              >
+                <span className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">gavel</span>
+                <span>Subasta{auctionLinks.length > 0 ? ` (${auctionLinks.length})` : ''}</span>
+              </button>
+            )}
 
             {/* Quick Reembolso Button */}
             <button
@@ -992,9 +994,9 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* 4. CONTEXTUAL AUCTION PANEL (EXPANDABLE)                                  */}
+      {/* 4. CONTEXTUAL AUCTION PANEL (EXPANDABLE - SOLO ÓRDENES PAGADAS)           */}
       {/* ========================================================================= */}
-      {showAuctionPanel && (
+      {showAuctionPanel && order.status === 'pagado' && (
         <div className="cyber-card p-3 shadow-md flex flex-col gap-2.5 animate-fade-in">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-3">
