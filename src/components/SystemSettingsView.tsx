@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { apiFetch } from '../services/apiFetch';
 import { useTheme } from '../hooks/useTheme';
 import { WasenderNotificationsManager } from './WasenderNotificationsManager';
+import { VaultUnlockModal } from './VaultUnlockModal';
 
 interface BackupItem {
   filename: string;
@@ -41,6 +42,9 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   const [loadingBackups, setLoadingBackups] = useState(false);
   const [creatingBackup, setCreatingBackup] = useState(false);
   const [backupMessage, setBackupMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isVaultLocked, setIsVaultLocked] = useState(false);
+  const [vaultExpiresAt, setVaultExpiresAt] = useState(0);
+  const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
 
   // File Upload State
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -123,30 +127,75 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     }
   };
 
+  const checkVaultStatus = useCallback(async () => {
+    try {
+      const res = await apiFetch('/auth/2fa/vault');
+      const data = await res.json();
+      if (res.ok) {
+        const active = Boolean(data.unlocked && data.expiresAt > Date.now());
+        setIsVaultLocked(!active);
+        setVaultExpiresAt(active ? data.expiresAt : 0);
+        return active;
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  }, []);
+
+  const handleLockVault = async () => {
+    try {
+      await apiFetch('/auth/2fa/lock', { method: 'POST', body: '{}' });
+      setIsVaultLocked(true);
+      setVaultExpiresAt(0);
+      setBackups([]);
+      setBackupMessage({ type: 'success', text: 'Bóveda de seguridad bloqueada exitosamente.' });
+    } catch {
+      // ignore
+    }
+  };
+
   const fetchBackups = useCallback(async () => {
     if (!isSuperAdmin) return;
     setLoadingBackups(true);
     try {
       const response = await apiFetch('/system/backups');
       const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'No se pudo consultar los respaldos');
+      if (!response.ok) {
+        if (data.code === 'FINANCE_LOCKED' || response.status === 403) {
+          setIsVaultLocked(true);
+          setVaultExpiresAt(0);
+        }
+        throw new Error(data.message || 'No se pudo consultar los respaldos');
+      }
       if (!Array.isArray(data)) throw new Error('Respuesta de respaldos invalida');
       setBackups(data);
+      setIsVaultLocked(false);
+      setBackupMessage(null);
     } catch (error) {
       setBackups([]);
-      setBackupMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo consultar los respaldos' });
+      const errMsg = error instanceof Error ? error.message : 'No se pudo consultar los respaldos';
+      if (errMsg.toLowerCase().includes('boveda') || errMsg.toLowerCase().includes('bóveda')) {
+        setIsVaultLocked(true);
+      }
+      setBackupMessage({ type: 'error', text: errMsg });
     } finally {
       setLoadingBackups(false);
     }
   }, [isSuperAdmin]);
 
   useEffect(() => {
+    void checkVaultStatus();
     void fetchBackups();
     void fetchWasenderStatus();
-  }, [fetchBackups, fetchWasenderStatus]);
+  }, [checkVaultStatus, fetchBackups, fetchWasenderStatus]);
 
   // Handle immediate snapshot creation
   const handleCreateSnapshot = async () => {
+    if (isVaultLocked) {
+      setIsUnlockModalOpen(true);
+      return;
+    }
     setCreatingBackup(true);
     setBackupMessage(null);
     try {
@@ -156,7 +205,13 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
         body: JSON.stringify({ tag: 'manual' }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'No se pudo generar el punto de respaldo');
+      if (!response.ok) {
+        if (data.code === 'FINANCE_LOCKED' || response.status === 403) {
+          setIsVaultLocked(true);
+          setIsUnlockModalOpen(true);
+        }
+        throw new Error(data.message || 'No se pudo generar el punto de respaldo');
+      }
       setBackupMessage({ type: 'success', text: `Punto de respaldo "${data.filename}" generado exitosamente.` });
       await fetchBackups();
     } catch (error) {
@@ -168,6 +223,10 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
 
   // Download SQL file
   const handleDownloadBackup = async (filename?: string) => {
+    if (isVaultLocked) {
+      setIsUnlockModalOpen(true);
+      return;
+    }
     try {
       const url = filename
         ? `/system/backup/download?file=${encodeURIComponent(filename)}`
@@ -175,6 +234,10 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       const response = await apiFetch(url);
       if (!response.ok) {
         const data = await response.json();
+        if (data.code === 'FINANCE_LOCKED' || response.status === 403) {
+          setIsVaultLocked(true);
+          setIsUnlockModalOpen(true);
+        }
         throw new Error(data.message || 'No se pudo descargar el archivo.');
       }
       const blob = await response.blob();
@@ -244,6 +307,10 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
 
   // Open Restore Confirmation Modal
   const openRestoreModalForLocal = (item: BackupItem) => {
+    if (isVaultLocked) {
+      setIsUnlockModalOpen(true);
+      return;
+    }
     setRestoreTarget({
       type: 'local',
       filename: item.filename,
@@ -260,6 +327,10 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   };
 
   const openRestoreModalForUpload = () => {
+    if (isVaultLocked) {
+      setIsUnlockModalOpen(true);
+      return;
+    }
     if (!uploadedFile) return;
     setRestoreTarget({
       type: 'upload',
@@ -325,7 +396,34 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
               </p>
             </div>
 
-            <div className="flex items-center gap-2.5 shrink-0">
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+              {!isVaultLocked && vaultExpiresAt > Date.now() ? (
+                <div className="flex items-center gap-2 bg-[#040814] px-3 py-1.5 rounded-xl border border-emerald-500/30">
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-mono text-emerald-300">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    Bóveda Desbloqueada
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void handleLockVault()}
+                    className="text-[10px] font-mono text-slate-400 hover:text-white px-2 py-0.5 rounded border border-slate-700 hover:border-slate-500 transition-colors cursor-pointer"
+                    title="Bloquear bóveda de seguridad inmediatamente"
+                  >
+                    Bloquear
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsUnlockModalOpen(true)}
+                  className="px-3 py-2 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-xs font-bold font-mono flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="Desbloquear bóveda de seguridad con 2FA"
+                >
+                  <span className="material-symbols-outlined text-[16px]">key</span>
+                  <span>Desbloquear Bóveda</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => void handleCreateSnapshot()}
@@ -350,28 +448,57 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
             </div>
           </div>
 
-          {backupMessage && (
-            <div
-              className={`p-3.5 rounded-2xl text-xs font-mono flex items-center justify-between gap-2 ${
-                backupMessage.type === 'success'
-                  ? 'bg-emerald-950/40 border border-emerald-500/40 text-emerald-300'
-                  : 'bg-red-950/40 border border-red-500/40 text-red-300'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-[18px]">
-                  {backupMessage.type === 'success' ? 'check_circle' : 'error'}
-                </span>
-                <span>{backupMessage.text}</span>
+          {isVaultLocked ? (
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-red-950/60 via-[#180a10] to-[#0d1527] border border-red-500/40 text-red-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-[0_0_20px_rgba(239,68,68,0.2)]">
+              <div className="flex items-start sm:items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 shrink-0 shadow-[0_0_10px_rgba(239,68,68,0.3)]">
+                  <span className="material-symbols-outlined text-[24px]">lock</span>
+                </div>
+                <div>
+                  <div className="font-bold text-sm text-white flex items-center gap-2">
+                    <span>Bóveda de Seguridad Bloqueada</span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/30">
+                      2FA Requerido
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    El acceso a respaldos, descargas y rollback está restringido. Desbloquea la bóveda con tu código de seguridad (WhatsApp o Authenticator).
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
-                onClick={() => setBackupMessage(null)}
-                className="text-slate-400 hover:text-white"
+                onClick={() => setIsUnlockModalOpen(true)}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shrink-0 shadow-[0_0_15px_rgba(6,182,212,0.4)] cursor-pointer transition-all active:scale-95"
               >
-                <span className="material-symbols-outlined text-[16px]">close</span>
+                <span className="material-symbols-outlined text-[18px]">key</span>
+                <span>Desbloquear Bóveda</span>
               </button>
             </div>
+          ) : (
+            backupMessage && (
+              <div
+                className={`p-3.5 rounded-2xl text-xs font-mono flex items-center justify-between gap-2 ${
+                  backupMessage.type === 'success'
+                    ? 'bg-emerald-950/40 border border-emerald-500/40 text-emerald-300'
+                    : 'bg-red-950/40 border border-red-500/40 text-red-300'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[18px]">
+                    {backupMessage.type === 'success' ? 'check_circle' : 'error'}
+                  </span>
+                  <span>{backupMessage.text}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBackupMessage(null)}
+                  className="text-slate-400 hover:text-white"
+                >
+                  <span className="material-symbols-outlined text-[16px]">close</span>
+                </button>
+              </div>
+            )
           )}
 
           {/* Section: Upload .sql file for restoration */}
@@ -1094,6 +1221,21 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
           <WasenderNotificationsManager userRole={userRole} />
         </div>
       </div>
+
+      {/* Vault Unlock 2FA Modal */}
+      <VaultUnlockModal
+        isOpen={isUnlockModalOpen}
+        onClose={() => setIsUnlockModalOpen(false)}
+        onSuccess={(exp) => {
+          setIsVaultLocked(false);
+          setVaultExpiresAt(exp);
+          setBackupMessage({
+            type: 'success',
+            text: 'Bóveda de seguridad desbloqueada exitosamente por 15 minutos.',
+          });
+          void fetchBackups();
+        }}
+      />
     </div>
   );
 };
