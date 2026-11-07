@@ -34,6 +34,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'Motor' | 'Transmisión' | 'Transfer Case' | 'Diferencial'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'disponible' | 'reservado' | 'vendido'>('all');
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [displacementFilter, setDisplacementFilter] = useState<string>('all');
 
   // Modal / Editor State
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -60,6 +62,27 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   // Quick suggestion constants
   const COMMON_TRACTIONS = ['4x4', '4x2', 'FWD', 'AWD', 'RWD'] as const;
+  const ENGINE_DISPLACEMENT_FAMILIES = [
+    {
+      family: '4 Cil / Compactos',
+      liters: ['1.0L', '1.2L', '1.3L', '1.4L', '1.5L', '1.6L', '1.8L', '2.0L', '2.4L', '2.5L'],
+    },
+    {
+      family: 'V6 / Medianos',
+      liters: ['2.7L', '3.0L', '3.2L', '3.3L', '3.5L', '3.6L', '3.7L', '3.8L', '4.0L', '4.3L'],
+    },
+    {
+      family: 'V8 / Grandes',
+      liters: ['4.6L', '4.7L', '4.8L', '5.0L', '5.3L', '5.4L', '5.6L', '5.7L', '6.0L', '6.2L', '6.4L'],
+    },
+    {
+      family: 'Heavy Duty / Diesel / V10',
+      liters: ['6.6L', '6.7L', '6.8L', '7.3L'],
+    },
+  ] as const;
+
+  const TOP_FILTER_DISPLACEMENTS = ['1.5L', '2.0L', '2.4L', '2.5L', '3.5L', '3.6L', '4.0L', '4.3L', '5.0L', '5.3L', '5.7L', '6.0L', '6.2L', '6.6L', '6.7L'] as const;
+
   const COMMON_STATUSES = [
     { value: 'disponible', label: 'Disponible', color: 'emerald', bg: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/40' },
     { value: 'vendido', label: 'Vendido', color: 'blue', bg: 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/40' },
@@ -238,9 +261,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   }, [items]);
 
   // Filtered items
-  const filteredItems = useMemo(() => filterInventory(items, {
-    query: searchQuery, type: typeFilter, status: statusFilter,
-  }), [items, typeFilter, statusFilter, searchQuery]);
+  const filteredItems = useMemo(() => {
+    const base = filterInventory(items, {
+      query: searchQuery, type: typeFilter, status: statusFilter,
+    });
+    if (displacementFilter === 'all') return base;
+    return base.filter(item => {
+      const specs = (item.engineSpecs || '').toLowerCase();
+      return specs.includes(displacementFilter.toLowerCase());
+    });
+  }, [items, typeFilter, statusFilter, searchQuery, displacementFilter]);
 
   // Open Create Form
   const handleOpenCreate = () => {
@@ -470,9 +500,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           </div>
         </div>
 
-        {/* 5 Metric Chips */}
+        {/* 5 Metric Chips with Click-to-Filter interaction */}
         <div className="horizon-view-metrics grid grid-cols-2 sm:grid-cols-5 gap-3 mt-5">
-          <div className="rounded-2xl bg-slate-50 dark:bg-[#040814]/80 border border-slate-200 dark:border-slate-800 p-3 flex items-center gap-3 shadow-xs dark:shadow-none">
+          <button
+            type="button"
+            onClick={() => { setStatusFilter('all'); setTypeFilter('all'); setDisplacementFilter('all'); }}
+            className={`rounded-2xl p-3 flex items-center gap-3 transition-all cursor-pointer text-left border ${
+              statusFilter === 'all' && typeFilter === 'all' && displacementFilter === 'all'
+                ? 'bg-cyan-50 dark:bg-cyan-950/40 border-cyan-400 dark:border-cyan-500 shadow-md ring-1 ring-cyan-500/40'
+                : 'bg-slate-50 dark:bg-[#040814]/80 border-slate-200 dark:border-slate-800 hover:border-cyan-500/50'
+            }`}
+          >
             <div className="w-9 h-9 rounded-xl bg-cyan-100/80 dark:bg-cyan-500/15 border border-cyan-200 dark:border-cyan-500/30 flex items-center justify-center text-cyan-700 dark:text-cyan-400">
               <span className="material-symbols-outlined text-[18px]">inventory_2</span>
             </div>
@@ -480,9 +518,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 uppercase font-semibold">Total Piezas</div>
               <div className="text-lg font-black text-slate-900 dark:text-white font-mono">{stats.total}</div>
             </div>
-          </div>
+          </button>
 
-          <div className="rounded-2xl bg-emerald-50/60 dark:bg-[#040814]/80 border border-emerald-200 dark:border-emerald-500/30 p-3 flex items-center gap-3 shadow-xs dark:shadow-none">
+          <button
+            type="button"
+            onClick={() => setStatusFilter(statusFilter === 'disponible' ? 'all' : 'disponible')}
+            className={`rounded-2xl p-3 flex items-center gap-3 transition-all cursor-pointer text-left border ${
+              statusFilter === 'disponible'
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 shadow-md ring-1 ring-emerald-500/50'
+                : 'bg-emerald-50/60 dark:bg-[#040814]/80 border-emerald-200 dark:border-emerald-500/30 hover:border-emerald-400'
+            }`}
+          >
             <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-500/20 border border-emerald-200 dark:border-emerald-500/40 flex items-center justify-center text-emerald-700 dark:text-emerald-400">
               <span className="material-symbols-outlined text-[18px]">check_circle</span>
             </div>
@@ -490,9 +536,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               <div className="text-[10px] font-mono text-emerald-800 dark:text-emerald-400 uppercase font-bold">Disponibles</div>
               <div className="text-lg font-black text-emerald-800 dark:text-emerald-300 font-mono">{stats.available}</div>
             </div>
-          </div>
+          </button>
 
-          <div className="rounded-2xl bg-blue-50/60 dark:bg-[#040814]/80 border border-blue-200 dark:border-blue-500/30 p-3 flex items-center gap-3 shadow-xs dark:shadow-none">
+          <button
+            type="button"
+            onClick={() => setStatusFilter(statusFilter === 'vendido' ? 'all' : 'vendido')}
+            className={`rounded-2xl p-3 flex items-center gap-3 transition-all cursor-pointer text-left border ${
+              statusFilter === 'vendido'
+                ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-500 shadow-md ring-1 ring-blue-500/50'
+                : 'bg-blue-50/60 dark:bg-[#040814]/80 border-blue-200 dark:border-blue-500/30 hover:border-blue-400'
+            }`}
+          >
             <div className="w-9 h-9 rounded-xl bg-blue-100 dark:bg-blue-500/20 border border-blue-200 dark:border-blue-500/40 flex items-center justify-center text-blue-700 dark:text-blue-400">
               <span className="material-symbols-outlined text-[18px]">sell</span>
             </div>
@@ -500,19 +554,33 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               <div className="text-[10px] font-mono text-blue-800 dark:text-blue-400 uppercase font-bold">Vendidos</div>
               <div className="text-lg font-black text-blue-800 dark:text-blue-300 font-mono">{stats.sold}</div>
             </div>
-          </div>
+          </button>
 
-          <div className="rounded-2xl bg-amber-50/60 dark:bg-[#040814]/80 border border-amber-200 dark:border-amber-500/30 p-3 flex items-center gap-3 shadow-xs dark:shadow-none">
+          <button
+            type="button"
+            onClick={() => {
+              if (typeFilter === 'Motor') setTypeFilter('Transmisión');
+              else if (typeFilter === 'Transmisión') setTypeFilter('all');
+              else setTypeFilter('Motor');
+            }}
+            className={`rounded-2xl p-3 flex items-center gap-3 transition-all cursor-pointer text-left border ${
+              typeFilter === 'Motor' || typeFilter === 'Transmisión'
+                ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-500 shadow-md ring-1 ring-amber-500/50'
+                : 'bg-amber-50/60 dark:bg-[#040814]/80 border-amber-200 dark:border-amber-500/30 hover:border-amber-400'
+            }`}
+          >
             <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/40 flex items-center justify-center text-amber-700 dark:text-amber-400">
               <span className="material-symbols-outlined text-[18px]">swap_driving_apps</span>
             </div>
             <div>
-              <div className="text-[10px] font-mono text-amber-900 dark:text-amber-400 uppercase font-bold">Motores / Trans.</div>
+              <div className="text-[10px] font-mono text-amber-900 dark:text-amber-400 uppercase font-bold">
+                {typeFilter === 'Motor' ? 'Filtrando: Motores' : typeFilter === 'Transmisión' ? 'Filtrando: Trans.' : 'Motores / Trans.'}
+              </div>
               <div className="text-sm font-black text-amber-900 dark:text-amber-300 font-mono mt-0.5">
                 {stats.motors} M / {stats.transmissions} T
               </div>
             </div>
-          </div>
+          </button>
 
           <div className="rounded-2xl bg-indigo-50/60 dark:bg-[#040814]/80 border border-indigo-200 dark:border-blue-500/30 p-3 flex items-center gap-3 col-span-2 sm:col-span-1 shadow-xs dark:shadow-none">
             <div className="w-9 h-9 rounded-xl bg-indigo-100 dark:bg-blue-500/20 border border-indigo-200 dark:border-blue-500/40 flex items-center justify-center text-indigo-700 dark:text-blue-400">
@@ -609,8 +677,76 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               );
             })}
           </div>
+
+          {/* View Mode Toggle: Cards vs Table */}
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#03060f] p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => setViewMode('cards')}
+              className={`p-1.5 rounded-lg transition-all flex items-center gap-1 text-xs font-mono font-bold ${
+                viewMode === 'cards'
+                  ? 'bg-white dark:bg-cyan-500/30 text-cyan-800 dark:text-cyan-300 border border-cyan-500 dark:border-cyan-400 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+              title="Vista de Tarjetas"
+            >
+              <span className="material-symbols-outlined text-[16px]">grid_view</span>
+              <span className="hidden lg:inline text-[11px]">Tarjetas</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              className={`p-1.5 rounded-lg transition-all flex items-center gap-1 text-xs font-mono font-bold ${
+                viewMode === 'table'
+                  ? 'bg-white dark:bg-cyan-500/30 text-cyan-800 dark:text-cyan-300 border border-cyan-500 dark:border-cyan-400 shadow-sm'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+              title="Vista de Tabla"
+            >
+              <span className="material-symbols-outlined text-[16px]">table_rows</span>
+              <span className="hidden lg:inline text-[11px]">Tabla</span>
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Litraje / Cilindrada Quick Filter Bar (When viewing Motors or All) */}
+      {(typeFilter === 'all' || typeFilter === 'Motor') && (
+        <div className="rounded-2xl bg-slate-50/70 dark:bg-[#060b17]/60 border border-slate-200 dark:border-slate-800/80 p-3 flex items-center gap-2 overflow-x-auto custom-scrollbar">
+          <div className="flex items-center gap-1.5 shrink-0 text-[11px] font-mono text-slate-500 dark:text-slate-400 font-bold uppercase mr-1">
+            <span className="material-symbols-outlined text-[15px] text-emerald-500">speed</span>
+            <span>Litraje:</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDisplacementFilter('all')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold shrink-0 transition-all ${
+              displacementFilter === 'all'
+                ? 'bg-emerald-500 text-slate-950 font-black shadow-sm'
+                : 'bg-white dark:bg-[#080f20] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-emerald-500 hover:border-emerald-500/40'
+            }`}
+          >
+            Todos
+          </button>
+          {TOP_FILTER_DISPLACEMENTS.map((lit) => {
+            const isSelected = displacementFilter === lit;
+            return (
+              <button
+                key={lit}
+                type="button"
+                onClick={() => setDisplacementFilter(isSelected ? 'all' : lit)}
+                className={`px-2 py-1 rounded-lg text-xs font-mono font-bold shrink-0 transition-all border ${
+                  isSelected
+                    ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-black shadow-sm dark:shadow-[0_0_10px_rgba(16,185,129,0.4)]'
+                    : 'bg-white dark:bg-[#080f20] border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-emerald-500/50 hover:text-emerald-600 dark:hover:text-emerald-400'
+                }`}
+              >
+                {lit}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Error / Loading */}
       {errorMessage && (
@@ -649,8 +785,194 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
       )}
 
-      {/* Table of Inventory Items */}
-      {!loading && filteredItems.length > 0 && (
+      {/* Inventory Items View (Cards Grid vs Table) */}
+      {!loading && filteredItems.length > 0 && viewMode === 'cards' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {filteredItems.map((item) => {
+            const isMotor = (item.partType || '').toLowerCase().includes('motor');
+            const isTrans = (item.partType || '').toLowerCase().includes('transmi');
+            const isAvailable = (item.status || 'disponible').toLowerCase() === 'disponible';
+            const isSold = (item.status || '').toLowerCase() === 'vendido';
+
+            return (
+              <div
+                key={item.id}
+                onClick={() => setSelectedDetailItem(item)}
+                className="group relative rounded-2xl bg-white dark:bg-[#070d1c] border border-slate-200/90 dark:border-slate-800 hover:border-cyan-500/60 dark:hover:border-cyan-500/50 p-4 sm:p-5 transition-all duration-200 hover:shadow-lg dark:hover:shadow-[0_8px_30px_rgba(6,182,212,0.15)] flex flex-col justify-between gap-4 cursor-pointer"
+              >
+                {/* Header: Pallet #, ID & Status Badge */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-xl text-xs font-black font-mono bg-blue-500/15 text-blue-600 dark:text-blue-300 border border-blue-500/30 flex items-center gap-1 shadow-xs">
+                      <span className="material-symbols-outlined text-[14px]">pallet</span>
+                      <span>{item.palletNumber || 'S/P'}</span>
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400 font-bold">
+                      #{item.id}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    {getStatusBadge(item.status)}
+                  </div>
+                </div>
+
+                {/* Main Vehicle Info */}
+                <div className="space-y-1.5">
+                  <div className="flex items-start gap-2.5">
+                    <div className={`p-2 rounded-xl shrink-0 ${
+                      isMotor
+                        ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                        : isTrans
+                        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                        : 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30'
+                    }`}>
+                      <span className="material-symbols-outlined text-[20px]">
+                        {isMotor ? 'settings' : isTrans ? 'swap_driving_apps' : 'handyman'}
+                      </span>
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-wide truncate group-hover:text-cyan-600 dark:group-hover:text-cyan-300 transition-colors">
+                        {item.year} {item.brand} {item.model || ''}
+                      </h3>
+                      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium">
+                        <span>{item.partType}</span>
+                        {item.price ? (
+                          <>
+                            <span>•</span>
+                            <span className="text-emerald-600 dark:text-emerald-400 font-mono font-bold">
+                              ${item.price.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                            </span>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Compatibility & Specs Badges */}
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    {/* Litraje / Tracción Badge */}
+                    {item.engineSpecs && (
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-mono font-black border ${
+                        isMotor
+                          ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/40 shadow-xs'
+                          : 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/40 shadow-xs'
+                      }`}>
+                        <span className="material-symbols-outlined text-[13px]">
+                          {isMotor ? 'speed' : 'alt_route'}
+                        </span>
+                        <span>{item.engineSpecs}</span>
+                      </span>
+                    )}
+
+                    {/* Compatibility Badge */}
+                    {item.isExactYearOnly ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-mono font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                        <span className="material-symbols-outlined text-[12px]">lock</span>
+                        <span>Solo {item.year}</span>
+                      </span>
+                    ) : (item.yearFrom || item.yearTo) ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-mono font-semibold bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30">
+                        <span className="material-symbols-outlined text-[12px]">event_repeat</span>
+                        <span>
+                          {item.yearFrom && item.yearTo ? `${item.yearFrom} - ${item.yearTo}` : item.yearFrom ? `Desde ${item.yearFrom}` : `Hasta ${item.yearTo}`}
+                        </span>
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {/* VIN chip with fast copy */}
+                  <div className="flex items-center justify-between gap-2 pt-1 text-[11px] font-mono text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/60 p-2 rounded-xl border border-slate-200/80 dark:border-slate-800">
+                    <span className="flex items-center gap-1 truncate text-cyan-700 dark:text-cyan-300 font-semibold tracking-wider">
+                      <span className="material-symbols-outlined text-[14px]">fingerprint</span>
+                      <span>{item.vin || 'Sin VIN registrado'}</span>
+                    </span>
+                    {item.vin && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleCopyDetail(item.vin!, 'VIN'); }}
+                        className="px-2 py-0.5 rounded-md text-[10px] bg-slate-200 dark:bg-slate-800 hover:bg-cyan-500 hover:text-slate-950 text-slate-700 dark:text-slate-300 font-bold transition-all shrink-0"
+                        title="Copiar VIN"
+                      >
+                        Copiar
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Notes snippet */}
+                  {item.notes && (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 italic line-clamp-1 pt-0.5 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[13px] text-slate-400 shrink-0">notes</span>
+                      <span className="truncate">{item.notes}</span>
+                    </p>
+                  )}
+                </div>
+
+                {/* Footer Action Buttons */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEdit(item)}
+                      className="p-1.5 rounded-xl text-slate-500 hover:text-amber-500 dark:text-slate-400 dark:hover:text-amber-300 hover:bg-amber-500/10 transition-colors"
+                      title="Editar pieza"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">edit</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteConfirmItem(item)}
+                      className="p-1.5 rounded-xl text-slate-500 hover:text-red-500 dark:text-slate-400 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      title="Eliminar pieza"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    {isAvailable ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setSoldConfirmItem(item)}
+                          className="px-2.5 py-1.5 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-300 border border-blue-500/30 text-xs font-bold font-mono transition-all flex items-center gap-1"
+                          title="Marcar como vendida"
+                        >
+                          <span className="material-symbols-outlined text-[14px]">sell</span>
+                          <span>Vendida</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleConvertToOrder(item)}
+                          className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 text-xs font-black font-mono transition-all flex items-center gap-1 shadow-sm"
+                          title="Crear orden con esta pieza"
+                        >
+                          <span className="material-symbols-outlined text-[14px]">shopping_cart</span>
+                          <span>Crear Orden</span>
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleReactivateToAvailable(item)}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-600 dark:text-emerald-300 border border-emerald-500/40 text-xs font-bold font-mono transition-all flex items-center gap-1"
+                        title="Reactivar pieza a Disponible"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">restart_alt</span>
+                        <span>Reactivar</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Table View of Inventory Items */}
+      {!loading && filteredItems.length > 0 && viewMode === 'table' && (
         <div className="rounded-2xl bg-white dark:bg-[#060b17] border border-slate-200 dark:border-cyan-500/25 overflow-hidden shadow-sm dark:shadow-xl">
           <div className="table-responsive-wrapper custom-scrollbar">
             <table className="w-full text-left text-xs font-mono border-collapse min-w-[880px]">
@@ -1174,32 +1496,46 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       </div>
                     </div>
                   ) : (
-                    <div>
+                    <div className="space-y-2">
                       <label className="text-[11px] text-emerald-800 dark:text-emerald-300 font-bold block mb-1 flex items-center justify-between">
                         <span>Litraje / Cilindrada del Motor</span>
-                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">Escribe o selecciona:</span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">Escribe o selecciona por familia:</span>
                       </label>
                       <input
                         type="text"
                         value={editingItem.engineSpecs || ''}
                         onChange={(e) => setEditingItem({ ...editingItem, engineSpecs: e.target.value })}
-                        placeholder="Ej: 1.5L, 1.6L, 2.0L, 5.3L V8..."
+                        placeholder="Ej: 1.5L, 2.0L Turbo, 5.3L V8 Vortec, 6.7L Powerstroke..."
                         className="w-full bg-slate-50 dark:bg-[#070e1c] border border-slate-300 dark:border-emerald-500/40 rounded-xl p-2.5 text-emerald-800 dark:text-emerald-200 font-mono font-bold focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-xs"
                       />
-                      <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                        {['1.4L', '1.5L', '1.6L', '1.8L', '2.0L', '2.4L', '2.5L', '3.0L', '3.5L', '3.6L', '4.0L', '5.0L', '5.3L', '5.7L', '6.0L', '6.2L', '6.6L', '6.7L'].map((lit) => (
-                          <button
-                            key={lit}
-                            type="button"
-                            onClick={() => setEditingItem({ ...editingItem, engineSpecs: lit })}
-                            className={`px-2 py-0.5 rounded-md text-[10px] font-mono cursor-pointer transition-colors ${
-                              editingItem.engineSpecs === lit
-                                ? 'bg-emerald-500 text-slate-950 font-black shadow-sm dark:shadow-[0_0_8px_rgba(16,185,129,0.4)]'
-                                : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-400 hover:text-emerald-800 dark:hover:text-emerald-300 border border-slate-200 dark:border-transparent'
-                            }`}
-                          >
-                            {lit}
-                          </button>
+
+                      {/* Organized Displacements by Engine Families */}
+                      <div className="space-y-2 pt-1">
+                        {ENGINE_DISPLACEMENT_FAMILIES.map((group) => (
+                          <div key={group.family} className="rounded-xl bg-slate-100/70 dark:bg-[#050914] p-2 border border-slate-200/80 dark:border-slate-800/80">
+                            <span className="text-[10px] font-mono font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block mb-1.5">
+                              {group.family}
+                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {group.liters.map((lit) => {
+                                const isSelected = editingItem.engineSpecs === lit;
+                                return (
+                                  <button
+                                    key={lit}
+                                    type="button"
+                                    onClick={() => setEditingItem({ ...editingItem, engineSpecs: lit })}
+                                    className={`px-2 py-0.5 rounded-lg text-[10px] font-mono cursor-pointer transition-all border ${
+                                      isSelected
+                                        ? 'bg-emerald-500 text-slate-950 font-black border-emerald-400 shadow-sm dark:shadow-[0_0_8px_rgba(16,185,129,0.4)] scale-105'
+                                        : 'bg-white dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 hover:text-emerald-700 dark:hover:text-emerald-300 border-slate-200 dark:border-slate-700 hover:border-emerald-500/40'
+                                    }`}
+                                  >
+                                    {lit}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
                         ))}
                       </div>
                     </div>

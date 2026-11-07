@@ -50,7 +50,6 @@ export function previewSettlement(order: SettlementOrder, input: Settlement) {
   const coreCredit = input.coreAction === 'received' ? cents(order.core) : 0;
   if (input.coreAction === 'received') {
     if (order.coreReceived) throw new Error('La recepción del core ya está registrada.');
-    if (!coreCredit) throw new Error('Esta orden no tiene un cargo de core pendiente.');
     if (cents(order.paid) > cents(order.price) + cents(order.shipping)) {
       throw new Error('El core ya tiene cobros que requieren devolución; tramítala desde Reembolsos, sin borrar cobros.');
     }

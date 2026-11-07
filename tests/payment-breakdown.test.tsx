@@ -69,4 +69,25 @@ describe('collection financial breakdown', () => {
     expect(html).toContain('value="150"');
     expect(html).toContain('Saldo liquidado exactamente');
   });
+  it('highlights physical core receipt when customer delivers used part on a zero-core order', () => {
+    const zeroCoreDetail: PaymentDetail = {
+      version: 1, canRecord: true,
+      order: { price: 1200, shipping: 0, core: 0, paid: 200, coreReceived: false },
+      payments: [], coreReceipt: null,
+    };
+    const settlementWithReceivedCore: Settlement = {
+      payments: [{ amount: 1000, method: 'cash', receivedBy: 'Favio', reference: '', confirmed: true }],
+      coreAction: 'received',
+      coreReference: 'Casco físico recibido en entrega',
+      coreConfirmed: true,
+    };
+    const html = markup(settlementWithReceivedCore, zeroCoreDetail);
+    expectRow(html, 'Cargo de core', '$0.00');
+    expectRow(html, 'Monto total de la venta', '$1,200.00');
+    expectRow(html, 'Ajuste por core recibido', '$0.00');
+    expectRow(html, 'Monto restante por cobrar', '$0.00');
+    expect(html).toContain('El cliente entregó la pieza usada acordada. No se genera cargo de core.');
+    expect(html).toContain('Casco físico recibido en entrega');
+    expect(html).not.toContain('Esta orden no tiene cargo de core ni requiere entrega de pieza usada.');
+  });
 });

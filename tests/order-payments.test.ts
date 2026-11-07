@@ -21,10 +21,10 @@ describe('split collection and core settlement', () => {
     const input = settlementSchema.parse({ ...settlement([]), coreAction: 'received', coreReference: 'CORE-TEST', coreConfirmed: true });
     expect(previewSettlement(order, input)).toMatchObject({ total: 900, paid: 200, received: 0, balance: 700 });
   });
-  it('rejects duplicate core receipt, missing core charge and core refunds disguised as discounts', () => {
+  it('rejects duplicate core receipt and core refunds disguised as discounts while allowing physical core receipt on zero-core orders', () => {
     const input = settlementSchema.parse({ ...settlement([]), coreAction: 'received', coreReference: 'CORE-TEST', coreConfirmed: true });
     expect(() => previewSettlement({ ...order, coreReceived: true }, input)).toThrow(/registrada/);
-    expect(() => previewSettlement({ ...order, core: 0 }, input)).toThrow(/cargo/);
+    expect(previewSettlement({ ...order, core: 0 }, input)).toEqual({ total: 900, paid: 200, balance: 700, received: 0, coreCredit: 0 });
     expect(() => previewSettlement({ ...order, paid: 1000 }, input)).toThrow(/devolución/);
   });
   it('uses cents and rejects overpayment instead of silently clamping', () => {

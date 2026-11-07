@@ -241,23 +241,13 @@ export const OrderPaymentFields: React.FC<{
               <button
                 type="button"
                 onClick={() => {
-                  if (detail.order.core > 0) {
-                    onChange({
-                      ...value,
-                      coreAction: 'received',
-                      coreAmount: undefined,
-                      coreReference: value.coreReference || '',
-                      coreConfirmed: value.coreConfirmed || false,
-                    });
-                  } else {
-                    onChange({
-                      ...value,
-                      coreAction: 'none',
-                      coreAmount: 0,
-                      coreReference: '',
-                      coreConfirmed: false,
-                    });
-                  }
+                  onChange({
+                    ...value,
+                    coreAction: 'received',
+                    coreAmount: undefined,
+                    coreReference: value.coreReference || 'Casco físico recibido en entrega',
+                    coreConfirmed: true,
+                  });
                 }}
                 className={`p-3.5 rounded-xl border text-left transition-all flex items-start gap-3 ${
                   value.coreAction === 'received'
