@@ -340,12 +340,131 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
             : <p className="text-sm mt-2" style={{ color: completed.includes(stage.id) ? 'var(--positive)' : 'var(--text-secondary)' }}>{completed.includes(stage.id) ? 'Completada con evidencia' : 'Pendiente de verificar'}</p>}
         </li>)}
       </ol>
-      {detail.order.preparation && <div className="rounded-xl bg-[var(--bg-card-subtle)] p-4 text-sm space-y-1">
-        <strong>{detail.order.preparation.channel === 'in_person' ? 'Entrega presencial en yarda verificada' : 'Cita y modalidad verificadas'}</strong>
-        <p>{detail.order.preparation.deliveryType === 'envio_domicilio' ? 'Delivery / envío' : 'Recogida en yarda'} · {detail.order.preparation.dateFrom} — {detail.order.preparation.dateTo}</p>
-        {detail.order.preparation.deliveryType === 'envio_domicilio' && <p>Dirección: {detail.order.preparation.address}</p>}
-        <p>Core: {detail.order.preparation.corePlan === 'return_core' ? 'El cliente lo llevará' : 'El cliente lo pagará'} (intención, no recepción ni cobro).</p>
-      </div>}</>}
+      {detail.order.preparation && (
+        <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-blue-950/30 via-slate-900/40 to-slate-900/60 border border-blue-500/30 text-sm space-y-3.5 shadow-sm">
+          {/* Header */}
+          <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-slate-800/80">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-blue-500/15 text-blue-400">
+                <span className="material-symbols-outlined text-xl">event_available</span>
+              </div>
+              <div>
+                <strong className="text-sm sm:text-base text-slate-100">
+                  {detail.order.preparation.channel === 'in_person'
+                    ? 'Entrega presencial en yarda verificada'
+                    : 'Cita y modalidad verificadas'}
+                </strong>
+                <p className="text-xs text-slate-400">
+                  Acuerdos de entrega confirmados con el comprador
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 border border-slate-700 flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-sm text-primary-400">
+                  {detail.order.preparation.channel === 'call' ? 'phone' : detail.order.preparation.channel === 'sms' ? 'chat' : 'storefront'}
+                </span>
+                <span>
+                  {detail.order.preparation.channel === 'call' ? 'Llamada contestada' : detail.order.preparation.channel === 'sms' ? 'Mensaje / Chat' : 'Presencial en yarda'}
+                </span>
+              </span>
+
+              <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold border flex items-center gap-1.5 ${
+                detail.order.preparation.deliveryType === 'envio_domicilio'
+                  ? 'bg-cyan-950/40 text-cyan-300 border-cyan-500/40'
+                  : 'bg-emerald-950/40 text-emerald-300 border-emerald-500/40'
+              }`}>
+                <span className="material-symbols-outlined text-sm">
+                  {detail.order.preparation.deliveryType === 'envio_domicilio' ? 'local_shipping' : 'warehouse'}
+                </span>
+                <span>
+                  {detail.order.preparation.deliveryType === 'envio_domicilio' ? 'Delivery / envío' : 'Recogida en yarda'}
+                </span>
+              </span>
+            </div>
+          </div>
+
+          {/* Grid of Key Info */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {/* Date */}
+            <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-amber-400 text-sm">calendar_today</span>
+                Fecha acordada
+              </span>
+              <p className="text-sm font-bold text-slate-200">
+                {detail.order.preparation.dateFrom === detail.order.preparation.dateTo
+                  ? detail.order.preparation.dateFrom
+                  : `${detail.order.preparation.dateFrom} — ${detail.order.preparation.dateTo}`}
+              </p>
+            </div>
+
+            {/* Core Plan */}
+            <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-violet-400 text-sm">swap_horizontal_circle</span>
+                Acuerdo de core
+              </span>
+              <p className="text-sm font-bold text-slate-200">
+                {detail.order.preparation.corePlan === 'return_core'
+                  ? '🔄 El cliente lo llevará a la yarda'
+                  : '💵 El cliente lo pagará en la liquidación'}
+              </p>
+              <span className="text-[10px] text-slate-400 block">
+                Intención acordada, cobro o recepción al entregar
+              </span>
+            </div>
+
+            {/* Delivery address or yard note */}
+            <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1 sm:col-span-2 md:col-span-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-cyan-400 text-sm">
+                  {detail.order.preparation.deliveryType === 'envio_domicilio' ? 'location_on' : 'store'}
+                </span>
+                {detail.order.preparation.deliveryType === 'envio_domicilio' ? 'Destino de entrega' : 'Punto de retiro'}
+              </span>
+              <p className="text-xs sm:text-sm font-medium text-slate-200 break-words">
+                {detail.order.preparation.deliveryType === 'envio_domicilio'
+                  ? detail.order.preparation.address
+                  : 'Mostrador de entregas en patio principal'}
+              </p>
+            </div>
+          </div>
+
+          {/* Customer notes / response bubble if exists */}
+          {detail.order.preparation.customerNotes && (
+            <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 flex items-start gap-2.5">
+              <span className="material-symbols-outlined text-indigo-400 text-base mt-0.5 shrink-0">forum</span>
+              <div className="text-xs space-y-0.5">
+                <span className="font-semibold text-slate-300">Respuesta y notas del cliente:</span>
+                <p className="text-slate-200 italic leading-relaxed">
+                  "{detail.order.preparation.customerNotes}"
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Screenshots link if exists */}
+          {detail.order.preparation.screenshots && detail.order.preparation.screenshots.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <span className="text-xs text-slate-400 font-medium">Evidencias adjuntas:</span>
+              {detail.order.preparation.screenshots.map((url, idx) => (
+                <a
+                  key={idx}
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-primary-300 border border-slate-700 flex items-center gap-1 transition-all"
+                >
+                  <span className="material-symbols-outlined text-xs">image</span>
+                  <span>Ver captura {idx + 1}</span>
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}</>}
       {view !== 'history' && (task ? <WorkflowActionForm key={`${orderId}-${detail.order.version}-${task.task}`} task={task} onSaved={reload} />
         : <p className="text-sm text-[var(--text-secondary)]">{view === 'followup' ? 'Sin seguimiento pendiente. Los registros se conservan en Historial.' : 'Sin tarea comercial activa. Consulta Seguimiento post entrega o Historial.'}</p>)}
       {view === 'followup' && detail.order.historicalDelivery && !detail.order.deliveredAt && <p role="alert" className="text-sm text-amber-600">Falta la fecha de entrega registrada. Revisa el historial antes de programar seguimientos.</p>}
