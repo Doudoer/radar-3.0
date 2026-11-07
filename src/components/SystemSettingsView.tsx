@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { apiFetch } from '../services/apiFetch';
 import { useTheme } from '../hooks/useTheme';
 import { WasenderNotificationsManager } from './WasenderNotificationsManager';
+import { VaultUnlockModal } from './VaultUnlockModal';
 
 interface BackupItem {
   filename: string;
@@ -41,6 +42,10 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   const [loadingBackups, setLoadingBackups] = useState(false);
   const [creatingBackup, setCreatingBackup] = useState(false);
   const [backupMessage, setBackupMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isVaultLocked, setIsVaultLocked] = useState(false);
+  const [vaultExpiresAt, setVaultExpiresAt] = useState(0);
+  const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
 
   // File Upload State
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -123,15 +128,45 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     }
   };
 
+  const checkVaultStatus = useCallback(async () => {
+    try {
+      const res = await apiFetch('/auth/2fa/vault');
+      const data = await res.json();
+      if (res.ok) {
+        const active = Boolean(data.unlocked && data.expiresAt > Date.now());
+        setIsVaultLocked(!active);
+        setVaultExpiresAt(active ? data.expiresAt : 0);
+        return active;
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  }, []);
+
+  const handleLockVault = async () => {
+    try {
+      await apiFetch('/auth/2fa/lock', { method: 'POST', body: '{}' });
+      setIsVaultLocked(true);
+      setVaultExpiresAt(0);
+      setBackupMessage({ type: 'success', text: 'Bóveda de seguridad bloqueada exitosamente.' });
+    } catch {
+      // ignore
+    }
+  };
+
   const fetchBackups = useCallback(async () => {
     if (!isSuperAdmin) return;
     setLoadingBackups(true);
     try {
       const response = await apiFetch('/system/backups');
       const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'No se pudo consultar los respaldos');
+      if (!response.ok) {
+        throw new Error(data.message || 'No se pudo consultar los respaldos');
+      }
       if (!Array.isArray(data)) throw new Error('Respuesta de respaldos invalida');
       setBackups(data);
+      setBackupMessage(null);
     } catch (error) {
       setBackups([]);
       setBackupMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo consultar los respaldos' });
@@ -141,12 +176,18 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   }, [isSuperAdmin]);
 
   useEffect(() => {
+    void checkVaultStatus();
     void fetchBackups();
     void fetchWasenderStatus();
-  }, [fetchBackups, fetchWasenderStatus]);
+  }, [checkVaultStatus, fetchBackups, fetchWasenderStatus]);
 
   // Handle immediate snapshot creation
   const handleCreateSnapshot = async () => {
+    if (vaultExpiresAt <= Date.now()) {
+      setPendingAction(() => () => void handleCreateSnapshot());
+      setIsUnlockModalOpen(true);
+      return;
+    }
     setCreatingBackup(true);
     setBackupMessage(null);
     try {
@@ -156,7 +197,15 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
         body: JSON.stringify({ tag: 'manual' }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'No se pudo generar el punto de respaldo');
+      if (!response.ok) {
+        if (data.code === 'FINANCE_LOCKED' || response.status === 403) {
+          setIsVaultLocked(true);
+          setPendingAction(() => () => void handleCreateSnapshot());
+          setIsUnlockModalOpen(true);
+          return;
+        }
+        throw new Error(data.message || 'No se pudo generar el punto de respaldo');
+      }
       setBackupMessage({ type: 'success', text: `Punto de respaldo "${data.filename}" generado exitosamente.` });
       await fetchBackups();
     } catch (error) {
@@ -168,6 +217,11 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
 
   // Download SQL file
   const handleDownloadBackup = async (filename?: string) => {
+    if (vaultExpiresAt <= Date.now()) {
+      setPendingAction(() => () => void handleDownloadBackup(filename));
+      setIsUnlockModalOpen(true);
+      return;
+    }
     try {
       const url = filename
         ? `/system/backup/download?file=${encodeURIComponent(filename)}`
@@ -175,6 +229,12 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       const response = await apiFetch(url);
       if (!response.ok) {
         const data = await response.json();
+        if (data.code === 'FINANCE_LOCKED' || response.status === 403) {
+          setIsVaultLocked(true);
+          setPendingAction(() => () => void handleDownloadBackup(filename));
+          setIsUnlockModalOpen(true);
+          return;
+        }
         throw new Error(data.message || 'No se pudo descargar el archivo.');
       }
       const blob = await response.blob();
@@ -244,6 +304,11 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
 
   // Open Restore Confirmation Modal
   const openRestoreModalForLocal = (item: BackupItem) => {
+    if (vaultExpiresAt <= Date.now()) {
+      setPendingAction(() => () => openRestoreModalForLocal(item));
+      setIsUnlockModalOpen(true);
+      return;
+    }
     setRestoreTarget({
       type: 'local',
       filename: item.filename,
@@ -260,6 +325,11 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   };
 
   const openRestoreModalForUpload = () => {
+    if (vaultExpiresAt <= Date.now()) {
+      setPendingAction(() => () => openRestoreModalForUpload());
+      setIsUnlockModalOpen(true);
+      return;
+    }
     if (!uploadedFile) return;
     setRestoreTarget({
       type: 'upload',
@@ -283,9 +353,6 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
 
   return (
     <div className="radar-view horizon-view space-y-6">
-      <p role="status" className="rounded-xl border border-amber-500/40 p-4 text-amber-200 text-sm">
-        Restauración directa deshabilitada por seguridad. Utilice el procedimiento de recuperación verificada; cargar un archivo no restaura datos.
-      </p>
       {/* Cyber Header Card */}
       <div className="horizon-view-header">
 
@@ -325,7 +392,29 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
               </p>
             </div>
 
-            <div className="flex items-center gap-2.5 shrink-0">
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+              {!isVaultLocked && vaultExpiresAt > Date.now() ? (
+                <div className="flex items-center gap-2 bg-[#040814] px-3 py-1.5 rounded-xl border border-emerald-500/30">
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-mono text-emerald-300">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    Bóveda Desbloqueada
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void handleLockVault()}
+                    className="text-[10px] font-mono text-slate-400 hover:text-white px-2 py-0.5 rounded border border-slate-700 hover:border-slate-500 transition-colors cursor-pointer"
+                    title="Bloquear bóveda de seguridad inmediatamente"
+                  >
+                    Bloquear
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#040814] border border-cyan-500/20 text-slate-400 text-xs font-mono">
+                  <span className="material-symbols-outlined text-[15px] text-cyan-400">shield</span>
+                  <span>Protegido con 2FA</span>
+                </div>
+              )}
+
               <button
                 type="button"
                 onClick={() => void handleCreateSnapshot()}
@@ -1094,6 +1183,29 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
           <WasenderNotificationsManager userRole={userRole} />
         </div>
       </div>
+
+      {/* Vault Unlock 2FA Modal */}
+      <VaultUnlockModal
+        isOpen={isUnlockModalOpen}
+        onClose={() => {
+          setIsUnlockModalOpen(false);
+          setPendingAction(null);
+        }}
+        onSuccess={(exp) => {
+          setIsVaultLocked(false);
+          setVaultExpiresAt(exp);
+          setIsUnlockModalOpen(false);
+          setBackupMessage({
+            type: 'success',
+            text: 'Bóveda de seguridad autorizada exitosamente por 15 minutos.',
+          });
+          if (pendingAction) {
+            const action = pendingAction;
+            setPendingAction(null);
+            setTimeout(() => action(), 100);
+          }
+        }}
+      />
     </div>
   );
 };

@@ -465,7 +465,8 @@ const server = createServer(async (request, response) => {
       response.writeHead(308, { Location: `/api${pathname}`, 'Cache-Control': 'no-store' });
       return response.end();
     }
-    const sensitiveSystemPath = pathname.startsWith('/api/system/') ||
+    const isSystemBackupsList = request.method === 'GET' && pathname === '/api/system/backups';
+    const sensitiveSystemPath = (pathname.startsWith('/api/system/') && !isSystemBackupsList) ||
       pathname.startsWith('/api/uploads/backups/') || pathname.startsWith('/uploads/backups/');
     const userManagementWrite = /^\/api\/users(?:\/\d+)?$/.test(pathname) && isUnsafeMethod(request.method);
     if (sensitiveSystemPath || userManagementWrite) {
@@ -2126,9 +2127,12 @@ const server = createServer(async (request, response) => {
         const transmissionType = normalizeTransmissionType(order.vehicle?.transmission);
         const newDbStatus = statusToDatabase[order.status || ''] || order.status || '';
 
-        const auctionActiveVal = (order as any).auctionActive !== undefined
-          ? ((order as any).auctionActive ? 1 : 0)
-          : ((order as any).auctionLinks && (order as any).auctionLinks.length > 0 ? 1 : undefined);
+        const isOrderPaid = (order.status === 'pagado') || (/pagad/i.test(newDbStatus));
+        const auctionActiveVal = isOrderPaid
+          ? ((order as any).auctionActive !== undefined
+              ? ((order as any).auctionActive ? 1 : 0)
+              : ((order as any).auctionLinks && (order as any).auctionLinks.length > 0 ? 1 : undefined))
+          : 0;
 
         await connection.execute(
           `UPDATE orders SET version=version+1, vin_nr = ?, brand = ?, model = ?, sub_model = ?, year = ?, color = ?, mileage = ?, product_type = ?, transmission_type = ?, product_specs = ?, stock_nr = ?, price = ?, core_fee = ?, down_payment = ?, shipping_toggle = ?, shipping_address = ?, shipping_cost = ?, warranty_days = ?, status = ?, workflow_step = ?, scheduled_pickup_at = ?, delivered_at = ?, warranty_started = ?, description = ?, claim_reason = ? ${updateCustomerLanguage ? ', customer_language = ?' : ''} ${assignedUserId !== undefined ? ', user_id = ?' : ''} ${isYardSale !== undefined ? ', is_yard_sale = ?' : ''} ${auctionActiveVal !== undefined ? ', auction_search_active = ?' : ''} WHERE id = ?`,
@@ -3601,6 +3605,10 @@ async function startServer() {
     'SELECT name FROM schema_migrations WHERE name=?', ['021_outbox_deduplication.sql'],
   );
   if (!migrations.length) throw new Error('Ejecuta scripts/migrate.ts antes de iniciar la aplicación');
+  // Asegurar que ninguna orden entregada conserve la marca de subasta activa
+  await pool.query("UPDATE orders SET auction_search_active = 0 WHERE LOWER(TRIM(status)) = 'entregado' OR delivered_at IS NOT NULL").catch((err) => {
+    console.error('[Startup] Advertencia al limpiar auction_search_active en entregadas:', err);
+  });
   server.listen(port, '0.0.0.0', () => {
     console.log(`RADAR API disponible en http://0.0.0.0:${port}`);
     startDailyClaimsReportScheduler(pool, wasender);

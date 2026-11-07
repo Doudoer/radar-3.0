@@ -90,7 +90,7 @@ export async function completeOrderDelivery(connection: PoolConnection, row: Row
   const payload = { ...mapOrder(row), status: 'entregado' as const, deliveredAt: row.delivered_at ? new Date(row.delivered_at).toISOString() : new Date().toISOString() };
   validateOrder(payload, row, claims.role || '');
   await syncInventory(connection, Number(row.id), row.inventory_part_id, 'entregado');
-  await connection.execute('UPDATE orders SET status=?,delivered_at=?,warranty_started=1 WHERE id=?',
+  await connection.execute('UPDATE orders SET status=?,delivered_at=?,warranty_started=1,auction_search_active=0 WHERE id=?',
     [statusToDatabase.entregado, toMysqlDateTime(payload.deliveredAt), row.id]);
   if (!row.delivered_at) {
     await connection.execute('UPDATE orders SET warranty_terms=?,core_deposit_amount=? WHERE id=?',
