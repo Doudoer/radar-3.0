@@ -54,8 +54,9 @@ export const OrderPaymentFields: React.FC<{
       : detail.order.core;
   const saleTotal = (Math.round(detail.order.price * 100) + Math.round(detail.order.shipping * 100) + Math.round(currentCore * 100)) / 100;
   const previousBalance = (Math.round(saleTotal * 100) - Math.round(detail.order.paid * 100)) / 100;
-  const amountRow = (label: string, amount: string, emphasized = false) => <div className={`flex flex-wrap justify-between gap-x-4 gap-y-1 ${emphasized ? 'border-t border-[var(--border-color)] pt-3 font-bold' : ''}`}>
-    <dt>{label}</dt><dd className="font-semibold tabular-nums">{amount}</dd>
+  const amountRow = (label: string, amount: string, emphasized = false, icon?: string) => <div className={`flex items-center gap-x-2 gap-y-1 ${emphasized ? 'mt-1 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] px-3 py-2 font-bold text-[var(--text-primary)]' : 'px-1 text-[var(--text-secondary)]'}`}>
+    {icon && <span className="material-symbols-outlined text-[15px] opacity-70 shrink-0" aria-hidden="true">{icon}</span>}
+    <dt>{label}</dt><dd className={`ml-auto tabular-nums shrink-0 ${emphasized ? 'font-black' : 'font-semibold text-[var(--text-primary)]'}`}>{amount}</dd>
   </div>;
   const upload = async (index: number, file: File) => {
     if (uploadingRef.current) return;
@@ -644,40 +645,142 @@ export const OrderPaymentFields: React.FC<{
     {uploading && <p role="status">Subiendo comprobante… Espera a que termine antes de guardar.</p>}
     {uploadError && <p role="alert" className="text-sm text-red-600">{uploadError}</p>}
     {previewError && <p role="alert" className="text-red-600 text-sm">{previewError}</p>}
-    {summary && <div className="rounded-xl bg-[var(--bg-card-subtle)] p-4 text-sm space-y-2" aria-live="polite">
-      <h3 className="font-bold text-base">Desglose de venta y cobro</h3>
-      <dl className="space-y-3">
-        {amountRow('Precio de la pieza', money(detail.order.price))}
-        {amountRow('Delivery / envío', money(detail.order.shipping))}
-        {amountRow('Cargo de core', money(currentCore))}
-        {amountRow('Monto total de la venta', money(saleTotal), true)}
-        {amountRow('Downpayment / pagos anteriores', money(detail.order.paid))}
-        {amountRow('Monto restante antes de este cobro', money(previousBalance))}
-        {amountRow('Ajuste por core recibido', summary.coreCredit ? `-${money(summary.coreCredit)}` : money(0))}
-        {amountRow('Monto total a liquidar', money(summary.total), true)}
-        {amountRow('Cobro nuevo', money(summary.received))}
-        {amountRow('Acumulado cobrado', money(summary.paid))}
-        {amountRow('Monto restante por cobrar', money(summary.balance), true)}
-      </dl>
-      <p className="text-xs text-[var(--text-secondary)]">Downpayment / pagos anteriores incluye el abono y cualquier pago posterior ya registrado; no es un cobro nuevo. Total de venta = pieza + delivery + core. El ajuste de core se descuenta una sola vez.</p>
-      {!detail.order.shipping && <p className="text-xs text-[var(--text-secondary)]">Esta orden no tiene un cargo de delivery registrado.</p>}
-      {(value.coreAction === 'charge' || (detail.order.core > 0 && value.coreAction === 'keep')) && <p>{summary.balance === 0 ? 'Core incluido en la liquidación.' : 'El cargo de core sigue incluido en el saldo pendiente.'}</p>}
-      {summary.balance === 0 ? (
-        <p className="text-sm font-semibold text-emerald-400">✓ Saldo liquidado exactamente. Listo para registrar la entrega.</p>
-      ) : (
-        <p className="text-sm font-medium text-amber-400">Saldo pendiente por cobrar: {money(summary.balance)}</p>
-      )}
-    </div>}
-    <details className="text-sm space-y-3"><summary className="cursor-pointer font-bold">Historial de cobros y core</summary>
-      {!detail.payments.length && <p>Sin cobros registrados.</p>}
-      {detail.payments.map(payment => <article key={payment.id} className="rounded-xl bg-[var(--bg-card-subtle)] p-3 mt-2">
-        <strong>{money(payment.amount)} · {payment.method ? PAYMENT_METHODS[payment.method] : 'Método no registrado'}</strong>
-        <p>{payment.date ? new Date(payment.date).toLocaleString() : 'Fecha histórica no registrada'} · {payment.actor || 'Operador no registrado'}</p>
-        {payment.reference && <p className="break-words">Referencia: {payment.reference}</p>}
-        {payment.receivedBy && <p>Recibió: {payment.receivedBy}</p>}
-        {payment.receipt && <a className="underline" href={payment.receipt} target="_blank" rel="noreferrer">Ver comprobante del cobro</a>}
+    {summary && (() => {
+      const settled = summary.balance === 0;
+      const paidPct = summary.total > 0 ? Math.min(100, Math.round((summary.paid / summary.total) * 100)) : 100;
+      const coreIncluded = value.coreAction === 'charge' || (detail.order.core > 0 && value.coreAction === 'keep');
+      return <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)]/40 p-4 sm:p-5 text-sm space-y-4" aria-live="polite">
+        {/* Header */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className="w-9 h-9 rounded-xl bg-primary-500/15 border border-primary-500/30 flex items-center justify-center text-primary-400">
+              <span className="material-symbols-outlined text-[20px]">receipt_long</span>
+            </span>
+            <div>
+              <h3 className="font-bold text-base text-[var(--text-primary)] leading-tight">Desglose de venta y cobro</h3>
+              <p className="text-xs text-[var(--text-secondary)]">Se recalcula en vivo con el core y los pagos que registres</p>
+            </div>
+          </div>
+          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border ${settled ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-500' : 'bg-amber-500/15 border-amber-500/40 text-amber-500'}`}>
+            <span className="material-symbols-outlined text-[14px]">{settled ? 'check_circle' : 'pending'}</span>
+            {settled ? 'Liquidado' : 'Saldo pendiente'}
+          </span>
+        </div>
+
+        {/* Hero: key figures + progress */}
+        <div className="rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] p-4 space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Total a liquidar</span>
+              <span className="text-lg sm:text-xl font-black tabular-nums text-[var(--text-primary)]">{money(summary.total)}</span>
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Cobrado</span>
+              <span className="text-lg sm:text-xl font-black tabular-nums text-emerald-500">{money(summary.paid)}</span>
+            </div>
+            <div className="flex flex-col gap-0.5 text-right">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Por cobrar</span>
+              <span className={`text-lg sm:text-xl font-black tabular-nums ${settled ? 'text-emerald-500' : 'text-amber-500'}`}>{money(summary.balance)}</span>
+            </div>
+          </div>
+          <div>
+            <div className="h-2.5 w-full rounded-full bg-[var(--bg-card-subtle)] border border-[var(--border-color)] overflow-hidden" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={paidPct} aria-label="Porcentaje cobrado">
+              <div className={`h-full rounded-full transition-all duration-500 ${settled ? 'bg-emerald-500' : 'bg-gradient-to-r from-emerald-500 to-cyan-400'}`} style={{ width: `${paidPct}%` }} />
+            </div>
+            <p className="mt-1.5 text-[11px] text-[var(--text-secondary)]">{paidPct}% cubierto{summary.received > 0 ? ` · incluye cobro nuevo de ${money(summary.received)}` : ''}</p>
+          </div>
+        </div>
+
+        {/* Three-step breakdown */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          <section className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3.5 flex flex-col gap-2">
+            <header className="flex items-center gap-2 pb-1">
+              <span className="w-6 h-6 rounded-full bg-cyan-500/15 text-cyan-500 border border-cyan-500/30 text-xs font-black flex items-center justify-center">1</span>
+              <span className="font-bold text-[var(--text-primary)]">Venta</span>
+            </header>
+            <dl className="flex flex-col gap-2 flex-1">
+            {amountRow('Precio de la pieza', money(detail.order.price), false, 'settings')}
+            {amountRow('Delivery / envío', money(detail.order.shipping), false, 'local_shipping')}
+            {amountRow('Cargo de core', money(currentCore), false, 'autorenew')}
+            <div className="flex-1" />
+            {amountRow('Monto total de la venta', money(saleTotal), true)}
+            </dl>
+            {!detail.order.shipping && <p className="text-[11px] text-[var(--text-secondary)] px-1">Esta orden no tiene un cargo de delivery registrado.</p>}
+          </section>
+
+          <section className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3.5 flex flex-col gap-2">
+            <header className="flex items-center gap-2 pb-1">
+              <span className="w-6 h-6 rounded-full bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 text-xs font-black flex items-center justify-center">2</span>
+              <span className="font-bold text-[var(--text-primary)]">Pagos previos y ajustes</span>
+            </header>
+            <dl className="flex flex-col gap-2 flex-1">
+            {amountRow('Downpayment / pagos anteriores', money(detail.order.paid), false, 'savings')}
+            {amountRow('Monto restante antes de este cobro', money(previousBalance), false, 'hourglass_top')}
+            {amountRow('Ajuste por core recibido', summary.coreCredit ? `-${money(summary.coreCredit)}` : money(0), false, 'sync_alt')}
+            <div className="flex-1" />
+            {amountRow('Monto total a liquidar', money(summary.total), true)}
+            </dl>
+          </section>
+
+          <section className={`rounded-2xl border p-3.5 flex flex-col gap-2 ${settled ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-amber-500/40 bg-amber-500/5'}`}>
+            <header className="flex items-center gap-2 pb-1">
+              <span className={`w-6 h-6 rounded-full text-xs font-black flex items-center justify-center border ${settled ? 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30' : 'bg-amber-500/15 text-amber-500 border-amber-500/30'}`}>3</span>
+              <span className="font-bold text-[var(--text-primary)]">Este cobro</span>
+            </header>
+            <dl className="flex flex-col gap-2 flex-1">
+            {amountRow('Cobro nuevo', money(summary.received), false, 'payments')}
+            {amountRow('Acumulado cobrado', money(summary.paid), false, 'account_balance_wallet')}
+            <div className="flex-1" />
+            {amountRow('Monto restante por cobrar', money(summary.balance), true)}
+            </dl>
+          </section>
+        </div>
+
+        {/* Status banner */}
+        <div className={`flex items-start gap-2.5 rounded-xl border p-3 ${settled ? 'bg-emerald-500/10 border-emerald-500/40' : 'bg-amber-500/10 border-amber-500/40'}`}>
+          <span className={`material-symbols-outlined text-[20px] shrink-0 ${settled ? 'text-emerald-500' : 'text-amber-500'}`}>{settled ? 'task_alt' : 'error'}</span>
+          <div className="space-y-0.5">
+            {settled ? (
+              <p className="text-sm font-semibold text-emerald-500">✓ Saldo liquidado exactamente. Listo para registrar la entrega.</p>
+            ) : (
+              <p className="text-sm font-semibold text-amber-500">Saldo pendiente por cobrar: {money(summary.balance)}</p>
+            )}
+            {coreIncluded && <p className="text-xs text-[var(--text-secondary)]">{settled ? 'Core incluido en la liquidación.' : 'El cargo de core sigue incluido en el saldo pendiente.'}</p>}
+          </div>
+        </div>
+
+        <details className="group text-xs text-[var(--text-secondary)]">
+          <summary className="cursor-pointer list-none flex items-center gap-1 font-semibold hover:text-[var(--text-primary)]">
+            <span className="material-symbols-outlined text-[15px]">info</span>
+            ¿Cómo se calcula?
+            <span className="material-symbols-outlined text-[15px] transition-transform group-open:rotate-180">expand_more</span>
+          </summary>
+          <p className="mt-2 pl-5">Downpayment / pagos anteriores incluye el abono y cualquier pago posterior ya registrado; no es un cobro nuevo. Total de venta = pieza + delivery + core. El ajuste de core se descuenta una sola vez.</p>
+        </details>
+      </div>;
+    })()}
+    <details className="group rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)]/40 p-4 text-sm space-y-3">
+      <summary className="cursor-pointer list-none flex items-center justify-between gap-2 font-bold text-[var(--text-primary)]">
+        <span className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-[18px] text-primary-400">history</span>
+          <span>Historial de cobros y core</span>
+          <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-[var(--bg-card)] border border-[var(--border-color)] text-[var(--text-secondary)]">
+            {detail.payments.length}
+          </span>
+        </span>
+        <span className="material-symbols-outlined text-[18px] text-[var(--text-secondary)] transition-transform group-open:rotate-180">expand_more</span>
+      </summary>
+      {!detail.payments.length && <p className="text-xs text-[var(--text-secondary)] pt-1">Sin cobros registrados.</p>}
+      {detail.payments.map(payment => <article key={payment.id} className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 mt-2 space-y-1">
+        <div className="flex items-center justify-between gap-2">
+          <strong className="text-[var(--text-primary)]">{money(payment.amount)} · {payment.method ? PAYMENT_METHODS[payment.method] : 'Método no registrado'}</strong>
+        </div>
+        <p className="text-xs text-[var(--text-secondary)]">{payment.date ? new Date(payment.date).toLocaleString() : 'Fecha histórica no registrada'} · {payment.actor || 'Operador no registrado'}</p>
+        {payment.reference && <p className="text-xs break-words text-[var(--text-secondary)]">Referencia: {payment.reference}</p>}
+        {payment.receivedBy && <p className="text-xs text-[var(--text-secondary)]">Recibió: {payment.receivedBy}</p>}
+        {payment.receipt && <a className="inline-flex items-center gap-1 text-xs text-primary-400 hover:underline" href={payment.receipt} target="_blank" rel="noreferrer"><span className="material-symbols-outlined text-[14px]">visibility</span>Ver comprobante del cobro</a>}
       </article>)}
-      {detail.coreReceipt && <p className="break-words">Core recibido: {money(detail.coreReceipt.amount)} · {detail.coreReceipt.reference} · {detail.coreReceipt.actor} · {new Date(detail.coreReceipt.date).toLocaleString()}</p>}
+      {detail.coreReceipt && <p className="text-xs break-words rounded-xl border border-purple-500/30 bg-purple-500/10 p-2.5 text-[var(--text-primary)]">Core recibido: {money(detail.coreReceipt.amount)} · {detail.coreReceipt.reference} · {detail.coreReceipt.actor} · {new Date(detail.coreReceipt.date).toLocaleString()}</p>}
     </details>
   </section>;
 };
