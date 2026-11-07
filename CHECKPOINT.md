@@ -59,6 +59,10 @@
   - Notifica claramente la inspección de la pieza, el inicio del plazo de garantía y las condiciones del core.
 
 #### 4. Tratamiento del Core y Registro de Pagos (Liquidación Visual Interactiva):
+- **Pre-carga Inteligente según el Acuerdo Previo de Preparación:**
+  - Si en la etapa de preparación el cliente indicó que pagará el core (`corePlan: 'pay_core'`), al abrir la etapa de Entrega la tarjeta **"Cliente pagará core"** aparece **automáticamente pre-seleccionada** con el monto precargado ($150 o el core de la orden).
+  - El monto se suma automáticamente al desglose del saldo pendiente a liquidar sin obligar al operador a seleccionarlo de nuevo.
+  - **Flexibilidad en vivo:** Si el cliente llega a la yarda con la pieza usada física, el operador simplemente hace clic en **"Recibimos pieza usada"**, lo que elimina automáticamente el cargo del core y ajusta el saldo restante en tiempo real. También puede modificar el monto libremente si se acordó una tarifa diferente.
 - **Selector de Tratamiento del Core en 3 Tarjetas de Decisión:**
   - 💵 **Cliente pagará core:** Se ilumina en cian, despliega el campo del monto con prefijo `$`, y explica que queda como depósito reembolsable.
   - 🔄 **Recibimos pieza usada:** Se ilumina en verde esmeralda, aplica el descuento automático, y provee campo para la referencia y confirmación táctil de recepción física en yarda.
