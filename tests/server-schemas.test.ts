@@ -4,6 +4,7 @@ import {
   claimCallCreateSchema,
   claimSchema,
   customerSchema,
+  customerMergeSchema,
   loginSchema,
   orderPayloadSchema,
   personalMessageSchema,
@@ -83,6 +84,20 @@ describe('server input schemas', () => {
     expect(customer.first_name).toBe('Juan');
     expect(customer.type).toBe('Taller Mecánico');
     expect(() => customerSchema.parse({ phone: '12' })).toThrow();
+  });
+
+  it('validates customer merge schema', () => {
+    const merge = customerMergeSchema.parse({
+      primaryId: '10',
+      duplicateIds: ['20', 30],
+      copyMissingFields: true,
+    });
+    expect(merge.primaryId).toBe(10);
+    expect(merge.duplicateIds).toEqual([20, 30]);
+    expect(merge.copyMissingFields).toBe(true);
+
+    expect(() => customerMergeSchema.parse({ primaryId: 0, duplicateIds: [1] })).toThrow();
+    expect(() => customerMergeSchema.parse({ primaryId: 10, duplicateIds: [] })).toThrow();
   });
 
   it('validates refund request schema', () => {

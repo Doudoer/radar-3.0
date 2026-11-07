@@ -40,6 +40,7 @@ import {
   claimSchema,
   claimUpdateSchema,
   customerSchema,
+  customerMergeSchema,
   loginSchema,
   orderPayloadSchema,
   personalMessageSchema,
@@ -2391,6 +2392,214 @@ const server = createServer(async (request, response) => {
       );
       if (result.affectedRows === 0) return sendJson(response, 404, { message: 'Cliente no encontrado' });
       return sendJson(response, 200, { ok: true, id: Number(customerId) });
+    }
+
+    if (request.method === 'GET' && pathname === '/api/customers/duplicates') {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+
+      const [allCustomers] = await pool.query<RowDataPacket[]>(`
+        SELECT 
+          c.id, c.first_name, c.last_name, c.phone, c.whatsapp, c.email, 
+          c.address_shipping, c.zip_code, c.company, c.type, c.created_at,
+          COUNT(DISTINCT o.id) AS order_count,
+          COUNT(DISTINCT cr.id) AS call_count
+        FROM customers c
+        LEFT JOIN orders o ON o.customer_id = c.id AND o.deleted_at IS NULL
+        LEFT JOIN call_register cr ON cr.customer_id = c.id
+        WHERE c.deleted_at IS NULL
+        GROUP BY c.id
+        ORDER BY c.id ASC
+      `);
+
+      const clustersMap = new Map<string, {
+        matchType: 'phone' | 'email' | 'name';
+        matchValue: string;
+        customerIds: Set<number>;
+      }>();
+
+      for (const row of allCustomers) {
+        const id = Number(row.id);
+        const phoneClean = String(row.phone || '').replace(/\D/g, '');
+        const emailClean = String(row.email || '').trim().toLowerCase();
+        const fullName = `${row.first_name || ''} ${row.last_name || ''}`.trim().toLowerCase();
+
+        // 1. Phone cluster (match on clean last 10 digits if longer, or clean phone if >= 7 digits)
+        if (phoneClean.length >= 7 && !/^0+$/.test(phoneClean) && phoneClean !== '1234567890') {
+          const phoneKey = phoneClean.length >= 10 ? phoneClean.slice(-10) : phoneClean;
+          const key = `phone:${phoneKey}`;
+          if (!clustersMap.has(key)) {
+            clustersMap.set(key, { matchType: 'phone', matchValue: row.phone, customerIds: new Set() });
+          }
+          clustersMap.get(key)!.customerIds.add(id);
+        }
+
+        // 2. Email cluster
+        if (emailClean && emailClean.includes('@') && !emailClean.endsWith('@ejemplo.com')) {
+          const key = `email:${emailClean}`;
+          if (!clustersMap.has(key)) {
+            clustersMap.set(key, { matchType: 'email', matchValue: emailClean, customerIds: new Set() });
+          }
+          clustersMap.get(key)!.customerIds.add(id);
+        }
+
+        // 3. Name cluster (> 4 chars, ignore placeholders)
+        if (fullName.length >= 5 && !fullName.includes('esperando') && !fullName.includes('cliente')) {
+          const key = `name:${fullName}`;
+          if (!clustersMap.has(key)) {
+            clustersMap.set(key, { matchType: 'name', matchValue: `${row.first_name || ''} ${row.last_name || ''}`.trim(), customerIds: new Set() });
+          }
+          clustersMap.get(key)!.customerIds.add(id);
+        }
+      }
+
+      const customerMap = new Map(allCustomers.map((c) => [Number(c.id), c]));
+      const duplicateGroups: Array<{
+        clusterId: string;
+        matchType: 'phone' | 'email' | 'name';
+        matchValue: string;
+        customers: Array<any>;
+      }> = [];
+
+      for (const [clusterId, cluster] of clustersMap.entries()) {
+        if (cluster.customerIds.size >= 2) {
+          const members = Array.from(cluster.customerIds).map((cid) => {
+            const c = customerMap.get(cid)!;
+            return {
+              id: c.id,
+              firstName: c.first_name,
+              lastName: c.last_name,
+              name: `${c.first_name || ''} ${c.last_name || ''}`.trim(),
+              phone: c.phone,
+              whatsapp: c.whatsapp,
+              email: c.email,
+              addressShipping: c.address_shipping,
+              zipCode: c.zip_code,
+              company: c.company,
+              type: c.type,
+              createdAt: c.created_at,
+              orderCount: Number(c.order_count) || 0,
+              callCount: Number(c.call_count) || 0,
+            };
+          });
+
+          // Sort members: customer with highest order count first
+          members.sort((a, b) => b.orderCount - a.orderCount || a.id - b.id);
+
+          duplicateGroups.push({
+            clusterId,
+            matchType: cluster.matchType,
+            matchValue: cluster.matchValue,
+            customers: members,
+          });
+        }
+      }
+
+      return sendJson(response, 200, duplicateGroups);
+    }
+
+    if (request.method === 'POST' && pathname === '/api/customers/merge') {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      const payload = customerMergeSchema.parse(await readBody(request));
+      const { primaryId, duplicateIds, copyMissingFields } = payload;
+
+      if (duplicateIds.includes(primaryId)) {
+        return sendJson(response, 400, { message: 'El cliente principal no puede estar entre los duplicados' });
+      }
+
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+
+        // 1. Verify primary customer
+        const [primaryRows] = await connection.query<RowDataPacket[]>(
+          'SELECT * FROM customers WHERE id = ? AND deleted_at IS NULL FOR UPDATE',
+          [primaryId]
+        );
+        const primary = primaryRows[0];
+        if (!primary) {
+          await connection.rollback();
+          return sendJson(response, 404, { message: 'Cliente principal no encontrado o ya eliminado' });
+        }
+
+        // 2. Verify duplicate customers
+        const [duplicateRows] = await connection.query<RowDataPacket[]>(
+          'SELECT * FROM customers WHERE id IN (?) AND deleted_at IS NULL FOR UPDATE',
+          [duplicateIds]
+        );
+        if (duplicateRows.length === 0) {
+          await connection.rollback();
+          return sendJson(response, 400, { message: 'Ninguno de los clientes a fusionar existe o ya fueron eliminados' });
+        }
+
+        // 3. Reassign orders to primary
+        const [orderUpdate] = await connection.query<ResultSetHeader>(
+          'UPDATE orders SET customer_id = ? WHERE customer_id IN (?)',
+          [primaryId, duplicateIds]
+        );
+
+        // 4. Reassign call_register to primary
+        const [callUpdate] = await connection.query<ResultSetHeader>(
+          'UPDATE call_register SET customer_id = ? WHERE customer_id IN (?)',
+          [primaryId, duplicateIds]
+        );
+
+        // 5. Fill missing fields in primary customer if requested
+        if (copyMissingFields) {
+          const updates: Record<string, string> = {};
+          for (const dup of duplicateRows) {
+            if (!primary.phone && dup.phone) updates.phone = dup.phone;
+            if (!primary.whatsapp && dup.whatsapp) updates.whatsapp = dup.whatsapp;
+            if (!primary.email && dup.email) updates.email = dup.email;
+            if (!primary.address_shipping && dup.address_shipping) updates.address_shipping = dup.address_shipping;
+            if (!primary.zip_code && dup.zip_code) updates.zip_code = dup.zip_code;
+            if (!primary.company && dup.company) updates.company = dup.company;
+            if (!primary.notes && dup.notes) updates.notes = dup.notes;
+          }
+
+          if (Object.keys(updates).length > 0) {
+            const setClause = Object.keys(updates).map((k) => `${k} = ?`).join(', ');
+            const setVals = [...Object.values(updates), primaryId];
+            await connection.query(`UPDATE customers SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, setVals);
+          }
+        }
+
+        // 6. Soft-delete duplicate customer records
+        await connection.query(
+          'UPDATE customers SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id IN (?)',
+          [duplicateIds]
+        );
+
+        // 7. Audit log
+        void recordAuditLog(pool, {
+          userId: Number(authenticatedClaims.sub),
+          username: authenticatedClaims.email,
+          action: 'CUSTOMER_MERGE',
+          resourceType: 'customers',
+          resourceId: primaryId,
+          details: {
+            primaryId,
+            duplicateIds,
+            ordersMoved: orderUpdate.affectedRows,
+            callsMoved: callUpdate.affectedRows,
+          },
+        });
+
+        await connection.commit();
+
+        return sendJson(response, 200, {
+          ok: true,
+          primaryId,
+          mergedCount: duplicateRows.length,
+          ordersMoved: orderUpdate.affectedRows,
+          callsMoved: callUpdate.affectedRows,
+          message: `Se fusionaron ${duplicateRows.length} cliente(s) exitosamente en el cliente #${primaryId}`,
+        });
+      } catch (err) {
+        await connection.rollback();
+        throw err;
+      } finally {
+        connection.release();
+      }
     }
 
     // ==========================================

@@ -108,6 +108,12 @@ export const customerSchema = z.object({
   notes: z.string().max(5000).optional().nullable(),
 });
 
+export const customerMergeSchema = z.object({
+  primaryId: z.coerce.number().int().positive(),
+  duplicateIds: z.array(z.coerce.number().int().positive()).min(1),
+  copyMissingFields: z.boolean().optional().default(true),
+});
+
 export const refundCreateSchema = z.object({
   idempotencyKey: z.string().uuid(),
   orderId: z.coerce.number().int().positive(),

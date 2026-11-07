@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Customer, Order } from '../types';
 import { apiFetch } from '../services/apiFetch';
+import { CustomerDuplicatesModal } from './CustomerDuplicatesModal';
 
 interface ClientsViewProps {
   orders: Order[];
@@ -52,6 +53,9 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
   // Success Feedback Toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Duplicates Merge Modal
+  const [isDuplicatesModalOpen, setIsDuplicatesModalOpen] = useState(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -427,6 +431,21 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
         {/* Global Action Buttons */}
         <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Duplicate Detection & Merge Assistant Button */}
+          {userRole === 'admin' && (
+            <button
+              type="button"
+              onClick={() => setIsDuplicatesModalOpen(true)}
+              className="px-3.5 py-2 rounded-2xl text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer border bg-[#040814] border-cyan-500/30 text-cyan-300 hover:text-white hover:border-cyan-400 hover:shadow-[0_0_15px_rgba(6,182,212,0.3)]"
+              title="Detectar y fusionar clientes duplicados (por teléfono, email o nombre)"
+            >
+              <span className="material-symbols-outlined text-[17px] text-cyan-400">
+                merge_type
+              </span>
+              <span>Fusionar Duplicados</span>
+            </button>
+          )}
+
           {/* Admin Trash Toggle */}
           {userRole === 'admin' && (
             <button
@@ -1518,6 +1537,16 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Customer Duplicates Merge Assistant Modal */}
+      <CustomerDuplicatesModal
+        isOpen={isDuplicatesModalOpen}
+        onClose={() => setIsDuplicatesModalOpen(false)}
+        onMerged={() => {
+          showToast('Clientes fusionados exitosamente.');
+          if (onRefreshCustomers) onRefreshCustomers();
+        }}
+      />
     </div>
   );
 };
