@@ -124,6 +124,12 @@ export const mapOrder = (row: RowDataPacket, auctionLinks: any[] = []) => {
     auctionLinks: auctionLinks || [],
     ...(typeof row.workflow_data === 'string' ? JSON.parse(row.workflow_data) : row.workflow_data || {}),
     preparation: row.preparation_details ? preparationSchema.parse(typeof row.preparation_details === 'string' ? JSON.parse(row.preparation_details) : row.preparation_details) : null,
+    yardPieceReady: Boolean(row.yard_piece_ready),
+    yardPieceReadyAt: row.yard_piece_ready_at ? new Date(row.yard_piece_ready_at).toISOString() : undefined,
+    yardPieceReadyBy: row.yard_piece_ready_by ? Number(row.yard_piece_ready_by) : undefined,
+    downpaymentVerified: Boolean(row.downpayment_verified),
+    downpaymentVerifiedAt: row.downpayment_verified_at ? new Date(row.downpayment_verified_at).toISOString() : undefined,
+    downpaymentVerifiedBy: row.downpayment_verified_by ? Number(row.downpayment_verified_by) : undefined,
   };
 };
 

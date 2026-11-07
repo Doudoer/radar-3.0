@@ -1,8 +1,47 @@
-# 📍 CHECKPOINT RADAR 3.0 — 2026-11-06
+# 📍 CHECKPOINT RADAR 3.0 — 2026-11-07
 
-**Fecha y Hora:** 6 de Noviembre, 2026 — 23:30 UTC-4  
-**Rama:** `main` (Local: commit `4a8bc49`)  
-**Estado:** Probado y compilado con 100% de tests pasando (479/479 en 65 suites, TypeScript/Lint sin errores)
+**Fecha y Hora:** 7 de Noviembre, 2026 — 11:20 UTC-4  
+**Rama:** `main`  
+**Estado:** Probado y compilado con 100% de tests pasando (481/481 en 64 suites, TypeScript/Lint sin errores)
+
+---
+
+## 🚀 Resumen de Actualización Reciente (7 de Noviembre, 2026)
+
+### 6. Flujo de Confirmación de Anticipo y Preparación de Piezas en Yarda
+
+#### 1. Confirmación de Anticipo Adaptada por Método de Pago:
+- **Efectivo en Yarda (Cash):**
+  - Solicita únicamente el monto recibido y el nombre de la persona que recibió el dinero en la yarda (`receivedBy`).
+  - No requiere comprobante fotográfico ni nombre del remitente ni aprobación previa de administración. La orden pasa directo a `pagado`.
+- **Tarjeta Débito/Crédito (TDC/TDD vía Square):**
+  - Solicita el monto y la captura del voucher / recibo emitido por la terminal Square.
+  - No requiere nombre de remitente ni aprobación manual del administrador (Square procesa y concilia directamente). La orden pasa directo a `pagado`.
+- **P2P Digital (Zelle, Cash App):**
+  - Solicita el monto exacto, captura de pantalla del pago y **nombre de quien envía el pago (`senderName`)**.
+  - Si lo registra un operador (no admin):
+    - Emite una notificación inmediata por WhatsApp al Administrador / Super Admin vía Wasender con el detalle del pago (monto, método, remitente, cliente, vehículo y comprobante).
+    - La orden pasa al estado `espera_confirmacion` con badge de advertencia.
+    - El Administrador cuenta con un botón en la orden `[Aprobar Anticipo (Banco)]` (`POST /api/orders/:id/verify-downpayment`) para verificar y cambiar el estado a `pagado`.
+
+#### 2. Preparación y Cita con Yarda y Cliente:
+- **Confirmación de Pieza Lista por Yarda:**
+  - El Administrador dispone del botón `[Marcar Pieza Lista en Yarda]` (`POST /api/orders/:id/yard-ready`).
+  - Muestra un banner visual prominente en verde esmeralda: `¡PIEZA LISTA EN YARDA! La yarda confirmó que la pieza está desmontada y lista para entrega.`
+  - Si aún no está lista, muestra un banner ámbar informativo: `Esperando confirmación de Yarda.`
+- **Contacto con el Comprador:**
+  - Selector de canal: Llamada telefónica vs Mensaje (SMS / WhatsApp).
+  - Campo de texto obligatorio: **¿Qué respondió el cliente? (Detalle de la conversación)**.
+  - Verificación de recordatorios (Checkboxes):
+    - Se le recordaron los métodos de pago aceptados en yarda (efectivo, Cash App, Zelle; no cheques).
+    - Se le informó sobre la política de core y tiempos de devolución.
+  - Elección de Core:
+    - `return_core`: El cliente llevará el core a la yarda.
+    - `pay_core`: El cliente pagará el valor del core.
+  - Modalidad de entrega: Retiro en tienda vs Envío a domicilio (solicita dirección completa).
+  - Si el contacto fue por **Mensaje**, el sistema exige subir captura(s) de pantalla de la conversación donde se notificó al cliente.
+
+---
 
 ---
 

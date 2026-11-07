@@ -178,6 +178,12 @@ export interface Order {
   termsAckAttachment?: string; // Captura comprobante acuse WhatsApp
   scheduledPickupAt?: string; // Fecha/hora programada de entrega o retiro
   preparation?: Preparation | null;
+  yardPieceReady?: boolean;
+  yardPieceReadyAt?: string;
+  yardPieceReadyBy?: number;
+  downpaymentVerified?: boolean;
+  downpaymentVerifiedAt?: string;
+  downpaymentVerifiedBy?: number;
   pickupExtensionReason?: string; // Prórroga
   coreStatus?: CoreStatus;
   checklistDelivered?: boolean;

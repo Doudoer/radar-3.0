@@ -290,6 +290,53 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     }
   };
 
+  const [verifyingDownpayment, setVerifyingDownpayment] = useState(false);
+  const handleVerifyDownpayment = async () => {
+    if (verifyingDownpayment) return;
+    setVerifyingDownpayment(true);
+    try {
+      const res = await apiFetch(`/orders/${order.id}/verify-downpayment`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'No se pudo verificar el anticipo');
+      }
+      onUpdateOrder({
+        ...order,
+        status: 'pagado' as OrderStatus,
+        downpaymentVerified: true,
+      });
+      handleToast('Anticipo verificado en banco y orden pasada a Pagado.');
+      window.dispatchEvent(new Event('radar:data-changed'));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error verificando anticipo');
+    } finally {
+      setVerifyingDownpayment(false);
+    }
+  };
+
+  const [markingYardReady, setMarkingYardReady] = useState(false);
+  const handleMarkYardReady = async () => {
+    if (markingYardReady) return;
+    setMarkingYardReady(true);
+    try {
+      const res = await apiFetch(`/orders/${order.id}/yard-ready`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'No se pudo marcar la pieza en yarda');
+      }
+      onUpdateOrder({
+        ...order,
+        yardPieceReady: true,
+      });
+      handleToast('Pieza confirmada como lista en yarda.');
+      window.dispatchEvent(new Event('radar:data-changed'));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error marcando pieza en yarda');
+    } finally {
+      setMarkingYardReady(false);
+    }
+  };
+
   const vehicleName = `${order.vehicle.make} ${order.vehicle.model}`;
   const vehicleMileageText = order.vehicle.mileage ? `${Number(order.vehicle.mileage).toLocaleString()} mi` : null;
   const vehicleDetails = [
@@ -749,6 +796,42 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 <span className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">gavel</span>
                 <span>Subasta{auctionLinks.length > 0 ? ` (${auctionLinks.length})` : ''}</span>
               </button>
+            )}
+
+            {/* Super Admin: Aprobar Anticipo Bancario (Zelle / Cash App) */}
+            {isSuperAdmin && (order.status === 'espera_confirmacion' || (!order.downpaymentVerified && order.status === 'espera_confirmacion')) && (
+              <button
+                type="button"
+                onClick={handleVerifyDownpayment}
+                disabled={verifyingDownpayment}
+                className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(16,185,129,0.25)] active:scale-95 animate-pulse"
+                title="Confirmar que el dinero fue recibido en banco y pasar a Pagado"
+              >
+                <span className="material-symbols-outlined text-[15px] text-emerald-400">verified</span>
+                <span>{verifyingDownpayment ? 'Verificando…' : 'Aprobar Anticipo (Banco)'}</span>
+              </button>
+            )}
+
+            {/* Super Admin: Marcar Pieza Lista en Yarda */}
+            {isSuperAdmin && !order.yardPieceReady && ['pagado', 'en_preparacion'].includes(order.status) && (
+              <button
+                type="button"
+                onClick={handleMarkYardReady}
+                disabled={markingYardReady}
+                className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(6,182,212,0.25)] active:scale-95"
+                title="Notificar a los asesores que el patio ya desmontó la pieza y está lista"
+              >
+                <span className="material-symbols-outlined text-[15px] text-cyan-400">factory</span>
+                <span>{markingYardReady ? 'Marcando…' : 'Marcar Pieza Lista en Yarda'}</span>
+              </button>
+            )}
+
+            {/* Insignia: Pieza Lista en Yarda */}
+            {order.yardPieceReady && (
+              <span className="px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[11px] font-mono font-bold flex items-center gap-1">
+                <span className="material-symbols-outlined text-[14px] text-emerald-400">check_circle</span>
+                <span>Pieza Lista en Yarda</span>
+              </span>
             )}
 
             {/* Quick Reembolso Button */}

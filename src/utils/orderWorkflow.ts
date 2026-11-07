@@ -30,6 +30,10 @@ export interface WorkflowOrder {
   confirmationPolicy?: 'documented' | 'legacy' | 'preapproved';
   confirmationPolicyAt?: string | null;
   preparation?: Preparation | null;
+  yardPieceReady?: boolean;
+  yardPieceReadyAt?: string | null;
+  downpaymentVerified?: boolean;
+  downpaymentVerifiedAt?: string | null;
   historicalDelivery?: { paidAt: string | null; readyAt: string | null; deliveredAt: string | null } | null;
 }
 export interface WorkflowEvent {

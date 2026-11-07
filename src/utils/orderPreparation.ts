@@ -5,15 +5,18 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Indica una fecha válida.'
   const parsed = new Date(`${value}T12:00:00Z`);
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }, 'Indica una fecha válida.');
+
 export const preparationSchema = z.object({
   yardNotified: z.literal(true, { error: 'Confirma que el patio notificó que la pieza está lista.' }),
   channel: z.enum(['call', 'sms', 'in_person']),
   failedCall: z.boolean(),
   failedCallNotes: z.string().trim().max(1000),
+  customerNotes: z.string().trim().max(1000).optional(),
   customerConfirmed: z.literal(true, { error: 'El cliente debe confirmar la recepción de la información.' }),
   dateFrom: date, dateTo: date,
   balanceNotified: z.literal(true, { error: 'Confirma que notificaste el saldo restante.' }),
   paymentMethodsNotified: z.literal(true, { error: 'Informa que el saldo se paga solo en efectivo, Cash App o Zelle.' }),
+  coreNotified: z.boolean().optional(),
   corePlan: z.enum(['return_core', 'pay_core']),
   deliveryType: z.enum(['retiro_tienda', 'envio_domicilio']),
   address: z.string().trim().max(500),
@@ -27,16 +30,20 @@ export const preparationSchema = z.object({
   .refine(value => value.deliveryType !== 'envio_domicilio' || value.address.length >= 5, 'La dirección de entrega es obligatoria.')
   .refine(value => value.channel !== 'in_person' || value.deliveryType === 'retiro_tienda' && !value.failedCall && !value.failedCallNotes,
     'La atención presencial corresponde a recogida en yarda, sin registrar intentos de llamada.');
+
 export type Preparation = z.infer<typeof preparationSchema>;
 export type PreparationDraft = Omit<Preparation, 'yardNotified' | 'customerConfirmed' | 'balanceNotified' | 'paymentMethodsNotified' | 'corePlan'> & {
   yardNotified: boolean; customerConfirmed: boolean; balanceNotified: boolean; paymentMethodsNotified: boolean;
   corePlan: Preparation['corePlan'] | '';
+  coreNotified?: boolean;
 };
+
 export const emptyPreparation = (): PreparationDraft => ({
-  yardNotified: false, channel: 'call', failedCall: false, failedCallNotes: '', customerConfirmed: false,
-  dateFrom: '', dateTo: '', balanceNotified: false, paymentMethodsNotified: false, corePlan: '',
+  yardNotified: false, channel: 'call', failedCall: false, failedCallNotes: '', customerNotes: '', customerConfirmed: false,
+  dateFrom: '', dateTo: '', balanceNotified: false, paymentMethodsNotified: false, coreNotified: true, corePlan: '',
   deliveryType: 'retiro_tienda', address: '', screenshots: [],
 });
+
 export function validatePreparation(value: Preparation, today: string) {
   if (value.dateFrom < today) throw new Error('La fecha acordada no puede ser anterior a hoy.');
   if (value.channel === 'in_person' && (value.dateFrom !== today || value.dateTo !== today)) {

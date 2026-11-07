@@ -15,6 +15,7 @@ import { preparationSchema } from '../utils/orderPreparation';
 import { deliveryPhotosSchema } from '../utils/orderDelivery';
 import { assertPaymentImages } from './paymentEvidence';
 import { communicationSchema } from '../utils/followupCommunication';
+import { wasender } from '../integrations/wasender/client';
 import {
   addWorkingDays, completedWorkflowStages, validateWorkflowAction, workflowDate, workflowRequired, workflowTasks, workflowTaskAssignee,
   type WorkflowAction, type WorkflowEvent, type WorkflowOrder, type WorkflowTask, type WorkflowTaskKey,
@@ -103,6 +104,10 @@ export const workflowOrderFromRow = (row: RowDataPacket): WorkflowOrder => {
   confirmationPolicy,
   confirmationPolicyAt: row.confirmation_policy_at ? new Date(row.confirmation_policy_at).toISOString() : null,
   preparation: row.preparation_details ? preparationSchema.parse(typeof row.preparation_details === 'string' ? JSON.parse(row.preparation_details) : row.preparation_details) : null,
+  yardPieceReady: Boolean(row.yard_piece_ready),
+  yardPieceReadyAt: timestamp(row.yard_piece_ready_at),
+  downpaymentVerified: Boolean(row.downpayment_verified),
+  downpaymentVerifiedAt: timestamp(row.downpayment_verified_at),
   incidentCreatedAt: row.incident_created_at ? new Date(row.incident_created_at).toISOString() : null,
   incidentNextDueDate: row.incident_next_due_date ? new Date(row.incident_next_due_date).toISOString().slice(0, 10) : null,
   };
@@ -168,9 +173,55 @@ export async function handleWorkflowRequest(
 ): Promise<boolean> {
   const match = pathname.match(/^\/api\/orders\/(\d+)\/workflow$/);
   const assignment = pathname.match(/^\/api\/orders\/(\d+)\/workflow\/assignee$/);
+  const yardReady = pathname.match(/^\/api\/orders\/(\d+)\/yard-ready$/);
+  const verifyDownpayment = pathname.match(/^\/api\/orders\/(\d+)\/verify-downpayment$/);
   const queue = pathname === '/api/workflow/tasks';
-  if (!match && !queue && !assignment) return false;
+  if (!match && !queue && !assignment && !yardReady && !verifyDownpayment) return false;
   if (!requireRole(response, claims, 'admin', 'operator', 'vendedor_yarda')) return true;
+
+  if (yardReady) {
+    if (!requireRole(response, claims, 'admin')) return true;
+    if (request.method !== 'POST') { sendJson(response, 405, { message: 'Método no permitido' }); return true; }
+    const orderId = yardReady[1];
+    const connection = await database.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [orders] = await connection.query<RowDataPacket[]>('SELECT id,version,order_code FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE', [orderId]);
+      if (!orders[0]) fail(404, 'Orden no encontrada');
+      await connection.execute('UPDATE orders SET yard_piece_ready=1,yard_piece_ready_at=CURRENT_TIMESTAMP,yard_piece_ready_by=?,version=version+1 WHERE id=?',
+        [Number(claims.sub), orderId]);
+      await connection.execute("INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details) VALUES (?,?,'YARD_PIECE_READY','order',?,?)",
+        [Number(claims.sub), String(claims.sub), String(orderId), JSON.stringify({ orderCode: orders[0].order_code })]);
+      await connection.commit();
+      broadcast('order:updated', { orderId: Number(orderId), action: 'YARD_PIECE_READY', yardPieceReady: true, timestamp: Date.now() });
+      sendJson(response, 200, { ok: true, yardPieceReady: true });
+      return true;
+    } catch (error) { await connection.rollback(); throw error; }
+    finally { connection.release(); }
+  }
+
+  if (verifyDownpayment) {
+    if (!requireRole(response, claims, 'admin')) return true;
+    if (request.method !== 'POST') { sendJson(response, 405, { message: 'Método no permitido' }); return true; }
+    const orderId = verifyDownpayment[1];
+    const connection = await database.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [orders] = await connection.query<RowDataPacket[]>('SELECT id,version,order_code,status FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE', [orderId]);
+      if (!orders[0]) fail(404, 'Orden no encontrada');
+      await connection.execute("UPDATE orders SET downpayment_verified=1,downpayment_verified_at=CURRENT_TIMESTAMP,downpayment_verified_by=?,status='Pagado',version=version+1 WHERE id=?",
+        [Number(claims.sub), orderId]);
+      await connection.execute('INSERT INTO status_orders (order_id,status,description,user_id) VALUES (?,?,?,?)',
+        [orderId, 'Pagado', 'Anticipo verificado en banco por el Administrador', Number(claims.sub)]);
+      await connection.execute("INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details) VALUES (?,?,'DOWNPAYMENT_VERIFIED','order',?,?)",
+        [Number(claims.sub), String(claims.sub), String(orderId), JSON.stringify({ orderCode: orders[0].order_code })]);
+      await connection.commit();
+      broadcast('order:updated', { orderId: Number(orderId), action: 'DOWNPAYMENT_VERIFIED', status: 'pagado', downpaymentVerified: true, timestamp: Date.now() });
+      sendJson(response, 200, { ok: true, status: 'pagado', downpaymentVerified: true });
+      return true;
+    } catch (error) { await connection.rollback(); throw error; }
+    finally { connection.release(); }
+  }
   if (assignment) {
     if (!requireRole(response, claims, 'admin')) return true;
     if (request.method !== 'POST') { sendJson(response, 405, { message: 'Método no permitido' }); return true; }
@@ -322,7 +373,14 @@ export async function handleWorkflowRequest(
       }
       let nextStatus: string | null = null;
       if (action.outcome === 'completed' && !order.deliveredAt) {
-        if (action.task === 'ack' && ['cotizacion', 'espera_confirmacion', 'pagado'].includes(order.status)) nextStatus = statusToDatabase.pagado;
+        if (action.task === 'ack' && ['cotizacion', 'espera_confirmacion', 'pagado'].includes(order.status)) {
+          const hasP2P = action.downpayment?.some(p => ['zelle', 'cashapp'].includes(p.method));
+          if (hasP2P && claims.role !== 'admin' && !order.downpaymentVerified) {
+            nextStatus = statusToDatabase.espera_confirmacion;
+          } else {
+            nextStatus = statusToDatabase.pagado;
+          }
+        }
         if (action.task === 'prepare' && action.preparation) nextStatus = action.preparation.deliveryType === 'envio_domicilio' ? statusToDatabase.listo_despacho : statusToDatabase.listo_retiro;
       }
       if (action.preparation) {
@@ -394,6 +452,22 @@ export async function handleWorkflowRequest(
     );
     await connection.commit();
     broadcast('order:updated', { orderId: Number(original.id), action: 'WORKFLOW_RECORDED', timestamp: Date.now() });
+    const hasP2P = requestAction.downpayment?.some(p => ['zelle', 'cashapp'].includes(p.method));
+    if (requestAction.task === 'ack' && hasP2P && claims.role !== 'admin') {
+      try {
+        const [admins] = await database.query<RowDataPacket[]>(
+          "SELECT phone FROM users WHERE role = 'admin' AND phone IS NOT NULL AND phone != ''"
+        );
+        const zelleLines = requestAction.downpayment?.filter(p => ['zelle', 'cashapp'].includes(p.method)) || [];
+        const desc = zelleLines.map(p => `• ${p.method.toUpperCase()}: $${p.amount.toFixed(2)} (Remitente: ${p.senderName || 'No indicado'})`).join('\n');
+        const msg = `🚨 *ANTICIPO POR VERIFICAR EN BANCO*\n━━━━━━━━━━━━━━━━━━━━━━━━━\n📦 *Orden:* ${original.code}\n👤 *Cliente:* ${original.customerName || 'Cliente'}\n💳 *Método:* Zelle / Cash App\n${desc}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n👉 Ingresa a la orden en Radar y presiona "Aprobar Anticipo (Banco)" para pasar a Pagado.`;
+        for (const a of admins) {
+          if (a.phone) void wasender.sendText({ to: a.phone, text: msg });
+        }
+      } catch (err) {
+        console.error('[Workflow] Error notificando WhatsApp al admin:', err);
+      }
+    }
     sendJson(response, 201, { ok: true, version: original.version + 1, eventId });
     return true;
   } catch (error) { await connection.rollback(); throw error; }

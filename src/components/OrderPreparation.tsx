@@ -10,8 +10,35 @@ export const PreparationFields: React.FC<{
   const [uploading, setUploading] = useState(false);
   const update = (patch: Partial<PreparationDraft>) => onChange({ ...value, ...patch });
   const field = 'flex flex-col gap-2 text-sm';
+
   return <section className="space-y-4">
+    {/* Big Visual Yard Notification Banner */}
+    {value.channel !== 'in_person' && (
+      value.yardNotified ? (
+        <div className="rounded-2xl p-4 bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 flex items-start gap-3 shadow-[0_0_15px_rgba(16,185,129,0.15)]">
+          <span className="material-symbols-outlined text-2xl text-emerald-400 mt-0.5 animate-pulse">check_circle</span>
+          <div>
+            <h4 className="font-bold text-base text-emerald-200">¡PIEZA LISTA EN YARDA!</h4>
+            <p className="text-xs text-emerald-300/90 mt-1">
+              La yarda confirmó que la pieza está desmontada y lista para entrega. Comunícate de inmediato con el comprador para acordar retiro o despacho.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-2xl p-4 bg-amber-950/40 border border-amber-500/40 text-amber-300 flex items-start gap-3">
+          <span className="material-symbols-outlined text-2xl text-amber-400 mt-0.5">hourglass_top</span>
+          <div>
+            <h4 className="font-bold text-base text-amber-200">Esperando confirmación de Yarda</h4>
+            <p className="text-xs text-amber-300/90 mt-1">
+              El personal de patio debe confirmar que la pieza está lista antes de agendar la cita definitiva.
+            </p>
+          </div>
+        </div>
+      )
+    )}
+
     {!allowInPerson && <p className="text-sm">Al completar este paso la orden pasa automáticamente a Listo para Retiro o Listo para Despacho, según la modalidad. No registra cobros, recepción del core ni entrega física.</p>}
+
     <fieldset disabled={disabled || uploading} className="space-y-4">
       <label className="flex items-start gap-2 text-sm"><input required type="checkbox" checked={value.yardNotified} onChange={event => update({ yardNotified: event.target.checked })} />{value.channel === 'in_person' ? 'Verifiqué en yarda que la pieza está lista para entregar.' : 'El patio notificó al call center que la pieza está lista.'}</label>
       <label className={field}>Tipo de comunicación con el cliente
@@ -25,11 +52,28 @@ export const PreparationFields: React.FC<{
           {(allowInPerson || value.channel === 'in_person') && <option value="in_person">Cliente presente · entrega inmediata en yarda</option>}
         </select>
       </label>
+
+      {/* Manual notes of conversation with client */}
+      {value.channel !== 'in_person' && (
+        <label className={field}>
+          ¿Qué respondió el cliente? (Detalle de la conversación)
+          <textarea
+            required
+            minLength={3}
+            maxLength={1000}
+            rows={2}
+            placeholder="Escribe lo que respondió el cliente al notificarle que su pieza está lista..."
+            value={value.customerNotes || ''}
+            onChange={event => update({ customerNotes: event.target.value })}
+          />
+        </label>
+      )}
+
       {value.channel === 'sms' && <div className="space-y-3">
         <label className="flex items-start gap-2 text-sm"><input required type="checkbox" checked={value.failedCall} onChange={event => update({ failedCall: event.target.checked })} />Intenté llamar y no logré contactar al cliente.</label>
         <label className={field}>Detalle del intento de llamada sin respuesta<textarea required minLength={5} maxLength={1000} value={value.failedCallNotes} onChange={event => update({ failedCallNotes: event.target.value })} /></label>
         <OrderImageFields photos={value.screenshots} onChange={screenshots => update({ screenshots })} onUpload={onUpload}
-          label="Capturas de la conversación y respuesta del cliente (una o más)" description="Adjunta la conversación y la respuesta del cliente."
+          label="Capturas de la conversación y respuesta del cliente (una o más)" description="Adjunta la conversación y la respuesta del cliente donde fue notificado."
           imageLabel="Ver captura" removeLabel="Quitar captura" required disabled={disabled}
           onUploadingChange={active => { setUploading(active); onUploadingChange?.(active); }} />
       </div>}
@@ -51,9 +95,10 @@ export const PreparationFields: React.FC<{
       </>}
       <label className="flex items-start gap-2 text-sm"><input required type="checkbox" checked={value.balanceNotified} onChange={event => update({ balanceNotified: event.target.checked })} />Informé al cliente el monto del saldo restante.</label>
       <label className="flex items-start gap-2 text-sm"><input required type="checkbox" checked={value.paymentMethodsNotified} onChange={event => update({ paymentMethodsNotified: event.target.checked })} />Informé que el saldo se paga únicamente en efectivo, Cash App o Zelle.</label>
+      <label className="flex items-start gap-2 text-sm"><input required type="checkbox" checked={value.coreNotified !== false} onChange={event => update({ coreNotified: event.target.checked })} />Recordé al cliente la política y entrega del core (casco viejo).</label>
       <label className={field}>Acuerdo del core
         <select required value={value.corePlan} onChange={event => update({ corePlan: event.target.value as PreparationDraft['corePlan'] })}>
-          <option value="">Selecciona la respuesta del cliente</option><option value="return_core">El cliente llevará el core</option><option value="pay_core">El cliente pagará el core</option>
+          <option value="">Selecciona la respuesta del cliente</option><option value="return_core">El cliente llevará el core a la yarda</option><option value="pay_core">El cliente pagará el valor del core</option>
         </select>
       </label>
     </fieldset>

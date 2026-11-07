@@ -502,6 +502,18 @@ export const WorkflowTasksView: React.FC<{
                             {task.requirement}
                           </p>
                         )}
+                        {task.order.yardPieceReady && (
+                          <div className="mt-2 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold font-mono flex items-center gap-1.5 shadow-[0_0_12px_rgba(16,185,129,0.2)]">
+                            <span className="material-symbols-outlined text-[16px] text-emerald-400 animate-pulse">check_circle</span>
+                            <span>¡PIEZA LISTA EN YARDA! — Contactar al comprador para acordar entrega</span>
+                          </div>
+                        )}
+                        {task.order.status === 'espera_confirmacion' && (
+                          <div className="mt-2 px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold font-mono flex items-center gap-1.5 shadow-[0_0_12px_rgba(245,158,11,0.2)]">
+                            <span className="material-symbols-outlined text-[16px] text-amber-400">hourglass_top</span>
+                            <span>Anticipo Zelle/Cash App pendiente de verificación en banco por Admin</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 

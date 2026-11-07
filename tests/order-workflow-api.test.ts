@@ -471,4 +471,36 @@ describe('workflow API transactional enforcement', () => {
     await expect(handleWorkflowRequest(prepare.req, prepare.res, '/api/orders/901/workflow', { sub: '7', role: 'operator' }, delivered.database, vi.fn())).rejects.toThrow(/etapa/);
     expect(delivered.connection.execute).not.toHaveBeenCalled();
   });
+  it('allows only admin to mark yard piece ready and records audit', async () => {
+    const { database, connection } = setup();
+    connection.query.mockReset().mockResolvedValueOnce([[{ id: 901, version: 1, order_code: 'ORD-901' }] as RowDataPacket[], []]);
+    const op = request('POST');
+    const opDenied = await handleWorkflowRequest(op.req, op.res, '/api/orders/901/yard-ready', { sub: '7', role: 'operator' }, database, vi.fn());
+    expect(opDenied).toBe(true);
+    expect(op.res.statusCode).toBe(403);
+    expect(connection.execute).not.toHaveBeenCalled();
+
+    const admin = request('POST');
+    const adminAllowed = await handleWorkflowRequest(admin.req, admin.res, '/api/orders/901/yard-ready', { sub: '1', role: 'admin' }, database, vi.fn());
+    expect(adminAllowed).toBe(true);
+    expect(admin.res.statusCode).toBe(200);
+    expect(connection.execute.mock.calls.some(call => String(call[0]).includes('SET yard_piece_ready=1'))).toBe(true);
+    expect(connection.commit).toHaveBeenCalledOnce();
+  });
+  it('allows only admin to verify downpayment and transitions order to Pagado', async () => {
+    const { database, connection } = setup();
+    connection.query.mockReset().mockResolvedValueOnce([[{ id: 901, version: 1, order_code: 'ORD-901', status: 'En Espera Confirmación' }] as RowDataPacket[], []]);
+    const op = request('POST');
+    const opDenied = await handleWorkflowRequest(op.req, op.res, '/api/orders/901/verify-downpayment', { sub: '7', role: 'operator' }, database, vi.fn());
+    expect(opDenied).toBe(true);
+    expect(op.res.statusCode).toBe(403);
+
+    const admin = request('POST');
+    const adminAllowed = await handleWorkflowRequest(admin.req, admin.res, '/api/orders/901/verify-downpayment', { sub: '1', role: 'admin' }, database, vi.fn());
+    expect(adminAllowed).toBe(true);
+    expect(admin.res.statusCode).toBe(200);
+    expect(connection.execute.mock.calls.some(call => String(call[0]).includes('downpayment_verified=1'))).toBe(true);
+    expect(connection.execute.mock.calls.some(call => String(call[0]).includes("status='Pagado'"))).toBe(true);
+    expect(connection.commit).toHaveBeenCalledOnce();
+  });
 });
