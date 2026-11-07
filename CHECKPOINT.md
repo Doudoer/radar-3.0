@@ -46,6 +46,18 @@
 - **Checklist Táctil de Verificaciones:**
   - 4 bloques interactivos con iconos y estados de confirmación que se iluminan al seleccionarse (saldo, métodos de pago aceptados, garantía/core y confirmación expresa del cliente).
 
+#### 3. Entrega Física y Cierre Comercial (Interfaz Visual y Galería Interactiva):
+- **Hero Card de Entrega:**
+  - Tarjeta destacada con gradiente cian, icono de transporte, badge de paso final y datos legibles del receptor (`Persona que recibe la pieza: Nombre · Cliente de la orden`).
+  - Distintivo visual informando la activación automática de la garantía desde la entrega.
+- **Zona Interactiva de Carga (Drag & Drop + Galería de Fotos):**
+  - Dropzone visual con borde punteado, icono animado e indicación clara de formatos y capacidad (hasta 20 fotos de 10 MB).
+  - Galería visual en cuadrícula de miniaturas para las fotos subidas, con enlace directo para ampliar y botón flotante para quitar fotos.
+  - Indicador de progreso de subida en tiempo real con spinner.
+- **Tarjeta Interactiva de Confirmación de Entrega y Garantía:**
+  - En lugar de una casilla gris pequeña, un bloque táctil grande que se ilumina en verde esmeralda con icono `handshake` / `check_circle`.
+  - Notifica claramente la inspección de la pieza, el inicio del plazo de garantía y las condiciones del core.
+
 ---
 
 ---
