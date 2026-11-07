@@ -52,6 +52,6 @@ describe('VaultUnlockModal & Disaster Recovery Vault Gate', () => {
     expect(html).toContain('Centro de Respaldos &amp; Rollback (Disaster Recovery)');
     expect(html).toContain('Crear Respaldo Ahora');
     expect(html).toContain('Descarga Directa');
-    expect(html).toContain('Desbloquear Bóveda');
+    expect(html).toContain('Protegido con 2FA');
   });
 });

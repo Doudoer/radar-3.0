@@ -465,7 +465,8 @@ const server = createServer(async (request, response) => {
       response.writeHead(308, { Location: `/api${pathname}`, 'Cache-Control': 'no-store' });
       return response.end();
     }
-    const sensitiveSystemPath = pathname.startsWith('/api/system/') ||
+    const isSystemBackupsList = request.method === 'GET' && pathname === '/api/system/backups';
+    const sensitiveSystemPath = (pathname.startsWith('/api/system/') && !isSystemBackupsList) ||
       pathname.startsWith('/api/uploads/backups/') || pathname.startsWith('/uploads/backups/');
     const userManagementWrite = /^\/api\/users(?:\/\d+)?$/.test(pathname) && isUnsafeMethod(request.method);
     if (sensitiveSystemPath || userManagementWrite) {
