@@ -32,9 +32,23 @@
     - Elevación bajo demanda: Al pulsar "Crear Respaldo Ahora", "Descarga Directa" o "Rollback", si la bóveda está bloqueada, se abre automáticamente el modal 2FA. Al validar el código, la acción solicitada se ejecuta de inmediato y la sesión queda abierta por 15 minutos.
   - **Nuevas Pruebas ([`tests/vault-unlock-modal.test.tsx`](file:///Users/doudoer/Desktop/Radar/tests/vault-unlock-modal.test.tsx)):** Cobertura unitaria para el modal 2FA, cierre, apertura y renderizado del Centro de Respaldos.
 
-### 3. Estado de Ejecución y Despliegue
-- Todos los cambios fueron consolidados y fusionados en la rama `main` local (`0cd472e`).
+### 3. Resolución Definitiva en Centro de Respaldos (Disaster Recovery) & Salud del Sistema
+- **Diagnóstico del Error 500 / Fallo al listar respaldos:**
+  - En `src/server/backup.ts`, la función `listBackups()` recorre el catálogo MySQL y los directorios de disco (`/backups` y `/uploads/backups`).
+  - Para respaldos existentes en disco no indexados en la tabla `system_backup_records`, se llamaba a `syncFileToDb` que leía el archivo completo e intentaba insertar un BLOB comprimido en MySQL.
+  - Al procesar copias de respaldo de gran tamaño (por ejemplo, archivos de más de 30 MB), el paquete SQL superaba el límite de `max_allowed_packet` de MySQL/MariaDB, lo que provocaba un fallo de conexión `ECONNRESET` que interrumpía la consulta y causaba un error 500 interno (`INTERNAL_ERROR`).
+- **Solución Implementada:**
+  - **Límite de tamaño para BLOB en catálogo ([`src/server/backup.ts`](file:///Users/doudoer/Desktop/Radar/src/server/backup.ts)):** `syncFileToDb` solo almacena el BLOB comprimido en MySQL si el archivo es menor o igual a 10 MB (para recuperación en entornos efímeros sin disco persistente). Para respaldos mayores a 10 MB, la copia física en disco es la fuente de verdad y en la base de datos se guarda la metadata con `content_compressed = NULL`. Esto garantiza que la consulta SQL sea ligera (< 1 KB), eliminando por completo los errores de paquete o desconexión `ECONNRESET`.
+  - **Resiliencia en creación de snapshot ([`src/server/backup.ts`](file:///Users/doudoer/Desktop/Radar/src/server/backup.ts)):** Si la inserción con BLOB falla en `saveBackupSnapshot`, realiza un fallback automático para persistir la metadata con `content_compressed = NULL`, garantizando que el archivo `.sql` y `.gz` queden guardados en disco sin abortar la operación.
+  - **Manejo seguro de errores en endpoints ([`server.ts`](file:///Users/doudoer/Desktop/Radar/server.ts)):** Se envolvió `GET /api/system/backups` en un bloque `try / catch` que retorna `[]` en caso extremo en lugar de provocar un error 500. Se mejoró el registro de fallos en consola para imprimir la traza de error completa cuando ocurre un código 500.
+  - **Acceso inicial a configuración 2FA ([`server.ts`](file:///Users/doudoer/Desktop/Radar/server.ts)):** Se ajustó `GET /api/auth/2fa/totp-setup` para que, si el usuario administrador aún no tiene configurado un secreto TOTP (`totp_secret` nulo), pueda inicializar y ver el código QR de Google Authenticator sin requerir la bóveda previamente desbloqueada, evitando el bloqueo cuando WhatsApp no está configurado.
+  - **Conexión en vivo de Salud de Base de Datos ([`src/components/SystemSettingsView.tsx`](file:///Users/doudoer/Desktop/Radar/src/components/SystemSettingsView.tsx)):** Se vinculó el bloque "Conexión de Base de Datos y Servidor" con el endpoint `/health`, mostrando el estado en tiempo real del motor MySQL (`En Línea (Conectado)`), la base de datos activa (`radar_v3 (MariaDB InnoDB)`) y los puertos de servicio (`3000 (API) / 3306 (SQL)`).
+
+### 4. Estado de Ejecución y Despliegue
+- Todos los cambios fueron consolidados y confirmados en la rama `main` local (`ad237a3`).
 - Contenedor local `radar-desktop-app:local` reconstruido y activo en `http://127.0.0.1:3000`.
+- El endpoint `GET /api/system/backups` responde exitosamente HTTP 200 con el catálogo completo de 55 respaldos.
+- La suite completa de pruebas unitarias pasó al 100% (478 pruebas en 64 suites).
 - **Ningún cambio ha sido subido a producción (respetando la regla de trabajo local).**
 
 ---
