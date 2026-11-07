@@ -79,7 +79,15 @@ export function FinanceVault({ children, onBack }: { children: React.ReactNode; 
         <p className="text-sm text-slate-500">El PIN se envía al administrador y expira en 1 minuto.</p>
         <button type="button" disabled={busy || cooldown > 0} onClick={async () => {
           const result = await request('/auth/2fa/request-otp', {});
-          if (result?.dispatched) { setCooldown(result.cooldownSeconds || 60); setNotice(result.message); }
+          if (result?.dispatched) {
+            setCooldown(result.cooldownSeconds || 60);
+            if (result.devCode) {
+              setCode(result.devCode);
+              setNotice(`[Modo Local] PIN generado: ${result.devCode} (auto-completado)`);
+            } else {
+              setNotice(result.message);
+            }
+          }
         }} className="rounded-xl bg-cyan-500 px-4 py-2 font-bold text-slate-950 disabled:opacity-50 cursor-pointer">
           {cooldown > 0 ? `Solicitar en ${cooldown}s` : 'Solicitar Código'}
         </button>

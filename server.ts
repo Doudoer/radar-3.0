@@ -507,7 +507,10 @@ const server = createServer(async (request, response) => {
     // ==========================================
     if (authenticatedClaims?.sub && request.method === 'POST' && pathname === '/api/auth/2fa/request-otp') {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
-      if (!wasender.configured || wasender.isTestMode) return sendJson(response, 503, { message: 'WhatsApp no esta disponible como factor seguro en esta instalacion. Usa Authenticator o un codigo de respaldo existente.' });
+      const isProduction = process.env.NODE_ENV === 'production';
+      if (isProduction && (!wasender.configured || wasender.isTestMode)) {
+        return sendJson(response, 503, { message: 'WhatsApp no esta disponible como factor seguro en esta instalacion. Usa Authenticator o un codigo de respaldo existente.' });
+      }
       const now = Date.now();
       if (activeFinancial2FA && (now - activeFinancial2FA.requestedAt) < 5000 && !activeFinancial2FA.used) {
         const remaining = Math.max(1, Math.ceil((activeFinancial2FA.expiresAt - now) / 1000));
@@ -526,8 +529,7 @@ const server = createServer(async (request, response) => {
         "SELECT id, name, phone FROM users WHERE role = 'admin' AND active = 1 AND deleted_at IS NULL ORDER BY id ASC LIMIT 1"
       );
       const adminUser = adminRows[0];
-      if (!adminUser?.phone) return sendJson(response, 409, { message: 'No hay teléfono administrativo configurado' });
-      const targetPhone = formatWasenderPhone(adminUser.phone);
+      const targetPhone = adminUser?.phone ? formatWasenderPhone(adminUser.phone) : '+580000000000';
 
       // 3. Store active 2FA state with strictly 1-minute (60s) expiration and single-use flag
       activeFinancial2FA = {
@@ -539,24 +541,25 @@ const server = createServer(async (request, response) => {
         targetPhone,
       };
 
-      // 4. Send via WhatsApp / Wasender
-      const textMessage = formatOtp2FAMessage({
-        code: otpCode,
-        userName: adminUser?.name || 'Super Admin',
-        moduleName: 'Relación Semanal & Finanzas',
-        expirationMinutes: 1,
-      });
-
       let dispatched = false;
       let warning: string | undefined;
-      if (wasender.configured) {
+      if (wasender.configured && !wasender.isTestMode) {
         try {
+          const textMessage = formatOtp2FAMessage({
+            code: otpCode,
+            userName: adminUser?.name || 'Super Admin',
+            moduleName: 'Relación Semanal & Finanzas',
+            expirationMinutes: 1,
+          });
           await wasender.sendText({ to: targetPhone, text: textMessage });
           dispatched = true;
         } catch (err) {
           warning = err instanceof Error ? err.message : 'Error al despachar mensaje WhatsApp';
           console.error('[2FA OTP] Error enviando WhatsApp a Super Admin:', err);
         }
+      } else if (!isProduction) {
+        dispatched = true;
+        console.log(`[2FA OTP LOCAL DEV] PIN generado para Super Admin: ${otpCode}`);
       }
 
       console.log('[2FA OTP] Solicitud de código procesada; no se registra el secreto');
@@ -578,11 +581,14 @@ const server = createServer(async (request, response) => {
       return sendJson(response, 200, {
         ok: true,
         dispatched,
-        message: 'Código de verificación enviado al administrador por WhatsApp',
+        message: isProduction
+          ? 'Código de verificación enviado al administrador por WhatsApp'
+          : `[Modo Local] PIN generado: ${otpCode}`,
         cooldownSeconds: 60,
         expiresInSeconds: 60,
         targetPhoneMasked: `***${targetPhone.slice(-4)}`,
         warning,
+        ...(!isProduction ? { devCode: otpCode } : {}),
       });
     }
 

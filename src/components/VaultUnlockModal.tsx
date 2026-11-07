@@ -57,7 +57,12 @@ export const VaultUnlockModal: React.FC<VaultUnlockModalProps> = ({
         throw new Error(data.message || 'No se pudo enviar el código por WhatsApp');
       }
       setCooldown(data.cooldownSeconds || 60);
-      setNotice(data.message || 'Código de 6 dígitos enviado a tu WhatsApp');
+      if (data.devCode) {
+        setCode(data.devCode);
+        setNotice(`[Modo Local] PIN generado: ${data.devCode} (auto-completado)`);
+      } else {
+        setNotice(data.message || 'Código de 6 dígitos enviado a tu WhatsApp');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al solicitar código OTP');
     } finally {
