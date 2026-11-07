@@ -219,8 +219,37 @@ const WorkflowManagementForm: React.FC<{
       <OrderDeliveryFields orderId={task.order.id} customerName={task.order.customerName || 'Nombre del cliente pendiente de completar'}
         photos={deliveryPhotos} onChange={setDeliveryPhotos} disabled={busy || uploading}
         onUploadingChange={value => { uploadInFlight.current = value; setUploading(value); }} />
-      <label className="flex items-start gap-2 text-sm"><input required type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />
-        Confirmo la entrega física al cliente y la comunicación de la garantía.</label>
+      <button
+        type="button"
+        disabled={busy || uploading}
+        onClick={() => setConfirmed(!confirmed)}
+        className={`w-full p-4 rounded-2xl border text-left transition-all flex items-start gap-3.5 ${
+          confirmed
+            ? 'bg-emerald-950/50 border-emerald-500/70 text-emerald-100 shadow-[0_0_20px_rgba(16,185,129,0.15)] ring-1 ring-emerald-500/30'
+            : 'bg-slate-900/70 border-slate-700 text-slate-300 hover:border-slate-600 hover:bg-slate-800/60'
+        }`}
+      >
+        <div className={`p-2 rounded-xl shrink-0 ${confirmed ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'bg-slate-800 text-slate-400'}`}>
+          <span className="material-symbols-outlined text-xl">
+            {confirmed ? 'check_circle' : 'handshake'}
+          </span>
+        </div>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-sm">
+              Confirmo la entrega física al cliente y la comunicación de la garantía.
+            </span>
+            {confirmed && <span className="text-emerald-400 text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20">Confirmado</span>}
+          </div>
+          <p className="text-xs text-slate-400 mt-1">
+            Pieza inspeccionada en buen estado, plazo de garantía notificado y política de core informada al comprador.
+          </p>
+        </div>
+      </button>
+      <label className="hidden">
+        <input required type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />
+        Confirmo la entrega física al cliente y la comunicación de la garantía.
+      </label>
     </> : <>
     <label className={field}>Detalle de la gestión
       <textarea required minLength={5} maxLength={5000} rows={3} value={notes} onChange={event => setNotes(event.target.value)} />
