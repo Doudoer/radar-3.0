@@ -112,6 +112,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       (order) => order.status === 'reclamo' || order.status === 'solicitud_reembolso'
     ).length;
 
+    const effectiveDeliveryRate = periodOrders.length > 0
+      ? Math.round(((periodOrders.length - claimsCount) / periodOrders.length) * 100)
+      : 100;
+
     return {
       totalOrders: periodOrders.length,
       salesOrdersCount: salesOrders.length,
@@ -120,6 +124,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       totalBalanceDue,
       activeInWorkshop,
       claimsCount,
+      effectiveDeliveryRate,
       overdueSlas: slaMetrics.filter((sla) => sla.status === 'overdue').length,
       distribution: operationalDistribution(periodOrders),
     };
@@ -434,6 +439,69 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <span className="hidden sm:inline">Semana Actual</span>
               </button>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Control del Supervisor y Telemetría Operativa */}
+      <div className="relative rounded-3xl bg-gradient-to-r from-[#0c1a30]/90 via-[#070c18]/95 to-[#040812] border border-cyan-500/30 p-4 shadow-[0_15px_40px_rgba(0,0,0,0.6)] overflow-hidden">
+        <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-amber-400 shadow-[0_0_12px_#22d3ee]" />
+
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(6,182,212,0.25)]">
+              <span className="material-symbols-outlined text-[22px]">monitoring</span>
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-black text-white font-mono">
+                  Telemetría y Control Operativo
+                </h3>
+                <span className="text-[10px] font-mono font-bold bg-cyan-500/15 text-cyan-300 px-2 py-0.5 rounded-full border border-cyan-400/40">
+                  Flujo del Período
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 font-mono mt-0.5">
+                Monitoreo continuo de efectividad en servicio, entregas y órdenes en taller.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Ventas Registradas */}
+            <div className="bg-[#030712]/80 px-3.5 py-2 rounded-2xl border border-cyan-500/20 text-right">
+              <span className="text-[9.5px] font-mono uppercase text-cyan-400 block font-bold">
+                Ventas Registradas
+              </span>
+              <span className="text-base font-mono font-black text-cyan-300">
+                ${dashboardMetrics.totalSales.toFixed(2)} USD
+              </span>
+            </div>
+
+            {/* Efectividad SLA */}
+            <div className="bg-[#030712]/80 px-3.5 py-2 rounded-2xl border border-cyan-500/20 text-right">
+              <span className="text-[9.5px] font-mono uppercase text-emerald-400 block font-bold">
+                Efectividad sin Reclamos
+              </span>
+              <span className="text-base font-mono font-black text-emerald-300">
+                {dashboardMetrics.effectiveDeliveryRate}%
+              </span>
+            </div>
+
+            {/* Cuellos de Botella Taller */}
+            <div
+              onClick={onNavigateTaller}
+              className="bg-[#030712]/80 hover:bg-[#061226] px-3.5 py-2 rounded-2xl border border-cyan-500/20 text-right cursor-pointer transition"
+              title="Ir a taller para revisar órdenes activas"
+            >
+              <span className="text-[9.5px] font-mono uppercase text-cyan-400 block font-bold flex items-center justify-end gap-1">
+                <span>Taller en Proceso</span>
+                <span className="material-symbols-outlined text-[12px]">arrow_forward</span>
+              </span>
+              <span className="text-base font-mono font-black text-cyan-300">
+                {dashboardMetrics.activeInWorkshop} activas
+              </span>
+            </div>
           </div>
         </div>
       </div>

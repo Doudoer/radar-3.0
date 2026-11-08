@@ -139,7 +139,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
     );
   }, [operators, selectedOperatorName, currentUser]);
 
-  const [activeTab, setActiveTab] = useState<'ventas_periodo' | 'activas' | 'cotizaciones' | 'reclamos' | 'reembolsos'>('ventas_periodo');
+  const [activeTab, setActiveTab] = useState<'ventas_periodo' | 'activas' | 'cotizaciones' | 'reclamos' | 'reembolsos' | 'leaderboard'>('ventas_periodo');
   const [searchTableQuery, setSearchTableQuery] = useState('');
 
   // Transfer Modal State
@@ -367,6 +367,85 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
     };
   }, [periodSales]);
 
+  // 10. Advisor Performance Leaderboard (Ranking operativo de asesores)
+  const advisorLeaderboard = useMemo(() => {
+    const allPeriodOrders = orders.filter((order) => {
+      if (periodType === 'todo') return true;
+      const orderDate = parseOrderDate(order);
+      if (!orderDate) return false;
+      if (periodType === 'semana') {
+        return orderDate >= weekRange.monday && orderDate <= weekRange.sunday;
+      }
+      if (periodType === 'mes') {
+        return orderDate >= monthRange.start && orderDate <= monthRange.end;
+      }
+      return true;
+    });
+
+    const advisorMap = new Map<string, {
+      name: string;
+      role: string;
+      salesCount: number;
+      deliveredCount: number;
+      salesSum: number;
+      downPaymentSum: number;
+      balanceSum: number;
+    }>();
+
+    // Initialize from active operators
+    operators.forEach((op) => {
+      advisorMap.set(op.name.toLowerCase(), {
+        name: op.name,
+        role: op.role,
+        salesCount: 0,
+        deliveredCount: 0,
+        salesSum: 0,
+        downPaymentSum: 0,
+        balanceSum: 0,
+      });
+    });
+
+    allPeriodOrders.forEach((order) => {
+      const advName = (order.advisor || '').trim();
+      if (!advName) return;
+      const key = advName.toLowerCase();
+      if (!advisorMap.has(key)) {
+        advisorMap.set(key, {
+          name: advName,
+          role: order.advisorRole || 'Operador',
+          salesCount: 0,
+          deliveredCount: 0,
+          salesSum: 0,
+          downPaymentSum: 0,
+          balanceSum: 0,
+        });
+      }
+      const entry = advisorMap.get(key)!;
+      if (saleStatuses.has(order.status)) {
+        entry.salesCount += 1;
+        entry.salesSum = sumMoney([entry.salesSum, orderSaleTotal(order)]);
+        entry.downPaymentSum = sumMoney([entry.downPaymentSum, orderCollection(order)]);
+        entry.balanceSum = sumMoney([entry.balanceSum, orderBalance(order)]);
+      }
+      if (order.status === 'entregado') {
+        entry.deliveredCount += 1;
+      }
+    });
+
+    const totalPeriodSalesSum = sumMoney(Array.from(advisorMap.values()).map((a) => a.salesSum));
+
+    return Array.from(advisorMap.values())
+      .filter((a) => a.salesCount > 0 || a.salesSum > 0 || operators.some((op) => op.name.toLowerCase() === a.name.toLowerCase()))
+      .sort((a, b) => b.salesSum - a.salesSum || b.salesCount - a.salesCount)
+      .map((item, idx) => ({
+        ...item,
+        rank: idx + 1,
+        averageTicket: item.salesCount > 0 ? item.salesSum / item.salesCount : 0,
+        deliveryRate: item.salesCount > 0 ? Math.round((item.deliveredCount / item.salesCount) * 100) : 0,
+        volumeShare: totalPeriodSalesSum > 0 ? Math.round((item.salesSum / totalPeriodSalesSum) * 100) : 0,
+      }));
+  }, [orders, periodType, weekRange, monthRange, operators]);
+
   // 10. Filtered Sales Table List (with search)
   const displaySalesList = useMemo(() => {
     if (!searchTableQuery.trim()) return periodSales;
@@ -493,9 +572,13 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
             </div>
             <p className="text-xs text-slate-400 font-mono mt-1 flex items-center gap-3">
               <span>✉️ {currentOperator.email}</span>
-              {!isSuperAdmin && (
+              {!isSuperAdmin ? (
                 <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30">
-                  🔒 Mis Ventas Asignadas
+                  🔒 Mis Ventas Asignadas · Nómina Fija
+                </span>
+              ) : (
+                <span className="text-cyan-400 font-bold bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/30">
+                  ⚡ Panel de Supervisión y Auditoría
                 </span>
               )}
             </p>
@@ -1025,9 +1108,36 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                 {operatorClaims.length}
               </span>
             </button>
-            <button type="button" onClick={() => setActiveTab('reembolsos')}
-              className={`px-4 py-2 rounded-2xl text-xs font-mono font-bold border ${activeTab === 'reembolsos' ? 'border-amber-400 text-amber-300' : 'border-cyan-500/20 text-slate-400'}`}>
-              5. Reembolsos ({operatorRefunds.length})
+            <button
+              type="button"
+              onClick={() => setActiveTab('reembolsos')}
+              className={`px-4 py-2 rounded-2xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                activeTab === 'reembolsos'
+                  ? 'bg-amber-500/20 border-2 border-amber-400 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.35)]'
+                  : 'bg-[#040814] text-slate-400 hover:text-white border border-cyan-500/20'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[16px]">currency_exchange</span>
+              <span>5. Reembolsos</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-md font-mono font-bold bg-[#02050c] text-white border border-cyan-500/25">
+                {operatorRefunds.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('leaderboard')}
+              className={`px-4 py-2 rounded-2xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                activeTab === 'leaderboard'
+                  ? 'bg-amber-500/25 border-2 border-amber-400 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.35)]'
+                  : 'bg-[#040814] text-slate-400 hover:text-white border border-cyan-500/20'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[16px] text-amber-400">military_tech</span>
+              <span>6. Ranking de Asesores</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-md font-mono font-bold bg-[#02050c] text-amber-300 border border-amber-500/30">
+                {advisorLeaderboard.length}
+              </span>
             </button>
           </div>
 
@@ -1437,6 +1547,149 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                 </div>
               )}
             </div>}
+          </div>
+        )}
+
+        {/* Tab 6: Leaderboard / Ranking Operativo de Asesores */}
+        {activeTab === 'leaderboard' && (
+          <div className="flex flex-col p-4 sm:p-5">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <div>
+                <h4 className="text-sm font-bold text-white font-mono flex items-center gap-2">
+                  <span className="material-symbols-outlined text-amber-400 text-[18px]">military_tech</span>
+                  <span>Ranking de Productividad por Volumen de Ventas</span>
+                </h4>
+                <p className="text-xs text-slate-400 font-mono mt-0.5">
+                  Evaluación de asesores según volumen facturado, pedidos cerrados y porcentaje de entregas efectivas.
+                </p>
+              </div>
+              <span className="text-[11px] font-mono text-cyan-400 bg-cyan-500/10 border border-cyan-500/30 px-2.5 py-1 rounded-xl">
+                Evaluación de rendimiento comercial y efectividad
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+              {advisorLeaderboard.slice(0, 3).map((adv) => {
+                const medalColors =
+                  adv.rank === 1
+                    ? 'border-amber-400/60 bg-amber-500/10 text-amber-300'
+                    : adv.rank === 2
+                    ? 'border-slate-300/60 bg-slate-400/10 text-slate-200'
+                    : 'border-amber-700/60 bg-amber-800/10 text-amber-500';
+                const medalIcon = adv.rank === 1 ? '🥇' : adv.rank === 2 ? '🥈' : '🥉';
+
+                return (
+                  <div
+                    key={adv.name}
+                    className={`relative rounded-2xl p-4 border flex flex-col justify-between ${medalColors} shadow-[0_10px_25px_rgba(0,0,0,0.5)]`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-2xl">{medalIcon}</span>
+                        <div>
+                          <h5 className="font-bold text-white text-sm leading-tight">{adv.name}</h5>
+                          <span className="text-[10.5px] font-mono text-slate-400">{adv.role}</span>
+                        </div>
+                      </div>
+                      <span className="font-mono text-xs font-black px-2 py-0.5 rounded-lg bg-black/40 border border-white/10">
+                        {adv.volumeShare}% del total
+                      </span>
+                    </div>
+
+                    <div className="mt-3 pt-3 border-t border-white/10 space-y-1.5 font-mono text-xs">
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Volumen Ventas:</span>
+                        <span className="font-black text-white text-base">${adv.salesSum.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-slate-400">Órdenes / Entregas:</span>
+                        <span className="text-slate-200 font-bold">{adv.salesCount} ventas ({adv.deliveryRate}% entregadas)</span>
+                      </div>
+                      <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-slate-400">Ticket Promedio:</span>
+                        <span className="text-cyan-300 font-bold">${adv.averageTicket.toFixed(2)}</span>
+                      </div>
+                    </div>
+
+                    {isSuperAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOperatorName(adv.name)}
+                        className="mt-3 w-full py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">visibility</span>
+                        <span>Auditar Asesor</span>
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Complete Table Leaderboard */}
+            <div className="table-responsive-wrapper custom-scrollbar mt-2">
+              <table className="w-full text-left text-xs border-collapse min-w-[760px]">
+                <thead className="bg-[#090d16] text-[#94a3b8] uppercase text-[10px] tracking-wider border-b border-[#1e293b]">
+                  <tr>
+                    <th className="py-3 px-4">Puesto</th>
+                    <th className="py-3 px-4">Asesor</th>
+                    <th className="py-3 px-4">Rol</th>
+                    <th className="py-3 px-4 text-right">Volumen Total</th>
+                    <th className="py-3 px-4 text-center">Órdenes</th>
+                    <th className="py-3 px-4 text-right">Ticket Promedio</th>
+                    <th className="py-3 px-4 text-center">Efectividad Entrega</th>
+                    <th className="py-3 px-4 text-center">% Cuota Período</th>
+                    {isSuperAdmin && <th className="py-3 px-4 text-center">Acción</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#1e293b] text-[#cbd5e1] font-mono">
+                  {advisorLeaderboard.length === 0 ? (
+                    <tr>
+                      <td colSpan={isSuperAdmin ? 9 : 8} className="py-10 text-center text-slate-500 font-mono">
+                        No hay actividad de ventas registrada para los asesores en este período.
+                      </td>
+                    </tr>
+                  ) : (
+                    advisorLeaderboard.map((adv) => (
+                      <tr key={adv.name} className="hover:bg-[#1e293b]/40 transition-colors">
+                        <td className="py-3 px-4 font-bold">
+                          <span className={`w-6 h-6 rounded-full inline-flex items-center justify-center text-xs ${
+                            adv.rank === 1 ? 'bg-amber-400 text-slate-950 font-black' :
+                            adv.rank === 2 ? 'bg-slate-300 text-slate-950 font-black' :
+                            adv.rank === 3 ? 'bg-amber-700 text-white font-bold' :
+                            'bg-slate-800 text-slate-400'
+                          }`}>
+                            {adv.rank}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 font-bold text-white">{adv.name}</td>
+                        <td className="py-3 px-4 text-slate-400 text-[11px]">{adv.role}</td>
+                        <td className="py-3 px-4 text-right font-black text-emerald-300">${adv.salesSum.toFixed(2)}</td>
+                        <td className="py-3 px-4 text-center font-bold text-white">{adv.salesCount}</td>
+                        <td className="py-3 px-4 text-right text-cyan-300">${adv.averageTicket.toFixed(2)}</td>
+                        <td className="py-3 px-4 text-center">
+                          <span className="px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 text-[10.5px]">
+                            {adv.deliveryRate}%
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-center text-slate-300 font-bold">{adv.volumeShare}%</td>
+                        {isSuperAdmin && (
+                          <td className="py-3 px-4 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedOperatorName(adv.name)}
+                              className="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/30 text-cyan-300 font-mono text-[11px] font-bold transition cursor-pointer"
+                            >
+                              Auditar
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

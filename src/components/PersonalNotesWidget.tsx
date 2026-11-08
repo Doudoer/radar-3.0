@@ -277,7 +277,7 @@ export const PersonalNotesWidget: React.FC = () => {
           }}
           title="Abrir bloc de notas personal (Arrastrable)"
           aria-label="Abrir bloc de notas personal"
-          className="fixed bottom-5 right-5 z-[80] flex h-11 items-center gap-2 rounded-full border border-cyan-500/40 bg-[#070c18]/90 backdrop-blur-xl px-4 text-cyan-300 shadow-[0_8px_30px_rgba(0,0,0,0.7)] transition-all hover:border-cyan-400 hover:bg-[#09152b] hover:text-white hover:shadow-[0_0_20px_rgba(6,182,212,0.35)] active:scale-95 cursor-pointer font-mono select-none"
+          className="fixed bottom-5 right-5 z-[80] hidden md:flex h-11 items-center gap-2 rounded-full border border-cyan-500/40 bg-[#070c18]/90 backdrop-blur-xl px-4 text-cyan-300 shadow-[0_8px_30px_rgba(0,0,0,0.7)] transition-all hover:border-cyan-400 hover:bg-[#09152b] hover:text-white hover:shadow-[0_0_20px_rgba(6,182,212,0.35)] active:scale-95 cursor-pointer font-mono select-none"
         >
           <span className="material-symbols-outlined text-[19px] text-cyan-400">edit_note</span>
           <span className="hidden sm:inline text-xs font-bold">Bloc de notas</span>
@@ -294,7 +294,7 @@ export const PersonalNotesWidget: React.FC = () => {
             height: isMinimized ? 'auto' : `min(${WIDGET_HEIGHT}px, calc(100vh - 40px))`,
             transition: isDragging ? 'none' : 'box-shadow 0.2s ease, border-color 0.2s ease',
           }}
-          className={`horizon-notes-panel fixed top-0 left-0 z-[85] flex flex-col overflow-hidden rounded-3xl border ${
+          className={`horizon-notes-panel fixed top-0 left-0 z-[85] hidden md:flex flex-col overflow-hidden rounded-3xl border ${
             isDragging
               ? 'border-cyan-400 shadow-[0_25px_70px_rgba(0,0,0,0.9),0_0_35px_rgba(6,182,212,0.4)] scale-[1.01]'
               : 'border-cyan-500/35 shadow-[0_20px_60px_rgba(0,0,0,0.85),0_0_20px_rgba(6,182,212,0.15)]'

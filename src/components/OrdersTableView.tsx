@@ -60,7 +60,24 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
 }) => {
   const [segmentView, setSegmentView] = useState<OrderSegmentView>('active');
   const [isArchivedView, setIsArchivedView] = useState(false);
-  const [showFilters, setShowFilters] = useState(true);
+  const [showFilters, setShowFilters] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('radar_orders_show_filters');
+      if (saved !== null) return saved === 'true';
+      if (window.innerWidth < 768) return false;
+    }
+    return false;
+  });
+
+  const handleToggleFilters = () => {
+    setShowFilters((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('radar_orders_show_filters', String(next));
+      }
+      return next;
+    });
+  };
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [operatorFilter, setOperatorFilter] = useState<string>('all');
   const [makeFilter, setMakeFilter] = useState<string>('all');
@@ -69,10 +86,32 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
   const [toDate, setToDate] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [quickFilter, setQuickFilter] = useState<QuickFilterType>('all');
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('radar_orders_view_mode');
+      if (saved === 'cards' || saved === 'table') {
+        if (window.innerWidth < 768) return 'cards';
+        return saved;
+      }
+      if (window.innerWidth < 768) return 'cards';
+    }
+    return 'cards';
+  });
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(10);
   const [activeActionMenu, setActiveActionMenu] = useState<string | null>(null);
   const [copiedVinId, setCopiedVinId] = useState<string | null>(null);
+
+  const handleViewModeChange = (mode: 'cards' | 'table') => {
+    setViewMode(mode);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('radar_orders_view_mode', mode);
+      } catch {
+        // ignore storage errors
+      }
+    }
+  };
 
   const handleToggleArchived = () => {
     if (isArchivedView) {
@@ -329,14 +368,12 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
     return { active, readyPickup, expiredWarranty, cancelled, refunds, archived, auction, total: orders.length };
   }, [orders]);
 
-  // Filtered orders by Segment View, Dropdown Filters, Date Range, Quick Filters & Search
-  const filteredOrders = useMemo(() => {
+  // Base filtered orders before applying quick-filter pills (to calculate accurate dynamic live counts)
+  const baseSegmentOrders = useMemo(() => {
     const isSearching = Boolean(searchQuery.trim());
 
     return orders.filter((order) => {
       // 1. Status, Archived & Segment Filter
-      // Cuando se usa el buscador de órdenes, la búsqueda debe abarcar todas las órdenes con cualquier status.
-      // Si no hay búsqueda activa por texto, se aplican las vistas segmentadas, vista archivada y filtro de estado.
       if (!isSearching) {
         if (isArchivedView) {
           if (order.status !== 'archivado') return false;
@@ -397,18 +434,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         if (toDate && (!orderDate || orderDate > toDate)) return false;
       }
 
-      // 6. Quick Filters
-      if (quickFilter === 'pending_balance') {
-        if (getOrderFinancials(order).totalPayable <= 0) return false;
-      } else if (quickFilter === 'with_core') {
-        if (!hasCoreCommitment(order)) return false;
-      } else if (quickFilter === 'ready') {
-        if (order.status !== 'listo_retiro' && order.status !== 'listo_despacho' && order.status !== 'en_camino') return false;
-      } else if (quickFilter === 'auction') {
-        if (!isOrderAuction(order)) return false;
-      }
-
-      // 7. Search query
+      // 6. Search query
       if (isSearching) {
         const query = searchQuery.toLowerCase().trim();
         const matchesCode = (order.code || '').toLowerCase().includes(query) || (order.id || '').toLowerCase().includes(query);
@@ -445,9 +471,52 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
     partTypeFilter,
     fromDate,
     toDate,
-    quickFilter,
     searchQuery,
   ]);
+
+  // Live counters for quick-filter pills based on current segment
+  const quickFilterCounts = useMemo(() => {
+    let pendingBalance = 0;
+    let withCore = 0;
+    let ready = 0;
+    let auction = 0;
+
+    baseSegmentOrders.forEach((order) => {
+      if (getOrderFinancials(order).totalPayable > 0) pendingBalance++;
+      if (hasCoreCommitment(order)) withCore++;
+      if (order.status === 'listo_retiro' || order.status === 'listo_despacho' || order.status === 'en_camino') ready++;
+      if (isOrderAuction(order)) auction++;
+    });
+
+    return {
+      all: baseSegmentOrders.length,
+      pending_balance: pendingBalance,
+      with_core: withCore,
+      ready,
+      auction,
+    };
+  }, [baseSegmentOrders]);
+
+  // Filtered orders with quickFilter applied
+  const filteredOrders = useMemo(() => {
+    if (quickFilter === 'all') return baseSegmentOrders;
+
+    return baseSegmentOrders.filter((order) => {
+      if (quickFilter === 'pending_balance') {
+        return getOrderFinancials(order).totalPayable > 0;
+      }
+      if (quickFilter === 'with_core') {
+        return hasCoreCommitment(order);
+      }
+      if (quickFilter === 'ready') {
+        return order.status === 'listo_retiro' || order.status === 'listo_despacho' || order.status === 'en_camino';
+      }
+      if (quickFilter === 'auction') {
+        return isOrderAuction(order);
+      }
+      return true;
+    });
+  }, [baseSegmentOrders, quickFilter]);
 
   // Pagination Computations
   const totalOrders = filteredOrders.length;
@@ -576,13 +645,21 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
     </span>
   );
 
-  const quickFilterButtons: { id: Exclude<QuickFilterType, 'all'>; icon: string; active: string; idle: string; iconColor: string }[] = [
+  const quickFilterButtons: {
+    id: Exclude<QuickFilterType, 'all'>;
+    icon: string;
+    active: string;
+    idle: string;
+    iconColor: string;
+    countKey: 'pending_balance' | 'with_core' | 'ready' | 'auction';
+  }[] = [
     {
       id: 'pending_balance',
       icon: 'payments',
       active: 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.35)]',
       idle: 'hover:border-amber-400/50',
       iconColor: 'text-amber-400',
+      countKey: 'pending_balance',
     },
     {
       id: 'with_core',
@@ -590,6 +667,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
       active: 'bg-purple-500/20 border-purple-400 text-purple-300 shadow-[0_0_12px_rgba(168,85,247,0.35)]',
       idle: 'hover:border-purple-400/50',
       iconColor: 'text-purple-400',
+      countKey: 'with_core',
     },
     {
       id: 'ready',
@@ -597,6 +675,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
       active: 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.35)]',
       idle: 'hover:border-emerald-400/50',
       iconColor: 'text-emerald-400',
+      countKey: 'ready',
     },
     {
       id: 'auction',
@@ -604,6 +683,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
       active: 'bg-amber-500/20 border-amber-400 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.35)]',
       idle: 'hover:border-amber-400/50',
       iconColor: 'text-amber-400',
+      countKey: 'auction',
     },
   ];
 
@@ -683,12 +763,12 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
       </div>
 
       {/* Segmented Quick Tabs */}
-      <nav aria-label="Estatus de órdenes" className="horizon-order-segments flex flex-wrap items-center gap-2">
+      <nav aria-label="Estatus de órdenes" className="horizon-order-segments flex items-center gap-2 overflow-x-auto flex-nowrap scrollbar-none py-1 -mx-2 px-2 sm:mx-0 sm:px-0 touch-pan-x">
         {/* Activas */}
         <button
           onClick={() => handleSegmentChange('active')}
           aria-pressed={segmentView === 'active' && !isArchivedView}
-          className={`text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
+          className={`shrink-0 text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
             segmentView === 'active' && !isArchivedView
               ? 'bg-emerald-500/20 border-2 border-emerald-400 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.35)]'
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
@@ -705,7 +785,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         <button
           onClick={() => handleSegmentChange('auction')}
           aria-pressed={segmentView === 'auction' && !isArchivedView}
-          className={`text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
+          className={`shrink-0 text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
             segmentView === 'auction' && !isArchivedView
               ? 'bg-amber-100 dark:bg-amber-500/20 border-2 border-amber-500 dark:border-amber-400 text-amber-950 dark:text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.35)]'
               : 'bg-white dark:bg-[#040814] border border-slate-200 dark:border-cyan-500/20 text-slate-700 dark:text-slate-300 hover:border-amber-400/50 hover:text-amber-900 dark:hover:text-white'
@@ -723,7 +803,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         <button
           onClick={() => handleSegmentChange('ready_pickup')}
           aria-pressed={segmentView === 'ready_pickup' && !isArchivedView}
-          className={`text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
+          className={`shrink-0 text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
             segmentView === 'ready_pickup' && !isArchivedView
               ? 'bg-purple-500/20 border-2 border-purple-400 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.35)]'
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
@@ -740,7 +820,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         <button
           onClick={() => handleSegmentChange('expired_warranty')}
           aria-pressed={segmentView === 'expired_warranty' && !isArchivedView}
-          className={`text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
+          className={`shrink-0 text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
             segmentView === 'expired_warranty' && !isArchivedView
               ? 'bg-amber-500/20 border-2 border-amber-400 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.35)]'
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
@@ -757,7 +837,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         <button
           onClick={() => handleSegmentChange('cancelled')}
           aria-pressed={segmentView === 'cancelled' && !isArchivedView}
-          className={`text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
+          className={`shrink-0 text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
             segmentView === 'cancelled' && !isArchivedView
               ? 'bg-red-500/20 border-2 border-red-400 text-red-300 shadow-[0_0_15px_rgba(239,68,68,0.35)]'
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
@@ -774,7 +854,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         <button
           onClick={() => handleSegmentChange('refunds')}
           aria-pressed={segmentView === 'refunds' && !isArchivedView}
-          className={`text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
+          className={`shrink-0 text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
             segmentView === 'refunds' && !isArchivedView
               ? 'bg-amber-500/20 border-2 border-amber-400 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.35)]'
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
@@ -791,7 +871,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         <button
           onClick={() => handleSegmentChange('archived')}
           aria-pressed={isArchivedView || segmentView === 'archived'}
-          className={`text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
+          className={`shrink-0 text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
             isArchivedView || segmentView === 'archived'
               ? 'bg-slate-700/60 border-2 border-cyan-400 text-white shadow-[0_0_15px_rgba(6,182,212,0.3)]'
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
@@ -809,91 +889,160 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
       <div className="horizon-order-filters relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-4 shadow-[0_15px_35px_rgba(0,0,0,0.6)] flex flex-col gap-3.5 overflow-hidden">
         <div className="absolute top-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_10px_#22d3ee]" />
 
-        {/* Row 1: Ver Archivadas | Search Bar | Filtros Button */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          {/* Ver Archivadas Button */}
-          <button
-            type="button"
-            onClick={handleToggleArchived}
-            className={`px-4 py-2.5 rounded-2xl border text-xs font-mono font-bold flex items-center justify-center gap-2 cursor-pointer transition-all shrink-0 ${
-              isArchivedView
-                ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.35)]'
-                : 'bg-[#060e1d]/90 border-slate-700/80 text-slate-200 hover:border-cyan-400/60 hover:text-white hover:bg-[#09152b]'
-            }`}
-          >
-            <span className="material-symbols-outlined text-[18px]">
-              {isArchivedView ? 'visibility' : 'inventory_2'}
-            </span>
-            <span>{isArchivedView ? 'Ver Activas' : 'Ver Archivadas'}</span>
-            {counts.archived > 0 && !isArchivedView && (
-              <span className="text-[10px] bg-[#02050c] px-1.5 py-0.5 rounded border border-cyan-500/30 text-slate-300">
-                {counts.archived}
+        {/* Row 1: Search Bar & Quick Controls (Mobile App-first responsive flow) */}
+        <div className="flex flex-col gap-2.5">
+          {/* Top Full-width Mobile Search Bar */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+            <div className="relative flex-1 group">
+              <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400 text-[18px] group-focus-within:text-cyan-300 pointer-events-none transition-colors">
+                search
               </span>
-            )}
-          </button>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder="Buscar por nombre, teléfono, marca, modelo, año o tipo de pieza..."
+                className="w-full bg-[#040814]/90 border border-slate-700/80 group-focus-within:border-cyan-400 text-xs text-white placeholder:text-slate-400 rounded-2xl py-2.5 pl-10 pr-9 focus:outline-none focus:ring-2 focus:ring-cyan-400/30 transition-all shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => handleSearchChange('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-800 transition cursor-pointer"
+                  title="Limpiar búsqueda"
+                >
+                  <span className="material-symbols-outlined text-[16px]">close</span>
+                </button>
+              )}
+            </div>
 
-          {/* Search Input Box */}
-          <div className="relative flex-1 group">
-            <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400 text-[18px] group-focus-within:text-cyan-300 pointer-events-none transition-colors">
-              search
-            </span>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder="Buscar por nombre, teléfono, marca, modelo, año o tipo de pieza..."
-              className="w-full bg-[#040814]/90 border border-slate-700/80 group-focus-within:border-cyan-400 text-xs text-white placeholder:text-slate-400 rounded-2xl py-2.5 pl-10 pr-9 focus:outline-none focus:ring-2 focus:ring-cyan-400/30 transition-all shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => handleSearchChange('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-800 transition cursor-pointer"
-                title="Limpiar búsqueda"
-              >
-                <span className="material-symbols-outlined text-[16px]">close</span>
-              </button>
-            )}
+            {/* Controls Bar: Ver Archivadas, Filtros Toggle, View Mode Switcher */}
+            <div className="flex items-center justify-between sm:justify-end gap-2 overflow-x-auto scrollbar-none py-0.5">
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Ver Archivadas Button */}
+                <button
+                  type="button"
+                  onClick={handleToggleArchived}
+                  className={`px-3 py-2 rounded-xl border text-xs font-mono font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all shrink-0 ${
+                    isArchivedView
+                      ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.35)]'
+                      : 'bg-[#060e1d]/90 border-slate-700/80 text-slate-200 hover:border-cyan-400/60 hover:text-white hover:bg-[#09152b]'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[16px]">
+                    {isArchivedView ? 'visibility' : 'inventory_2'}
+                  </span>
+                  <span>{isArchivedView ? 'Ver Activas' : 'Ver Archivadas'}</span>
+                  {counts.archived > 0 && !isArchivedView && (
+                    <span className="text-[10px] bg-[#02050c] px-1.5 py-0.2 rounded border border-cyan-500/30 text-slate-300">
+                      {counts.archived}
+                    </span>
+                  )}
+                </button>
+
+                {/* Filtros Toggle Button (Accordion Trigger) */}
+                <button
+                  type="button"
+                  onClick={handleToggleFilters}
+                  aria-expanded={showFilters}
+                  className={`px-3 py-2 rounded-xl border text-xs font-mono font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all shrink-0 ${
+                    showFilters || activeFiltersCount > 0
+                      ? 'bg-blue-600/20 border-blue-400 text-blue-300 shadow-[0_0_15px_rgba(59,130,246,0.35)]'
+                      : 'bg-[#060e1d]/90 border-slate-700/80 text-slate-200 hover:border-cyan-400/60 hover:text-white hover:bg-[#09152b]'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-[16px]">
+                    {showFilters ? 'tune' : 'filter_alt'}
+                  </span>
+                  <span>Filtros</span>
+                  {activeFiltersCount > 0 && (
+                    <span className="w-4 h-4 rounded-full bg-cyan-400 text-slate-950 font-black text-[9px] flex items-center justify-center shadow-[0_0_8px_#22d3ee]">
+                      {activeFiltersCount}
+                    </span>
+                  )}
+                  <span className={`material-symbols-outlined text-[15px] transition-transform duration-300 ${showFilters ? 'rotate-180' : ''}`}>
+                    expand_more
+                  </span>
+                </button>
+              </div>
+
+              {/* View Mode Toggle: Cards vs Table */}
+              <div className="flex items-center gap-1 bg-[#040814]/90 p-1 rounded-xl border border-slate-700/80 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleViewModeChange('cards')}
+                  className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 text-xs font-mono font-bold cursor-pointer ${
+                    viewMode === 'cards'
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.3)]'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                  }`}
+                  title="Vista de Cuadrícula de Tarjetas"
+                >
+                  <span className="material-symbols-outlined text-[16px]">grid_view</span>
+                  <span className="text-[11px]">Tarjetas</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleViewModeChange('table')}
+                  className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 text-xs font-mono font-bold cursor-pointer ${
+                    viewMode === 'table'
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.3)]'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                  }`}
+                  title="Vista en Tabla Compacta"
+                >
+                  <span className="material-symbols-outlined text-[16px]">table_rows</span>
+                  <span className="text-[11px]">Tabla</span>
+                </button>
+              </div>
+            </div>
           </div>
-
-          {/* Filtros Toggle Button */}
-          <button
-            type="button"
-            onClick={() => setShowFilters((prev) => !prev)}
-            aria-expanded={showFilters}
-            className={`px-4 py-2.5 rounded-2xl border text-xs font-mono font-bold flex items-center justify-center gap-2 cursor-pointer transition-all shrink-0 ${
-              showFilters || activeFiltersCount > 0
-                ? 'bg-blue-600/20 border-blue-400 text-blue-300 shadow-[0_0_15px_rgba(59,130,246,0.35)]'
-                : 'bg-[#060e1d]/90 border-slate-700/80 text-slate-200 hover:border-cyan-400/60 hover:text-white hover:bg-[#09152b]'
-            }`}
-          >
-            <span className="material-symbols-outlined text-[18px]">
-              {showFilters ? 'tune' : 'filter_alt'}
-            </span>
-            <span>Filtros</span>
-            {activeFiltersCount > 0 && (
-              <span className="w-5 h-5 rounded-full bg-cyan-400 text-slate-950 font-black text-[10px] flex items-center justify-center shadow-[0_0_8px_#22d3ee]">
-                {activeFiltersCount}
-              </span>
-            )}
-          </button>
         </div>
 
-        {/* Row 2: Quick Filter Pills (1-click) */}
-        <div className="flex items-center gap-2 flex-wrap" role="group" aria-label="Filtros rápidos">
-          <span className="text-[10.5px] font-mono font-bold uppercase text-slate-400 mr-1 flex items-center gap-1">
+        {/* Row 2: Quick Filter Pills (1-click Swipeable Strip) with Live Counters */}
+        <div className="flex items-center gap-2 overflow-x-auto flex-nowrap scrollbar-none py-1 -mx-2 px-2 touch-pan-x" role="group" aria-label="Filtros rápidos">
+          <span className="text-[10px] font-mono font-bold uppercase text-slate-400 mr-1 flex items-center gap-1 shrink-0">
             <span className="material-symbols-outlined text-[14px] text-cyan-400">bolt</span>
-            Acceso rápido
+            Filtros rápidos:
           </span>
+
+          {/* Pill: Todos */}
+          <button
+            type="button"
+            aria-pressed={quickFilter === 'all'}
+            onClick={() => {
+              setQuickFilter('all');
+              setCurrentPage(1);
+            }}
+            className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer border ${
+              quickFilter === 'all'
+                ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.35)]'
+                : 'bg-[#040814] border-slate-700/80 text-slate-300 hover:text-white hover:border-cyan-400/50'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[14px] text-cyan-400">format_list_bulleted</span>
+            <span>Todos</span>
+            <span
+              className={`ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black ${
+                quickFilter === 'all'
+                  ? 'bg-cyan-400/30 text-cyan-200 border border-cyan-400/50'
+                  : 'bg-slate-800 text-slate-400 border border-slate-700'
+              }`}
+            >
+              {quickFilterCounts.all}
+            </span>
+          </button>
+
           {quickFilterButtons.map((qf) => {
             const isActive = quickFilter === qf.id;
+            const count = quickFilterCounts[qf.countKey];
             return (
               <button
                 key={qf.id}
                 type="button"
                 aria-pressed={isActive}
                 onClick={() => handleQuickFilterToggle(qf.id)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer border ${
+                className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer border ${
                   isActive
                     ? qf.active
                     : `bg-[#040814] border-slate-700/80 text-slate-300 hover:text-white ${qf.idle}`
@@ -901,16 +1050,66 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
               >
                 <span className={`material-symbols-outlined text-[14px] ${qf.iconColor}`}>{qf.icon}</span>
                 <span>{QUICK_FILTER_LABELS[qf.id]}</span>
-                {isActive && <span className="material-symbols-outlined text-[13px]">close</span>}
+                <span
+                  className={`ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black ${
+                    isActive
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                  }`}
+                >
+                  {count}
+                </span>
+                {isActive && <span className="material-symbols-outlined text-[13px] ml-0.5">close</span>}
               </button>
             );
           })}
         </div>
 
-        {/* Row 3: Filter Grid (ESTADO, OPERADOR, MARCA, TIPO DE PIEZA, DESDE, HASTA) */}
-        {showFilters && (
-          <div className="pt-3 border-t border-cyan-500/15 animate-in fade-in duration-200">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        {/* Row 3: Filter Grid Accordion Header & Collapsible Body */}
+        <div className="border-t border-cyan-500/15 pt-2">
+          {/* Accordion Toggle Header Bar */}
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={handleToggleFilters}
+              aria-expanded={showFilters}
+              aria-controls="orders-filter-accordion-body"
+              className="flex items-center gap-2 text-xs font-mono font-bold text-slate-300 hover:text-cyan-300 transition-colors py-1 cursor-pointer group select-none"
+            >
+              <div className="w-5 h-5 rounded-md bg-slate-800/80 border border-slate-700/80 group-hover:border-cyan-400/50 flex items-center justify-center transition">
+                <span className={`material-symbols-outlined text-[15px] text-cyan-400 transition-transform duration-300 ${showFilters ? 'rotate-180' : ''}`}>
+                  expand_more
+                </span>
+              </div>
+              <span>{showFilters ? 'Ocultar Filtros Detallados' : 'Mostrar Filtros Detallados'}</span>
+              {activeFiltersCount > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-cyan-400 text-slate-950 font-black text-[9.5px] shadow-[0_0_8px_#22d3ee]">
+                  {activeFiltersCount} {activeFiltersCount === 1 ? 'filtro activo' : 'filtros activos'}
+                </span>
+              )}
+            </button>
+
+            {activeFiltersCount > 0 && (
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="text-[11px] font-mono text-amber-400 hover:text-amber-300 flex items-center gap-1 transition-colors cursor-pointer py-1"
+                title="Restablecer todos los filtros"
+              >
+                <span className="material-symbols-outlined text-[14px]">filter_alt_off</span>
+                <span>Limpiar filtros</span>
+              </button>
+            )}
+          </div>
+
+          {/* Accordion Body with 6 Filter Controls */}
+          <div
+            id="orders-filter-accordion-body"
+            className={`transition-all duration-300 ease-in-out ${
+              showFilters ? 'block opacity-100 pt-3' : 'hidden opacity-0'
+            }`}
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 pt-1">
               {/* 1. ESTADO */}
               <div>
                 <label className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
@@ -1066,7 +1265,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
               </div>
             </div>
           </div>
-        )}
+        </div>
 
         {/* Active filters: summary + dismissible chips + clear button (visible even when grid is collapsed) */}
         {(activeFiltersCount > 0 || searchQuery.trim() !== '' || isArchivedView) && (
@@ -1113,10 +1312,342 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
         )}
       </div>
 
-      {/* Main Glassmorphic Data Table */}
+      {/* Main Glassmorphic Container (Cards Grid or Table) */}
       <div className="horizon-orders-table relative rounded-3xl bg-[#070c18]/94 backdrop-blur-2xl border border-cyan-500/25 shadow-[0_20px_50px_rgba(0,0,0,0.75)] overflow-hidden flex flex-col">
         <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee]" />
 
+        {/* View Mode: Cards Grid */}
+        {viewMode === 'cards' && (
+          <div className="p-4 sm:p-5 custom-scrollbar min-h-[400px]">
+            {paginatedOrders.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {paginatedOrders.map((order) => {
+                  const { downPayment, coreFee, totalPayable, paidPercentage } = getOrderFinancials(order);
+                  const pipeline = getOrderPipeline(order);
+                  const coreCommitted = hasCoreCommitment(order);
+                  const waDigits = (order.customer?.whatsapp || order.customer?.phone || '').replace(/\D/g, '');
+
+                  return (
+                    <div
+                      key={order.id}
+                      onClick={() => onSelectOrder(order.id)}
+                      className="group relative rounded-2xl bg-[#040814]/90 border border-slate-800/90 hover:border-cyan-400/60 transition-all duration-300 hover:shadow-[0_10px_30px_rgba(6,182,212,0.15)] flex flex-col justify-between p-4 cursor-pointer overflow-hidden active:scale-[0.99] touch-manipulation"
+                    >
+                      {/* Top cyber accent line on hover */}
+                      <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400/0 to-transparent group-hover:via-cyan-400 transition-all duration-300" />
+
+                      {/* Header: Code, Delivery Type, Status, Auction */}
+                      <div className="flex items-start justify-between gap-2 mb-3">
+                        <div className="flex flex-col gap-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-mono text-xs font-black text-cyan-300 bg-cyan-500/10 border border-cyan-400/30 px-2.5 py-0.5 rounded-lg group-hover:text-cyan-200 group-hover:border-cyan-400/70 transition shadow-[0_0_8px_rgba(6,182,212,0.15)]">
+                              {order.code}
+                            </span>
+                            <div className="flex items-center gap-1 text-[11px] font-mono text-slate-400">
+                              <span className={`material-symbols-outlined text-[14px] ${order.deliveryType === 'envio_domicilio' ? 'text-cyan-400' : 'text-emerald-400'}`}>
+                                {order.deliveryType === 'envio_domicilio' ? 'local_shipping' : 'storefront'}
+                              </span>
+                              <span className="hidden sm:inline">{order.deliveryType === 'envio_domicilio' ? 'Envío' : 'Retiro'}</span>
+                            </div>
+                          </div>
+                          <span className="text-[10.5px] font-mono text-slate-400 flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[12px] text-slate-500">calendar_today</span>
+                            {order.createdAt}
+                          </span>
+                        </div>
+                        <div className="shrink-0 flex flex-col items-end gap-1">
+                          {renderStatusBadge(order.status)}
+                          {isOrderAuction(order) && (
+                            <span
+                              className="text-amber-900 dark:text-amber-400 font-mono text-[9.5px] font-bold inline-flex items-center gap-0.5 bg-amber-100/90 dark:bg-amber-500/15 px-1.5 py-0.5 rounded border border-amber-400/70 dark:border-amber-500/30 shrink-0"
+                              title="Requiere búsqueda en subasta (Copart/IAAI)"
+                            >
+                              <span className="material-symbols-outlined text-[11px] text-amber-600 dark:text-amber-400">gavel</span>
+                              <span>Subasta</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Customer Row */}
+                      <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80 mb-3">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-500/25 to-blue-600/25 flex items-center justify-center text-cyan-300 font-bold text-xs border border-cyan-400/30 shrink-0 shadow-[0_0_8px_rgba(6,182,212,0.2)]">
+                            {order.customer?.initials || 'CL'}
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-white font-bold text-xs truncate group-hover:text-cyan-200 transition">
+                              {order.customer?.name || 'Cliente sin nombre'}
+                            </span>
+                            <span className="text-slate-400 text-[10.5px] font-mono truncate">
+                              {order.customer?.phone || 'Sin teléfono'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Direct Mobile Quick Actions: WhatsApp & Call */}
+                        <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                          {waDigits && (
+                            <a
+                              href={`https://wa.me/${waDigits.startsWith('1') ? waDigits : '1' + waDigits}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-8 h-8 rounded-xl flex items-center justify-center text-emerald-400 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 hover:border-emerald-400 transition active:scale-95"
+                              title="WhatsApp directo con el cliente"
+                              aria-label={`WhatsApp a ${order.customer?.name}`}
+                            >
+                              <span className="material-symbols-outlined text-[17px]">chat</span>
+                            </a>
+                          )}
+                          {order.customer?.phone && (
+                            <a
+                              href={`tel:${order.customer.phone.replace(/\D/g, '')}`}
+                              className="w-8 h-8 rounded-xl flex items-center justify-center text-cyan-400 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 hover:border-cyan-400 transition active:scale-95"
+                              title="Llamar directamente"
+                              aria-label={`Llamar a ${order.customer?.name}`}
+                            >
+                              <span className="material-symbols-outlined text-[17px]">call</span>
+                            </a>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Vehicle & Part Information */}
+                      <div className="space-y-2 mb-3 bg-[#02050e]/60 p-2.5 rounded-xl border border-slate-800/60">
+                        {/* Vehicle + VIN */}
+                        <div className="flex items-start gap-1.5">
+                          <span className="material-symbols-outlined text-[16px] text-cyan-400 shrink-0 mt-0.5">directions_car</span>
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <span className="text-slate-200 text-xs font-semibold leading-tight truncate">
+                              {order.vehicle?.year} {order.vehicle?.make} {order.vehicle?.model}
+                            </span>
+                            {order.vehicle?.vin ? (
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="font-mono text-[10px] text-slate-400 truncate">
+                                  VIN: {order.vehicle.vin}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleCopyVin(e, order.vehicle?.vin || '', order.id)}
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center gap-0.5 transition cursor-pointer ${
+                                    copiedVinId === order.id
+                                      ? 'text-emerald-300 bg-emerald-500/20 border border-emerald-400/40'
+                                      : 'text-slate-400 hover:text-cyan-300 bg-slate-800/80 hover:bg-cyan-500/10 border border-slate-700/50'
+                                  }`}
+                                  title={copiedVinId === order.id ? 'VIN copiado al portapapeles' : 'Copiar VIN'}
+                                >
+                                  <span className="material-symbols-outlined text-[11px]">
+                                    {copiedVinId === order.id ? 'check' : 'content_copy'}
+                                  </span>
+                                  <span>{copiedVinId === order.id ? 'Copiado' : 'Copiar'}</span>
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="font-mono text-[10px] text-slate-500">Sin VIN</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Part + Stock */}
+                        <div className="flex items-start gap-1.5 pt-1.5 border-t border-slate-800/60">
+                          <span className="material-symbols-outlined text-[16px] text-emerald-400 shrink-0 mt-0.5">build</span>
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-white text-xs font-semibold">{order.mainPart}</span>
+                              <InventoryAvailabilityBadge availability={order.inventoryAvailability} />
+                            </div>
+                            {order.stockNumber && (
+                              <span className="font-mono text-[9.5px] text-emerald-400 font-bold mt-0.5">
+                                Stock: {order.stockNumber}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Pipeline Stepper Compact */}
+                      <div className="p-2 rounded-xl bg-slate-900/40 border border-slate-800/60 mb-3 flex items-center justify-between gap-2">
+                        <div className="flex items-center">
+                          {PIPELINE_STEP_NAMES.map((name, idx) => {
+                            const stepNum = idx + 1;
+                            const isDone = pipeline.isDone || stepNum < pipeline.step;
+                            const isCurrent = !pipeline.isDone && stepNum === pipeline.step;
+                            const dotClass = pipeline.isHalted
+                              ? isDone || isCurrent
+                                ? 'bg-slate-600 text-slate-200 border border-slate-500'
+                                : 'bg-slate-800 text-slate-600 border border-slate-700'
+                              : isDone
+                              ? 'bg-emerald-500 text-slate-950 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
+                              : isCurrent
+                              ? 'bg-cyan-400 text-slate-950 ring-2 ring-cyan-400/40 shadow-[0_0_8px_rgba(6,182,212,0.6)]'
+                              : 'bg-slate-800 text-slate-500 border border-slate-700';
+                            return (
+                              <div key={name} className="flex items-center">
+                                <div
+                                  className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8.5px] font-mono font-black ${dotClass}`}
+                                  title={`${stepNum}. ${name}`}
+                                >
+                                  {isDone && !pipeline.isHalted ? '✓' : stepNum}
+                                </div>
+                                {stepNum < PIPELINE_STEP_NAMES.length && (
+                                  <div
+                                    className={`w-2.5 h-0.5 ${
+                                      !pipeline.isHalted && (pipeline.isDone || stepNum < pipeline.step)
+                                        ? 'bg-emerald-400'
+                                        : 'bg-slate-700'
+                                    }`}
+                                  />
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <span className={`text-[10px] font-mono font-bold truncate ${pipeline.isHalted ? 'text-slate-500' : pipeline.isDone ? 'text-emerald-300' : 'text-cyan-300'}`}>
+                          {pipeline.label}
+                        </span>
+                      </div>
+
+                      {/* Financial Progress Box */}
+                      <div className="p-2.5 rounded-xl bg-gradient-to-br from-[#060c18] to-[#040814] border border-cyan-500/20 mb-3 space-y-1.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-[11px] font-mono text-slate-400">Balance</span>
+                          {totalPayable <= 0 ? (
+                            <span className="inline-flex items-center gap-1 font-mono text-[11px] font-black text-emerald-300 bg-emerald-500/15 border border-emerald-400/40 px-2 py-0.5 rounded-lg">
+                              <span className="material-symbols-outlined text-[13px]">check_circle</span>
+                              Liquidado
+                            </span>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-amber-400/90 font-mono">Saldo:</span>
+                              <span className="font-mono text-xs font-black text-amber-300 drop-shadow-[0_0_6px_rgba(245,158,11,0.3)]">
+                                ${totalPayable.toFixed(2)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Visual Progress Bar */}
+                        <div className="w-full h-2 bg-slate-800/90 rounded-full overflow-hidden p-0.5">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              paidPercentage >= 100
+                                ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]'
+                                : paidPercentage > 0
+                                ? 'bg-gradient-to-r from-emerald-400 to-cyan-400'
+                                : 'bg-red-400/60'
+                            }`}
+                            style={{ width: `${Math.max(paidPercentage, 4)}%` }}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between text-[10.5px] font-mono">
+                          <span className="text-emerald-400 font-semibold">
+                            Abono: ${downPayment.toFixed(2)} ({paidPercentage}%)
+                          </span>
+                          {coreCommitted ? (
+                            <span className="text-purple-300 font-bold flex items-center gap-0.5">
+                              <span className="material-symbols-outlined text-[11px]">autorenew</span>
+                              {coreFee > 0 ? `Core $${coreFee.toFixed(2)}` : 'Core pactado'}
+                            </span>
+                          ) : (
+                            <span className="text-slate-500 font-mono">
+                              Total: ${(order.financials?.total || order.financials?.partPrice || 0).toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Card Footer: Advisor + Action buttons */}
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs relative">
+                        <div className="flex items-center gap-1 text-slate-400 font-mono text-[10.5px]">
+                          <span className="material-symbols-outlined text-[13px] text-slate-500">badge</span>
+                          <span className="truncate max-w-[120px]" title={`Asesor: ${order.advisor || 'Sin asignar'}`}>
+                            {order.advisor || 'Sin asesor'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => onSelectOrder(order.id)}
+                            className="px-3 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/30 border border-cyan-400/40 hover:border-cyan-300 text-cyan-300 text-xs font-mono font-bold flex items-center gap-1 transition cursor-pointer shadow-[0_0_10px_rgba(6,182,212,0.15)]"
+                          >
+                            <span>Abrir</span>
+                            <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActiveActionMenu(activeActionMenu === order.id ? null : order.id)}
+                            className="text-slate-400 hover:text-cyan-300 p-1.5 rounded-xl hover:bg-slate-800 transition cursor-pointer"
+                            title="Opciones"
+                            aria-haspopup="menu"
+                            aria-expanded={activeActionMenu === order.id}
+                          >
+                            <span className="material-symbols-outlined text-[16px]">more_vert</span>
+                          </button>
+                        </div>
+
+                        {/* Dropdown Menu in Card */}
+                        {activeActionMenu === order.id && (
+                          <div className="absolute right-0 bottom-11 w-48 bg-[#060c18] border border-cyan-500/30 rounded-2xl shadow-[0_15px_40px_rgba(0,0,0,0.85)] z-30 py-2 text-left text-xs overflow-hidden backdrop-blur-2xl" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => {
+                                if (onEditOrder) onEditOrder(order);
+                                else onSelectOrder(order.id);
+                                setActiveActionMenu(null);
+                              }}
+                              className="w-full px-4 py-2 hover:bg-cyan-500/15 text-white flex items-center gap-2.5 cursor-pointer font-medium transition"
+                            >
+                              <span className="material-symbols-outlined text-[16px] text-cyan-400">edit</span>
+                              <span>Editar Orden</span>
+                            </button>
+                            <button
+                              disabled={order.status === 'archivado' || !onUpdateStatus}
+                              onClick={() => {
+                                if (onUpdateStatus) onUpdateStatus(order.id, 'archivado');
+                                setActiveActionMenu(null);
+                              }}
+                              className="w-full px-4 py-2 hover:bg-amber-500/15 text-amber-300 flex items-center gap-2.5 cursor-pointer font-bold border-t border-cyan-500/15 disabled:cursor-not-allowed disabled:opacity-40 transition"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">archive</span>
+                              <span>Archivar</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="py-14 text-center text-slate-400 flex flex-col items-center justify-center gap-2">
+                <span className="material-symbols-outlined text-5xl text-cyan-400/50">search_off</span>
+                <p className="font-bold text-white text-sm">
+                  {searchQuery.trim()
+                    ? `No se encontraron órdenes con el término "${searchQuery}".`
+                    : 'No se encontraron órdenes en esta vista.'}
+                </p>
+                <p className="text-xs text-slate-400 font-mono">
+                  {searchQuery.trim()
+                    ? 'Prueba con otro término de búsqueda (nombre, teléfono, VIN o pieza) o limpia el buscador.'
+                    : 'Prueba seleccionando otra de las vistas segmentadas o ajusta tu búsqueda.'}
+                </p>
+                {(activeFiltersCount > 0 || searchQuery.trim() !== '') && (
+                  <button
+                    type="button"
+                    onClick={handleClearFilters}
+                    className="mt-2 px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-[11px] font-mono font-bold flex items-center gap-1 transition cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">restart_alt</span>
+                    Limpiar filtros y búsqueda
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* View Mode: Table Compact */}
+        {viewMode === 'table' && (
         <div className="table-responsive-wrapper custom-scrollbar">
           <table className="w-full text-left whitespace-nowrap border-collapse min-w-[1080px]">
             <thead className="bg-[#040814]/95 border-b border-cyan-500/20 sticky top-0 z-10">
@@ -1441,8 +1972,9 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
             </tbody>
           </table>
         </div>
+        )}
 
-        {/* Table Footer with Pagination & Page Size Pills */}
+        {/* Table/Cards Footer with Pagination & Page Size Pills */}
         <div className="sticky bottom-0 z-10 bg-[#040814]/95 backdrop-blur-xl border-t border-cyan-500/20 px-5 py-3.5 flex flex-col lg:flex-row items-center justify-between gap-4">
           {/* Left: Summary info */}
           <div className="flex items-center gap-3 text-xs text-slate-400 font-mono">

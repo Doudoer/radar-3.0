@@ -38,6 +38,7 @@ export const ClaimCallsModal: React.FC<ClaimCallsModalProps> = ({ claim, isOpen,
     setError('');
   }, [claim, isOpen]);
 
+
   if (!isOpen) return null;
 
   const handleSubmit = async (event: React.FormEvent) => {

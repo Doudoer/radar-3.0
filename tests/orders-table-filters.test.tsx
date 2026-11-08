@@ -354,4 +354,29 @@ describe('OrdersTableView Search & Filter UI', () => {
     expect(html).toContain('Compresor de Aire Acondicionado');
     expect(html).toContain('Entregado');
   });
+
+  it('renders quick-filter pills with live counters and dual-view switcher controls', () => {
+    const html = renderToStaticMarkup(
+      <OrdersTableView
+        orders={sampleOrders}
+        onSelectOrder={vi.fn()}
+        onOpenNewOrder={vi.fn()}
+        onExport={vi.fn()}
+        onStatusRequest={vi.fn()}
+      />
+    );
+
+    // View Mode Switcher
+    expect(html).toContain('Tarjetas');
+    expect(html).toContain('Tabla');
+    expect(html).toContain('grid_view');
+    expect(html).toContain('table_rows');
+
+    // Quick filter pills with counters
+    expect(html).toContain('Todos');
+    expect(html).toContain('Con saldo pendiente');
+    expect(html).toContain('Con core por cobrar');
+    expect(html).toContain('Listos para retiro / envío');
+    expect(html).toContain('Subasta activa');
+  });
 });

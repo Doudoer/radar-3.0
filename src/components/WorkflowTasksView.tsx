@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { WorkflowActionForm, workflowResponse } from './OrderWorkflowPanel';
 import { workflowTaskAssignee, type WorkflowTask } from '../utils/orderWorkflow';
 import { apiFetch } from '../services/apiFetch';
+import type { Order } from '../types';
 
 export interface WorkflowQueue {
   followupAdvisors?: { id: number; name: string }[];
@@ -148,11 +149,12 @@ const formatDueDate = (dueDate: string, todayStr?: string) => {
 };
 
 export const WorkflowTasksView: React.FC<{
+  orders?: Order[];
   onSelectOrder: (id: string) => void;
   onNavigateIncident: (screen: 'reclamos' | 'reembolsos') => void;
   userRole: string;
   onLegacyFollowups?: () => void;
-}> = ({ onSelectOrder, onNavigateIncident, userRole, onLegacyFollowups }) => {
+}> = ({ orders = [], onSelectOrder, onNavigateIncident, userRole, onLegacyFollowups }) => {
   const [queue, setQueue] = useState<WorkflowQueue | null>(null);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState<keyof typeof buckets>('all');
@@ -484,6 +486,22 @@ export const WorkflowTasksView: React.FC<{
               const dueInfo = formatDueDate(task.dueDate, queue.today);
               const isPostDelivery = category === 'post_delivery';
 
+              // Asociar con orden completa para enriquecer acciones de CRM
+              const associatedOrder = orders.find((o) => o.id === task.order.id || o.code === task.order.code);
+              const rawPhone = associatedOrder?.customer?.phone || '';
+              const cleanPhone = rawPhone.replace(/\D/g, '');
+              const customerName = associatedOrder?.customer?.name || task.order.customerName || 'Cliente';
+              const vehicleStr = associatedOrder?.vehicle
+                ? `${associatedOrder.vehicle.year ? associatedOrder.vehicle.year + ' ' : ''}${associatedOrder.vehicle.make || ''} ${associatedOrder.vehicle.model || ''}`.trim()
+                : '';
+              const partDesc = associatedOrder?.partDescription || '';
+              const waMessage = encodeURIComponent(
+                `Hola ${customerName}, le contactamos del equipo de RADAR referente a su orden #${task.order.code}${vehicleStr ? ` (${vehicleStr})` : ''}.`
+              );
+              const waUrl = cleanPhone
+                ? `https://wa.me/${cleanPhone.startsWith('1') ? cleanPhone : '1' + cleanPhone}?text=${waMessage}`
+                : null;
+
               const postSteps = [
                 { key: 'post_3', label: 'Día 3 · Recepción', done: Boolean(task.order.post3CompletedAt) },
                 { key: 'post_7', label: 'Día 7 · Instalación', done: Boolean(task.order.post7CompletedAt) },
@@ -525,6 +543,16 @@ export const WorkflowTasksView: React.FC<{
                           <span className="px-2.5 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--text-primary)] text-xs font-semibold flex items-center gap-1 max-w-[200px] truncate">
                             <span className="material-symbols-outlined text-[14px] text-[var(--text-secondary)]">person</span>
                             <span className="truncate">{task.order.customerName}</span>
+                          </span>
+                        )}
+
+                        {vehicleStr && (
+                          <span
+                            className="px-2.5 py-1 rounded-lg bg-blue-500/10 border border-blue-500/25 text-blue-300 text-xs font-mono flex items-center gap-1 max-w-[220px] truncate"
+                            title={vehicleStr}
+                          >
+                            <span className="material-symbols-outlined text-[14px]">directions_car</span>
+                            <span className="truncate">{vehicleStr}</span>
                           </span>
                         )}
 
@@ -751,6 +779,30 @@ export const WorkflowTasksView: React.FC<{
                       <span className="material-symbols-outlined text-[16px]">tune</span>
                       <span>{isPostDelivery ? 'Registrar Seguimiento' : 'Gestionar Tarea'}</span>
                     </button>
+
+                    {/* 1-Click WhatsApp Direct Chat */}
+                    {waUrl && (
+                      <a
+                        href={waUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 flex items-center justify-center cursor-pointer transition-colors"
+                        title={`Abrir WhatsApp con ${customerName} (${rawPhone})`}
+                      >
+                        <span className="material-symbols-outlined text-[17px]">chat</span>
+                      </a>
+                    )}
+
+                    {/* 1-Click Direct Phone Call */}
+                    {cleanPhone && (
+                      <a
+                        href={`tel:${cleanPhone}`}
+                        className="p-2 rounded-xl bg-[var(--bg-card-subtle)] hover:bg-[var(--border-color)] text-[var(--text-primary)] border border-[var(--border-color)] flex items-center justify-center cursor-pointer transition-colors"
+                        title={`Llamar a ${customerName} (${rawPhone})`}
+                      >
+                        <span className="material-symbols-outlined text-[17px]">call</span>
+                      </a>
+                    )}
 
                     <button
                       type="button"

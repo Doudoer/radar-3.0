@@ -15,6 +15,7 @@ import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { UserProfileModal } from './components/UserProfileModal';
 import { DailyFollowupBriefingModal } from './components/DailyFollowupBriefingModal';
 import { PersonalNotesWidget } from './components/PersonalNotesWidget';
+import { MobileTabBar } from './components/MobileTabBar';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { LoginView } from './components/LoginView';
 import { useAuthSession } from './hooks/useAuthSession';
@@ -381,9 +382,9 @@ export default function App() {
         )}
 
         {/* Scrollable Main Screen Container */}
-        <main className="flex-1 min-w-0 overflow-y-auto p-3 sm:p-4 md:p-5 lg:p-6 custom-scrollbar">
+        <main className="flex-1 min-w-0 overflow-y-auto p-3 sm:p-4 md:p-5 lg:p-6 pb-24 md:pb-6 custom-scrollbar">
           <React.Suspense fallback={<ViewFallback />}>
-            {currentScreen === 'mi_trabajo' && <WorkflowTasksView onSelectOrder={handleSelectOrder} onNavigateIncident={handleNavigate} userRole={userRole}
+            {currentScreen === 'mi_trabajo' && <WorkflowTasksView orders={orders} onSelectOrder={handleSelectOrder} onNavigateIncident={handleNavigate} userRole={userRole}
               onLegacyFollowups={() => setIsFollowupModalOpen(true)} />}
             {currentScreen === 'dashboard' && (
               <DashboardView
@@ -523,6 +524,19 @@ export default function App() {
             )}
           </React.Suspense>
         </main>
+
+        {/* Native-like Mobile Bottom Navigation Bar */}
+        <MobileTabBar
+          currentScreen={currentScreen}
+          onNavigate={handleNavigate}
+          onOpenNewOrder={() => {
+            setPrefillOrderData(null);
+            setIsNewOrderModalOpen(true);
+          }}
+          onToggleMenu={() => setIsSidebarOpen(!isSidebarOpen)}
+          activeOrdersCount={orders.length}
+          pendingTasksCount={overdueFollowupsCount + pendingFollowupsCount}
+        />
       </div>
 
       {/* Global Modals con Suspense y carga condicional */}
@@ -583,7 +597,9 @@ export default function App() {
           currentUserName={authUser?.name}
           userRole={userRole}
         />
-        <PersonalNotesWidget />
+        <div className="hidden md:block">
+          <PersonalNotesWidget />
+        </div>
       </React.Suspense>
     </div>
   );

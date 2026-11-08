@@ -168,4 +168,28 @@ describe('verified operational analytics', () => {
     expect(html).toContain('role="alert"');
     expect(html).not.toContain('Sin ingresos netos registrados');
   });
+
+  it('never leaks supervisor commission to operations view and renders advisor leaderboard', () => {
+    const orders = [
+      makeOrder('entregado', { total: 1000, partPrice: 1000 }),
+      { ...makeOrder('entregado', { total: 500, partPrice: 500 }), id: 'yard-order', isYardSale: true },
+    ];
+
+    // OperationsView (must NEVER show supervisor commission as it is classified for advisors)
+    const opsHtml = renderToStaticMarkup(
+      <OperationsView
+        orders={orders}
+        currentUser={{ id: 1, name: 'Admin', role: 'admin' }}
+        userRole="admin"
+      />
+    );
+    expect(opsHtml).not.toContain('Auditoría de Comisión de Supervisión');
+    expect(opsHtml).not.toContain('Comisión Fija (2%)');
+    expect(opsHtml).toContain('Ranking de Asesores');
+
+    // DashboardView telemetry
+    const dashHtml = renderDashboard(orders);
+    expect(dashHtml).toContain('Telemetría y Control Operativo');
+    expect(dashHtml).not.toContain('Comisión 2% Exclusiva Supervisor');
+  });
 });

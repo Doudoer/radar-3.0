@@ -75,7 +75,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   const customerStatsMap = useMemo(() => {
     const map = new Map<
       string,
-      { activeOrdersCount: number; totalOrdersCount: number; totalSpent: number; lastOrder: Order | null }
+      { activeOrdersCount: number; totalOrdersCount: number; totalSpent: number; lastOrder: Order | null; vehicles: string[] }
     >();
 
     // 1. Indexar ordenes en una sola pasada O(M)
@@ -140,6 +140,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       let totalSpent = 0;
       let lastOrder: Order | null = null;
 
+      const vehicleSet = new Set<string>();
       for (const o of orderSet) {
         if (!lastOrder) lastOrder = o;
         if (
@@ -152,6 +153,9 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
         }
         const amt = o.financials?.total || o.financials?.partPrice || 0;
         totalSpent += amt;
+        if (o.vehicle?.make && o.vehicle?.model) {
+          vehicleSet.add(`${o.vehicle.year ? o.vehicle.year + ' ' : ''}${o.vehicle.make} ${o.vehicle.model}`.trim());
+        }
       }
 
       map.set(cust.id, {
@@ -159,6 +163,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
         totalOrdersCount: orderSet.size,
         totalSpent,
         lastOrder,
+        vehicles: Array.from(vehicleSet).slice(0, 3),
       });
     }
 
@@ -646,6 +651,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
               totalOrdersCount: 0,
               totalSpent: 0,
               lastOrder: null,
+              vehicles: [],
             };
 
             let badgeStyle = 'bg-slate-800/80 text-slate-300 border-slate-700';
@@ -732,6 +738,24 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                       "{client.notes}"
                     </div>
                   )}
+
+                  {/* Associated Vehicles from Orders */}
+                  {stats.vehicles && stats.vehicles.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                      <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-0.5">
+                        <span className="material-symbols-outlined text-[13px] text-cyan-400">directions_car</span>
+                        <span>Vehículos:</span>
+                      </span>
+                      {stats.vehicles.map((v, i) => (
+                        <span
+                          key={i}
+                          className="inline-flex items-center text-[10px] font-mono px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-300 border border-cyan-500/25"
+                        >
+                          <span className="truncate max-w-[140px]">{v}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Real-time Order Stats */}
@@ -758,19 +782,32 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                   </div>
                 </div>
 
-                {/* Action Bar (Direct WhatsApp, Call, Email, Edit, Delete) */}
-                <div className="horizon-client-actions flex items-center gap-2 pt-4 border-t">
+                {/* Action Bar (Direct WhatsApp, Call, Email, Edit, Delete, New Order) */}
+                <div className="horizon-client-actions flex items-center gap-2 pt-4 border-t flex-wrap">
                   {/* WhatsApp Quick Action */}
                   <a
                     href={buildWhatsAppLink(client)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex-1 py-1.5 px-2 rounded-lg bg-[#10b981]/15 hover:bg-[#10b981]/25 text-[#34d399] border border-[#10b981]/30 text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer"
+                    className="flex-1 min-w-[100px] py-1.5 px-2 rounded-lg bg-[#10b981]/15 hover:bg-[#10b981]/25 text-[#34d399] border border-[#10b981]/30 text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer"
                     title="Abrir chat directo en WhatsApp Web / App"
                   >
                     <span className="material-symbols-outlined text-[16px]">chat</span>
                     <span>WhatsApp</span>
                   </a>
+
+                  {/* 1-Click New Order */}
+                  {onOpenNewOrderWithCustomer && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenNewOrderWithCustomer(client)}
+                      className="py-1.5 px-2.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer"
+                      title="Crear Nueva Orden para este cliente"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">add_shopping_cart</span>
+                      <span className="hidden sm:inline">Nueva Orden</span>
+                    </button>
+                  )}
 
                   {/* Phone Call */}
                   <a
@@ -856,6 +893,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                     totalOrdersCount: 0,
                     totalSpent: 0,
                     lastOrder: null,
+                    vehicles: [],
                   };
 
                   return (
@@ -928,6 +966,16 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div className="flex items-center justify-center gap-1.5">
+                          {onOpenNewOrderWithCustomer && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenNewOrderWithCustomer(client)}
+                              className="p-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 transition-colors"
+                              title="Crear Nueva Orden para este cliente"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">add_shopping_cart</span>
+                            </button>
+                          )}
                           <a
                             href={buildWhatsAppLink(client)}
                             target="_blank"
