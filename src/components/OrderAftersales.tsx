@@ -473,7 +473,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
     };
   }, [load]);
 
-  const open = (action: string, id = 0) => {
+  const open = useCallback((action: string, id = 0) => {
     setMode(action);
     setTarget(id);
     setNotes(action === 'core_receive' ? 'Casco (Core) recibido físicamente en yarda en condiciones aceptables.' : '');
@@ -488,7 +488,28 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
     key.current = null;
     setError('');
     setMessage('');
-  };
+  }, [order.customer?.name]);
+
+  useEffect(() => {
+    const handleOpenCore = (e: Event) => {
+      const custom = e as CustomEvent<{ orderId?: string | number }>;
+      if (custom.detail?.orderId && String(custom.detail.orderId) !== String(order.id)) return;
+      open('core_receive');
+    };
+    window.addEventListener('radar:open-core-aftersales', handleOpenCore);
+    return () => window.removeEventListener('radar:open-core-aftersales', handleOpenCore);
+  }, [open, order.id]);
+
+  useEffect(() => {
+    if (!mode || mode === 'invoice') return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !busy && !uploading) {
+        setMode('');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mode, busy, uploading]);
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1258,33 +1279,56 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
             </section>
           </div>
 
-          {/* 4. GUIDED VERIFIABLE ACTION FORM */}
+          {/* 4. GUIDED VERIFIABLE ACTION MODAL */}
           {mode && mode !== 'invoice' && (
-            <form
-              onSubmit={(event) => void save(event)}
-              className="rounded-2xl border-2 border-cyan-500/40 bg-[var(--bg-card-subtle)] p-4 sm:p-5 space-y-4 shadow-md"
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in overflow-y-auto"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="aftersales-modal-title"
+              onClick={(e) => {
+                if (e.target === e.currentTarget && !busy && !uploading) {
+                  setMode('');
+                }
+              }}
             >
-              <div className="flex flex-wrap items-start justify-between gap-3 pb-3 border-b border-[var(--border-color)]">
-                <div className="flex items-center gap-2.5">
-                  <span className="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 flex items-center justify-center shrink-0">
-                    <span className="material-symbols-outlined text-[19px]">{activeMeta.icon}</span>
-                  </span>
-                  <div>
-                    <h3 className="font-bold text-sm sm:text-base text-[var(--text-primary)]">
-                      {activeMeta.title}
-                      {target ? ` · #${mode.startsWith('claim_') ? `REC-${target}` : `REF-${target}`}` : ''}
-                    </h3>
-                    <p className="text-xs text-[var(--text-secondary)]">{activeMeta.subtitle}</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
-                  onClick={() => setMode('')}
+              <div
+                className="relative w-full max-w-2xl my-auto rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] p-5 md:p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <form
+                  onSubmit={(event) => void save(event)}
+                  className="space-y-4"
                 >
-                  Cerrar formulario ✕
-                </button>
-              </div>
+                  <div className="flex flex-wrap items-start justify-between gap-3 pb-3 border-b border-[var(--border-color)]">
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 flex items-center justify-center shrink-0">
+                        <span className="material-symbols-outlined text-[20px]">{activeMeta.icon}</span>
+                      </span>
+                      <div>
+                        <h3 id="aftersales-modal-title" className="font-bold text-sm sm:text-base text-[var(--text-primary)]">
+                          {activeMeta.title}
+                          {target ? ` · #${mode.startsWith('claim_') ? `REC-${target}` : `REF-${target}`}` : ''}
+                        </h3>
+                        <p className="text-xs text-[var(--text-secondary)]">{activeMeta.subtitle}</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={busy || uploading}
+                      className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                      onClick={() => setMode('')}
+                      aria-label="Cerrar modal"
+                    >
+                      <span className="material-symbols-outlined text-[20px]">close</span>
+                    </button>
+                  </div>
+
+                  {error && (
+                    <p role="alert" className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-xs sm:text-sm font-semibold text-rose-400">
+                      {error}
+                    </p>
+                  )}
 
               <fieldset disabled={busy || uploading} className="space-y-4">
                 {!['invoice', 'core_refund'].includes(mode) && (
@@ -1508,16 +1552,18 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                 )}
               </fieldset>
 
-              <div className="flex flex-wrap gap-2 pt-2">
-                <button type="submit" className={primaryButton} disabled={busy || uploading}>
-                  {busy ? 'Guardando…' : 'Confirmar gestión'}
-                </button>
+              <div className="flex flex-wrap items-center justify-end gap-2.5 pt-3 border-t border-[var(--border-color)]">
                 <button type="button" className={button} disabled={busy || uploading} onClick={() => setMode('')}>
                   Cancelar
                 </button>
+                <button type="submit" className={primaryButton} disabled={busy || uploading}>
+                  {busy ? 'Guardando…' : 'Confirmar gestión'}
+                </button>
               </div>
             </form>
-          )}
+          </div>
+        </div>
+      )}
 
           {/* 5. POSVENTA AUDIT HISTORY */}
           <details className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)]/50 p-4">

@@ -135,11 +135,12 @@ export const OrderPaymentFields: React.FC<{
             onClick={() => {
               const el = document.getElementById('order-aftersales');
               el?.scrollIntoView({ behavior: 'smooth' });
+              window.dispatchEvent(new CustomEvent('radar:open-core-aftersales', { detail: { orderId: detail.order.id } }));
             }}
             className="w-full py-2 px-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-md"
           >
-            <span className="material-symbols-outlined text-[16px]">arrow_downward</span>
-            <span>Ver sección Depósito del Core en Posventa</span>
+            <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+            <span>Abrir gestión y devolución del Core en Posventa</span>
           </button>
         </div>
       ) : (

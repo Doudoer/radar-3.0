@@ -1444,6 +1444,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                         onClick={() => {
                           const el = document.getElementById('order-aftersales');
                           el?.scrollIntoView({ behavior: 'smooth' });
+                          window.dispatchEvent(new CustomEvent('radar:open-core-aftersales', { detail: { orderId: order.id } }));
                         }}
                         className="text-[10px] px-2 py-0.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 font-bold font-mono transition cursor-pointer"
                         title="Gestionar recepción física y devolución del core en Posventa"

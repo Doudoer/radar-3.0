@@ -63,7 +63,11 @@ const incidentDateSql = `CASE WHEN o.status IN ('Reclamo','reclamo') THEN
   WHEN o.status IN ('Solicitud Reembolso','Solicitud de Reembolso','solicitud_reembolso') THEN
   (SELECT MAX(r.created_at) FROM refund_requests r WHERE r.order_id=o.id AND r.status='pending') END AS incident_created_at,
   (SELECT MIN(c.next_review_date) FROM claims c WHERE c.order_id=o.id AND c.deleted_at IS NULL
-    AND c.status IN ('Pending','In Process')) AS incident_next_due_date`;
+    AND c.status IN ('Pending','In Process')) AS incident_next_due_date,
+  (SELECT c.assigned_user_id FROM claims c WHERE c.order_id=o.id AND c.deleted_at IS NULL
+    AND c.status IN ('Pending','In Process') ORDER BY c.id DESC LIMIT 1) AS incident_assigned_user_id,
+  (SELECT cu.name FROM claims c LEFT JOIN users cu ON cu.id=c.assigned_user_id WHERE c.order_id=o.id AND c.deleted_at IS NULL
+    AND c.status IN ('Pending','In Process') ORDER BY c.id DESC LIMIT 1) AS incident_assigned_advisor`;
 const quoteCreatorSql = `(SELECT COALESCE(a.username, creator.name) FROM audit_logs a
   LEFT JOIN users creator ON creator.id=a.user_id
   WHERE a.resource_type='order' AND a.resource_id=CAST(o.id AS CHAR) AND a.action='ORDER_CREATED'
@@ -114,6 +118,8 @@ export const workflowOrderFromRow = (row: RowDataPacket): WorkflowOrder => {
   downpaymentVerifiedAt: timestamp(row.downpayment_verified_at),
   incidentCreatedAt: row.incident_created_at ? new Date(row.incident_created_at).toISOString() : null,
   incidentNextDueDate: row.incident_next_due_date ? new Date(row.incident_next_due_date).toISOString().slice(0, 10) : null,
+  incidentAssignedUserId: row.incident_assigned_user_id ? Number(row.incident_assigned_user_id) : null,
+  incidentAssignedAdvisor: row.incident_assigned_advisor || null,
   };
   return fail(409, 'La orden contiene un estado desconocido; corrígelo antes de gestionar el flujo.');
 };
@@ -260,8 +266,8 @@ export async function handleWorkflowRequest(
     if (match) { where += ' AND o.id=?'; params.push(match[1]); }
     else { where += " AND o.created_at>='2026-10-21 04:00:00'"; }
     if (claims.role !== 'admin') {
-      where += ' AND (o.user_id=? OR (COALESCE(o.delivered_at,' + deliveredHistoryDateSql + ') IS NOT NULL AND f.advisor_id=?))';
-      params.push(Number(claims.sub), Number(claims.sub));
+      where += ' AND (o.user_id=? OR (COALESCE(o.delivered_at,' + deliveredHistoryDateSql + ') IS NOT NULL AND f.advisor_id=?) OR (o.id IN (SELECT c.order_id FROM claims c WHERE c.assigned_user_id=? AND c.deleted_at IS NULL AND c.status IN (\'Pending\',\'In Process\'))))';
+      params.push(Number(claims.sub), Number(claims.sub), Number(claims.sub));
     }
     const [rows] = await database.query<RowDataPacket[]>(
       `SELECT o.*, u.name AS advisor,u.role AS advisor_role,f.advisor_id AS followup_user_id,fu.name AS followup_advisor,c.first_name,c.last_name,c.language AS customer_crm_language, ${incidentDateSql}, ${confirmationPolicySql}, ${deliveryHistorySql}, ${match ? quoteCreatorSql : 'NULL AS quote_created_by'} FROM orders o LEFT JOIN users u ON u.id=o.user_id LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN order_followup_assignments f ON f.order_id=o.id LEFT JOIN users fu ON fu.id=f.advisor_id WHERE ${where}`, params,
@@ -273,11 +279,11 @@ export async function handleWorkflowRequest(
     ) : [[]];
     const today = workflowDate(new Date());
     const tasks: WorkflowTask[] = [];
-    const operators = new Map<number | null, { userId: number | null; name: string; completed: number; onTime: number; attempts: number; overdue: number; escalated: number; blocked: number; unassigned: number }>();
+    const operators = new Map<number | null, { userId: number | null; name: string; completed: number; onTime: number; attempts: number; overdue: number; escalated: number; blocked: number; unassigned: number; penaltyPoints: number; overdueFollowups: number }>();
     const operatorSummary = (userId: number | null, name: string) => {
       let summary = operators.get(userId);
       if (!summary) {
-        summary = { userId, name, completed: 0, onTime: 0, attempts: 0, overdue: 0, escalated: 0, blocked: 0, unassigned: 0 };
+        summary = { userId, name, completed: 0, onTime: 0, attempts: 0, overdue: 0, escalated: 0, blocked: 0, unassigned: 0, penaltyPoints: 0, overdueFollowups: 0 };
         operators.set(userId, summary);
       }
       return summary;
@@ -285,7 +291,12 @@ export async function handleWorkflowRequest(
     for (const row of rows) {
       const order = workflowOrderFromRow(row);
       const events = eventRows.filter(event => Number(event.order_id) === Number(row.id)).map(workflowEventFromRow);
-      const pending = workflowTasks(order, events, today).filter(task => claims.role === 'admin' || workflowTaskAssignee(order, task.task).userId === Number(claims.sub));
+      const pending = workflowTasks(order, events, today).filter(task => {
+        // "Mi trabajo de hoy": solo Reclamos (incident), Listas para entregar (prepare) y Seguimiento post entrega (post_*)
+        const isAllowedQueue = task.task === 'incident' || task.task === 'prepare' || task.task.startsWith('post_');
+        if (!isAllowedQueue) return false;
+        return claims.role === 'admin' || workflowTaskAssignee(order, task.task).userId === Number(claims.sub);
+      });
       if (match) {
         const [contacts] = await database.query<RowDataPacket[]>('SELECT id,operator_name,notes,created_at FROM order_delivery_followups WHERE order_id=? ORDER BY id DESC', [order.id]);
         sendJson(response, 200, { order, required: workflowRequired(order.createdAt), events, tasks: pending,
@@ -293,7 +304,7 @@ export async function handleWorkflowRequest(
         return true;
       }
       tasks.push(...pending);
-      const assignee = workflowTaskAssignee(order, pending[0]?.task || (order.deliveredAt ? 'post_3' : 'ack'));
+      const assignee = workflowTaskAssignee(order, pending[0]?.task || (order.deliveredAt ? 'post_3' : 'prepare'));
       const summary = operatorSummary(assignee.userId, assignee.name);
       for (let i = 0; i < events.length; i++) {
         const event = events[i];
@@ -307,6 +318,12 @@ export async function handleWorkflowRequest(
       summary.escalated += pending.filter(task => task.escalated).length;
       summary.blocked += pending.filter(task => task.bucket === 'blocked').length;
       summary.unassigned += assignee.userId === null ? pending.length : 0;
+      for (const t of pending) {
+        if (t.task.startsWith('post_') && t.overdue) {
+          summary.overdueFollowups++;
+          summary.penaltyPoints += (t.penaltyPoints || 0);
+        }
+      }
     }
     const rank = { overdue: 0, today: 1, blocked: 2, waiting: 3, upcoming: 4 };
     tasks.sort((a, b) => Number(b.escalated) - Number(a.escalated) || rank[a.bucket] - rank[b.bucket] || a.dueDate.localeCompare(b.dueDate));

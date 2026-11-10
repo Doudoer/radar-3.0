@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addWorkingDays, completedWorkflowStages, workflowRequired, workflowTasks, validateWorkflowAction,
-  workflowDate, shiftWorkflowDate, type WorkflowOrder, type WorkflowEvent,
+  workflowDate, shiftWorkflowDate, workflowTaskAssignee, type WorkflowOrder, type WorkflowEvent,
 } from '../src/utils/orderWorkflow';
 import { preparationSchema } from '../src/utils/orderPreparation';
 
@@ -210,5 +210,46 @@ describe('verifiable order workflow', () => {
     expect(workflowTasks(order, [event('quote', { outcome: 'no_response', nextDueDate: '2027-01-01' })], '2026-11-05')[0])
       .toMatchObject({ task: 'ack', objectiveDueDate: '2026-10-22' });
     expect(workflowTasks(order, [event('quote', { createdAt: '2026-11-05T16:00:00Z' })], '2026-11-05')[0].objectiveDueDate).toBe('2026-10-22');
+  });
+  it('routes claims/incidents to the operator who registered them and calculates negative penalty points for overdue followups', () => {
+    // 1. Assignee routing
+    const claimOrder = {
+      ...order,
+      userId: 5,
+      advisor: 'Vendedor Original',
+      incidentAssignedUserId: 12,
+      incidentAssignedAdvisor: 'Operador Que Registró Reclamo',
+    };
+    expect(workflowTaskAssignee(claimOrder, 'incident')).toEqual({
+      userId: 12,
+      name: 'Operador Que Registró Reclamo',
+    });
+    expect(workflowTaskAssignee(claimOrder, 'post_3')).toEqual({
+      userId: 5,
+      name: 'Vendedor Original',
+    });
+
+    // 2. Yard piece ready notifies advisor to contact customer and move to listo_para_retiro
+    const yardReadyOrder = {
+      ...order,
+      yardPieceReady: true,
+    };
+    const prepareTasks = workflowTasks(yardReadyOrder, [event('quote'), event('ack')], '2026-11-05');
+    expect(prepareTasks[0].task).toBe('prepare');
+    expect(prepareTasks[0].title).toContain('Pieza lista en patio · Notificar cliente y pasar a Listo para Retiro');
+
+    // 3. Penalty points calculation: -1 pt per day overdue
+    const delivered = {
+      ...order,
+      status: 'entregado' as const,
+      deliveredAt: '2026-10-21T16:00:00Z', // post_3 due 2026-10-24
+    };
+    const stages = ['quote', 'ack', 'prepare', 'delivery'].map(task => event(task as WorkflowEvent['task']));
+    // Check on 2026-10-27 (3 days overdue)
+    const overdueTasks = workflowTasks(delivered, stages, '2026-10-27');
+    expect(overdueTasks[0].task).toBe('post_3');
+    expect(overdueTasks[0].overdue).toBe(true);
+    expect(overdueTasks[0].daysOverdue).toBe(3);
+    expect(overdueTasks[0].penaltyPoints).toBe(-3);
   });
 });

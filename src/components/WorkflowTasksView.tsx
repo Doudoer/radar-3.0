@@ -18,6 +18,8 @@ export interface WorkflowQueue {
     escalated: number;
     blocked: number;
     unassigned: number;
+    penaltyPoints?: number;
+    overdueFollowups?: number;
   }[];
 }
 
@@ -106,27 +108,25 @@ const buckets = {
 } as const;
 
 const categories = {
-  all: { label: 'Todas las áreas', icon: 'apps' },
-  commercial: { label: 'Flujo Comercial', icon: 'storefront' },
-  post_delivery: { label: 'Seguimiento Post-Entrega', icon: 'support_agent' },
-  incident: { label: 'Incidencias / Garantías', icon: 'shield_with_heart' },
+  all: { label: 'Todas las tareas', icon: 'dashboard', color: 'cyan' },
+  incident: { label: 'Reclamos e Incidencias', icon: 'report_problem', color: 'rose' },
+  ready_to_deliver: { label: 'Listas para Entregar', icon: 'event_available', color: 'amber' },
+  post_delivery: { label: 'Seguimiento Post-Entrega', icon: 'support_agent', color: 'emerald' },
 } as const;
 
 const getTaskCategory = (taskKey: string): keyof typeof categories => {
-  if (taskKey.startsWith('post_')) return 'post_delivery';
   if (taskKey === 'incident') return 'incident';
-  return 'commercial';
+  if (taskKey === 'prepare') return 'ready_to_deliver';
+  if (taskKey.startsWith('post_')) return 'post_delivery';
+  return 'all';
 };
 
 const getTaskCategoryIcon = (taskKey: string): string => {
+  if (taskKey === 'incident') return 'report_problem';
+  if (taskKey === 'prepare') return 'event_available';
   if (taskKey === 'post_3') return 'inventory';
   if (taskKey === 'post_7') return 'build_circle';
   if (taskKey === 'post_14') return 'verified_user';
-  if (taskKey === 'quote') return 'request_quote';
-  if (taskKey === 'ack') return 'verified';
-  if (taskKey === 'prepare') return 'event_available';
-  if (taskKey === 'delivery') return 'local_shipping';
-  if (taskKey === 'incident') return 'report_problem';
   return 'assignment';
 };
 
@@ -291,82 +291,97 @@ export const WorkflowTasksView: React.FC<{
       {queue && (
         <>
           {/* KPI Metric Cards */}
-          <div className="horizon-view-metrics grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            {/* Tareas Activas */}
-            <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4 flex items-center justify-between gap-3">
+          <div className="horizon-view-metrics grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {/* Reclamos e Incidencias */}
+            <div
+              onClick={() => setCategoryFilter('incident')}
+              className={`rounded-2xl border p-4 flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                categoryFilter === 'incident'
+                  ? 'border-rose-500/60 bg-rose-500/15 ring-1 ring-rose-500/30'
+                  : 'border-rose-500/30 bg-rose-500/5 hover:border-rose-500/50'
+              }`}
+            >
               <div>
-                <span className="text-xs font-medium text-[var(--text-secondary)] block">Tareas Activas</span>
+                <span className="text-xs font-bold text-rose-400 block uppercase tracking-wider">Reclamos</span>
                 <div className="mt-1 flex items-baseline gap-1.5">
-                  <strong className="text-2xl font-black text-[var(--text-primary)] tabular-nums">{queue.tasks.length}</strong>
-                  <span className="text-[11px] font-semibold text-cyan-400">en cola</span>
+                  <strong className="text-2xl font-black text-rose-300 tabular-nums">
+                    {queue.tasks.filter((t) => t.task === 'incident').length}
+                  </strong>
+                  <span className="text-[11px] font-semibold text-rose-400">en seguimiento</span>
                 </div>
+                <p className="text-[10px] text-slate-400 mt-0.5">Operador que registró el caso</p>
               </div>
-              <span className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
-                <span className="material-symbols-outlined text-[20px]">assignment</span>
+              <span className="w-10 h-10 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                <span className="material-symbols-outlined text-[20px]">report_problem</span>
               </span>
             </div>
 
-            {/* Post-Entrega Activas */}
-            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 flex items-center justify-between gap-3">
+            {/* Listas para Entregar */}
+            <div
+              onClick={() => setCategoryFilter('ready_to_deliver')}
+              className={`rounded-2xl border p-4 flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                categoryFilter === 'ready_to_deliver'
+                  ? 'border-amber-500/60 bg-amber-500/15 ring-1 ring-amber-500/30'
+                  : 'border-amber-500/30 bg-amber-500/5 hover:border-amber-500/50'
+              }`}
+            >
               <div>
-                <span className="text-xs font-medium text-[var(--text-secondary)] block">Post-Entrega</span>
+                <span className="text-xs font-bold text-amber-400 block uppercase tracking-wider">Listas p/ Entregar</span>
                 <div className="mt-1 flex items-baseline gap-1.5">
-                  <strong className="text-2xl font-black text-emerald-500 tabular-nums">
+                  <strong className="text-2xl font-black text-amber-300 tabular-nums">
+                    {queue.tasks.filter((t) => t.task === 'prepare').length}
+                  </strong>
+                  <span className="text-[11px] font-semibold text-amber-400">cierre pendiente</span>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-0.5">Asesor notifica para Listo Retiro</p>
+              </div>
+              <span className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                <span className="material-symbols-outlined text-[20px]">event_available</span>
+              </span>
+            </div>
+
+            {/* Seguimiento Post-Entrega */}
+            <div
+              onClick={() => setCategoryFilter('post_delivery')}
+              className={`rounded-2xl border p-4 flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                categoryFilter === 'post_delivery'
+                  ? 'border-emerald-500/60 bg-emerald-500/15 ring-1 ring-emerald-500/30'
+                  : 'border-emerald-500/30 bg-emerald-500/5 hover:border-emerald-500/50'
+              }`}
+            >
+              <div>
+                <span className="text-xs font-bold text-emerald-400 block uppercase tracking-wider">Post-Entrega</span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <strong className="text-2xl font-black text-emerald-300 tabular-nums">
                     {queue.tasks.filter((t) => t.task.startsWith('post_')).length}
                   </strong>
-                  <span className="text-[11px] font-semibold text-emerald-500">Día 3/7/14</span>
+                  <span className="text-[11px] font-semibold text-emerald-400">Día 3 · 7 · 14</span>
                 </div>
+                <p className="text-[10px] text-slate-400 mt-0.5">Asesor de la venta</p>
               </div>
               <span className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-500 shrink-0">
                 <span className="material-symbols-outlined text-[20px]">support_agent</span>
               </span>
             </div>
 
-            {/* Vencidas */}
-            <div className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-4 flex items-center justify-between gap-3">
+            {/* Penalizaciones por Retraso */}
+            <div className="rounded-2xl border border-rose-500/40 bg-gradient-to-br from-rose-950/30 to-slate-900/60 p-4 flex items-center justify-between gap-3">
               <div>
-                <span className="text-xs font-medium text-[var(--text-secondary)] block">Vencidas</span>
+                <span className="text-xs font-bold text-rose-400 block uppercase tracking-wider">Puntos Negativos</span>
                 <div className="mt-1 flex items-baseline gap-1.5">
                   <strong className="text-2xl font-black text-rose-400 tabular-nums">
-                    {queue.tasks.filter((t) => t.overdue && t.bucket !== 'blocked').length}
+                    {queue.tasks
+                      .filter((t) => t.task.startsWith('post_') && t.overdue)
+                      .reduce((sum, t) => sum + (t.penaltyPoints || 0), 0)}{' '}
+                    <span className="text-xs font-normal">pts</span>
                   </strong>
-                  <span className="text-[11px] font-semibold text-rose-400">prioridad alta</span>
                 </div>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  {queue.tasks.filter((t) => t.task.startsWith('post_') && t.overdue).length} seguimientos con retraso (-1 pt/día)
+                </p>
               </div>
-              <span className="w-10 h-10 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
-                <span className="material-symbols-outlined text-[20px]">warning</span>
-              </span>
-            </div>
-
-            {/* Escaladas */}
-            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 flex items-center justify-between gap-3">
-              <div>
-                <span className="text-xs font-medium text-[var(--text-secondary)] block">Escaladas</span>
-                <div className="mt-1 flex items-baseline gap-1.5">
-                  <strong className="text-2xl font-black text-amber-500 tabular-nums">
-                    {queue.tasks.filter((t) => t.escalated).length}
-                  </strong>
-                  <span className="text-[11px] font-semibold text-amber-500">supervisión</span>
-                </div>
-              </div>
-              <span className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-500 shrink-0">
-                <span className="material-symbols-outlined text-[20px]">priority_high</span>
-              </span>
-            </div>
-
-            {/* Bloqueos Externos */}
-            <div className="rounded-2xl border border-purple-500/30 bg-purple-500/5 p-4 flex items-center justify-between gap-3">
-              <div>
-                <span className="text-xs font-medium text-[var(--text-secondary)] block">Bloqueadas</span>
-                <div className="mt-1 flex items-baseline gap-1.5">
-                  <strong className="text-2xl font-black text-purple-400 tabular-nums">
-                    {queue.tasks.filter((t) => t.bucket === 'blocked').length}
-                  </strong>
-                  <span className="text-[11px] font-semibold text-purple-400">en espera</span>
-                </div>
-              </div>
-              <span className="w-10 h-10 rounded-xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
-                <span className="material-symbols-outlined text-[20px]">lock</span>
+              <span className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0">
+                <span className="material-symbols-outlined text-[20px]">gavel</span>
               </span>
             </div>
           </div>
@@ -506,13 +521,6 @@ export const WorkflowTasksView: React.FC<{
                 { key: 'post_3', label: 'Día 3 · Recepción', done: Boolean(task.order.post3CompletedAt) },
                 { key: 'post_7', label: 'Día 7 · Instalación', done: Boolean(task.order.post7CompletedAt) },
                 { key: 'post_14', label: 'Día 14 · Cierre Garantía', done: Boolean(task.order.post14CompletedAt) },
-              ];
-
-              const commercialSteps = [
-                { key: 'quote', label: '1. Cotización', done: Boolean(task.order.quoteCompletedAt) },
-                { key: 'ack', label: '2. Confirmación', done: Boolean(task.order.ackCompletedAt) },
-                { key: 'prepare', label: '3. Preparación', done: Boolean(task.order.prepareCompletedAt) },
-                { key: 'delivery', label: '4. Entrega', done: Boolean(task.order.deliveryCompletedAt || task.order.deliveredAt) },
               ];
 
               return (
@@ -662,33 +670,44 @@ export const WorkflowTasksView: React.FC<{
                           })}
                         </div>
                       </div>
-                    ) : category === 'commercial' ? (
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                        {commercialSteps.map((step) => {
-                          const active = task.task === step.key;
-                          return (
-                            <div
-                              key={step.key}
-                              className={`rounded-lg px-2 py-1.5 border text-[11px] font-semibold flex items-center gap-1 ${
-                                step.done
-                                  ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500'
-                                  : active
-                                  ? 'bg-cyan-500/15 border-cyan-500/45 text-cyan-400'
-                                  : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)]'
-                              }`}
-                            >
-                              <span className="material-symbols-outlined text-[13px]">
-                                {step.done ? 'check_circle' : active ? 'radio_button_checked' : 'schedule'}
-                              </span>
-                              <span className="truncate">{step.label}</span>
-                            </div>
-                          );
-                        })}
+                    ) : category === 'ready_to_deliver' ? (
+                      <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-2.5 flex items-center justify-between gap-2 text-xs text-amber-300 font-semibold">
+                        <div className="flex items-center gap-2">
+                          <span className="material-symbols-outlined text-[16px] text-amber-400">event_available</span>
+                          <span>Fase: Notificación al comprador y agendamiento</span>
+                        </div>
+                        <span className="text-[10px] font-mono bg-amber-500/20 px-2 py-0.5 rounded text-amber-300 border border-amber-500/40 font-bold">
+                          Lista para Retiro
+                        </span>
                       </div>
                     ) : null}
 
                     {/* Operational Alerts */}
-                    {task.order.yardPieceReady && (
+                    {task.task === 'prepare' && (
+                      <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs space-y-1">
+                        <div className="flex items-center gap-1.5 font-bold text-amber-400">
+                          <span className="material-symbols-outlined text-[16px]">notifications_active</span>
+                          <span>Aviso de Administración: Pieza lista en Patio</span>
+                        </div>
+                        <p className="text-[11px] text-amber-200/90 leading-relaxed font-medium">
+                          Como asesor que creó esta venta, debes comunicarte con el cliente para acordar cita/retiro y avanzar la orden al estatus <strong>Listo para Retiro</strong>.
+                        </p>
+                      </div>
+                    )}
+                    {task.task.startsWith('post_') && task.overdue && (
+                      <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs font-bold flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="material-symbols-outlined text-[16px] text-rose-400 shrink-0">gavel</span>
+                          <span>
+                            Retraso en seguimiento: {task.daysOverdue || 1} día(s) vencido
+                          </span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded-md bg-rose-950/80 border border-rose-500/60 text-rose-300 font-mono text-[11px] font-black">
+                          {task.penaltyPoints || -1} pts amonestación
+                        </span>
+                      </div>
+                    )}
+                    {task.order.yardPieceReady && task.task !== 'prepare' && (
                       <div className="px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-500 text-xs font-bold flex items-center gap-1.5">
                         <span className="material-symbols-outlined text-[16px]">check_circle</span>
                         <span>¡PIEZA LISTA EN YARDA! — Contactar al comprador para acordar entrega</span>
@@ -777,7 +796,15 @@ export const WorkflowTasksView: React.FC<{
                       className="cyber-btn-primary px-4 py-2 text-xs font-black flex items-center gap-1.5 flex-1 justify-center cursor-pointer"
                     >
                       <span className="material-symbols-outlined text-[16px]">tune</span>
-                      <span>{isPostDelivery ? 'Registrar Seguimiento' : 'Gestionar Tarea'}</span>
+                      <span>
+                        {task.task === 'prepare'
+                          ? 'Contactar y Pasar a Listo para Retiro'
+                          : task.task === 'incident'
+                          ? 'Gestionar Reclamo'
+                          : isPostDelivery
+                          ? 'Registrar Seguimiento'
+                          : 'Gestionar Tarea'}
+                      </span>
                     </button>
 
                     {/* 1-Click WhatsApp Direct Chat */}
@@ -857,6 +884,8 @@ export const WorkflowTasksView: React.FC<{
                       <th className="py-3 px-3 text-center">Cumplimiento</th>
                       <th className="py-3 px-3 text-center">Intentos</th>
                       <th className="py-3 px-3 text-center text-rose-400">Vencidas</th>
+                      <th className="py-3 px-3 text-center text-rose-400">Atrasos Post-Entrega</th>
+                      <th className="py-3 px-3 text-center text-rose-400 font-black">Puntos Negativos (Amonestaciones)</th>
                       <th className="py-3 px-3 text-center text-amber-500">Escaladas</th>
                       <th className="py-3 px-3 text-center text-purple-400">Bloqueadas</th>
                     </tr>
@@ -892,6 +921,17 @@ export const WorkflowTasksView: React.FC<{
                           </td>
                           <td className="py-3 px-3 text-center text-[var(--text-secondary)] tabular-nums">{item.attempts}</td>
                           <td className="py-3 px-3 text-center font-bold text-rose-400 tabular-nums">{item.overdue}</td>
+                          <td className="py-3 px-3 text-center font-bold text-rose-400 tabular-nums">{item.overdueFollowups || 0}</td>
+                          <td className="py-3 px-3 text-center">
+                            {(item.penaltyPoints || 0) < 0 ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 font-mono">
+                                <span className="material-symbols-outlined text-[13px]">gavel</span>
+                                {item.penaltyPoints} pts
+                              </span>
+                            ) : (
+                              <span className="text-emerald-400 font-mono text-[11px] font-bold">0 pts</span>
+                            )}
+                          </td>
                           <td className="py-3 px-3 text-center font-bold text-amber-500 tabular-nums">{item.escalated}</td>
                           <td className="py-3 px-3 text-center font-bold text-purple-400 tabular-nums">{item.blocked}</td>
                         </tr>

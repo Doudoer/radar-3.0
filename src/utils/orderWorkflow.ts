@@ -27,6 +27,8 @@ export interface WorkflowOrder {
   scheduledPickupAt: string | null; total: number; paid: number; core?: number;
   incidentCreatedAt?: string | null;
   incidentNextDueDate?: string | null;
+  incidentAssignedUserId?: number | null;
+  incidentAssignedAdvisor?: string | null;
   quoteCreatedBy?: string | null;
   confirmationPolicy?: 'documented' | 'legacy' | 'preapproved';
   confirmationPolicyAt?: string | null;
@@ -63,8 +65,13 @@ export interface WorkflowTask {
   bucket: 'overdue' | 'today' | 'upcoming' | 'waiting' | 'blocked';
   overdue: boolean; escalated: boolean; regularization: boolean;
   needsIncident: boolean;
+  daysOverdue?: number;
+  penaltyPoints?: number;
 }
 export function workflowTaskAssignee(order: WorkflowOrder, task: WorkflowTaskKey) {
+  if (task === 'incident') {
+    if (order.incidentAssignedUserId) return { userId: order.incidentAssignedUserId, name: order.incidentAssignedAdvisor || 'Operador asignado' };
+  }
   if (order.deliveredAt && (task.startsWith('post_') || task === 'incident')) {
     if (order.followupUserId) return { userId: order.followupUserId, name: order.followupAdvisor || 'Asesor asignado' };
     if (order.isYardSale) return { userId: null, name: 'Pendiente de asignación' };
@@ -122,6 +129,10 @@ export function workflowTasks(order: WorkflowOrder, events: WorkflowEvent[], tod
     dueDate = order.incidentNextDueDate || addWorkingDays(workflowDate(order.incidentCreatedAt || order.createdAt), 1);
   } else if (stage) {
     task = stage.id; title = stage.title; requirement = stage.requirement;
+    if (task === 'prepare' && order.yardPieceReady) {
+      title = 'Pieza lista en patio · Notificar cliente y pasar a Listo para Retiro';
+      requirement = 'Administración reportó pieza lista. Comunícate con el cliente para agendar retiro/despacho y pasar la orden a Listo para Retiro.';
+    }
     const index = WORKFLOW_STAGES.indexOf(stage);
     const previous = index > 1 ? [...events].reverse().find(event => event.task === WORKFLOW_STAGES[index - 1].id && event.outcome === 'completed') : undefined;
     dueDate = previous?.nextDueDate || (task === 'delivery' && previous?.preparation
@@ -148,11 +159,23 @@ export function workflowTasks(order: WorkflowOrder, events: WorkflowEvent[], tod
   const bucket = latest?.outcome === 'blocked' ? 'blocked'
     : dueDate < today ? 'overdue' : dueDate === today ? 'today'
     : latest?.outcome === 'no_response' ? 'waiting' : 'upcoming';
+
+  let daysOverdue = 0;
+  let penaltyPoints = 0;
+  if (task.startsWith('post_') && overdue) {
+    const dueTime = new Date(`${dueDate}T00:00:00Z`).getTime();
+    const todayTime = new Date(`${today}T00:00:00Z`).getTime();
+    daysOverdue = Math.max(0, Math.round((todayTime - dueTime) / 86400000));
+    penaltyPoints = -daysOverdue;
+  }
+
   return [{
     order, task, title, requirement, dueDate, objectiveDueDate, nextAction: latest?.nextAction || requirement,
     blockedBy: latest?.blockedBy || null, bucket, overdue, escalated,
     needsIncident: incident || latest?.outcome === 'incident' || ['has_issues', 'defect_claim'].includes(latest?.partStatus || ''),
     regularization: Boolean(stage && order.status === 'entregado'),
+    daysOverdue,
+    penaltyPoints,
   }];
 }
 
