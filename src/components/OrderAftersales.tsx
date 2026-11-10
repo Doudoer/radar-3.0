@@ -10,7 +10,7 @@ const field = 'flex flex-col gap-1.5 text-xs sm:text-sm font-medium text-[var(--
 const inputCls = 'rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-cyan-400 transition-colors';
 const button = 'cyber-btn-secondary rounded-xl px-3.5 py-2 text-xs font-bold disabled:opacity-50 cursor-pointer transition-all';
 const primaryButton = 'horizon-primary rounded-xl px-4 py-2 text-xs font-bold disabled:opacity-50 cursor-pointer transition-all';
-const card = 'min-w-0 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4 sm:p-5 space-y-4 shadow-sm';
+const card = 'min-w-0 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4 sm:p-5 space-y-4 shadow-sm h-full flex flex-col justify-between';
 const dateLabel = (value: string) => value.split('-').reverse().join('/');
 
 function StatusBadge({ children, tone = 'neutral' }: { children: React.ReactNode; tone?: 'neutral' | 'positive' | 'warning' | 'danger' }) {
@@ -136,6 +136,11 @@ const MODE_META: Record<string, { title: string; subtitle: string; icon: string 
     title: 'Devolver depósito del Core al cliente',
     subtitle: 'El depósito de Core se devuelve únicamente en Efectivo o mediante tarjeta en Square.',
     icon: 'published_with_changes',
+  },
+  invoice: {
+    title: 'Adjuntar invoice PDF de entrega',
+    subtitle: 'Selecciona el PDF oficial enviado al cliente (máximo 10 MB) para adjuntarlo a esta orden.',
+    icon: 'picture_as_pdf',
   },
 };
 
@@ -501,7 +506,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
   }, [open, order.id]);
 
   useEffect(() => {
-    if (!mode || mode === 'invoice') return;
+    if (!mode) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !busy && !uploading) {
         setMode('');
@@ -786,199 +791,246 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
           </section>
 
           {/* 2. GRID: INVOICE + DEPÓSITO DEL CORE */}
-          <div className="grid items-start gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-2 items-stretch">
             {/* INVOICE DE ENTREGA */}
             <section aria-label="Invoice de entrega" className={card}>
-              <CardHeading
-                icon="description"
-                title="Invoice de entrega"
-                subtitle="Respaldo documental PDF entregado al cliente"
-              >
-                <StatusBadge tone={detail.invoices.length ? 'positive' : order.deliveredAt ? 'warning' : 'neutral'}>
-                  {detail.invoices.length ? 'Adjunto' : order.deliveredAt ? 'Pendiente' : 'Sin entrega'}
-                </StatusBadge>
-              </CardHeading>
-
-              {!detail.invoices.length && (
-                <div className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3 text-xs text-[var(--text-secondary)]">
-                  {order.deliveredAt ? 'Invoice pendiente de adjuntar.' : 'Disponible después de confirmar la entrega física.'}
-                </div>
-              )}
-
-              {order.deliveredAt && mode !== 'invoice' && (
-                <div>{actionButton('Adjuntar invoice PDF', 'invoice')}</div>
-              )}
-
-              {mode === 'invoice' && (
-                <form
-                  ref={invoiceForm}
-                  aria-label="Adjuntar invoice PDF"
-                  onSubmit={(event) => void save(event)}
-                  className="rounded-xl border border-cyan-500/30 bg-[var(--bg-card-subtle)] p-3.5 space-y-3"
+              <div className="space-y-4">
+                <CardHeading
+                  icon="description"
+                  title="Invoice de entrega"
+                  subtitle="Respaldo documental PDF entregado al cliente"
                 >
-                  <p className="text-xs text-[var(--text-secondary)]">
-                    Selecciona el PDF enviado al cliente (máximo 10 MB) y guarda el invoice para adjuntarlo a esta orden.
-                  </p>
-                  <fieldset className="min-w-0" disabled={busy || uploading}>
-                    <SupportFields orderId={order.id} value={files} onChange={setFiles} pdfOnly onBusy={setUploading} />
-                  </fieldset>
-                  {error && <p role="alert" className="text-xs text-red-500 font-semibold">{error}</p>}
-                  <div className="flex flex-wrap gap-2">
-                    <button type="submit" className={primaryButton} disabled={busy || uploading || !files.length}>
-                      {busy ? 'Guardando…' : 'Guardar invoice'}
-                    </button>
-                    <button type="button" className={button} disabled={busy || uploading} onClick={() => setMode('')}>
-                      Cancelar
-                    </button>
-                  </div>
-                </form>
-              )}
+                  <StatusBadge tone={detail.invoices.length ? 'positive' : order.deliveredAt ? 'warning' : 'neutral'}>
+                    {detail.invoices.length ? 'Adjunto' : order.deliveredAt ? 'Pendiente' : 'Sin entrega'}
+                  </StatusBadge>
+                </CardHeading>
 
-              {detail.invoices.length > 0 && (
-                <div className="space-y-2">
-                  {detail.invoices.map((invoice, index) => (
-                    <div
-                      key={invoice.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3 text-xs"
-                    >
-                      <a
-                        className="inline-flex items-center gap-1.5 font-bold text-cyan-400 hover:underline"
-                        href={invoice.file_url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">picture_as_pdf</span>
-                        <span>{index === 0 ? 'Invoice actual' : 'Invoice anterior'} · Ver / descargar PDF</span>
-                      </a>
-                      <span className="text-[var(--text-secondary)]">
-                        {invoice.actor_name} · {stamp(invoice.created_at)}
+                {/* Top Metrics Row: Estatus Documental & Fecha Emisión */}
+                <dl className="grid gap-3 sm:grid-cols-2 text-xs">
+                  <div className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3">
+                    <dt className="text-[var(--text-secondary)]">Estatus documental</dt>
+                    <dd className="mt-1 text-xl font-bold tabular-nums text-[var(--text-primary)]">
+                      {detail.invoices.length ? 'PDF Adjunto' : order.deliveredAt ? 'Pendiente' : 'Sin entrega'}
+                    </dd>
+                    <dd className="text-[11px] text-[var(--text-secondary)]">
+                      {detail.invoices.length
+                        ? `${detail.invoices.length} archivo(s) registrado(s)`
+                        : 'Comprobante formal para el cliente'}
+                    </dd>
+                  </div>
+                  <div className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3">
+                    <dt className="text-[var(--text-secondary)]">Fecha de entrega / emisión</dt>
+                    <dd className="mt-1 font-bold text-[var(--text-primary)]">
+                      {order.deliveredAt ? dateLabel(order.deliveredAt.slice(0, 10)) : 'Pendiente de entrega'}
+                    </dd>
+                    <dd className="text-[11px] text-[var(--text-secondary)]">
+                      {detail.invoices[0]
+                        ? `Subido por ${detail.invoices[0].actor_name}`
+                        : 'Registro oficial de la venta'}
+                    </dd>
+                  </div>
+                </dl>
+
+                {/* Bottom 2-Card Status & Action Row */}
+                <div className="grid gap-2.5 sm:grid-cols-2 text-xs">
+                  <div
+                    className={`rounded-xl border p-3 space-y-1 ${
+                      detail.invoices.length
+                        ? 'bg-emerald-500/10 border-emerald-500/35'
+                        : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <strong className="font-bold text-[var(--text-primary)]">1. Documento PDF</strong>
+                      <span className="material-symbols-outlined text-[16px] text-emerald-500">
+                        {detail.invoices.length ? 'check_circle' : 'schedule'}
                       </span>
                     </div>
-                  ))}
+                    {detail.invoices.length > 0 ? (
+                      <div className="space-y-0.5">
+                        <a
+                          className="inline-flex items-center gap-1.5 font-bold text-cyan-400 hover:underline"
+                          href={detail.invoices[0].file_url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <span className="material-symbols-outlined text-[15px]">picture_as_pdf</span>
+                          <span className="truncate">Ver / descargar invoice</span>
+                        </a>
+                        <p className="text-[11px] text-[var(--text-secondary)] truncate">
+                          {stamp(detail.invoices[0].created_at)}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-[var(--text-secondary)]">
+                        {order.deliveredAt ? 'Invoice pendiente de adjuntar' : 'Disponible tras entrega física'}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] p-3 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <strong className="font-bold text-[var(--text-primary)]">2. Gestión de archivo</strong>
+                      <span className="material-symbols-outlined text-[16px] text-cyan-400">upload_file</span>
+                    </div>
+                    {order.deliveredAt ? (
+                      <div className="space-y-0.5">
+                        <button
+                          type="button"
+                          onClick={() => open('invoice')}
+                          className="text-xs font-bold text-cyan-400 hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <span className="material-symbols-outlined text-[14px]">attach_file</span>
+                          <span>{detail.invoices.length ? 'Reemplazar invoice' : 'Adjuntar invoice PDF'}</span>
+                        </button>
+                        <p className="text-[11px] text-[var(--text-secondary)]">PDF oficial · Máx 10 MB</p>
+                      </div>
+                    ) : (
+                      <p className="text-[var(--text-secondary)]">Requiere entrega confirmada</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {order.deliveredAt && (
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-[var(--border-color)]">
+                  {actionButton(
+                    detail.invoices.length ? 'Reemplazar invoice PDF' : 'Adjuntar invoice PDF',
+                    'invoice',
+                    0,
+                    detail.invoices.length ? 'secondary' : 'primary'
+                  )}
                 </div>
               )}
             </section>
 
             {/* DEPÓSITO DEL CORE */}
             <section aria-label="Depósito del core" className={card}>
-              <CardHeading
-                icon="published_with_changes"
-                title="Depósito del core"
-                subtitle="Recepción de pieza usada (15 días) y devolución de depósito"
-              >
-                <StatusBadge
-                  tone={
-                    detail.core.reviewRequired
-                      ? 'warning'
-                      : detail.core.refund
-                        ? 'positive'
-                        : detail.core.amount <= 0
-                          ? 'neutral'
-                          : !detail.core.receivedAt && detail.core.deadline && workflowDate(new Date()) > detail.core.deadline
-                            ? 'danger'
-                            : 'warning'
-                  }
+              <div className="space-y-4">
+                <CardHeading
+                  icon="published_with_changes"
+                  title="Depósito del core"
+                  subtitle="Recepción de pieza usada (15 días) y devolución de depósito"
                 >
-                  {detail.core.reviewRequired
-                    ? 'Revisar historial'
-                    : detail.core.refund
-                      ? 'Devuelto'
-                      : detail.core.amount <= 0
-                        ? 'No aplica'
-                        : detail.core.receivedAt
-                          ? 'Devolución pendiente'
-                          : detail.core.deadline && workflowDate(new Date()) > detail.core.deadline
-                            ? 'Plazo vencido'
-                            : 'Esperando core'}
-                </StatusBadge>
-              </CardHeading>
+                  <StatusBadge
+                    tone={
+                      detail.core.reviewRequired
+                        ? 'warning'
+                        : detail.core.refund
+                          ? 'positive'
+                          : detail.core.amount <= 0
+                            ? 'neutral'
+                            : !detail.core.receivedAt && detail.core.deadline && workflowDate(new Date()) > detail.core.deadline
+                              ? 'danger'
+                              : 'warning'
+                    }
+                  >
+                    {detail.core.reviewRequired
+                      ? 'Revisar historial'
+                      : detail.core.refund
+                        ? 'Devuelto'
+                        : detail.core.amount <= 0
+                          ? 'No aplica'
+                          : detail.core.receivedAt
+                            ? 'Devolución pendiente'
+                            : detail.core.deadline && workflowDate(new Date()) > detail.core.deadline
+                              ? 'Plazo vencido'
+                              : 'Esperando core'}
+                  </StatusBadge>
+                </CardHeading>
 
-              {detail.core.reviewRequired ? (
-                <p className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-500">
-                  Requiere revisión histórica: no se inventará un depósito ni una fecha.
-                </p>
-              ) : detail.core.amount <= 0 ? (
-                <p className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3 text-xs text-[var(--text-secondary)]">
-                  No aplica: sin depósito de core registrado en la orden.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  <dl className="grid gap-3 sm:grid-cols-2 text-xs">
-                    <div className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3">
-                      <dt className="text-[var(--text-secondary)]">Depósito cobrado</dt>
-                      <dd className="mt-1 text-xl font-bold tabular-nums text-[var(--text-primary)]">
-                        ${detail.core.amount.toFixed(2)}
-                      </dd>
-                    </div>
-                    <div className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3">
-                      <dt className="text-[var(--text-secondary)]">Fecha límite · 15 días desde la entrega</dt>
-                      <dd className="mt-1 font-bold text-[var(--text-primary)]">
-                        {detail.core.deadline ? dateLabel(detail.core.deadline) : 'Sin entrega registrada'}
-                      </dd>
-                      {detail.core.deadline && (
-                        <dd className="text-[11px] text-[var(--text-secondary)]">Fin del día · Nueva York</dd>
-                      )}
-                    </div>
-                  </dl>
-
-                  {/* 2-Step Core Pipeline */}
-                  <div className="grid gap-2.5 sm:grid-cols-2 text-xs">
-                    <div
-                      className={`rounded-xl border p-3 space-y-1 ${
-                        detail.core.receivedAt
-                          ? 'bg-emerald-500/10 border-emerald-500/35'
-                          : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)]'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <strong className="font-bold text-[var(--text-primary)]">1. Recepción física</strong>
-                        <span className="material-symbols-outlined text-[16px] text-emerald-500">
-                          {detail.core.receivedAt ? 'check_circle' : 'schedule'}
-                        </span>
+                {detail.core.reviewRequired ? (
+                  <p className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-500">
+                    Requiere revisión histórica: no se inventará un depósito ni una fecha.
+                  </p>
+                ) : detail.core.amount <= 0 ? (
+                  <div className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-4 text-xs text-[var(--text-secondary)] text-center">
+                    No aplica: sin depósito de core registrado en la orden.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <dl className="grid gap-3 sm:grid-cols-2 text-xs">
+                      <div className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3">
+                        <dt className="text-[var(--text-secondary)]">Depósito cobrado</dt>
+                        <dd className="mt-1 text-xl font-bold tabular-nums text-[var(--text-primary)]">
+                          ${detail.core.amount.toFixed(2)}
+                        </dd>
+                        <dd className="text-[11px] text-[var(--text-secondary)]">
+                          {detail.core.refund ? 'Reembolsado al cliente' : 'Garantía de casco'}
+                        </dd>
                       </div>
-                      {detail.core.receivedAt ? (
-                        <p className="text-[var(--text-secondary)]">Core recibido: {stamp(detail.core.receivedAt)}</p>
-                      ) : (
-                        <p className="text-[var(--text-secondary)]">
-                          {detail.core.deadline
-                            ? `Días restantes: ${Math.max(0, Math.round((Date.parse(detail.core.deadline) - Date.parse(workflowDate(new Date()))) / 86400000))}`
-                            : 'Pendiente de entrega en yarda'}
-                        </p>
-                      )}
-                    </div>
-
-                    <div
-                      className={`rounded-xl border p-3 space-y-1 ${
-                        detail.core.refund
-                          ? 'bg-emerald-500/10 border-emerald-500/35'
-                          : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)]'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <strong className="font-bold text-[var(--text-primary)]">2. Devolución de dinero</strong>
-                        <span className="material-symbols-outlined text-[16px] text-emerald-500">
-                          {detail.core.refund ? 'paid' : 'hourglass_empty'}
-                        </span>
+                      <div className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3">
+                        <dt className="text-[var(--text-secondary)]">Fecha límite · 15 días desde la entrega</dt>
+                        <dd className="mt-1 font-bold text-[var(--text-primary)]">
+                          {detail.core.deadline ? dateLabel(detail.core.deadline) : 'Sin entrega registrada'}
+                        </dd>
+                        <dd className="text-[11px] text-[var(--text-secondary)]">
+                          {detail.core.deadline ? 'Fin del día · Nueva York' : 'Calculado tras la entrega'}
+                        </dd>
                       </div>
-                      {detail.core.refund ? (
-                        <p className="text-[var(--text-secondary)]">
-                          Devolución: {stamp(detail.core.refund.completed_at)} ·{' '}
-                          {detail.core.refund.execution?.method === 'square'
-                            ? `Square · tarjeta ****${detail.core.refund.execution.last4}`
-                            : 'Efectivo'}
-                        </p>
-                      ) : (
-                        <p className="text-[var(--text-secondary)]">
-                          {detail.core.receivedAt ? 'Listo para devolver en Efectivo o Square' : 'Requiere recibir el casco primero'}
-                        </p>
-                      )}
+                    </dl>
+
+                    {/* 2-Step Core Pipeline */}
+                    <div className="grid gap-2.5 sm:grid-cols-2 text-xs">
+                      <div
+                        className={`rounded-xl border p-3 space-y-1 ${
+                          detail.core.receivedAt
+                            ? 'bg-emerald-500/10 border-emerald-500/35'
+                            : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <strong className="font-bold text-[var(--text-primary)]">1. Recepción física</strong>
+                          <span className="material-symbols-outlined text-[16px] text-emerald-500">
+                            {detail.core.receivedAt ? 'check_circle' : 'schedule'}
+                          </span>
+                        </div>
+                        {detail.core.receivedAt ? (
+                          <p className="text-[var(--text-secondary)] truncate">
+                            Core recibido: {stamp(detail.core.receivedAt)}
+                          </p>
+                        ) : (
+                          <p className="text-[var(--text-secondary)]">
+                            {detail.core.deadline
+                              ? `Días restantes: ${Math.max(0, Math.round((Date.parse(detail.core.deadline) - Date.parse(workflowDate(new Date()))) / 86400000))}`
+                              : 'Pendiente de entrega en yarda'}
+                          </p>
+                        )}
+                      </div>
+
+                      <div
+                        className={`rounded-xl border p-3 space-y-1 ${
+                          detail.core.refund
+                            ? 'bg-emerald-500/10 border-emerald-500/35'
+                            : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <strong className="font-bold text-[var(--text-primary)]">2. Devolución de dinero</strong>
+                          <span className="material-symbols-outlined text-[16px] text-emerald-500">
+                            {detail.core.refund ? 'paid' : 'hourglass_empty'}
+                          </span>
+                        </div>
+                        {detail.core.refund ? (
+                          <p className="text-[var(--text-secondary)] truncate">
+                            Devolución: {stamp(detail.core.refund.completed_at)} ·{' '}
+                            {detail.core.refund.execution?.method === 'square'
+                              ? `Square ****${detail.core.refund.execution.last4}`
+                              : 'Efectivo'}
+                          </p>
+                        ) : (
+                          <p className="text-[var(--text-secondary)]">
+                            {detail.core.receivedAt ? 'Listo para devolver en Efectivo o Square' : 'Requiere recibir el casco primero'}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
               {detail.canAdmin && !detail.core.reviewRequired && detail.core.amount > 0 && !detail.core.refund && (
-                <div className="flex flex-wrap gap-2 pt-1">
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-[var(--border-color)]">
                   {!detail.core.receivedAt
                     ? actionButton('Registrar recepción y devolución del core', 'core_receive', 0, 'primary')
                     : actionButton('Devolver depósito del core', 'core_refund', 0, 'primary')}
@@ -988,25 +1040,60 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
           </div>
 
           {/* 3. GRID: RECLAMOS + REEMBOLSOS DE COMPRA */}
-          <div className="grid items-start gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-2 items-stretch">
             {/* RECLAMOS */}
             <section aria-label="Reclamos" className={card}>
-              <CardHeading
-                icon="build"
-                title="Reclamos"
-                subtitle="Seguimiento técnico en 3 etapas: Apertura → Revisión → Solución"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge
-                    tone={detail.claims.some((claim) => !['Resolved', 'Denied'].includes(claim.status)) ? 'warning' : 'neutral'}
-                  >
-                    {detail.claims.length
-                      ? `${detail.claims.filter((claim) => !['Resolved', 'Denied'].includes(claim.status)).length} abiertos · ${detail.claims.length} total`
-                      : 'Sin reclamos'}
-                  </StatusBadge>
-                  {detail.canManage && actionButton('Abrir reclamo', 'claim_create', 0, 'primary')}
-                </div>
-              </CardHeading>
+              <div className="space-y-4">
+                <CardHeading
+                  icon="build"
+                  title="Reclamos"
+                  subtitle="Seguimiento técnico en 3 etapas: Apertura → Revisión → Solución"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusBadge
+                      tone={detail.claims.some((claim) => !['Resolved', 'Denied'].includes(claim.status)) ? 'warning' : 'neutral'}
+                    >
+                      {detail.claims.length
+                        ? `${detail.claims.filter((claim) => !['Resolved', 'Denied'].includes(claim.status)).length} abiertos · ${detail.claims.length} total`
+                        : 'Sin reclamos'}
+                    </StatusBadge>
+                    {detail.canManage && actionButton('Abrir reclamo', 'claim_create', 0, 'primary')}
+                  </div>
+                </CardHeading>
+
+                {/* Claims Summary Metrics (matching Reembolsos for perfect symmetry) */}
+                <dl aria-label="Resumen de reclamos" className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {([
+                    ['Total Casos', String(detail.claims.length), 'text-[var(--text-primary)]'],
+                    ['En Revisión', String(detail.claims.filter((c) => !['Resolved', 'Denied'].includes(c.status)).length), 'text-amber-500'],
+                    ['Resueltos', String(detail.claims.filter((c) => c.status === 'Resolved').length), 'text-emerald-500'],
+                    [
+                      'Garantía',
+                      detail.warranty.status === 'active'
+                        ? 'Vigente'
+                        : detail.warranty.status === 'critical'
+                          ? 'Por vencer'
+                          : detail.warranty.status === 'expired'
+                            ? 'Vencida'
+                            : 'Sin iniciar',
+                      detail.warranty.status === 'active'
+                        ? 'text-cyan-400'
+                        : detail.warranty.status === 'expired'
+                          ? 'text-rose-400'
+                          : 'text-amber-400',
+                    ],
+                  ] as const).map(([label, val, colorCls]) => (
+                    <div
+                      key={label}
+                      className="min-w-0 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3"
+                    >
+                      <dt className="text-[11px] text-[var(--text-secondary)]">{label}</dt>
+                      <dd className={`mt-1 text-base sm:text-lg font-bold tabular-nums truncate ${colorCls}`}>
+                        {val}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
 
               {!detail.claims.length && (
                 <div className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-4 text-xs text-[var(--text-secondary)] text-center">
@@ -1125,15 +1212,17 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                   </article>
                 );
               })}
+              </div>
             </section>
 
             {/* REEMBOLSOS DE COMPRA */}
             <section aria-label="Reembolsos de compra" className={card}>
-              <CardHeading
-                icon="payments"
-                title="Reembolsos de compra"
-                subtitle="Control presupuestal sobre pagos cobrados y etapas de devolución"
-              >
+              <div className="space-y-4">
+                <CardHeading
+                  icon="payments"
+                  title="Reembolsos de compra"
+                  subtitle="Control presupuestal sobre pagos cobrados y etapas de devolución"
+                >
                 <div className="flex flex-wrap items-center gap-2">
                   <StatusBadge
                     tone={
@@ -1276,11 +1365,12 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                     </article>
                   );
                 })}
+              </div>
             </section>
           </div>
 
           {/* 4. GUIDED VERIFIABLE ACTION MODAL */}
-          {mode && mode !== 'invoice' && (
+          {mode && (
             <div
               className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in overflow-y-auto"
               role="dialog"
@@ -1377,6 +1467,15 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                       onChange={(event) => setAmount(event.target.value)}
                     />
                   </label>
+                )}
+
+                {mode === 'invoice' && (
+                  <div className="space-y-3">
+                    <p className="text-xs text-[var(--text-secondary)]">
+                      Selecciona el archivo PDF enviado al cliente (máximo 10 MB) para certificar la entrega de esta orden.
+                    </p>
+                    <SupportFields orderId={order.id} value={files} onChange={setFiles} pdfOnly onBusy={setUploading} />
+                  </div>
                 )}
 
                 {(mode.startsWith('claim_') || mode === 'refund_create' || mode === 'core_receive') && (
@@ -1556,8 +1655,12 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                 <button type="button" className={button} disabled={busy || uploading} onClick={() => setMode('')}>
                   Cancelar
                 </button>
-                <button type="submit" className={primaryButton} disabled={busy || uploading}>
-                  {busy ? 'Guardando…' : 'Confirmar gestión'}
+                <button
+                  type="submit"
+                  className={primaryButton}
+                  disabled={busy || uploading || (mode === 'invoice' && !files.length)}
+                >
+                  {busy ? 'Guardando…' : mode === 'invoice' ? 'Guardar invoice PDF' : 'Confirmar gestión'}
                 </button>
               </div>
             </form>
