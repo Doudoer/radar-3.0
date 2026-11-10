@@ -119,8 +119,16 @@ export async function applyAftersalesAction(connection: PoolConnection, row: Row
       'UPDATE claims SET status=?,stage=?,resolution_notes=?,resolved_by=?,resolved_at=?,next_review_date=? WHERE id=?',
       [status, data.stage, data.notes, closing ? Number(claims.sub) : null, closing ? now : null, closing ? null : data.nextDate, data.id]);
     if (closing) {
-      if (!claim.previous_order_status) fail(409, 'El estado anterior histórico requiere revisión.');
-      await setStatus(connection, row, claim.previous_order_status, claims, `Reclamo ${data.id}: ${data.notes}`);
+      let targetStatus = claim.previous_order_status;
+      if (!targetStatus) {
+        const [prevRows] = await connection.query<RowDataPacket[]>(
+          "SELECT status FROM status_orders WHERE order_id=? AND LOWER(status) NOT IN ('reclamo','solicitud_reembolso','solicitud de reembolso') ORDER BY id DESC LIMIT 1",
+          [row.id]
+        );
+        targetStatus = prevRows[0]?.status || (row.delivered_at || row.delivery_log_at ? 'Entregado' : 'Pagado');
+        await connection.execute('UPDATE claims SET previous_order_status=? WHERE id=?', [targetStatus, claim.id]);
+      }
+      await setStatus(connection, row, targetStatus, claims, `Reclamo ${data.id}: ${data.notes}`);
     }
   }
   if (data.action === 'refund_create') {
@@ -160,14 +168,22 @@ export async function applyAftersalesAction(connection: PoolConnection, row: Row
         [data.stage, data.stage === 'rejected' ? 'cancelled' : 'pending', data.id]);
     }
     if (['completed', 'rejected'].includes(data.stage)) {
-      if (!refund.previous_order_status) fail(409, 'El estado anterior de la orden requiere revisión.');
+      let prevStatus = refund.previous_order_status;
+      if (!prevStatus) {
+        const [prevRows] = await connection.query<RowDataPacket[]>(
+          "SELECT status FROM status_orders WHERE order_id=? AND LOWER(status) NOT IN ('reclamo','solicitud_reembolso','solicitud de reembolso') ORDER BY id DESC LIMIT 1",
+          [row.id]
+        );
+        prevStatus = prevRows[0]?.status || (row.delivered_at || row.delivery_log_at ? 'Entregado' : 'Pagado');
+        await connection.execute('UPDATE refund_requests SET previous_order_status=? WHERE id=?', [prevStatus, refund.id]);
+      }
       const totals = await refundTotals(connection, row.id);
       const fullyRefunded = cents(totals.completed) >= cents(row.down_payment);
       if (data.stage === 'completed' && fullyRefunded && refund.claim_id) {
         await connection.execute("UPDATE claims SET status='Resolved',stage='refunded',resolution_notes=?,resolved_at=UTC_TIMESTAMP(),resolved_by=? WHERE id=?",
           [data.notes, Number(claims.sub), refund.claim_id]);
       }
-      await setStatus(connection, row, data.stage === 'completed' && fullyRefunded ? 'Reembolsado' : refund.previous_order_status, claims, data.notes);
+      await setStatus(connection, row, data.stage === 'completed' && fullyRefunded ? 'Reembolsado' : prevStatus, claims, data.notes);
     }
   }
   if (data.action === 'core_receive') {
