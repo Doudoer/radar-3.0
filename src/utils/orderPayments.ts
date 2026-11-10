@@ -33,7 +33,7 @@ export function validateCollectionEvidence(input: Settlement) {
     }
   }
 }
-export interface SettlementOrder { price: number; shipping: number; core: number; paid: number; coreReceived: boolean }
+export interface SettlementOrder { price: number; shipping: number; core: number; paid: number; coreReceived: boolean; delivered?: boolean; }
 export function previewSettlement(order: SettlementOrder, input: Settlement) {
   if ([order.price, order.shipping, order.core, order.paid].some(value => !Number.isFinite(value) || value < 0)) {
     throw new Error('La orden contiene un importe inválido; requiere revisión administrativa.');

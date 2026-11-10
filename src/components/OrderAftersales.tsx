@@ -128,9 +128,9 @@ const MODE_META: Record<string, { title: string; subtitle: string; icon: string 
     icon: 'block',
   },
   core_receive: {
-    title: 'Registrar recepción física del Core (Casco)',
-    subtitle: 'Confirma que el cliente entregó la pieza usada en yarda para habilitar la devolución de su depósito.',
-    icon: 'inventory_2',
+    title: 'Registrar recepción física y devolución del Core',
+    subtitle: 'Confirma la entrega del casco usado y procesa la devolución del dinero al cliente.',
+    icon: 'swap_horizontal_circle',
   },
   core_refund: {
     title: 'Devolver depósito del Core al cliente',
@@ -432,6 +432,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
   const [amount, setAmount] = useState('');
   const [pieceRequired, setPieceRequired] = useState(false);
   const [execution, setExecution] = useState<Partial<RefundExecution>>({ method: 'cash', confirmed: true });
+  const [immediateCoreRefund, setImmediateCoreRefund] = useState(true);
   const lock = useRef(false);
   const key = useRef<string | null>(null);
   const generation = useRef(0);
@@ -475,14 +476,15 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
   const open = (action: string, id = 0) => {
     setMode(action);
     setTarget(id);
-    setNotes('');
+    setNotes(action === 'core_receive' ? 'Casco (Core) recibido físicamente en yarda en condiciones aceptables.' : '');
     setFiles([]);
     setNotified(false);
-    setConfirmed(false);
+    setConfirmed(action === 'core_receive');
     setStock('');
     setAmount('');
     setPieceRequired(false);
-    setExecution({ method: 'cash', confirmed: true });
+    setExecution({ method: 'cash', recipient: order.customer?.name || '', confirmed: true });
+    setImmediateCoreRefund(true);
     key.current = null;
     setError('');
     setMessage('');
@@ -491,6 +493,71 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
     if (lock.current || uploading || !detail) return;
+
+    if (mode === 'core_receive') {
+      const receiveNotes = notes.trim() || 'Casco (Core) recibido físicamente en yarda en condiciones aceptables.';
+      const receiveData = { action: 'core_receive' as const, notes: receiveNotes, files, confirmed: true };
+      const parsedReceive = aftersalesActionSchema.safeParse(receiveData);
+      if (!parsedReceive.success) {
+        setError(parsedReceive.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(' · '));
+        return;
+      }
+
+      if (immediateCoreRefund && detail.core.amount > 0) {
+        const parsedRefund = aftersalesActionSchema.safeParse({ action: 'core_refund', execution });
+        if (!parsedRefund.success) {
+          setError(parsedRefund.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(' · '));
+          return;
+        }
+      }
+
+      lock.current = true;
+      setBusy(true);
+      setError('');
+      try {
+        const receiveRes = await apiFetch(`/orders/${order.id}/aftersales`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            version: detail.version,
+            idempotencyKey: (key.current ??= crypto.randomUUID()),
+            data: parsedReceive.data,
+          }),
+        });
+        const receiveBody = await receiveRes.json();
+        if (!receiveRes.ok) throw new Error(receiveBody.message || 'No se pudo registrar la recepción del core.');
+
+        if (immediateCoreRefund && detail.core.amount > 0) {
+          const refundRes = await apiFetch(`/orders/${order.id}/aftersales`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              version: detail.version + 1,
+              idempotencyKey: crypto.randomUUID(),
+              data: { action: 'core_refund', execution },
+            }),
+          });
+          const refundBody = await refundRes.json();
+          if (!refundRes.ok) throw new Error(refundBody.message || 'El core fue recibido físicamente, pero ocurrió un error al registrar la devolución del dinero.');
+        }
+
+        setMode('');
+        setMessage(
+          immediateCoreRefund && detail.core.amount > 0
+            ? `¡Operación completada! Core recibido físicamente y devolución de $${detail.core.amount.toFixed(2)} USD registrada.`
+            : 'Recepción del core guardada exitosamente.'
+        );
+        window.dispatchEvent(new Event('radar:data-changed'));
+        await load();
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : 'Error al guardar.');
+      } finally {
+        lock.current = false;
+        setBusy(false);
+      }
+      return;
+    }
+
     let data: unknown;
     if (mode === 'invoice') data = { action: mode, file: files[0] };
     if (mode === 'warranty_correct') data = { action: mode, days: Number(amount), notes };
@@ -517,7 +584,6 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
         pieceReceived: confirmed,
         execution: mode === 'refund_completed' ? execution : undefined,
       };
-    if (mode === 'core_receive') data = { action: mode, notes, files, confirmed };
     if (mode === 'core_refund') data = { action: mode, execution };
     const parsed = aftersalesActionSchema.safeParse(data);
     if (!parsed.success) {
@@ -893,7 +959,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
               {detail.canAdmin && !detail.core.reviewRequired && detail.core.amount > 0 && !detail.core.refund && (
                 <div className="flex flex-wrap gap-2 pt-1">
                   {!detail.core.receivedAt
-                    ? actionButton('Registrar recepción del core', 'core_receive', 0, 'primary')
+                    ? actionButton('Registrar recepción y devolución del core', 'core_receive', 0, 'primary')
                     : actionButton('Devolver depósito del core', 'core_refund', 0, 'primary')}
                 </div>
               )}
@@ -1371,15 +1437,46 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                 )}
 
                 {mode === 'core_receive' && (
-                  <label className="flex items-center gap-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 text-xs sm:text-sm font-medium cursor-pointer">
-                    <input
-                      required
-                      type="checkbox"
-                      checked={confirmed}
-                      onChange={(event) => setConfirmed(event.target.checked)}
-                    />
-                    <span>Recibí físicamente el core.</span>
-                  </label>
+                  <div className="space-y-4">
+                    <label className="flex items-center gap-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 text-xs sm:text-sm font-medium cursor-pointer">
+                      <input
+                        required
+                        type="checkbox"
+                        checked={confirmed}
+                        onChange={(event) => setConfirmed(event.target.checked)}
+                      />
+                      <span>Recibí físicamente el core en yarda en condiciones aceptables.</span>
+                    </label>
+
+                    {detail.core.amount > 0 && (
+                      <div className="rounded-2xl border border-cyan-500/35 bg-cyan-950/20 p-4 space-y-3">
+                        <label className="flex items-center gap-2.5 text-xs sm:text-sm font-bold text-cyan-300 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={immediateCoreRefund}
+                            onChange={(event) => setImmediateCoreRefund(event.target.checked)}
+                          />
+                          <span>Devolver depósito de ${detail.core.amount.toFixed(2)} USD inmediatamente (en este mismo acto)</span>
+                        </label>
+
+                        {immediateCoreRefund && (
+                          <div className="pt-2 border-t border-cyan-500/20 space-y-3">
+                            <ExecutionFields
+                              orderId={order.id}
+                              core={true}
+                              customerName={order.customer?.name}
+                              value={execution}
+                              onChange={setExecution}
+                              onBusy={setUploading}
+                            />
+                            <p className="text-[11px] text-slate-400">
+                              Se registrará la recepción física del core y la devolución de ${detail.core.amount.toFixed(2)} al cliente en una sola operación verificable.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 {mode === 'refund_completed' && (

@@ -1436,7 +1436,22 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
                 <div className="flex justify-between items-center px-2 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-cyan-500/10">
                   <span className="text-[var(--text-secondary)] text-[11px]">Core Fee (Casco):</span>
-                  <strong className="text-[var(--text-primary)]">${coreFee.toFixed(2)}</strong>
+                  <div className="flex items-center gap-2">
+                    <strong className="text-[var(--text-primary)]">${coreFee.toFixed(2)}</strong>
+                    {order.status === 'entregado' && coreFee > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const el = document.getElementById('order-aftersales');
+                          el?.scrollIntoView({ behavior: 'smooth' });
+                        }}
+                        className="text-[10px] px-2 py-0.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 font-bold font-mono transition cursor-pointer"
+                        title="Gestionar recepción física y devolución del core en Posventa"
+                      >
+                        ⚙️ Gestionar Core
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

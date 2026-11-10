@@ -22,6 +22,7 @@ export const paymentActionSchema = z.object({
 export const settlementOrderFromRow = (row: RowDataPacket) => ({
   price: Number(row.price || 0), shipping: Number(row.shipping_cost || 0), core: Number(row.core_fee || 0),
   paid: Number(row.down_payment || 0), coreReceived: Boolean(row.core_received_at),
+  delivered: Boolean(row.delivered_at || row.delivery_log_at),
 });
 export function enforceCollectionUpdate(row: RowDataPacket, next: { status?: string; financials?: { downPayment?: number; coreFee?: number } }) {
   if (row.delivered_at && next.financials && cents(next.financials.coreFee) !== cents(row.core_fee)) {

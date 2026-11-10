@@ -116,6 +116,32 @@ export const OrderPaymentFields: React.FC<{
             <p className="text-xs text-[var(--text-secondary)]">La pieza usada ya fue verificada y recibida. No hay cargo de core pendiente por liquidar.</p>
           </div>
         </div>
+      ) : (detail.order.delivered && detail.order.core > 0) || (detail.order.core > 0 && Math.round(detail.order.paid * 100) > Math.round((detail.order.price + detail.order.shipping) * 100)) ? (
+        <div className="rounded-2xl border border-cyan-500/40 bg-gradient-to-br from-cyan-950/40 to-slate-900/80 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-cyan-300 font-bold text-sm">
+              <span className="material-symbols-outlined text-lg">swap_horizontal_circle</span>
+              <span>Depósito de Core Cobrado ({money(detail.order.core)})</span>
+            </div>
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-mono font-bold">
+              Depósito Pagado
+            </span>
+          </div>
+          <p className="text-xs text-slate-300 leading-relaxed">
+            El depósito de core de <strong>{money(detail.order.core)}</strong> ya fue pagado por el cliente. Para registrar la recepción de la pieza usada física y devolver el dinero en efectivo o tarjeta, utiliza la sección <strong>Posventa y Garantías (Depósito del Core)</strong>.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              const el = document.getElementById('order-aftersales');
+              el?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="w-full py-2 px-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-md"
+          >
+            <span className="material-symbols-outlined text-[16px]">arrow_downward</span>
+            <span>Ver sección Depósito del Core en Posventa</span>
+          </button>
+        </div>
       ) : (
         <div className="space-y-3.5">
           {/* Visual Interactive Cards for Core Decision */}
