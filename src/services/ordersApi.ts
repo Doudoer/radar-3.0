@@ -56,4 +56,14 @@ export const ordersApi = {
       `/orders/${orderId}/revert-to-paid`,
       { method: 'POST', body: JSON.stringify(payload) }
     ),
+  requestCancelOrderOtp: (orderId: string | number, payload: { reason: string; paymentMethod?: string }) =>
+    request<{ ok: boolean; message: string; cooldownSeconds: number; targetPhoneMasked?: string; netPaidToRefund?: number }>(
+      `/orders/${orderId}/cancel-admin/request-otp`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+  cancelOrderAdmin: (orderId: string | number, payload: { code: string; reason: string; paymentMethod?: string; version?: number }) =>
+    request<{ ok: boolean; message: string; newStatus: string; netRefunded?: number }>(
+      `/orders/${orderId}/cancel-admin`,
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
 };

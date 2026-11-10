@@ -12,6 +12,7 @@ import { workflowRequired } from '../utils/orderWorkflow';
 import { OrderWorkflowPanel } from './OrderWorkflowPanel';
 import { OrderPaymentsModal } from './OrderPayments';
 import { OrderAftersalesPanel } from './OrderAftersales';
+import { CancelOrderModal } from './CancelOrderModal';
 
 interface OrderDetailViewProps {
   order: Order;
@@ -185,6 +186,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
   // Revert from listo_retiro to pagado (Super Admin + WhatsApp OTP)
   const [isRevertToPaidModalOpen, setIsRevertToPaidModalOpen] = useState(false);
+  const [isCancelOrderModalOpen, setIsCancelOrderModalOpen] = useState(false);
   const [revertReason, setRevertReason] = useState('');
   const [revertCode, setRevertCode] = useState('');
   const [revertLoading, setRevertLoading] = useState(false);
@@ -881,6 +883,19 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               >
                 <span className="material-symbols-outlined text-[15px] text-rose-400">history</span>
                 <span>Revertir a Pagado</span>
+              </button>
+            )}
+
+            {/* Super Admin Special Cancellation with SMS/WhatsApp OTP */}
+            {isSuperAdmin && order.status !== 'cancelado' && (
+              <button
+                type="button"
+                onClick={() => setIsCancelOrderModalOpen(true)}
+                className="px-2.5 py-1 rounded-lg bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-sm active:scale-95"
+                title="Cancelar orden y registrar devolución automática con código OTP (Super Admin)"
+              >
+                <span className="material-symbols-outlined text-[15px] text-red-400">block</span>
+                <span>Cancelar Orden</span>
               </button>
             )}
 
@@ -2094,6 +2109,21 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
             )}
           </div>
         </div>
+      )}
+      {/* Modal: Cancelación especial de orden con devolución automática (Super Admin + SMS/WhatsApp OTP) */}
+      {isSuperAdmin && isCancelOrderModalOpen && (
+        <CancelOrderModal
+          order={order}
+          isOpen={isCancelOrderModalOpen}
+          isSuperAdmin={isSuperAdmin}
+          onClose={() => setIsCancelOrderModalOpen(false)}
+          onOrderCancelled={async (updatedOrder) => {
+            if (onUpdateOrder) {
+              await onUpdateOrder(updatedOrder);
+            }
+          }}
+          onToast={handleToast}
+        />
       )}
     </div>
   );

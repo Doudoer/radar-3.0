@@ -333,6 +333,18 @@ export const revertToPaidSchema = z.object({
   version: z.number().int().positive().optional(),
 });
 
+export const cancelOrderOtpRequestSchema = z.object({
+  reason: z.string().trim().min(5, 'Explica el motivo de la cancelación').max(500),
+  paymentMethod: z.string().trim().max(50).optional(),
+});
+
+export const cancelOrderSchema = z.object({
+  code: z.string().trim().regex(/^\d{6}$/, 'El código de seguridad debe tener 6 dígitos numéricos'),
+  reason: z.string().trim().min(5, 'Explica el motivo de la cancelación').max(500),
+  paymentMethod: z.string().trim().max(50).optional(),
+  version: z.number().int().positive().optional(),
+});
+
 export const orderDeliveryFollowupSchema = z.object({
   contactChannel: z.enum(['call', 'sms', 'whatsapp']).default('call'),
   callResult: z

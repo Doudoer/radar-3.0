@@ -64,6 +64,8 @@ import {
   updateDeliveryDateSchema,
   revertToPaidOtpRequestSchema,
   revertToPaidSchema,
+  cancelOrderOtpRequestSchema,
+  cancelOrderSchema,
   orderDeliveryFollowupSchema,
 } from './src/server/schemas';
 import { readBody, sendJson, serveFrontend } from './src/server/http';
@@ -135,6 +137,19 @@ interface RevertToPaidOtpState {
   reason?: string;
 }
 const activeRevertToPaidOtps = new Map<number, RevertToPaidOtpState>();
+
+// In-memory single-use OTP state for special order cancellation by administrator (3 min expiration)
+interface CancelOrderOtpState {
+  orderId: number;
+  code: string;
+  expiresAt: number;
+  requestedAt: number;
+  requestedByUserId: number;
+  targetPhone: string;
+  reason?: string;
+  paymentMethod?: string;
+}
+const activeCancelOrderOtps = new Map<number, CancelOrderOtpState>();
 
 const MIME_EXTENSION_MAP: Record<string, string[]> = {
   'image/jpeg': ['.jpg', '.jpeg'],
@@ -2041,6 +2056,306 @@ const server = createServer(async (request, response) => {
       } catch (error) {
         await connection.rollback();
         console.error('[RevertToPaid Error]:', error);
+        throw error;
+      } finally {
+        connection.release();
+      }
+    }
+
+    // ==========================================
+    // CANCEL ORDER WITH AUTOMATIC REFUND (SUPER ADMIN + WHATSAPP/SMS OTP)
+    // ==========================================
+    const cancelOrderOtpMatch = pathname.match(/^\/api\/orders\/(\d+)\/cancel-admin\/request-otp$/);
+    if (request.method === 'POST' && cancelOrderOtpMatch) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const targetOrderId = Number(cancelOrderOtpMatch[1]);
+      const body = cancelOrderOtpRequestSchema.parse(await readBody(request));
+
+      const [orderRows] = await pool.query<RowDataPacket[]>(
+        'SELECT id, order_code, status, down_payment, inventory_part_id FROM orders WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        [targetOrderId]
+      );
+      if (!orderRows[0]) return sendJson(response, 404, { message: 'Orden no encontrada' });
+      const orderRow = orderRows[0];
+      const curStatus = statusFromDatabase(orderRow.status);
+      if (curStatus === 'cancelado' || orderRow.status === 'Cancelado') {
+        return sendJson(response, 400, { message: 'Esta orden ya se encuentra cancelada.' });
+      }
+
+      const now = Date.now();
+      const existing = activeCancelOrderOtps.get(targetOrderId);
+      if (existing && (now - existing.requestedAt) < 30_000 && existing.expiresAt > now) {
+        const remaining = Math.max(1, Math.ceil((30_000 - (now - existing.requestedAt)) / 1000));
+        return sendJson(response, 429, {
+          ok: false,
+          message: 'Por favor espera unos segundos antes de solicitar otro código.',
+          cooldownSeconds: remaining,
+        });
+      }
+
+      const [adminRows] = await pool.query<RowDataPacket[]>(
+        "SELECT id, name, phone FROM users WHERE id = ? AND role = 'admin' AND active = 1 AND deleted_at IS NULL LIMIT 1",
+        [authenticatedClaims?.sub]
+      );
+      let adminUser = adminRows[0];
+      if (!adminUser?.phone) {
+        const [fallbackAdmins] = await pool.query<RowDataPacket[]>(
+          "SELECT id, name, phone FROM users WHERE role = 'admin' AND active = 1 AND phone IS NOT NULL AND phone != '' AND deleted_at IS NULL ORDER BY (id = 1) DESC, id ASC LIMIT 1"
+        );
+        adminUser = fallbackAdmins[0];
+      }
+      if (!adminUser?.phone) {
+        return sendJson(response, 409, { message: 'No hay teléfono configurado para el Super Administrador en el sistema.' });
+      }
+
+      const [payments] = await pool.query<RowDataPacket[]>(
+        "SELECT COALESCE(SUM(amount), 0) AS total_paid FROM finance_movements WHERE order_id = ? AND kind = 'payment'",
+        [targetOrderId]
+      );
+      const [refunds] = await pool.query<RowDataPacket[]>(
+        "SELECT COALESCE(SUM(amount), 0) AS total_refunded FROM finance_movements WHERE order_id = ? AND kind = 'refund'",
+        [targetOrderId]
+      );
+      const orderDownPayment = Number(orderRow.down_payment || 0);
+      const movementsPaid = Number(payments[0]?.total_paid || 0);
+      const totalPaid = Math.max(orderDownPayment, movementsPaid);
+      const totalRefunded = Number(refunds[0]?.total_refunded || 0);
+      const netPaid = Math.max(0, totalPaid - totalRefunded);
+
+      const targetPhone = formatWasenderPhone(adminUser.phone);
+      const otpCode = crypto.randomInt(100000, 1000000).toString();
+
+      activeCancelOrderOtps.set(targetOrderId, {
+        orderId: targetOrderId,
+        code: otpCode,
+        expiresAt: now + 3 * 60 * 1000, // 3 minutes
+        requestedAt: now,
+        requestedByUserId: Number(authenticatedClaims?.sub),
+        targetPhone,
+        reason: body.reason,
+        paymentMethod: body.paymentMethod,
+      });
+
+      const methodLabel = body.paymentMethod ? ` vía ${body.paymentMethod}` : '';
+      const messageText = `🚫 *Radar Security Alert · Cancelación de Orden*\n\nHola *${adminUser.name || 'Super Admin'}*, se ha solicitado cancelar la orden *#${orderRow.order_code || targetOrderId}* con devolución automática de $${netPaid.toFixed(2)}${methodLabel}.\n\nMotivo: _${body.reason}_\n\nTu código de seguridad de un solo uso es:\n👉 *${otpCode}* 👈\n\n⏱️ Válido por 3 minutos. Si no solicitaste esta cancelación, ignora este mensaje.`;
+
+      if (!wasender.configured || wasender.isTestMode) {
+        if (wasender.isTestMode) {
+          console.log(`[TEST MODE] OTP para cancelar orden ${targetOrderId}: ${otpCode}`);
+        } else {
+          activeCancelOrderOtps.delete(targetOrderId);
+          return sendJson(response, 503, { message: 'El servicio de WhatsApp (Wasender) no está configurado o disponible.' });
+        }
+      } else {
+        try {
+          await wasender.sendText({ to: targetPhone, text: messageText });
+        } catch (err) {
+          console.error('[Cancel Order OTP] Error enviando WhatsApp:', err);
+          activeCancelOrderOtps.delete(targetOrderId);
+          return sendJson(response, 503, { message: 'Error al enviar el código de seguridad por WhatsApp.' });
+        }
+      }
+
+      void recordAuditLog(pool, {
+        userId: Number(authenticatedClaims?.sub),
+        username: authenticatedClaims?.email,
+        action: 'ORDER_CANCEL_OTP_REQUESTED',
+        resourceType: 'order',
+        resourceId: String(targetOrderId),
+        details: { targetPhoneMasked: `***${targetPhone.slice(-4)}`, reason: body.reason, netPaid },
+        ipAddress: request.socket.remoteAddress || 'unknown',
+        userAgent: request.headers['user-agent'] || null,
+      });
+
+      return sendJson(response, 200, {
+        ok: true,
+        message: 'Código de seguridad enviado por WhatsApp exitosamente.',
+        cooldownSeconds: 30,
+        targetPhoneMasked: `***${targetPhone.slice(-4)}`,
+        netPaidToRefund: netPaid,
+      });
+    }
+
+    const cancelOrderMatch = pathname.match(/^\/api\/orders\/(\d+)\/cancel-admin$/);
+    if (request.method === 'POST' && cancelOrderMatch) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const targetOrderId = Number(cancelOrderMatch[1]);
+      const data = cancelOrderSchema.parse(await readBody(request));
+
+      const now = Date.now();
+      const activeOtp = activeCancelOrderOtps.get(targetOrderId);
+      if (!activeOtp || activeOtp.expiresAt <= now) {
+        activeCancelOrderOtps.delete(targetOrderId);
+        return sendJson(response, 400, { message: 'El código de seguridad ha expirado o no ha sido solicitado. Solicita uno nuevo.' });
+      }
+      if (activeOtp.code !== data.code.trim()) {
+        return sendJson(response, 400, { message: 'El código de seguridad ingresado es incorrecto.' });
+      }
+
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [orderRows] = await connection.query<RowDataPacket[]>(
+          'SELECT id, order_code, status, inventory_part_id, down_payment, version FROM orders WHERE id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE',
+          [targetOrderId]
+        );
+        if (!orderRows[0]) fail(404, 'Orden no encontrada');
+        const orderRow = orderRows[0];
+        const curStatus = statusFromDatabase(orderRow.status);
+        if (curStatus === 'cancelado' || orderRow.status === 'Cancelado') {
+          fail(400, 'La orden ya está cancelada');
+        }
+        if (data.version && Number(data.version) !== Number(orderRow.version)) {
+          fail(409, 'La orden cambió; recarga antes de guardar');
+        }
+
+        // Calculate paid and refunded movements
+        const [payments] = await connection.query<RowDataPacket[]>(
+          "SELECT id, amount, payment_method, payment_reference, payment_receipt, payment_received_by FROM finance_movements WHERE order_id = ? AND kind = 'payment'",
+          [targetOrderId]
+        );
+        const [refundMovements] = await connection.query<RowDataPacket[]>(
+          "SELECT COALESCE(SUM(amount), 0) AS total_refunded FROM finance_movements WHERE order_id = ? AND kind = 'refund'",
+          [targetOrderId]
+        );
+        const orderDownPayment = Number(orderRow.down_payment || 0);
+        const movementsPaid = payments.reduce((acc, p) => acc + Number(p.amount || 0), 0);
+        const totalPaid = Math.max(orderDownPayment, movementsPaid);
+        const totalRefunded = Number(refundMovements[0]?.total_refunded || 0);
+        const netPaid = Math.max(0, totalPaid - totalRefunded);
+
+        const currentUserId = Number(authenticatedClaims?.sub);
+        const [adminRows] = await connection.query<RowDataPacket[]>(
+          'SELECT name FROM users WHERE id = ?',
+          [currentUserId]
+        );
+        const adminName = adminRows[0]?.name || 'Super Admin';
+
+        // Auto refund execution
+        let methodCode = (data.paymentMethod || activeOtp.paymentMethod || payments[0]?.payment_method || 'square').toLowerCase();
+        if (methodCode === 'tarjeta' || methodCode === 'card') methodCode = 'square';
+        if (methodCode === 'efectivo') methodCode = 'cash';
+
+        let methodDbLabel = 'Tarjeta (Square)';
+        let methodDisplay = 'Tarjeta';
+        let executionData: Record<string, any> = { method: 'square', reference: 'Cancelación automática admin', last4: 'AUTO' };
+
+        if (methodCode === 'cash') {
+          methodDbLabel = 'Efectivo';
+          methodDisplay = 'Efectivo';
+          executionData = { method: 'cash', recipient: 'Devuelto en mostrador (Cancelación Admin)' };
+        } else if (methodCode === 'zelle') {
+          methodDbLabel = 'Zelle';
+          methodDisplay = 'Zelle';
+          executionData = { method: 'zelle', reference: 'Cancelación automática Zelle', recipient: 'Cliente original' };
+        } else if (methodCode === 'cashapp') {
+          methodDbLabel = 'Cash App';
+          methodDisplay = 'Cash App';
+          executionData = { method: 'cashapp', reference: 'Cancelación automática Cash App', recipient: 'Cliente original' };
+        }
+
+        if (netPaid > 0) {
+          await connection.execute(
+            `INSERT INTO refund_requests (order_id, amount, amount_type, payment_method, reason, status, requested_by, previous_order_status, review_stage, refund_scope, execution, completed_at, completed_by)
+             VALUES (?, ?, 'total', ?, ?, 'completed', ?, ?, 'completed', 'purchase', ?, UTC_TIMESTAMP(), ?)`,
+            [
+              targetOrderId,
+              netPaid,
+              methodDbLabel,
+              `Devolución automática por cancelación de orden por Administrador. Motivo: ${data.reason.trim()}`,
+              currentUserId,
+              orderRow.status,
+              JSON.stringify(executionData),
+              currentUserId,
+            ]
+          );
+
+          await connection.execute(
+            `INSERT INTO finance_movements (order_id, kind, amount, effective_at, source, reference_key, user_id, payment_method, payment_receipt, payment_received_by)
+             VALUES (?, 'refund', ?, UTC_TIMESTAMP(), 'refund', ?, ?, ?, NULL, ?)`,
+            [
+              targetOrderId,
+              netPaid,
+              `refund-cancel-${targetOrderId}-${crypto.randomUUID().slice(0, 8)}`,
+              currentUserId,
+              methodCode,
+              'Sistema / Administrador',
+            ]
+          );
+        }
+
+        // Release inventory part back to disponible
+        if (orderRow.inventory_part_id) {
+          await connection.execute(
+            "UPDATE inventory_parts SET status = 'disponible', order_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
+            [orderRow.inventory_part_id]
+          );
+        }
+        await connection.execute(
+          "UPDATE inventory_parts SET status = 'disponible', order_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE order_id = ? AND deleted_at IS NULL",
+          [targetOrderId]
+        );
+
+        // Update order status to Cancelado
+        const [orderUpdate] = await connection.execute<ResultSetHeader>(
+          'UPDATE orders SET status = ?, scheduled_pickup_at = NULL, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL',
+          ['Cancelado', targetOrderId]
+        );
+        if (!orderUpdate.affectedRows) fail(409, 'No se pudo actualizar la orden.');
+
+        const refundSummaryText = netPaid > 0
+          ? ` Devolución automática de $${netPaid.toFixed(2)} procesada (${methodDisplay}).`
+          : ' Sin cobros pendientes por devolver.';
+
+        await connection.execute(
+          `INSERT INTO order_workflow_events (order_id, task, outcome, actor_id, actor_name, notes, evidence) VALUES (?, 'cancel', 'cancelled_by_admin', ?, ?, ?, '[]')`,
+          [targetOrderId, currentUserId, adminName, `Orden cancelada por el Administrador con código OTP verificado. Motivo: ${data.reason.trim()}.${refundSummaryText}`]
+        );
+
+        await connection.execute(
+          'INSERT INTO status_orders (order_id, status, description, user_id) VALUES (?, ?, ?, ?)',
+          [targetOrderId, 'Cancelado', `Cancelada por el Administrador ${adminName} con código OTP verificado. Motivo: ${data.reason.trim()}.${refundSummaryText}`, currentUserId]
+        );
+
+        await connection.execute(
+          "INSERT INTO audit_logs (user_id, username, action, resource_type, resource_id, details, ip_address, user_agent) VALUES (?, ?, 'ORDER_CANCELLED_ADMIN', 'order', ?, ?, ?, ?)",
+          [
+            currentUserId,
+            authenticatedClaims?.email || null,
+            String(targetOrderId),
+            JSON.stringify({
+              orderCode: orderRow.order_code,
+              fromStatus: orderRow.status,
+              toStatus: 'Cancelado',
+              reason: data.reason.trim(),
+              netPaidRefunded: netPaid,
+              paymentMethod: methodDisplay,
+              otpVerified: true,
+              releasedInventoryPartId: orderRow.inventory_part_id || null,
+            }),
+            request.socket.remoteAddress || null,
+            request.headers['user-agent']?.slice(0, 255) || null,
+          ]
+        );
+
+        await connection.commit();
+        activeCancelOrderOtps.delete(targetOrderId);
+
+        broadcastRealtimeEvent('order:updated', {
+          orderId: targetOrderId,
+          action: 'ORDER_CANCELLED_ADMIN',
+          timestamp: Date.now(),
+        });
+
+        return sendJson(response, 200, {
+          ok: true,
+          message: 'Orden cancelada exitosamente por el Administrador y devolución procesada.',
+          newStatus: 'cancelado',
+          netRefunded: netPaid,
+        });
+      } catch (error) {
+        await connection.rollback();
+        console.error('[CancelOrderAdmin Error]:', error);
         throw error;
       } finally {
         connection.release();
