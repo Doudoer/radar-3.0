@@ -304,19 +304,27 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
               return (
                 <div
                   key={order.id}
-                  className={`rounded-2xl border transition-all flex flex-col justify-between p-4 bg-[#0d1424]/90 backdrop-blur-sm ${
+                  onClick={() => setSelectedOrder(order)}
+                  className={`group rounded-2xl border transition-all flex flex-col justify-between p-4 bg-[#0d1424] hover:border-amber-400/60 cursor-pointer shadow-sm active:scale-[0.99] touch-manipulation ${
                     isReadyInYard
-                      ? 'border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
-                      : 'border-amber-500/30 hover:border-amber-500/60 shadow-sm'
+                      ? 'border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.12)]'
+                      : 'border-slate-800 hover:border-amber-500/50'
                   }`}
                 >
                   <div className="space-y-3">
                     {/* Header: Order Code & Status badge */}
                     <div className="flex items-start justify-between gap-2 border-b border-slate-800 pb-2.5">
                       <div>
-                        <span className="text-amber-400 font-mono font-black text-sm tracking-wide">
-                          #{order.code}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-amber-400 font-mono font-black text-sm tracking-wide group-hover:text-amber-300 transition-colors">
+                            #{order.code}
+                          </span>
+                          {isReadyInYard && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                              ✓ Lista
+                            </span>
+                          )}
+                        </div>
                         <span className="text-[10px] font-mono text-slate-400 block mt-0.5">
                           {order.createdAt}
                         </span>
@@ -341,171 +349,71 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
                       </div>
                     </div>
 
-                    {/* Part & Vehicle Highlight */}
+                    {/* Part Type & Vehicle: Tipo de Pieza, Año, Marca, Modelo */}
                     <div>
-                      <h3 className="font-bold text-white text-base leading-snug">
+                      <h3 className="font-bold text-white text-base leading-snug group-hover:text-amber-200 transition-colors">
                         {order.mainPart}
                       </h3>
-                      <p className="text-xs text-amber-300/90 font-mono mt-0.5">
+                      <p className="text-sm font-semibold text-amber-300/90 font-mono mt-0.5">
                         {order.vehicle?.year} {order.vehicle?.make} {order.vehicle?.model} {order.vehicle?.trim}
                       </p>
                     </div>
 
-                    {/* Technical details grid */}
-                    <div className="grid grid-cols-2 gap-2 text-[11px] font-mono p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80">
-                      <div>
-                        <span className="text-slate-400 block text-[9px] uppercase font-bold">VIN</span>
-                        <span className="text-slate-200 font-bold truncate block" title={order.vehicle?.vin}>
-                          {order.vehicle?.vin ? order.vehicle.vin.slice(-8) : 'N/D'}
+                    {/* Descripción de la refacción solicitada */}
+                    {order.productSpecs ? (
+                      <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80 text-[11px] font-mono text-slate-300">
+                        <span className="text-slate-400 block text-[9.5px] uppercase font-bold mb-1">Descripción:</span>
+                        <p className="line-clamp-3 leading-relaxed italic">{order.productSpecs}</p>
+                      </div>
+                    ) : (
+                      <div className="p-2 rounded-lg bg-slate-950/40 border border-slate-800/50 text-[10px] font-mono text-slate-500 italic">
+                        Sin descripción adicional
+                      </div>
+                    )}
+
+                    {/* Indicadores de fotos y compatibilidad */}
+                    <div className="flex items-center gap-2 pt-0.5 text-[10.5px] font-mono text-slate-400 flex-wrap">
+                      {order.yardCompatibility?.referenceImages && order.yardCompatibility.referenceImages.length > 0 && (
+                        <span className="inline-flex items-center gap-1 text-amber-400/90 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
+                          <span className="material-symbols-outlined text-[13px]">photo_library</span>
+                          <span>{order.yardCompatibility.referenceImages.length} fotos</span>
                         </span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block text-[9px] uppercase font-bold">Stock / Pallet</span>
-                        <span className="text-amber-400 font-bold truncate block">
-                          {order.stockNumber || 'Sin pallet asignado'}
+                      )}
+                      {order.yardCompatibility?.compatibilityList && (
+                        <span className="inline-flex items-center gap-1 text-cyan-400/90 bg-cyan-500/10 px-2 py-0.5 rounded-md border border-cyan-500/20">
+                          <span className="material-symbols-outlined text-[13px]">swap_horiz</span>
+                          <span>Compatible</span>
                         </span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block text-[9px] uppercase font-bold">Transmisión</span>
-                        <span className="text-slate-200 truncate block">{order.vehicle?.transmission || 'N/D'}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block text-[9px] uppercase font-bold">Garantía</span>
-                        <span className="text-slate-200 font-bold block">{order.warrantyDays || 60} días</span>
-                      </div>
+                      )}
+                      {order.stockNumber && (
+                        <span className="inline-flex items-center gap-1 text-slate-300 bg-slate-900 px-2 py-0.5 rounded-md border border-slate-800">
+                          <span className="text-slate-500">Pallet:</span> {order.stockNumber}
+                        </span>
+                      )}
                     </div>
-
-                    {/* Technical Description snippet if available */}
-                    {order.productSpecs && (
-                      <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800/80 text-[10.5px] font-mono text-slate-300">
-                        <span className="text-slate-400 block text-[9px] uppercase font-bold mb-0.5">Descripción:</span>
-                        <p className="line-clamp-2 italic">{order.productSpecs}</p>
-                      </div>
-                    )}
-
-                    {/* Preparation or Yard Note */}
-                    {order.preparation && (
-                      <div className="p-2 rounded-lg bg-cyan-950/30 border border-cyan-500/30 text-[10px] font-mono text-cyan-200 flex items-center gap-1.5">
-                        <span className="material-symbols-outlined text-[14px] text-cyan-400">schedule</span>
-                        <span>
-                          {order.preparation.deliveryType === 'retiro_tienda' ? 'Recogida en yarda' : 'Envío'}:{' '}
-                          {order.preparation.dateFrom}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Claim Notification Banner */}
-                    {order.status === 'reclamo' && (
-                      <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/40 text-[11px] font-mono text-rose-200 space-y-1">
-                        <div className="flex items-center gap-1.5 font-bold text-rose-400">
-                          <span className="material-symbols-outlined text-[16px]">report_problem</span>
-                          <span>Orden con Reclamo Activo</span>
-                        </div>
-                        {order.claimReason && (
-                          <p className="text-[10px] text-rose-300">
-                            <strong className="text-rose-400">Motivo:</strong> {order.claimReason}
-                          </p>
-                        )}
-                        {order.notes && !order.claimReason && (
-                          <p className="text-[10px] text-rose-300 truncate">
-                            <strong className="text-rose-400">Nota:</strong> {order.notes}
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Compatibility list snippet */}
-                    {order.yardCompatibility?.compatibilityList && (
-                      <div className="p-2.5 rounded-xl bg-amber-950/20 border border-amber-500/30 text-[11px] font-mono text-amber-200 space-y-1">
-                        <div className="flex items-center gap-1.5 font-bold text-amber-400">
-                          <span className="material-symbols-outlined text-[15px]">swap_horiz</span>
-                          <span>Compatibilidad</span>
-                        </div>
-                        <p className="text-[10px] text-slate-300 line-clamp-2 whitespace-pre-line">
-                          {order.yardCompatibility.compatibilityList}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Reference Photos Gallery */}
-                    {order.yardCompatibility?.referenceImages && order.yardCompatibility.referenceImages.length > 0 && (
-                      <div className="space-y-1 pt-1">
-                        <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold">
-                          <span className="flex items-center gap-1 text-amber-400">
-                            <span className="material-symbols-outlined text-[14px]">photo_library</span>
-                            <span>Fotos de Referencia ({order.yardCompatibility.referenceImages.length})</span>
-                          </span>
-                        </div>
-                        <YardPhotoGallery images={order.yardCompatibility.referenceImages} maxThumbnails={4} />
-                      </div>
-                    )}
                   </div>
 
-                  {/* Actions footer */}
-                  <div className="mt-4 pt-3 border-t border-slate-800 flex flex-col gap-2">
-                    {/* Admin Button: Compatibilidad & Fotos */}
-                    {isSuperAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOrderForCompatibility(order);
-                          setIsCompatibilityModalOpen(true);
-                        }}
-                        title="Gestionar lista de compatibilidad y fotos de referencia"
-                        className="w-full py-1.5 px-3 rounded-xl border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-mono text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">swap_horiz</span>
-                        <span>
-                          {order.yardCompatibility?.compatibilityList || (order.yardCompatibility?.referenceImages && order.yardCompatibility.referenceImages.length > 0)
-                            ? 'Editar Compatibilidad & Fotos'
-                            : '+ Agregar Compatibilidad & Fotos'}
-                        </span>
-                      </button>
-                    )}
-
-                    {/* Main Yard Status Action */}
+                  {/* Botón de acción: Confirmar Pieza Lista en Patio */}
+                  <div className="mt-3.5 pt-2.5 border-t border-slate-800/80">
                     {!isReadyInYard ? (
                       <button
                         type="button"
                         disabled={markingReadyId === order.id}
-                        onClick={() => handleMarkYardReady(order)}
-                        className="w-full py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono font-bold text-xs flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(245,158,11,0.25)] transition-all cursor-pointer disabled:opacity-60"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMarkYardReady(order);
+                        }}
+                        className="w-full py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono font-bold text-xs flex items-center justify-center gap-1.5 shadow-[0_0_12px_rgba(245,158,11,0.25)] transition-all cursor-pointer active:scale-98"
                       >
-                        <span className="material-symbols-outlined text-[18px]">build_circle</span>
+                        <span className="material-symbols-outlined text-[16px]">build_circle</span>
                         <span>{markingReadyId === order.id ? 'Marcando...' : 'Confirmar Pieza Lista en Patio'}</span>
                       </button>
                     ) : (
-                      <div className="w-full py-2 px-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-mono font-bold text-xs flex items-center justify-center gap-2">
-                        <span className="material-symbols-outlined text-[18px] text-emerald-400">check_circle</span>
+                      <div className="w-full py-2 px-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-mono font-bold text-xs flex items-center justify-center gap-1.5">
+                        <span className="material-symbols-outlined text-[16px] text-emerald-400">check_circle</span>
                         <span>Pieza Lista en Patio</span>
                       </div>
                     )}
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedOrder(order)}
-                        className="flex-1 py-1.5 px-3 rounded-xl border border-slate-700 bg-slate-800/60 hover:bg-slate-700 text-slate-300 hover:text-white font-mono text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">visibility</span>
-                        <span>Ver Orden</span>
-                      </button>
-
-                      {/* Admin Cancel Button */}
-                      {isSuperAdmin && order.status !== 'cancelado' && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setOrderToCancel(order);
-                            setIsCancelModalOpen(true);
-                          }}
-                          title="Cancelar orden administrativamente (Super Admin)"
-                          className="py-1.5 px-2.5 rounded-xl border border-red-500/40 bg-red-500/15 hover:bg-red-500/25 text-red-300 text-xs font-mono font-bold transition-all cursor-pointer"
-                        >
-                          <span className="material-symbols-outlined text-[16px]">block</span>
-                        </button>
-                      )}
-                    </div>
                   </div>
                 </div>
               );
@@ -646,21 +554,39 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
             </div>
 
             {/* Action buttons inside modal */}
-            <div className="flex justify-end gap-2.5 pt-2 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => setSelectedOrder(null)}
-                className="px-4 py-2 rounded-xl border border-slate-700 text-slate-400 hover:text-white"
-              >
-                Cerrar
-              </button>
+            <div className="flex items-center justify-between gap-2.5 pt-2 border-t border-slate-800">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedOrder(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-700 text-slate-400 hover:text-white"
+                >
+                  Cerrar
+                </button>
+                {isSuperAdmin && selectedOrder.status !== 'cancelado' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const toCancel = selectedOrder;
+                      setSelectedOrder(null);
+                      setOrderToCancel(toCancel);
+                      setIsCancelModalOpen(true);
+                    }}
+                    title="Cancelar orden administrativamente (Super Admin)"
+                    className="px-3 py-2 rounded-xl border border-red-500/40 bg-red-500/15 hover:bg-red-500/25 text-red-300 text-xs font-mono font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">block</span>
+                    <span>Cancelar</span>
+                  </button>
+                )}
+              </div>
 
               {!selectedOrder.yardPieceReady && (
                 <button
                   type="button"
                   disabled={markingReadyId === selectedOrder.id}
                   onClick={() => handleMarkYardReady(selectedOrder)}
-                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold flex items-center gap-1.5"
+                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold flex items-center gap-1.5 shadow-[0_0_12px_rgba(245,158,11,0.3)] transition-all cursor-pointer active:scale-95"
                 >
                   <span className="material-symbols-outlined text-[16px]">check_circle</span>
                   <span>{markingReadyId === selectedOrder.id ? 'Marcando...' : 'Confirmar Pieza Lista en Patio'}</span>
