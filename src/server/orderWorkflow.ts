@@ -422,7 +422,7 @@ export async function handleWorkflowRequest(
     try {
       await connection.beginTransaction();
       const [orders] = await connection.query<RowDataPacket[]>(
-        'SELECT id,version,order_code,status,total,down_payment FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE',
+        'SELECT id,version,order_code,status,down_payment FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE',
         [orderId]
       );
       if (!orders[0]) fail(404, 'Orden no encontrada');
@@ -487,7 +487,10 @@ export async function handleWorkflowRequest(
       return true;
     } catch (error) {
       await connection.rollback();
-      throw error;
+      console.error('[ExemptDownpayment Error]:', error);
+      const message = error instanceof Error ? error.message : 'No fue posible completar la solicitud';
+      sendJson(response, 500, { message: `Error al exonerar anticipo: ${message}` });
+      return true;
     } finally {
       connection.release();
     }

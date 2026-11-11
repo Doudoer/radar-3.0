@@ -2203,7 +2203,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 <li>El anticipo se registrará en <strong>$0.00 USD (Exonerado)</strong>.</li>
                 <li>La orden avanza directamente a <strong>Pagado / Facturado</strong>.</li>
                 <li>El patio iniciará la <strong>búsqueda y preparación</strong> de la refacción de inmediato.</li>
-                <li>El <strong>100% del total (${Number(order.total || 0).toFixed(2)} USD)</strong> será exigido y cobrado al momento de la entrega física.</li>
+                <li>El <strong>100% del total (${totalPayable.toFixed(2)} USD)</strong> será exigido y cobrado al momento de la entrega física.</li>
               </ul>
             </div>
 

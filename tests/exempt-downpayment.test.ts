@@ -54,7 +54,7 @@ describe('Exempt Downpayment Admin Feature', () => {
       release: vi.fn(),
       query: vi.fn((sql: string, values?: any[]) => {
         executedQueries.push({ sql, values });
-        if (sql.includes('SELECT id,version,order_code,status,total,down_payment FROM orders')) {
+        if (sql.includes('SELECT id,version,order_code,status,down_payment FROM orders')) {
           return Promise.resolve([[mockOrder] as RowDataPacket[], []]);
         }
         if (sql.includes('SELECT name FROM users WHERE id=?')) {
