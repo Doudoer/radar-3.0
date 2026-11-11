@@ -23,7 +23,7 @@ import { filterInventory, inventoryCsv } from './src/utils/inventoryExport';
 import { financeVaultExpiry, lockFinanceVault, revokeFinanceVaults, unlockFinanceVault } from './src/server/financeVault';
 import { businessDate, businessDaysBetween, isEligibleForDeliveryFollowup } from './src/server/businessTime';
 import { startNotificationOutbox } from './src/server/outbox';
-import { clearSessionCookie, isLoginRateLimited, recordLoginFailure, resetLoginAttempts, requireRole, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
+import { clearSessionCookie, isLoginRateLimited, recordLoginFailure, resetLoginAttempts, requireRole, roleIs, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
 import QRCode from 'qrcode';
 import {
   generateTotpSecret,
@@ -466,14 +466,18 @@ const server = createServer(async (request, response) => {
         : sendJson(response, 401, { message: 'Usuario inactivo' });
     }
 
+    const isImageUpload = ['GET', 'HEAD'].includes(request.method || '') &&
+      pathname.startsWith('/uploads/') &&
+      !pathname.startsWith('/uploads/backups/') &&
+      ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(path.extname(pathname).toLowerCase());
     const isPublicApiPath = false;
-    const protectedPath = pathname.startsWith('/api/') || pathname.startsWith('/uploads/');
-    const authenticatedClaims = protectedPath ? verifyToken(request) as Claims | null : null;
+    const protectedPath = (pathname.startsWith('/api/') || pathname.startsWith('/uploads/')) && !isImageUpload;
+    const authenticatedClaims = (protectedPath || pathname.startsWith('/uploads/')) ? verifyToken(request) as Claims | null : null;
     if (protectedPath && !isPublicApiPath && !authenticatedClaims) {
       return sendJson(response, 401, { message: 'Autenticación requerida' });
     }
 
-    if (authenticatedClaims?.sub) {
+    if (authenticatedClaims?.sub && !isImageUpload) {
       if (!await userIsActive(authenticatedClaims)) return sendJson(response, 401, { message: 'Sesión no válida o revocada' });
     }
     if (['GET', 'HEAD'].includes(request.method || '') && pathname.startsWith('/uploads/backups/')) {
@@ -3927,19 +3931,30 @@ const server = createServer(async (request, response) => {
     // ==========================================
     // UPLOADS & FILE SERVING
     // ==========================================
-    if (request.method === 'GET' && pathname.startsWith('/uploads/')) {
+    if (['GET', 'HEAD'].includes(request.method || '') && pathname.startsWith('/uploads/')) {
       const filename = path.basename(pathname);
       const filePath = path.resolve(process.cwd(), 'uploads', filename);
-      const [attachedOrders] = await pool.query<RowDataPacket[]>(
-        `SELECT o.user_id,o.delivered_at,
-          (SELECT MIN(created_at) FROM status_orders WHERE order_id=o.id AND LOWER(status)='entregado') AS delivery_log_at,
-          (SELECT advisor_id FROM order_followup_assignments WHERE order_id=o.id) AS followup_user_id
-          FROM uploaded_files f JOIN orders o ON o.id=f.order_id WHERE f.filename=?`, [filename]);
-      if (attachedOrders[0]) assertPaymentAccess(attachedOrders[0], authenticatedClaims!, true);
       if (!existsSync(filePath)) {
         return sendJson(response, 404, { message: 'Archivo no encontrado' });
       }
       const ext = path.extname(filename).toLowerCase();
+      const isImage = ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext);
+
+      // Sensitive non-image files (e.g. PDFs, documents) require authentication and order access check
+      if (!isImage) {
+        if (!authenticatedClaims) {
+          return sendJson(response, 401, { message: 'Autenticación requerida' });
+        }
+        const [attachedOrders] = await pool.query<RowDataPacket[]>(
+          `SELECT o.user_id,o.delivered_at,
+            (SELECT MIN(created_at) FROM status_orders WHERE order_id=o.id AND LOWER(status)='entregado') AS delivery_log_at,
+            (SELECT advisor_id FROM order_followup_assignments WHERE order_id=o.id) AS followup_user_id
+            FROM uploaded_files f JOIN orders o ON o.id=f.order_id WHERE f.filename=?`, [filename]);
+        if (attachedOrders[0] && !roleIs(authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) {
+          assertPaymentAccess(attachedOrders[0], authenticatedClaims, true);
+        }
+      }
+
       const mimeTypes: Record<string, string> = {
         '.jpg': 'image/jpeg',
         '.jpeg': 'image/jpeg',
@@ -3952,11 +3967,14 @@ const server = createServer(async (request, response) => {
       };
       response.writeHead(200, {
         'Content-Type': mimeTypes[ext] || 'application/octet-stream',
-        'Cache-Control': 'private, no-store',
+        'Cache-Control': isImage ? 'public, max-age=86400, stale-while-revalidate=604800' : 'private, no-store',
         'X-Content-Type-Options': 'nosniff',
-        'Content-Disposition': `${['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext) ? 'inline' : 'attachment'}; filename="${filename.replace(/"/g, '')}"`,
-        'Content-Security-Policy': "sandbox; default-src 'none'",
+        'Content-Disposition': `${isImage ? 'inline' : 'attachment'}; filename="${filename.replace(/"/g, '')}"`,
       });
+      if (request.method === 'HEAD') {
+        response.end();
+        return;
+      }
       createReadStream(filePath).pipe(response);
       return;
     }

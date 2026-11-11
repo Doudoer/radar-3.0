@@ -20,13 +20,33 @@ export const allowedOrigins = new Set([
     'http://localhost:4173',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:4173',
+    'http://yard.localhost:3000',
+    'http://yard.localhost',
+    'http://yard.localhost.com:3000',
+    'http://yard.localhost.com',
   ]),
   process.env.CORS_ORIGIN,
   process.env.APP_URL,
 ].filter(Boolean));
 
-export const isAllowedLocalOrigin = (origin?: string) =>
-  process.env.NODE_ENV !== 'production' && typeof origin === 'string' && /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+export const isAllowedLocalOrigin = (origin?: string): boolean => {
+  if (typeof origin !== 'string') return false;
+  // Local development: allow localhost, 127.0.0.1, and subdomains like yard.localhost, yard.localhost.com on any port
+  if (process.env.NODE_ENV !== 'production') {
+    if (/^https?:\/\/([a-zA-Z0-9.-]+\.)?(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
+    if (/^https?:\/\/([a-zA-Z0-9.-]+\.)?localhost\.com(:\d+)?$/.test(origin)) return true;
+  }
+
+  // Subdomains of configured APP_URL or CORS_ORIGIN (e.g. yard.radar-rsy.store)
+  if (process.env.APP_URL) {
+    try {
+      const appHost = new URL(process.env.APP_URL).hostname;
+      const originHost = new URL(origin).hostname;
+      if (originHost === appHost || originHost.endsWith(`.${appHost}`)) return true;
+    } catch {}
+  }
+  return false;
+};
 
 export const pool = createPool({
   host: process.env.DB_HOST || '127.0.0.1',

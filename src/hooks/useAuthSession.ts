@@ -78,7 +78,11 @@ export const useAuthSession = () => {
     authenticated,
     checking,
     user,
-    role: user?.role?.toLowerCase() === 'admin' ? ('admin' as const) : ('operador' as const),
+    role: user?.role?.toLowerCase() === 'admin'
+      ? ('admin' as const)
+      : user?.role?.toLowerCase() === 'vendedor_yarda'
+      ? ('vendedor_yarda' as const)
+      : ('operador' as const),
     login,
     updateUser,
     refreshUser,

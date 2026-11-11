@@ -61,7 +61,7 @@ export function securityHeaders(request: IncomingMessage, response: ServerRespon
   response.setHeader('Referrer-Policy', 'no-referrer');
   response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-  const connect = process.env.NODE_ENV === 'production' ? '' : ' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*';
+  const connect = process.env.NODE_ENV === 'production' ? '' : ' http://localhost:* http://127.0.0.1:* http://*.localhost:* http://*.localhost.com:* ws://localhost:* ws://127.0.0.1:* ws://*.localhost:* ws://*.localhost.com:*';
   response.setHeader('Content-Security-Policy', `default-src 'self'; connect-src 'self' https://vpic.nhtsa.dot.gov${connect}; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; script-src 'self'; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`);
   if (process.env.NODE_ENV === 'production') {
     response.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');

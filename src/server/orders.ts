@@ -130,6 +130,9 @@ export const mapOrder = (row: RowDataPacket, auctionLinks: any[] = []) => {
     downpaymentVerified: Boolean(row.downpayment_verified),
     downpaymentVerifiedAt: row.downpayment_verified_at ? new Date(row.downpayment_verified_at).toISOString() : undefined,
     downpaymentVerifiedBy: row.downpayment_verified_by ? Number(row.downpayment_verified_by) : undefined,
+    yardCompatibility: row.yard_compatibility
+      ? (typeof row.yard_compatibility === 'string' ? JSON.parse(row.yard_compatibility) : row.yard_compatibility)
+      : undefined,
   };
 };
 

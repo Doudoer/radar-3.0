@@ -1,4 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { z } from 'zod';
 import type { Claims } from './auth';
@@ -177,6 +180,80 @@ export async function enforceWorkflowUpdate(connection: PoolConnection, previous
   }
 }
 
+export async function performYardImagesCleanup(
+  connection: PoolConnection,
+  orderId: number,
+  yardCompatibilityRaw: unknown,
+  orderCode: string,
+  claims: Claims
+): Promise<number> {
+  let compat: any = null;
+  try {
+    compat = typeof yardCompatibilityRaw === 'string'
+      ? JSON.parse(yardCompatibilityRaw)
+      : yardCompatibilityRaw;
+  } catch {
+    compat = null;
+  }
+
+  const images: string[] = Array.isArray(compat?.referenceImages)
+    ? compat.referenceImages.filter((img: unknown): img is string => typeof img === 'string')
+    : [];
+
+  if (!images.length) return 0;
+
+  const deletedFiles: string[] = [];
+  const uploadDir = path.resolve(process.cwd(), 'uploads');
+
+  for (const imgUrl of images) {
+    const filename = path.basename(imgUrl);
+    if (/^[a-zA-Z0-9._-]+$/.test(filename) && !filename.includes('..')) {
+      const filePath = path.join(uploadDir, filename);
+      try {
+        if (existsSync(filePath)) {
+          await fs.unlink(filePath);
+          deletedFiles.push(filename);
+        }
+      } catch (err) {
+        console.warn(`[YardCleanup] No se pudo borrar archivo físico ${filename}:`, err);
+      }
+      try {
+        await connection.execute('DELETE FROM uploaded_files WHERE filename=? AND order_id=?', [filename, orderId]);
+      } catch (err) {
+        console.warn(`[YardCleanup] Error borrando fila uploaded_files ${filename}:`, err);
+      }
+    }
+  }
+
+  const updatedCompat = {
+    ...compat,
+    referenceImages: [],
+    cleanedAt: new Date().toISOString(),
+    cleanedBy: claims.username || claims.sub || 'system',
+  };
+
+  await connection.execute(
+    'UPDATE orders SET yard_compatibility=?, version=version+1 WHERE id=?',
+    [JSON.stringify(updatedCompat), orderId]
+  );
+
+  await connection.execute(
+    "INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details) VALUES (?,?,'YARD_REFERENCE_IMAGES_CLEANED','order',?,?)",
+    [
+      Number(claims.sub || 0),
+      String(claims.username || claims.sub || 'system'),
+      String(orderId),
+      JSON.stringify({
+        orderCode,
+        deletedFilesCount: deletedFiles.length,
+        deletedFiles,
+      }),
+    ]
+  );
+
+  return deletedFiles.length;
+}
+
 export async function handleWorkflowRequest(
   request: IncomingMessage, response: ServerResponse, pathname: string, claims: Claims, database: Pool,
   broadcast: (type: string, payload: Record<string, unknown>) => void,
@@ -185,26 +262,115 @@ export async function handleWorkflowRequest(
   const assignment = pathname.match(/^\/api\/orders\/(\d+)\/workflow\/assignee$/);
   const yardReady = pathname.match(/^\/api\/orders\/(\d+)\/yard-ready$/);
   const verifyDownpayment = pathname.match(/^\/api\/orders\/(\d+)\/verify-downpayment$/);
+  const yardCompatibility = pathname.match(/^\/api\/orders\/([a-zA-Z0-9_-]+)\/yard-compatibility$/);
   const queue = pathname === '/api/workflow/tasks';
-  if (!match && !queue && !assignment && !yardReady && !verifyDownpayment) return false;
+  if (!match && !queue && !assignment && !yardReady && !verifyDownpayment && !yardCompatibility) return false;
   if (!requireRole(response, claims, 'admin', 'operator', 'vendedor_yarda')) return true;
 
-  if (yardReady) {
+  if (yardCompatibility) {
     if (!requireRole(response, claims, 'admin')) return true;
+    if (request.method !== 'PUT' && request.method !== 'POST') {
+      sendJson(response, 405, { message: 'Método no permitido' });
+      return true;
+    }
+    const orderId = yardCompatibility[1];
+    let parsed: any = {};
+    try {
+      parsed = (await readBody(request, 2 * 1024 * 1024)) || {};
+    } catch {
+      sendJson(response, 400, { message: 'Cuerpo de solicitud JSON inválido' });
+      return true;
+    }
+
+    const compatibilityList = typeof parsed.compatibilityList === 'string' ? parsed.compatibilityList.trim() : '';
+    const compatibleVehicles = Array.isArray(parsed.compatibleVehicles) ? parsed.compatibleVehicles : undefined;
+    const referenceImages = Array.isArray(parsed.referenceImages)
+      ? parsed.referenceImages.filter((img: unknown): img is string => typeof img === 'string')
+      : [];
+
+    const connection = await database.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [orders] = await connection.query<RowDataPacket[]>(
+        'SELECT id,version,order_code FROM orders WHERE (id=? OR order_code=?) AND deleted_at IS NULL FOR UPDATE',
+        [orderId, orderId]
+      );
+      if (!orders[0]) {
+        await connection.rollback();
+        sendJson(response, 404, { message: 'Orden no encontrada' });
+        return true;
+      }
+
+      const realOrderId = Number(orders[0].id);
+      const yardCompatData = {
+        compatibilityList,
+        compatibleVehicles,
+        referenceImages,
+        updatedAt: new Date().toISOString(),
+        updatedBy: claims.username || claims.sub,
+      };
+
+      await connection.execute(
+        'UPDATE orders SET yard_compatibility=?, version=version+1 WHERE id=?',
+        [JSON.stringify(yardCompatData), realOrderId]
+      );
+
+      await connection.execute(
+        "INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details) VALUES (?,?,'YARD_COMPATIBILITY_UPDATED','order',?,?)",
+        [Number(claims.sub), String(claims.sub), String(realOrderId), JSON.stringify({ orderCode: orders[0].order_code, yardCompatData })]
+      );
+
+      await connection.commit();
+      broadcast('order:updated', {
+        orderId: realOrderId,
+        action: 'YARD_COMPATIBILITY_UPDATED',
+        yardCompatibility: yardCompatData,
+        timestamp: Date.now(),
+      });
+      sendJson(response, 200, { ok: true, yardCompatibility: yardCompatData });
+      return true;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  if (yardReady) {
+    if (!requireRole(response, claims, 'admin', 'vendedor_yarda')) return true;
     if (request.method !== 'POST') { sendJson(response, 405, { message: 'Método no permitido' }); return true; }
     const orderId = yardReady[1];
     const connection = await database.getConnection();
     try {
       await connection.beginTransaction();
-      const [orders] = await connection.query<RowDataPacket[]>('SELECT id,version,order_code FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE', [orderId]);
+      const [orders] = await connection.query<RowDataPacket[]>(
+        'SELECT id,version,order_code,yard_piece_ready,preparation_details,workflow_step,yard_compatibility FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE',
+        [orderId]
+      );
       if (!orders[0]) fail(404, 'Orden no encontrada');
+      const orderRow = orders[0];
       await connection.execute('UPDATE orders SET yard_piece_ready=1,yard_piece_ready_at=CURRENT_TIMESTAMP,yard_piece_ready_by=?,version=version+1 WHERE id=?',
         [Number(claims.sub), orderId]);
       await connection.execute("INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details) VALUES (?,?,'YARD_PIECE_READY','order',?,?)",
-        [Number(claims.sub), String(claims.sub), String(orderId), JSON.stringify({ orderCode: orders[0].order_code })]);
+        [Number(claims.sub), String(claims.sub), String(orderId), JSON.stringify({ orderCode: orderRow.order_code })]);
+
+      // If the customer was already contacted and order is ready for delivery, clean up images immediately
+      const isDeliveryReady = Boolean(orderRow.preparation_details) || Number(orderRow.workflow_step) >= 3;
+      let cleanedCount = 0;
+      if (isDeliveryReady) {
+        cleanedCount = await performYardImagesCleanup(connection, Number(orderId), orderRow.yard_compatibility, orderRow.order_code, claims);
+      }
+
       await connection.commit();
-      broadcast('order:updated', { orderId: Number(orderId), action: 'YARD_PIECE_READY', yardPieceReady: true, timestamp: Date.now() });
-      sendJson(response, 200, { ok: true, yardPieceReady: true });
+      broadcast('order:updated', {
+        orderId: Number(orderId),
+        action: 'YARD_PIECE_READY',
+        yardPieceReady: true,
+        cleanedReferenceImages: cleanedCount,
+        timestamp: Date.now()
+      });
+      sendJson(response, 200, { ok: true, yardPieceReady: true, cleanedImagesCount: cleanedCount });
       return true;
     } catch (error) { await connection.rollback(); throw error; }
     finally { connection.release(); }
@@ -471,6 +637,9 @@ export async function handleWorkflowRequest(
       'UPDATE orders SET version=version+1,workflow_step=IF(? >= 0,?,workflow_step) WHERE id=?',
       [requestAction.outcome === 'completed' ? stageIndex : -1, Math.min(4, stageIndex + 2), original.id],
     );
+    if ((requestAction.task === 'prepare' && requestAction.outcome === 'completed' || Boolean(requestAction.preparation)) && Boolean(previous.yard_piece_ready)) {
+      await performYardImagesCleanup(connection, Number(original.id), previous.yard_compatibility, original.code, claims);
+    }
     await connection.commit();
     broadcast('order:updated', { orderId: Number(original.id), action: 'WORKFLOW_RECORDED', timestamp: Date.now() });
     const hasP2P = requestAction.downpayment?.some(p => ['zelle', 'cashapp'].includes(p.method));

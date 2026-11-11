@@ -20,6 +20,7 @@ interface TopHeaderProps {
   userAvatar?: string;
   userRole?: string;
   unreadCount?: number;
+  onToggleYardPortal?: () => void;
 }
 
 const SCREEN_METADATA: Record<string, { title: string; category: string; icon: string }> = {
@@ -61,6 +62,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   userName = 'Usuario Administrador',
   userAvatar,
   userRole,
+  onToggleYardPortal,
 }) => {
   const { toggleTheme, isDark } = useTheme();
 
@@ -216,6 +218,19 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           >
             <span className="material-symbols-outlined text-[17px]">add_circle</span>
             <span>Nueva Orden</span>
+          </button>
+        )}
+
+        {/* Yard Portal Button for Admin */}
+        {userRole === 'admin' && onToggleYardPortal && (
+          <button
+            type="button"
+            onClick={onToggleYardPortal}
+            title="Abrir Portal de Yarda"
+            className="hidden md:inline-flex items-center gap-1.5 py-2 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-mono font-bold transition-all cursor-pointer shadow-sm active:scale-95"
+          >
+            <span className="material-symbols-outlined text-[17px] text-amber-400">agriculture</span>
+            <span>Vista Yarda</span>
           </button>
         )}
 

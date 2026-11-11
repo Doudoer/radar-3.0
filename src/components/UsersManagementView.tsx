@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { apiFetch } from '../services/apiFetch';
 import { PRESET_AVATARS, DEFAULT_AVATAR } from './UserProfileModal';
+import { VaultUnlockModal } from './VaultUnlockModal';
 
 type ManagedUser = {
   id: number;
@@ -70,6 +71,31 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Security Vault (2FA) for user management and password resets
+  const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
+  const [isVaultLocked, setIsVaultLocked] = useState(false);
+  const [vaultExpiresAt, setVaultExpiresAt] = useState(0);
+
+  const checkVaultStatus = useCallback(async () => {
+    try {
+      const res = await apiFetch('/auth/2fa/vault');
+      if (res.ok) {
+        const data = await res.json();
+        setVaultExpiresAt(data.expiresAt || 0);
+        setIsVaultLocked(!data.expiresAt || data.expiresAt <= Date.now());
+      } else {
+        setIsVaultLocked(true);
+      }
+    } catch {
+      setIsVaultLocked(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkVaultStatus();
+  }, [checkVaultStatus]);
 
   // Yard Cash Receivers (Authorized Yard Employees for Delivery Cash)
   const [yardReceivers, setYardReceivers] = useState<YardCashReceiver[]>([]);
@@ -241,7 +267,15 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
         body: JSON.stringify(payload),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || 'No se pudo actualizar el usuario.');
+      if (!response.ok) {
+        if (data.code === 'FINANCE_LOCKED' || (response.status === 403 && (data.message?.toLowerCase().includes('boveda') || data.message?.toLowerCase().includes('bóveda')))) {
+          setIsVaultLocked(true);
+          setPendingAction(() => () => { void saveUser(event); });
+          setIsUnlockModalOpen(true);
+          return;
+        }
+        throw new Error(data.message || 'No se pudo actualizar el usuario.');
+      }
       setUsersList((currentUsers) => currentUsers.map((user) => (user.id === selectedUser.id ? data : user)));
       showToast(`Usuario "${data.name}" actualizado correctamente.`);
       closeEditor();
@@ -271,7 +305,15 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
         }),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.message || 'No se pudo crear el usuario.');
+      if (!response.ok) {
+        if (payload.code === 'FINANCE_LOCKED' || (response.status === 403 && (payload.message?.toLowerCase().includes('boveda') || payload.message?.toLowerCase().includes('bóveda')))) {
+          setIsVaultLocked(true);
+          setPendingAction(() => () => { void handleCreateNewUser(event); });
+          setIsUnlockModalOpen(true);
+          return;
+        }
+        throw new Error(payload.message || 'No se pudo crear el usuario.');
+      }
       setUsersList((currentUsers) => [payload, ...currentUsers]);
       showToast(`Colaborador "${payload.name}" creado con éxito.`);
       setIsNewUserModalOpen(false);
@@ -317,7 +359,15 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
     try {
       const response = await apiFetch(`/users/${user.id}`, { method: 'DELETE' });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.message || 'No se pudo eliminar el usuario.');
+      if (!response.ok) {
+        if (payload.code === 'FINANCE_LOCKED' || (response.status === 403 && (payload.message?.toLowerCase().includes('boveda') || payload.message?.toLowerCase().includes('bóveda')))) {
+          setIsVaultLocked(true);
+          setPendingAction(() => () => { void deleteUser(user); });
+          setIsUnlockModalOpen(true);
+          return;
+        }
+        throw new Error(payload.message || 'No se pudo eliminar el usuario.');
+      }
       setUsersList((currentUsers) => currentUsers.filter((currentUser) => currentUser.id !== user.id));
       showToast(`Usuario "${user.name}" desactivado.`);
     } catch (deleteError) {
@@ -358,6 +408,26 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Security Vault Indicator / Unlock Button */}
+          <button
+            type="button"
+            onClick={() => setIsUnlockModalOpen(true)}
+            className={`px-3 py-2 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
+              !isVaultLocked && vaultExpiresAt > Date.now()
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 shadow-sm'
+                : 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25 shadow-[0_0_15px_rgba(245,158,11,0.2)]'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[17px]">
+              {!isVaultLocked && vaultExpiresAt > Date.now() ? 'lock_open' : 'lock'}
+            </span>
+            <span>
+              {!isVaultLocked && vaultExpiresAt > Date.now()
+                ? 'Bóveda Desbloqueada'
+                : 'Desbloquear Bóveda (2FA)'}
+            </span>
+          </button>
+
           <button
             type="button"
             onClick={() => {
@@ -760,7 +830,24 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
               )}
             </div>
 
-            {error && <p className="mt-4 rounded-xl border border-red-500/40 bg-red-950/20 px-3.5 py-2 text-xs text-red-300 shrink-0">{error}</p>}
+            {error && (
+              <div className="mt-4 rounded-xl border border-red-500/40 bg-red-950/30 p-3 text-xs text-red-300 flex flex-col sm:flex-row items-center justify-between gap-2.5 shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-red-400 text-[18px]">error</span>
+                  <span>{error}</span>
+                </div>
+                {(error.toLowerCase().includes('boveda') || error.toLowerCase().includes('bóveda') || isVaultLocked) && (
+                  <button
+                    type="button"
+                    onClick={() => setIsUnlockModalOpen(true)}
+                    className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs font-mono flex items-center gap-1.5 shrink-0 shadow-md cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">key</span>
+                    <span>Desbloquear Bóveda (2FA)</span>
+                  </button>
+                )}
+              </div>
+            )}
             <div className="mt-4 pt-3 border-t border-cyan-500/20 flex justify-end gap-2.5 shrink-0">
               <button type="button" onClick={closeEditor} className="cyber-btn-secondary px-4 py-2 text-xs font-bold">Cancelar</button>
               <button type="submit" disabled={saving} className="cyber-btn-primary px-4 py-2 text-xs font-black disabled:cursor-not-allowed disabled:opacity-50">
@@ -916,7 +1003,24 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
               </div>
             </div>
 
-            {error && <p className="mt-4 rounded-xl border border-red-500/40 bg-red-950/20 px-3.5 py-2 text-xs text-red-300 shrink-0">{error}</p>}
+            {error && (
+              <div className="mt-4 rounded-xl border border-red-500/40 bg-red-950/30 p-3 text-xs text-red-300 flex flex-col sm:flex-row items-center justify-between gap-2.5 shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-red-400 text-[18px]">error</span>
+                  <span>{error}</span>
+                </div>
+                {(error.toLowerCase().includes('boveda') || error.toLowerCase().includes('bóveda') || isVaultLocked) && (
+                  <button
+                    type="button"
+                    onClick={() => setIsUnlockModalOpen(true)}
+                    className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs font-mono flex items-center gap-1.5 shrink-0 shadow-md cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">key</span>
+                    <span>Desbloquear Bóveda (2FA)</span>
+                  </button>
+                )}
+              </div>
+            )}
             <div className="mt-4 pt-3 border-t border-cyan-500/20 flex justify-end gap-2.5 shrink-0">
               <button
                 type="button"
@@ -943,6 +1047,29 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
           </form>
         </div>
       )}
+
+      {/* 2FA Vault Unlock Modal */}
+      <VaultUnlockModal
+        isOpen={isUnlockModalOpen}
+        onClose={() => {
+          setIsUnlockModalOpen(false);
+          setPendingAction(null);
+        }}
+        onSuccess={(expiresAt) => {
+          setVaultExpiresAt(expiresAt);
+          setIsVaultLocked(false);
+          setIsUnlockModalOpen(false);
+          setError(null);
+          showToast('Bóveda de seguridad desbloqueada.');
+          if (pendingAction) {
+            const action = pendingAction;
+            setPendingAction(null);
+            action();
+          }
+        }}
+        title="Desbloquear Bóveda de Seguridad (2FA)"
+        description="La administración de usuarios y el restablecimiento de contraseñas requieren autorización en dos pasos (2FA) para proteger el acceso administrativo."
+      />
     </div>
   );
 };

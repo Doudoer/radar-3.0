@@ -193,6 +193,26 @@ export interface Order {
   saleNotified?: boolean; // Regla de disparo único por Wasender
   claimReason?: string;
   notes?: string;
+
+  // Compatibilidad e Imágenes de Referencia para Patio/Yarda
+  yardCompatibility?: YardCompatibility | null;
+}
+
+export interface CompatibleVehicleItem {
+  id?: string;
+  make: string;
+  model: string;
+  yearFrom: number;
+  yearTo: number;
+  notes?: string;
+}
+
+export interface YardCompatibility {
+  compatibilityList?: string;
+  compatibleVehicles?: CompatibleVehicleItem[];
+  referenceImages?: string[];
+  updatedAt?: string;
+  updatedBy?: number | string;
 }
 
 export interface SLAMetric {

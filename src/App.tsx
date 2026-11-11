@@ -18,6 +18,8 @@ import { PersonalNotesWidget } from './components/PersonalNotesWidget';
 import { MobileTabBar } from './components/MobileTabBar';
 import { LoadingOverlay } from './components/LoadingOverlay';
 import { LoginView } from './components/LoginView';
+import { YardLoginView } from './components/YardLoginView';
+import { YardPortalView } from './components/YardPortalView';
 import { useAuthSession } from './hooks/useAuthSession';
 
 // Code-splitting con React.lazy para pantallas secundarias y modales pesados
@@ -51,6 +53,16 @@ const WorkflowTasksView = React.lazy(() => import('./components/WorkflowTasksVie
 
 export default function App() {
   useTheme(); // Initialize theme on mount
+  const isHostYard = typeof window !== 'undefined' && (
+    window.location.hostname.toLowerCase().startsWith('yard.') ||
+    window.location.hostname.toLowerCase().includes('yard.localhost')
+  );
+  const [yardPortalActive, setYardPortalActive] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const hostname = window.location.hostname.toLowerCase();
+    const search = window.location.search;
+    return hostname.startsWith('yard.') || hostname.includes('yard.localhost') || search.includes('portal=yard');
+  });
   const [currentScreen, setCurrentScreen] = useState<NavScreen>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { authenticated, checking: authChecking, user: authUser, role: userRole, login, updateUser, logout } = useAuthSession();
@@ -326,7 +338,24 @@ export default function App() {
 
   if (authChecking) return <LoadingOverlay visible label="Validando sesión" />;
   if (!authenticated || !authUser) {
+    if (yardPortalActive || isHostYard) {
+      return <YardLoginView onAuthenticated={login} />;
+    }
     return <LoginView onAuthenticated={login} />;
+  }
+
+  // Active Yard Portal mode or assigned Yard Role
+  if (yardPortalActive || isHostYard || userRole === 'vendedor_yarda') {
+    return (
+      <YardPortalView
+        orders={orders}
+        currentUser={authUser}
+        onLogout={() => { void logout(); }}
+        onRefreshOrders={() => fetchAllData({ silent: true })}
+        onUpdateOrder={handleUpdateOrder}
+        onToggleOffice={() => setYardPortalActive(false)}
+      />
+    );
   }
 
   return (
@@ -367,6 +396,7 @@ export default function App() {
           userName={authUser?.name || 'Usuario'}
           userAvatar={authUser?.avatar_url}
           userRole={userRole}
+          onToggleYardPortal={() => setYardPortalActive(true)}
           onOpenNewOrder={() => {
             setPrefillOrderData(null);
             setIsNewOrderModalOpen(true);
