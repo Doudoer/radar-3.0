@@ -1567,15 +1567,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                             {order.advisor || 'Sin asesor'}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            onClick={() => onSelectOrder(order.id)}
-                            className="px-3 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/30 border border-cyan-400/40 hover:border-cyan-300 text-cyan-300 text-xs font-mono font-bold flex items-center gap-1 transition cursor-pointer shadow-[0_0_10px_rgba(6,182,212,0.15)]"
-                          >
-                            <span>Abrir</span>
-                            <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
-                          </button>
+                        <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             onClick={() => setActiveActionMenu(activeActionMenu === order.id ? null : order.id)}
@@ -1584,7 +1576,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                             aria-haspopup="menu"
                             aria-expanded={activeActionMenu === order.id}
                           >
-                            <span className="material-symbols-outlined text-[16px]">more_vert</span>
+                            <span className="material-symbols-outlined text-[18px]">more_vert</span>
                           </button>
                         </div>
 
@@ -1662,7 +1654,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                 <th className="px-2.5 py-3 font-bold">Tipo Entrega</th>
                 <th className="px-3 py-3 font-bold">Estatus</th>
                 <th className="px-3.5 py-3 font-bold text-right">Balance Financiero</th>
-                <th className="px-3 py-3 font-bold text-center w-28 sticky right-0 z-20 bg-[#040814] border-l border-cyan-500/20 shadow-[-8px_0_12px_rgba(0,0,0,0.5)]">Acciones</th>
+                <th className="px-2 py-3 font-bold text-center w-16 sticky right-0 z-20 bg-[#040814] border-l border-cyan-500/20 shadow-[-8px_0_12px_rgba(0,0,0,0.5)]">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-cyan-500/10 text-xs">
@@ -1888,19 +1880,10 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
 
                     {/* Acciones (Sticky Right para que siempre sea visible en cualquier pantalla) */}
                     <td
-                      className="px-2.5 py-2.5 sm:px-3 text-center sticky right-0 z-10 bg-[#060c18] group-hover:bg-[#0b1426] border-l border-cyan-500/20 shadow-[-8px_0_12px_rgba(0,0,0,0.5)] transition-colors"
+                      className="px-2 py-2 sm:px-2.5 text-center sticky right-0 z-10 bg-[#060c18] group-hover:bg-[#0b1426] border-l border-cyan-500/20 shadow-[-8px_0_12px_rgba(0,0,0,0.5)] transition-colors"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => onSelectOrder(order.id)}
-                          className="px-2.5 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/25 border border-cyan-500/30 hover:border-cyan-400 text-cyan-300 text-[11px] font-mono font-bold flex items-center gap-1 transition cursor-pointer"
-                          title="Abrir la orden y su flujo"
-                        >
-                          <span>Abrir</span>
-                          <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
-                        </button>
+                      <div className="flex items-center justify-center">
                         <button
                           type="button"
                           onClick={() => setActiveActionMenu(activeActionMenu === order.id ? null : order.id)}
