@@ -2270,7 +2270,7 @@ const server = createServer(async (request, response) => {
               currentUserId,
               orderRow.status,
               JSON.stringify(executionData),
-              currentUserId,
+              adminName,
             ]
           );
 
@@ -2291,14 +2291,10 @@ const server = createServer(async (request, response) => {
         // Release inventory part back to disponible
         if (orderRow.inventory_part_id) {
           await connection.execute(
-            "UPDATE inventory_parts SET status = 'disponible', order_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
+            "UPDATE inventory_parts SET status = 'disponible', sold_at = NULL WHERE id = ? AND deleted_at IS NULL",
             [orderRow.inventory_part_id]
           );
         }
-        await connection.execute(
-          "UPDATE inventory_parts SET status = 'disponible', order_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE order_id = ? AND deleted_at IS NULL",
-          [targetOrderId]
-        );
 
         // Update order status to Cancelado
         const [orderUpdate] = await connection.execute<ResultSetHeader>(
