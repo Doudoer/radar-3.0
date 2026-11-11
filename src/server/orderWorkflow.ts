@@ -137,7 +137,15 @@ export const workflowEventFromRow = (row: RowDataPacket): WorkflowEvent => ({
   scheduledAt: row.scheduled_at ? new Date(row.scheduled_at).toISOString() : null,
   contactResult: row.contact_result, partStatus: row.part_status,
   taskDueDate: row.task_due_date ? new Date(row.task_due_date).toISOString().slice(0, 10) : null,
-  downpayment: row.downpayment_details ? downpaymentSchema.parse(typeof row.downpayment_details === 'string' ? JSON.parse(row.downpayment_details) : row.downpayment_details) : null,
+  downpayment: (() => {
+    if (!row.downpayment_details) return null;
+    try {
+      const parsed = downpaymentSchema.safeParse(typeof row.downpayment_details === 'string' ? JSON.parse(row.downpayment_details) : row.downpayment_details);
+      return parsed.success ? parsed.data : null;
+    } catch {
+      return null;
+    }
+  })(),
   preparation: row.preparation_details ? preparationSchema.parse(typeof row.preparation_details === 'string' ? JSON.parse(row.preparation_details) : row.preparation_details) : null,
 });
 export async function loadWorkflowEvents(connection: Pool | PoolConnection, orderId: string | number) {
@@ -446,18 +454,11 @@ export async function handleWorkflowRequest(
       const actorName = actors[0]?.name || 'Super Administrador';
       const today = workflowDate(new Date());
       const nextDue = addWorkingDays(today, 1);
-      const downpaymentDetails = JSON.stringify([{
-        method: 'cash',
-        amount: 0,
-        receivedBy: 'Exonerado por Administrador - Cobro contra entrega',
-        receipt: null,
-      }]);
-
       await connection.execute(
         `INSERT INTO order_workflow_events (
           order_id, task, outcome, actor_id, actor_name, notes, evidence,
           task_due_date, next_due_date, next_action, downpayment_details
-        ) VALUES (?, 'ack', 'completed', ?, ?, ?, 'Exoneración autorizada por Administrador', ?, ?, ?, ?)`,
+        ) VALUES (?, 'ack', 'completed', ?, ?, ?, 'Exoneración autorizada por Administrador', ?, ?, ?, NULL)`,
         [
           orderId,
           Number(claims.sub),
@@ -466,7 +467,6 @@ export async function handleWorkflowRequest(
           today,
           nextDue,
           'Buscar, desmontar y preparar la refacción en patio para entrega o retiro',
-          downpaymentDetails,
         ]
       );
 
@@ -707,7 +707,7 @@ export async function handleWorkflowRequest(
         action.nextDueDate || null, action.nextAction || null, action.blockedBy || null,
         action.outcome === 'completed' ? toMysqlDateTime(action.scheduledAt) : null,
         action.preparation ? action.preparation.channel === 'in_person' ? null : action.preparation.channel === 'sms' ? 'sms_replied' : 'answered' : action.contactResult || null,
-        action.partStatus || null, action.downpayment ? JSON.stringify(action.downpayment) : action.exemptDownpayment ? JSON.stringify([{ method: 'cash', amount: 0, receivedBy: 'Exonerado por Administrador - Cobro contra entrega', receipt: null }]) : null,
+        action.partStatus || null, action.downpayment ? JSON.stringify(action.downpayment) : null,
         action.preparation ? JSON.stringify(action.preparation) : null],
       );
       eventId = String(insert.insertId);

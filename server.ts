@@ -4383,6 +4383,10 @@ async function startServer() {
   await pool.query("UPDATE orders SET auction_search_active = 0 WHERE LOWER(TRIM(status)) = 'entregado' OR delivered_at IS NOT NULL").catch((err) => {
     console.error('[Startup] Advertencia al limpiar auction_search_active en entregadas:', err);
   });
+  // Asegurar que registros de exoneración en order_workflow_events tengan downpayment_details en NULL
+  await pool.query("UPDATE order_workflow_events SET downpayment_details = NULL WHERE downpayment_details LIKE '%\"amount\":0%' OR downpayment_details LIKE '%Exonerado%'").catch((err) => {
+    console.error('[Startup] Advertencia al sanear downpayment_details en eventos:', err);
+  });
   server.listen(port, '0.0.0.0', () => {
     console.log(`RADAR API disponible en http://0.0.0.0:${port}`);
     startDailyClaimsReportScheduler(pool, wasender);

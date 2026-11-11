@@ -2,7 +2,7 @@ import { IncomingMessage, ServerResponse } from 'node:http';
 import { Socket } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import mysql, { type Pool, type RowDataPacket } from 'mysql2/promise';
-import { handleWorkflowRequest } from '../src/server/orderWorkflow';
+import { handleWorkflowRequest, workflowEventFromRow } from '../src/server/orderWorkflow';
 import { validateWorkflowAction } from '../src/utils/orderWorkflow';
 
 vi.mock('../src/server/config', () => ({
@@ -155,5 +155,32 @@ describe('Exempt Downpayment Admin Feature', () => {
 
     // Should not throw error even with paid = 0
     expect(() => validateWorkflowAction(order, [], action)).not.toThrow();
+  });
+
+  it('safely parses workflow events without crashing on 0 amount downpayment', () => {
+    const row = {
+      id: 1,
+      order_id: 555,
+      task: 'ack',
+      outcome: 'completed',
+      notes: 'Exonerado',
+      evidence: '',
+      actor_id: 1,
+      actor_name: 'Admin',
+      created_at: new Date(),
+      next_due_date: null,
+      next_action: null,
+      blocked_by: null,
+      scheduled_at: null,
+      contact_result: null,
+      part_status: null,
+      task_due_date: null,
+      downpayment_details: JSON.stringify([{ method: 'cash', amount: 0, receivedBy: 'Exonerado' }]),
+      preparation_details: null,
+    } as any;
+
+    expect(() => workflowEventFromRow(row)).not.toThrow();
+    const event = workflowEventFromRow(row);
+    expect(event.downpayment).toBeNull();
   });
 });
