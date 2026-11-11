@@ -111,6 +111,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     key={item.id}
                     aria-current={isActive ? 'page' : undefined}
                     onClick={() => handleNavClick(item.id)}
+                    onMouseEnter={() => {
+                      if (item.id === 'usuarios') {
+                        void import('./UsersManagementView');
+                      }
+                    }}
                     className="horizon-nav-item w-full flex items-center gap-3 py-3 px-3 rounded-xl text-[13px] transition-colors text-left cursor-pointer group relative"
                   >
                     <span className="material-symbols-outlined text-[21px] shrink-0">
