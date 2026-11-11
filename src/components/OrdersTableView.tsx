@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useDeferredValue } from 'react';
 import { Order, OrderStatus, OrderSegmentView } from '../types';
 import { InventoryAvailabilityBadge } from './OrderInventoryAvailability';
 
@@ -85,6 +85,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [quickFilter, setQuickFilter] = useState<QuickFilterType>('all');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>(() => {
     if (typeof window !== 'undefined') {
@@ -370,7 +371,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
 
   // Base filtered orders before applying quick-filter pills (to calculate accurate dynamic live counts)
   const baseSegmentOrders = useMemo(() => {
-    const isSearching = Boolean(searchQuery.trim());
+    const isSearching = Boolean(deferredSearchQuery.trim());
 
     return orders.filter((order) => {
       // 1. Status, Archived & Segment Filter
@@ -436,7 +437,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
 
       // 6. Search query
       if (isSearching) {
-        const query = searchQuery.toLowerCase().trim();
+        const query = deferredSearchQuery.toLowerCase().trim();
         const matchesCode = (order.code || '').toLowerCase().includes(query) || (order.id || '').toLowerCase().includes(query);
         const matchesCustomer = (order.customer?.name || '').toLowerCase().includes(query) ||
           (order.customer?.phone || '').includes(query) ||
@@ -463,6 +464,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
     });
   }, [
     orders,
+    deferredSearchQuery,
     isArchivedView,
     statusFilter,
     segmentView,

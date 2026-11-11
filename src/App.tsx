@@ -9,11 +9,6 @@ import { Sidebar } from './components/Sidebar';
 import { TopHeader } from './components/TopHeader';
 import { DashboardView } from './components/DashboardView';
 import { OrdersTableView } from './components/OrdersTableView';
-import { QuickSMSModal } from './components/QuickSMSModal';
-import { StatusRequestModal } from './components/StatusRequestModal';
-import { ChangePasswordModal } from './components/ChangePasswordModal';
-import { UserProfileModal } from './components/UserProfileModal';
-import { DailyFollowupBriefingModal } from './components/DailyFollowupBriefingModal';
 import { PersonalNotesWidget } from './components/PersonalNotesWidget';
 import { MobileTabBar } from './components/MobileTabBar';
 import { LoadingOverlay } from './components/LoadingOverlay';
@@ -35,6 +30,11 @@ const UsersManagementView = React.lazy(() => import('./components/UsersManagemen
 const NewOrderModal = React.lazy(() => import('./components/NewOrderModal').then((m) => ({ default: m.NewOrderModal })));
 const SearchModal = React.lazy(() => import('./components/SearchModal').then((m) => ({ default: m.SearchModal })));
 const ExportModal = React.lazy(() => import('./components/ExportModal').then((m) => ({ default: m.ExportModal })));
+const QuickSMSModal = React.lazy(() => import('./components/QuickSMSModal').then((m) => ({ default: m.QuickSMSModal })));
+const StatusRequestModal = React.lazy(() => import('./components/StatusRequestModal').then((m) => ({ default: m.StatusRequestModal })));
+const ChangePasswordModal = React.lazy(() => import('./components/ChangePasswordModal').then((m) => ({ default: m.ChangePasswordModal })));
+const UserProfileModal = React.lazy(() => import('./components/UserProfileModal').then((m) => ({ default: m.UserProfileModal })));
+const DailyFollowupBriefingModal = React.lazy(() => import('./components/DailyFollowupBriefingModal').then((m) => ({ default: m.DailyFollowupBriefingModal })));
 
 const ViewFallback: React.FC = () => (
   <div className="flex flex-col items-center justify-center p-12 min-h-[350px] animate-fade-in text-slate-400">
@@ -586,13 +586,15 @@ export default function App() {
           />
         )}
 
-        <QuickSMSModal
-          isOpen={smsModalData.isOpen}
-          customerName={smsModalData.customerName}
-          phone={smsModalData.phone}
-          order={smsModalData.order || undefined}
-          onClose={() => setSmsModalData({ isOpen: false, customerName: '', phone: '', order: null })}
-        />
+        {smsModalData.isOpen && (
+          <QuickSMSModal
+            isOpen={smsModalData.isOpen}
+            customerName={smsModalData.customerName}
+            phone={smsModalData.phone}
+            order={smsModalData.order || undefined}
+            onClose={() => setSmsModalData({ isOpen: false, customerName: '', phone: '', order: null })}
+          />
+        )}
 
         {isSearchModalOpen && (
           <SearchModal
@@ -612,23 +614,31 @@ export default function App() {
             orders={orders}
           />
         )}
-        <StatusRequestModal isOpen={isStatusRequestOpen} orders={orders} onClose={() => setIsStatusRequestOpen(false)} />
-        <ChangePasswordModal isOpen={isChangePasswordOpen} onClose={() => setIsChangePasswordOpen(false)} />
-        <UserProfileModal
-          isOpen={isProfileModalOpen}
-          onClose={() => setIsProfileModalOpen(false)}
-          user={authUser}
-          onUserUpdated={(updated) => updateUser(updated)}
-        />
-        <DailyFollowupBriefingModal
-          isOpen={isFollowupModalOpen}
-          onClose={() => setIsFollowupModalOpen(false)}
-          pendingItems={pendingFollowupItems}
-          onSelectOrder={handleSelectOrder}
-          onRefreshPending={() => fetchPendingFollowups(false)}
-          currentUserName={authUser?.name}
-          userRole={userRole}
-        />
+        {isStatusRequestOpen && (
+          <StatusRequestModal isOpen={isStatusRequestOpen} orders={orders} onClose={() => setIsStatusRequestOpen(false)} />
+        )}
+        {isChangePasswordOpen && (
+          <ChangePasswordModal isOpen={isChangePasswordOpen} onClose={() => setIsChangePasswordOpen(false)} />
+        )}
+        {isProfileModalOpen && (
+          <UserProfileModal
+            isOpen={isProfileModalOpen}
+            onClose={() => setIsProfileModalOpen(false)}
+            user={authUser}
+            onUserUpdated={(updated) => updateUser(updated)}
+          />
+        )}
+        {isFollowupModalOpen && (
+          <DailyFollowupBriefingModal
+            isOpen={isFollowupModalOpen}
+            onClose={() => setIsFollowupModalOpen(false)}
+            pendingItems={pendingFollowupItems}
+            onSelectOrder={handleSelectOrder}
+            onRefreshPending={() => fetchPendingFollowups(false)}
+            currentUserName={authUser?.name}
+            userRole={userRole}
+          />
+        )}
         <div className="hidden md:block">
           <PersonalNotesWidget />
         </div>

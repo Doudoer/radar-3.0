@@ -12,7 +12,7 @@ const runtimeDirectory = path.dirname(fileURLToPath(import.meta.url));
 export const frontendRoot = path.basename(runtimeDirectory) === 'dist'
   ? runtimeDirectory
   : path.resolve(runtimeDirectory, '../../dist');
-export const maxBodyBytes = 1024 * 1024;
+export const maxBodyBytes = 10 * 1024 * 1024;
 
 export const allowedOrigins = new Set([
   ...(process.env.NODE_ENV === 'production' ? [] : [

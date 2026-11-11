@@ -276,9 +276,10 @@ export async function handleWorkflowRequest(
     const orderId = yardCompatibility[1];
     let parsed: any = {};
     try {
-      parsed = (await readBody(request, 2 * 1024 * 1024)) || {};
-    } catch {
-      sendJson(response, 400, { message: 'Cuerpo de solicitud JSON inválido' });
+      parsed = (await readBody(request, 10 * 1024 * 1024)) || {};
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Cuerpo de solicitud JSON inválido';
+      sendJson(response, 400, { message });
       return true;
     }
 

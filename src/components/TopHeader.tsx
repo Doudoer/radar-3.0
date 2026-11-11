@@ -249,6 +249,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               <img
                 src={userAvatar || DEFAULT_AVATAR}
                 alt={userName}
+                loading="lazy"
+                decoding="async"
                 className="w-full h-full object-cover"
                 onError={(e) => {
                   (e.target as HTMLImageElement).src = DEFAULT_AVATAR;

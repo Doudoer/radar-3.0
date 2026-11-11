@@ -1,4 +1,4 @@
-import React, { Component, useState, useEffect, useMemo, useRef, useCallback, type ErrorInfo, type ReactNode } from 'react';
+import React, { Component, useState, useEffect, useMemo, useRef, useCallback, useDeferredValue, type ErrorInfo, type ReactNode } from 'react';
 import { Order, OrderStatus, PrefillOrderData, Customer } from '../types';
 import { MAKE_MODEL_MAP } from '../data/vehicleData';
 import { apiFetch } from '../services/apiFetch';
@@ -212,33 +212,42 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
     return 30;
   };
 
-  // Filtered Customers for Step 2 CRM Selector
+  // Filtered Customers for Step 2 CRM Selector (con deferral y límite de 50 para máxima fluidez)
+  const deferredClientSearchQuery = useDeferredValue(clientSearchQuery);
   const filteredCustomers = useMemo(() => {
-    return existingCustomers.filter((cust) => {
-      if (!cust) return false;
+    const trimmed = deferredClientSearchQuery.trim().toLowerCase();
+    const results: Customer[] = [];
+    for (let i = 0; i < existingCustomers.length; i++) {
+      const cust = existingCustomers[i];
+      if (!cust) continue;
       // Category filter
       if (selectedCategoryFilter !== 'all' && cust.type !== selectedCategoryFilter) {
-        return false;
+        continue;
       }
       // Query filter
-      if (!clientSearchQuery.trim()) return true;
-      const q = clientSearchQuery.toLowerCase();
-      const name = String(cust.name || `${cust.first_name || ''} ${cust.last_name || ''}`.trim()).toLowerCase();
-      const company = String(cust.company || '').toLowerCase();
-      const phone = String(cust.phone || cust.whatsapp || '').toLowerCase();
-      const email = String(cust.email || '').toLowerCase();
-      const loc = String(cust.shippingAddress || cust.address_shipping || cust.location || '').toLowerCase();
-      const id = String(cust.id || '').toLowerCase();
-      return (
-        name.includes(q) ||
-        company.includes(q) ||
-        phone.includes(q) ||
-        email.includes(q) ||
-        loc.includes(q) ||
-        id.includes(q)
-      );
-    });
-  }, [existingCustomers, selectedCategoryFilter, clientSearchQuery]);
+      if (trimmed) {
+        const name = String(cust.name || `${cust.first_name || ''} ${cust.last_name || ''}`.trim()).toLowerCase();
+        const company = String(cust.company || '').toLowerCase();
+        const phone = String(cust.phone || cust.whatsapp || '').toLowerCase();
+        const email = String(cust.email || '').toLowerCase();
+        const loc = String(cust.shippingAddress || cust.address_shipping || cust.location || '').toLowerCase();
+        const id = String(cust.id || '').toLowerCase();
+        if (
+          !name.includes(trimmed) &&
+          !company.includes(trimmed) &&
+          !phone.includes(trimmed) &&
+          !email.includes(trimmed) &&
+          !loc.includes(trimmed) &&
+          !id.includes(trimmed)
+        ) {
+          continue;
+        }
+      }
+      results.push(cust);
+      if (results.length >= 50) break;
+    }
+    return results;
+  }, [existingCustomers, selectedCategoryFilter, deferredClientSearchQuery]);
 
   // Selected customer object
   const selectedCustomerObj = useMemo(() => {
