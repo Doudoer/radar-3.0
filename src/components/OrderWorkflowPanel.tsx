@@ -69,7 +69,45 @@ const DownpaymentConfirmationForm: React.FC<{
     <h3 className="text-lg font-bold">Confirmación · {task.order.code}</h3>
     <DownpaymentFields paid={task.order.paid} value={lines} onChange={setLines} disabled={busy}
       onUpload={file => uploadDownpaymentReceipt(task.order.id, file)} onUploadingChange={value => { uploadInFlight.current = value; setUploading(value); }} />
-    {task.order.paid <= 0 && <p role="alert" className="text-sm text-amber-600">Primero registra el abono desde Registrar cobro. Aquí no se agrega dinero nuevo.</p>}
+    {task.order.paid <= 0 && (
+      <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs space-y-2">
+        <p role="alert" className="text-amber-400 font-semibold flex items-center gap-1.5">
+          <span className="material-symbols-outlined text-[16px]">info</span>
+          Sin abono registrado ($0.00). Primero registra el abono desde Registrar cobro.
+        </p>
+        <button
+          type="button"
+          disabled={busy || uploading}
+          onClick={async () => {
+            if (!window.confirm(`¿Exonerar anticipo de la orden #${task.order.code} como Administrador y pasar a Pagado para iniciar preparación? El 100% se cobrará al entregar.`)) return;
+            setBusy(true);
+            setError('');
+            try {
+              const res = await apiFetch(`/orders/${task.order.id}/exempt-downpayment`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ notes: 'Anticipo exonerado por Administrador. Cobro contra entrega.' }),
+              });
+              if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.message || 'No se pudo exonerar el anticipo.');
+              }
+              window.dispatchEvent(new Event('radar:data-changed'));
+              window.dispatchEvent(new CustomEvent('radar:followup-updated', { detail: { orderId: task.order.id } }));
+              await onSaved();
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Error exonerando anticipo');
+            } finally {
+              setBusy(false);
+            }
+          }}
+          className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer"
+        >
+          <span className="material-symbols-outlined text-[16px]">handshake</span>
+          <span>Exonerar Anticipo como Administrador (Cobro Contra Entrega)</span>
+        </button>
+      </div>
+    )}
     {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
     <div className="flex flex-wrap gap-3">
       <button type="submit" className="cyber-btn-primary px-4 py-3" disabled={busy || uploading || task.order.paid <= 0}>{busy ? 'Guardando…' : 'Guardar confirmación'}</button>

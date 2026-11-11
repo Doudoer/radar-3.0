@@ -316,6 +316,37 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     }
   };
 
+  const [showExemptModal, setShowExemptModal] = useState(false);
+  const [exemptNotes, setExemptNotes] = useState('');
+  const [exemptingDownpayment, setExemptingDownpayment] = useState(false);
+  const handleExemptDownpayment = async () => {
+    if (exemptingDownpayment) return;
+    setExemptingDownpayment(true);
+    try {
+      const res = await apiFetch(`/orders/${order.id}/exempt-downpayment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: exemptNotes.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'No se pudo exonerar el anticipo');
+      }
+      onUpdateOrder({
+        ...order,
+        status: 'pagado' as OrderStatus,
+        downpaymentVerified: true,
+      });
+      handleToast('Anticipo exonerado por Administrador. Orden pasada a Pagado.');
+      setShowExemptModal(false);
+      window.dispatchEvent(new Event('radar:data-changed'));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error exonerando anticipo');
+    } finally {
+      setExemptingDownpayment(false);
+    }
+  };
+
   const [markingYardReady, setMarkingYardReady] = useState(false);
   const handleMarkYardReady = async () => {
     if (markingYardReady) return;
@@ -811,6 +842,19 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               >
                 <span className="material-symbols-outlined text-[15px] text-emerald-400">verified</span>
                 <span>{verifyingDownpayment ? 'Verificando…' : 'Aprobar Anticipo (Banco)'}</span>
+              </button>
+            )}
+
+            {/* Super Admin: Exonerar Anticipo (Cobro Contra Entrega) */}
+            {isSuperAdmin && ['cotizacion', 'espera_confirmacion'].includes(order.status) && (
+              <button
+                type="button"
+                onClick={() => setShowExemptModal(true)}
+                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(245,158,11,0.25)] active:scale-95"
+                title="Exonerar anticipo ($0 inicial) y pasar a Pagado para preparar en patio (Cobro 100% al entregar)"
+              >
+                <span className="material-symbols-outlined text-[15px] text-amber-400">handshake</span>
+                <span>Exonerar Anticipo (Contra Entrega)</span>
               </button>
             )}
 
@@ -2124,6 +2168,80 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
           }}
           onToast={handleToast}
         />
+      )}
+
+      {/* Modal: Exonerar Anticipo (Super Admin) */}
+      {isSuperAdmin && showExemptModal && (
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="w-full max-w-lg bg-[#070c18] border border-amber-500/40 rounded-3xl p-6 shadow-[0_20px_50px_rgba(0,0,0,0.9)] space-y-5">
+            <div className="flex items-center justify-between border-b border-amber-500/20 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <span className="material-symbols-outlined text-2xl">handshake</span>
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base">Exonerar Anticipo · #{order.code}</h3>
+                  <p className="text-xs text-amber-400 font-mono">Cobro completo contra entrega (100%)</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={exemptingDownpayment}
+                onClick={() => setShowExemptModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
+              >
+                <span className="material-symbols-outlined text-xl">close</span>
+              </button>
+            </div>
+
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-xs text-slate-300 space-y-2">
+              <p className="font-bold text-amber-300 flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[16px]">admin_panel_settings</span>
+                Regla especial exclusiva de Super Administrador
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-slate-300">
+                <li>El anticipo se registrará en <strong>$0.00 USD (Exonerado)</strong>.</li>
+                <li>La orden avanza directamente a <strong>Pagado / Facturado</strong>.</li>
+                <li>El patio iniciará la <strong>búsqueda y preparación</strong> de la refacción de inmediato.</li>
+                <li>El <strong>100% del total (${Number(order.total || 0).toFixed(2)} USD)</strong> será exigido y cobrado al momento de la entrega física.</li>
+              </ul>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-mono font-bold text-slate-300 uppercase tracking-wider">
+                Motivo / Justificación (opcional):
+              </label>
+              <textarea
+                value={exemptNotes}
+                onChange={(e) => setExemptNotes(e.target.value)}
+                placeholder="Ej: Cliente recurrente de confianza, pagará completo en efectivo al recibir la pieza en su taller..."
+                disabled={exemptingDownpayment}
+                rows={3}
+                className="w-full bg-[#030712] border border-cyan-500/30 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 font-sans"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                disabled={exemptingDownpayment}
+                onClick={() => setShowExemptModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono font-bold transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={exemptingDownpayment}
+                onClick={handleExemptDownpayment}
+                className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-mono font-black flex items-center gap-1.5 transition shadow-[0_0_20px_rgba(245,158,11,0.4)] cursor-pointer disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-[16px]">verified</span>
+                <span>{exemptingDownpayment ? 'Aprobando…' : 'Aprobar a Pagado (Exonerar)'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

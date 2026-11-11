@@ -47,6 +47,7 @@ export const workflowActionSchema = z.object({
   downpayment: downpaymentSchema.optional(),
   preparation: preparationSchema.optional(),
   completion: z.object({ downpayment: downpaymentSchema.optional(), preparation: preparationSchema.optional() }).strict().optional(),
+  exemptDownpayment: z.boolean().optional(),
 }).strict().refine(value => value.communication === undefined || value.task.startsWith('post_'),
   'La comunicación post-entrega solo corresponde a sus hitos.')
   .refine(value => value.deliveryPhotos === undefined || value.task === 'delivery' && value.outcome === 'completed',
@@ -55,6 +56,8 @@ export const workflowActionSchema = z.object({
   'Los cobros solo se adjuntan a una entrega confirmada.')
   .refine(value => !value.downpayment || value.task === 'ack' && value.outcome === 'completed',
     'Los datos del downpayment solo corresponden a Confirmación.')
+  .refine(value => !value.exemptDownpayment || value.task === 'ack' && value.outcome === 'completed',
+    'La exoneración del downpayment solo corresponde a Confirmación.')
   .refine(value => !value.preparation || value.task === 'prepare' && value.outcome === 'completed',
     'Los datos de preparación solo corresponden a Preparación y cita completada.')
   .refine(value => !value.completion || value.task === 'delivery' && value.outcome === 'completed' && Boolean(value.settlement) && !value.downpayment && !value.preparation,
@@ -262,9 +265,10 @@ export async function handleWorkflowRequest(
   const assignment = pathname.match(/^\/api\/orders\/(\d+)\/workflow\/assignee$/);
   const yardReady = pathname.match(/^\/api\/orders\/(\d+)\/yard-ready$/);
   const verifyDownpayment = pathname.match(/^\/api\/orders\/(\d+)\/verify-downpayment$/);
+  const exemptDownpayment = pathname.match(/^\/api\/orders\/(\d+)\/exempt-downpayment$/);
   const yardCompatibility = pathname.match(/^\/api\/orders\/([a-zA-Z0-9_-]+)\/yard-compatibility$/);
   const queue = pathname === '/api/workflow/tasks';
-  if (!match && !queue && !assignment && !yardReady && !verifyDownpayment && !yardCompatibility) return false;
+  if (!match && !queue && !assignment && !yardReady && !verifyDownpayment && !exemptDownpayment && !yardCompatibility) return false;
   if (!requireRole(response, claims, 'admin', 'operator', 'vendedor_yarda')) return true;
 
   if (yardCompatibility) {
@@ -398,6 +402,95 @@ export async function handleWorkflowRequest(
       return true;
     } catch (error) { await connection.rollback(); throw error; }
     finally { connection.release(); }
+  }
+
+  if (exemptDownpayment) {
+    if (!requireRole(response, claims, 'admin')) return true;
+    if (request.method !== 'POST') { sendJson(response, 405, { message: 'Método no permitido' }); return true; }
+    const orderId = exemptDownpayment[1];
+    let parsedBody: any = {};
+    try {
+      parsedBody = (await readBody(request, 1024 * 1024)) || {};
+    } catch {
+      parsedBody = {};
+    }
+    const adminNotes = typeof parsedBody.notes === 'string' && parsedBody.notes.trim()
+      ? parsedBody.notes.trim()
+      : 'Anticipo exonerado por Administrador. Cobro del 100% acordado contra entrega al cliente.';
+
+    const connection = await database.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [orders] = await connection.query<RowDataPacket[]>(
+        'SELECT id,version,order_code,status,total,down_payment FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE',
+        [orderId]
+      );
+      if (!orders[0]) fail(404, 'Orden no encontrada');
+      const currentOrder = orders[0];
+      const currentStatus = statusFromDatabase(currentOrder.status);
+      if (['entregado', 'cancelado', 'archivado', 'reembolsado'].includes(currentStatus)) {
+        fail(409, `No se puede exonerar una orden en estado ${currentStatus}.`);
+      }
+
+      await connection.execute(
+        "UPDATE orders SET downpayment_verified=1,downpayment_verified_at=CURRENT_TIMESTAMP,downpayment_verified_by=?,status='Pagado',version=version+1 WHERE id=?",
+        [Number(claims.sub), orderId]
+      );
+
+      await connection.execute(
+        'INSERT INTO status_orders (order_id,status,description,user_id) VALUES (?,?,?,?)',
+        [orderId, 'Pagado', `Anticipo exonerado por Administrador: ${adminNotes}`, Number(claims.sub)]
+      );
+
+      const [actors] = await connection.query<RowDataPacket[]>('SELECT name FROM users WHERE id=?', [Number(claims.sub)]);
+      const actorName = actors[0]?.name || 'Super Administrador';
+      const today = workflowDate(new Date());
+      const nextDue = addWorkingDays(today, 1);
+      const downpaymentDetails = JSON.stringify([{
+        method: 'cash',
+        amount: 0,
+        receivedBy: 'Exonerado por Administrador - Cobro contra entrega',
+        receipt: null,
+      }]);
+
+      await connection.execute(
+        `INSERT INTO order_workflow_events (
+          order_id, task, outcome, actor_id, actor_name, notes, evidence,
+          task_due_date, next_due_date, next_action, downpayment_details
+        ) VALUES (?, 'ack', 'completed', ?, ?, ?, 'Exoneración autorizada por Administrador', ?, ?, ?, ?)`,
+        [
+          orderId,
+          Number(claims.sub),
+          actorName,
+          adminNotes,
+          today,
+          nextDue,
+          'Buscar, desmontar y preparar la refacción en patio para entrega o retiro',
+          downpaymentDetails,
+        ]
+      );
+
+      await connection.execute(
+        "INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details) VALUES (?,?,'DOWNPAYMENT_EXEMPTED','order',?,?)",
+        [Number(claims.sub), String(claims.sub), String(orderId), JSON.stringify({ orderCode: currentOrder.order_code, reason: adminNotes })]
+      );
+
+      await connection.commit();
+      broadcast('order:updated', {
+        orderId: Number(orderId),
+        action: 'DOWNPAYMENT_EXEMPTED',
+        status: 'pagado',
+        downpaymentVerified: true,
+        timestamp: Date.now(),
+      });
+      sendJson(response, 200, { ok: true, status: 'pagado', downpaymentVerified: true, orderId: Number(orderId) });
+      return true;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
   if (assignment) {
     if (!requireRole(response, claims, 'admin')) return true;
@@ -549,6 +642,9 @@ export async function handleWorkflowRequest(
     let eventId = '';
     for (const action of actions) {
       const order = workflowOrderFromRow(previous);
+      if (action.exemptDownpayment && claims.role !== 'admin') {
+        fail(403, 'Solo el Administrador puede exonerar el anticipo.');
+      }
       const validationOrder = action.task === 'ack' && original.paid > 0 ? { ...order, paid: original.paid } : order;
       try { validateWorkflowAction(validationOrder, events, action); }
       catch (error) { fail(409, error instanceof Error ? error.message : 'Gestión inválida'); }
@@ -563,11 +659,17 @@ export async function handleWorkflowRequest(
       let nextStatus: string | null = null;
       if (action.outcome === 'completed' && !order.deliveredAt) {
         if (action.task === 'ack' && ['cotizacion', 'espera_confirmacion', 'pagado'].includes(order.status)) {
-          const hasP2P = action.downpayment?.some(p => ['zelle', 'cashapp'].includes(p.method));
-          if (hasP2P && claims.role !== 'admin' && !order.downpaymentVerified) {
-            nextStatus = statusToDatabase.espera_confirmacion;
-          } else {
+          if (action.exemptDownpayment) {
             nextStatus = statusToDatabase.pagado;
+            await connection.execute("UPDATE orders SET downpayment_verified=1,downpayment_verified_at=CURRENT_TIMESTAMP,downpayment_verified_by=? WHERE id=?",
+              [Number(claims.sub), order.id]);
+          } else {
+            const hasP2P = action.downpayment?.some(p => ['zelle', 'cashapp'].includes(p.method));
+            if (hasP2P && claims.role !== 'admin' && !order.downpaymentVerified) {
+              nextStatus = statusToDatabase.espera_confirmacion;
+            } else {
+              nextStatus = statusToDatabase.pagado;
+            }
           }
         }
         if (action.task === 'prepare' && action.preparation) nextStatus = action.preparation.deliveryType === 'envio_domicilio' ? statusToDatabase.listo_despacho : statusToDatabase.listo_retiro;
@@ -596,13 +698,13 @@ export async function handleWorkflowRequest(
         `INSERT INTO order_workflow_events (order_id,task,outcome,actor_id,actor_name,notes,evidence,task_due_date,next_due_date,next_action,blocked_by,scheduled_at,contact_result,part_status,downpayment_details,preparation_details)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [order.id, action.task, action.outcome, Number(claims.sub), actorName,
-        action.downpayment ? 'Downpayment existente documentado; no se agregó dinero al acumulado.' : action.preparation ? action.preparation.channel === 'in_person' ? 'Preparación verificada con el cliente presente para entrega inmediata en yarda; sin llamada ni cita futura.' : 'Preparación y cita verificadas con el cliente; sin registrar cobros ni recepción del core.' : action.notes,
+        action.exemptDownpayment ? (action.notes || 'Anticipo exonerado por Administrador. Cobro del 100% acordado contra entrega al cliente.') : action.downpayment ? 'Downpayment existente documentado; no se agregó dinero al acumulado.' : action.preparation ? action.preparation.channel === 'in_person' ? 'Preparación verificada con el cliente presente para entrega inmediata en yarda; sin llamada ni cita futura.' : 'Preparación y cita verificadas con el cliente; sin registrar cobros ni recepción del core.' : action.notes,
         action.downpayment ? '' : action.communication ? JSON.stringify({ format: 'followup-contact-v1', reference: action.evidence || '', communication: action.communication })
           : action.evidence || '', workflowTasks(order, events)[0].objectiveDueDate,
         action.nextDueDate || null, action.nextAction || null, action.blockedBy || null,
         action.outcome === 'completed' ? toMysqlDateTime(action.scheduledAt) : null,
         action.preparation ? action.preparation.channel === 'in_person' ? null : action.preparation.channel === 'sms' ? 'sms_replied' : 'answered' : action.contactResult || null,
-        action.partStatus || null, action.downpayment ? JSON.stringify(action.downpayment) : null,
+        action.partStatus || null, action.downpayment ? JSON.stringify(action.downpayment) : action.exemptDownpayment ? JSON.stringify([{ method: 'cash', amount: 0, receivedBy: 'Exonerado por Administrador - Cobro contra entrega', receipt: null }]) : null,
         action.preparation ? JSON.stringify(action.preparation) : null],
       );
       eventId = String(insert.insertId);

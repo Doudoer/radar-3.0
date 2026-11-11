@@ -57,6 +57,7 @@ export interface WorkflowAction {
   scheduledAt?: string | null; contactResult?: FollowupCallResult | null; partStatus?: FollowupPartStatus | null;
   downpayment?: DownpaymentLine[];
   preparation?: Preparation;
+  exemptDownpayment?: boolean;
 }
 export interface WorkflowTask {
   order: WorkflowOrder; task: WorkflowTaskKey; title: string; requirement: string;
@@ -185,6 +186,10 @@ export function validateWorkflowAction(order: WorkflowOrder, events: WorkflowEve
   if (action.downpayment && (action.task !== 'ack' || action.outcome !== 'completed')) throw new Error('Los datos del depósito solo corresponden a una confirmación completada.');
   if (action.preparation && (action.task !== 'prepare' || action.outcome !== 'completed')) throw new Error('La preparación solo se adjunta al completar Preparación y cita.');
   if (action.task === 'ack' && action.outcome === 'completed') {
+    if (action.exemptDownpayment) {
+      if (action.nextDueDate || action.scheduledAt) throw new Error('La fecha de confirmación se registra automáticamente.');
+      return;
+    }
     const parsed = downpaymentSchema.safeParse(action.downpayment);
     if (!parsed.success) throw new Error(parsed.error.issues[0]?.message || 'Revisa los datos del downpayment.');
     validateDownpayment(order.paid, parsed.data);
