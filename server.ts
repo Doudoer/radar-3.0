@@ -2356,7 +2356,9 @@ const server = createServer(async (request, response) => {
       } catch (error) {
         await connection.rollback();
         console.error('[CancelOrderAdmin Error]:', error);
-        throw error;
+        return sendJson(response, 500, {
+          message: error instanceof Error ? `Error al cancelar: ${error.message}` : 'No fue posible completar la solicitud',
+        });
       } finally {
         connection.release();
       }
