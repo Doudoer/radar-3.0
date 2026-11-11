@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 interface YardPhotoGalleryProps {
   images: string[];
@@ -10,7 +10,27 @@ export const YardPhotoGallery: React.FC<YardPhotoGalleryProps> = ({
   maxThumbnails = 4,
 }) => {
   const [activeLightboxIndex, setActiveLightboxIndex] = useState<number | null>(null);
-  const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [scale, setScale] = useState<number>(1);
+  const [position, setPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [swipeDismissY, setSwipeDismissY] = useState<number>(0);
+
+  // References to keep gesture state without triggering re-render cascades
+  const gestureRef = useRef({
+    isPinching: false,
+    startDistance: 0,
+    startScale: 1,
+    startX: 0,
+    startY: 0,
+    startPosX: 0,
+    startPosY: 0,
+    lastTapTime: 0,
+    isDragging: false,
+    touchCount: 0,
+    deltaX: 0,
+    deltaY: 0,
+  });
+
+  const imgContainerRef = useRef<HTMLDivElement>(null);
 
   if (!images || images.length === 0) return null;
 
@@ -18,40 +38,233 @@ export const YardPhotoGallery: React.FC<YardPhotoGalleryProps> = ({
   const visibleImages = images.slice(0, maxThumbnails);
   const remainingCount = total - maxThumbnails;
 
+  const resetZoomAndPosition = useCallback(() => {
+    setScale(1);
+    setPosition({ x: 0, y: 0 });
+    setSwipeDismissY(0);
+  }, []);
+
   const handleOpenLightbox = (index: number) => {
     setActiveLightboxIndex(index);
-    setZoomLevel(1);
+    resetZoomAndPosition();
   };
 
-  const handleCloseLightbox = () => {
+  const handleCloseLightbox = useCallback(() => {
     setActiveLightboxIndex(null);
-    setZoomLevel(1);
-  };
+    resetZoomAndPosition();
+  }, [resetZoomAndPosition]);
 
-  const handlePrev = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handlePrev = useCallback(() => {
     if (activeLightboxIndex !== null) {
-      setActiveLightboxIndex((activeLightboxIndex - 1 + total) % total);
-      setZoomLevel(1);
+      setActiveLightboxIndex((prev) => ((prev ?? 0) - 1 + total) % total);
+      resetZoomAndPosition();
+    }
+  }, [activeLightboxIndex, total, resetZoomAndPosition]);
+
+  const handleNext = useCallback(() => {
+    if (activeLightboxIndex !== null) {
+      setActiveLightboxIndex((prev) => ((prev ?? 0) + 1) % total);
+      resetZoomAndPosition();
+    }
+  }, [activeLightboxIndex, total, resetZoomAndPosition]);
+
+  // Keyboard navigation (Arrow keys + Esc)
+  useEffect(() => {
+    if (activeLightboxIndex === null) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleCloseLightbox();
+      } else if (e.key === 'ArrowLeft') {
+        handlePrev();
+      } else if (e.key === 'ArrowRight') {
+        handleNext();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeLightboxIndex, handleCloseLightbox, handlePrev, handleNext]);
+
+  // Prevent background scroll while lightbox is open
+  useEffect(() => {
+    if (activeLightboxIndex !== null) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [activeLightboxIndex]);
+
+  // Double tap / double click zoom toggle (1x <-> 2.5x)
+  const handleDoubleTap = (clientX: number, clientY: number) => {
+    if (scale > 1) {
+      resetZoomAndPosition();
+    } else {
+      const targetScale = 2.5;
+      if (imgContainerRef.current) {
+        const rect = imgContainerRef.current.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const offsetX = (centerX - clientX) * (targetScale - 1);
+        const offsetY = (centerY - clientY) * (targetScale - 1);
+        setPosition({ x: offsetX, y: offsetY });
+      }
+      setScale(targetScale);
     }
   };
 
-  const handleNext = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (activeLightboxIndex !== null) {
-      setActiveLightboxIndex((activeLightboxIndex + 1) % total);
-      setZoomLevel(1);
+  // Touch Handlers for Pinch, Pan, Double-tap, and Swipe
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const touches = e.touches;
+    gestureRef.current.touchCount = touches.length;
+
+    if (touches.length === 2) {
+      // Pinch start
+      gestureRef.current.isPinching = true;
+      gestureRef.current.startDistance = Math.hypot(
+        touches[0].clientX - touches[1].clientX,
+        touches[0].clientY - touches[1].clientY
+      );
+      gestureRef.current.startScale = scale;
+      gestureRef.current.isDragging = false;
+    } else if (touches.length === 1) {
+      // Single touch start
+      gestureRef.current.isPinching = false;
+      gestureRef.current.startX = touches[0].clientX;
+      gestureRef.current.startY = touches[0].clientY;
+      gestureRef.current.startPosX = position.x;
+      gestureRef.current.startPosY = position.y;
+      gestureRef.current.deltaX = 0;
+      gestureRef.current.deltaY = 0;
+      gestureRef.current.isDragging = true;
+
+      // Double tap check (within 300ms)
+      const now = Date.now();
+      if (now - gestureRef.current.lastTapTime < 300) {
+        handleDoubleTap(touches[0].clientX, touches[0].clientY);
+        gestureRef.current.lastTapTime = 0;
+        gestureRef.current.isDragging = false;
+      } else {
+        gestureRef.current.lastTapTime = now;
+      }
     }
   };
 
-  const handleZoomIn = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setZoomLevel((prev) => Math.min(prev + 0.5, 3));
+  const handleTouchMove = (e: React.TouchEvent) => {
+    const touches = e.touches;
+
+    if (gestureRef.current.isPinching && touches.length === 2) {
+      // Handle pinch zoom
+      const currentDist = Math.hypot(
+        touches[0].clientX - touches[1].clientX,
+        touches[0].clientY - touches[1].clientY
+      );
+      if (gestureRef.current.startDistance > 0) {
+        const ratio = currentDist / gestureRef.current.startDistance;
+        const newScale = Math.min(Math.max(gestureRef.current.startScale * ratio, 1), 4);
+        setScale(newScale);
+        if (newScale <= 1) {
+          setPosition({ x: 0, y: 0 });
+        }
+      }
+    } else if (touches.length === 1 && gestureRef.current.isDragging) {
+      const deltaX = touches[0].clientX - gestureRef.current.startX;
+      const deltaY = touches[0].clientY - gestureRef.current.startY;
+      gestureRef.current.deltaX = deltaX;
+      gestureRef.current.deltaY = deltaY;
+
+      if (scale > 1) {
+        // Panning inside zoomed image
+        const maxPanX = (imgContainerRef.current?.clientWidth || 300) * (scale - 1) * 0.55;
+        const maxPanY = (imgContainerRef.current?.clientHeight || 400) * (scale - 1) * 0.55;
+
+        const nextX = Math.min(Math.max(gestureRef.current.startPosX + deltaX, -maxPanX), maxPanX);
+        const nextY = Math.min(Math.max(gestureRef.current.startPosY + deltaY, -maxPanY), maxPanY);
+
+        setPosition({ x: nextX, y: nextY });
+      } else {
+        // When scale === 1, track pull-down to dismiss (like WhatsApp / iOS)
+        if (deltaY > 0 && Math.abs(deltaY) > Math.abs(deltaX)) {
+          setSwipeDismissY(deltaY);
+        }
+      }
+    }
   };
 
-  const handleZoomOut = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setZoomLevel((prev) => Math.max(prev - 0.5, 1));
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const { deltaX, deltaY, isPinching } = gestureRef.current;
+    gestureRef.current.isDragging = false;
+
+    if (isPinching) {
+      gestureRef.current.isPinching = false;
+      if (scale < 1.05) {
+        resetZoomAndPosition();
+      }
+      return;
+    }
+
+    if (scale <= 1) {
+      // Check swipe-down dismiss
+      if (swipeDismissY > 90) {
+        handleCloseLightbox();
+        return;
+      } else {
+        setSwipeDismissY(0);
+      }
+
+      // Check horizontal swipe navigation
+      if (Math.abs(deltaX) > 60 && Math.abs(deltaY) < 60) {
+        if (deltaX < 0) {
+          handleNext();
+        } else {
+          handlePrev();
+        }
+      }
+    }
+  };
+
+  // Mouse wheel zoom for desktop
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    if (e.deltaY < 0) {
+      setScale((prev) => Math.min(prev + 0.3, 4));
+    } else {
+      setScale((prev) => {
+        const next = Math.max(prev - 0.3, 1);
+        if (next === 1) setPosition({ x: 0, y: 0 });
+        return next;
+      });
+    }
+  };
+
+  // Mouse drag for desktop pan
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (scale <= 1) return;
+    gestureRef.current.isDragging = true;
+    gestureRef.current.startX = e.clientX;
+    gestureRef.current.startY = e.clientY;
+    gestureRef.current.startPosX = position.x;
+    gestureRef.current.startPosY = position.y;
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!gestureRef.current.isDragging || scale <= 1) return;
+    const deltaX = e.clientX - gestureRef.current.startX;
+    const deltaY = e.clientY - gestureRef.current.startY;
+
+    const maxPanX = (imgContainerRef.current?.clientWidth || 300) * (scale - 1) * 0.55;
+    const maxPanY = (imgContainerRef.current?.clientHeight || 400) * (scale - 1) * 0.55;
+
+    setPosition({
+      x: Math.min(Math.max(gestureRef.current.startPosX + deltaX, -maxPanX), maxPanX),
+      y: Math.min(Math.max(gestureRef.current.startPosY + deltaY, -maxPanY), maxPanY),
+    });
+  };
+
+  const handleMouseUp = () => {
+    gestureRef.current.isDragging = false;
   };
 
   return (
@@ -79,12 +292,13 @@ export const YardPhotoGallery: React.FC<YardPhotoGalleryProps> = ({
                 src={url}
                 alt={`Foto referencia ${idx + 1}`}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                loading="lazy"
               />
               <div className="absolute inset-0 bg-black/20 group-hover:bg-black/0 transition-colors" />
 
-              {/* +N Overlay on the last thumbnail (WhatsApp style) */}
+              {/* +N Overlay on the last thumbnail */}
               {isLastAndOverflowing && (
-                <div className="absolute inset-0 bg-black/75 backdrop-blur-[2px] flex items-center justify-center text-white font-mono font-black text-lg sm:text-xl">
+                <div className="absolute inset-0 bg-black/80 flex items-center justify-center text-white font-mono font-black text-lg sm:text-xl">
                   +{remainingCount + 1}
                 </div>
               )}
@@ -93,124 +307,151 @@ export const YardPhotoGallery: React.FC<YardPhotoGalleryProps> = ({
         })}
       </div>
 
-      {/* Lightbox Modal */}
+      {/* WhatsApp-Style Lightbox Modal */}
       {activeLightboxIndex !== null && (
         <div
-          onClick={handleCloseLightbox}
-          className="horizon-modal fixed inset-0 z-50 flex flex-col items-center justify-center p-3 sm:p-6 bg-black/95 backdrop-blur-md animate-fade-in font-mono"
+          role="dialog"
+          aria-modal="true"
+          className="horizon-modal fixed inset-0 z-50 flex flex-col justify-between bg-black text-white select-none transition-opacity duration-150"
+          style={{
+            backgroundColor: `rgba(0, 0, 0, ${Math.max(0.7, 1 - swipeDismissY / 300)})`,
+          }}
         >
-          {/* Lightbox Controls Header */}
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-4xl flex items-center justify-between pb-3 text-white border-b border-slate-800"
-          >
-            <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-amber-400 text-[20px]">photo_camera</span>
-              <span className="text-xs sm:text-sm font-bold">
-                Foto {activeLightboxIndex + 1} de {total}
-              </span>
-            </div>
-
-            {/* Zoom & Close controls */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleZoomOut}
-                disabled={zoomLevel <= 1}
-                title="Alejar"
-                className="p-1.5 rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 disabled:opacity-40 transition-all cursor-pointer"
-              >
-                <span className="material-symbols-outlined text-[18px]">zoom_out</span>
-              </button>
-              <span className="text-[11px] text-slate-400 w-12 text-center">
-                {Math.round(zoomLevel * 100)}%
-              </span>
-              <button
-                type="button"
-                onClick={handleZoomIn}
-                disabled={zoomLevel >= 3}
-                title="Acercar"
-                className="p-1.5 rounded-lg border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 disabled:opacity-40 transition-all cursor-pointer"
-              >
-                <span className="material-symbols-outlined text-[18px]">zoom_in</span>
-              </button>
-
+          {/* Top Bar - WhatsApp Style (Back/Close, Counter, Reset zoom) */}
+          <div className="relative z-30 flex items-center justify-between px-3 py-3 bg-gradient-to-b from-black/80 to-transparent">
+            {/* Close button with back icon (WhatsApp style) */}
+            <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={handleCloseLightbox}
-                title="Cerrar (Esc)"
-                className="p-1.5 rounded-lg border border-rose-500/40 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 transition-all ml-2 cursor-pointer"
+                className="p-2 -ml-1 rounded-full text-white/90 hover:text-white hover:bg-white/10 active:bg-white/20 transition-colors cursor-pointer"
+                aria-label="Cerrar visor"
               >
-                <span className="material-symbols-outlined text-[20px]">close</span>
+                <span className="material-symbols-outlined text-[24px]">arrow_back</span>
+              </button>
+              <div className="flex flex-col">
+                <span className="text-sm font-semibold tracking-wide text-white">
+                  {activeLightboxIndex + 1} / {total}
+                </span>
+                <span className="text-[10px] text-white/60">
+                  {scale > 1 ? `${Math.round(scale * 100)}% zoom · Desliza para mover` : 'Pellizca o doble toque para zoom'}
+                </span>
+              </div>
+            </div>
+
+            {/* Quick Actions (Reset Zoom, Close X) */}
+            <div className="flex items-center gap-1">
+              {scale > 1 && (
+                <button
+                  type="button"
+                  onClick={resetZoomAndPosition}
+                  className="px-2.5 py-1 text-xs font-medium rounded-full bg-white/15 hover:bg-white/25 text-white transition-all cursor-pointer mr-1"
+                >
+                  100%
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleCloseLightbox}
+                className="p-2 rounded-full text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                aria-label="Cerrar"
+              >
+                <span className="material-symbols-outlined text-[22px]">close</span>
               </button>
             </div>
           </div>
 
-          {/* Main Image Viewport */}
+          {/* Main Image Viewport with Touch/Pinch/Pan handling */}
           <div
-            onClick={(e) => e.stopPropagation()}
-            className="relative flex-1 w-full max-w-4xl flex items-center justify-center overflow-hidden my-3 select-none"
+            ref={imgContainerRef}
+            className="relative flex-1 w-full flex items-center justify-center overflow-hidden touch-none"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onWheel={handleWheel}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onDoubleClick={(e) => handleDoubleTap(e.clientX, e.clientY)}
           >
-            {/* Prev Button */}
-            {total > 1 && (
+            {/* Previous Photo Button (Subtle, desktop & tablet) */}
+            {total > 1 && scale === 1 && (
               <button
                 type="button"
-                onClick={handlePrev}
-                title="Anterior"
-                className="absolute left-2 sm:left-4 z-10 p-2 sm:p-3 rounded-full bg-slate-900/80 hover:bg-amber-500 text-white hover:text-slate-950 border border-slate-700 transition-all shadow-lg cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePrev();
+                }}
+                className="absolute left-2 sm:left-4 z-20 p-2.5 sm:p-3 rounded-full bg-black/40 hover:bg-black/70 text-white/90 hover:text-white backdrop-blur-sm transition-all border border-white/10 cursor-pointer hidden sm:flex items-center justify-center"
+                aria-label="Foto anterior"
               >
                 <span className="material-symbols-outlined text-[24px]">chevron_left</span>
               </button>
             )}
 
-            <img
-              src={images[activeLightboxIndex]}
-              alt={`Foto de referencia ${activeLightboxIndex + 1}`}
-              style={{ transform: `scale(${zoomLevel})` }}
-              className="max-h-[75vh] max-w-full object-contain rounded-xl shadow-[0_0_40px_rgba(0,0,0,0.8)] transition-transform duration-150"
-            />
+            {/* Active Image with transform for pinch-zoom and pan */}
+            <div
+              className="flex items-center justify-center w-full h-full"
+              style={{
+                transform: `translate3d(${position.x}px, ${position.y + swipeDismissY}px, 0px) scale(${scale})`,
+                transition: gestureRef.current.isDragging || gestureRef.current.isPinching ? 'none' : 'transform 0.18s ease-out',
+                cursor: scale > 1 ? (gestureRef.current.isDragging ? 'grabbing' : 'grab') : 'default',
+              }}
+            >
+              <img
+                src={images[activeLightboxIndex]}
+                alt={`Foto de referencia ${activeLightboxIndex + 1}`}
+                draggable={false}
+                className="max-h-[80vh] max-w-full w-auto h-auto object-contain pointer-events-none select-none drop-shadow-[0_10px_25px_rgba(0,0,0,0.9)]"
+              />
+            </div>
 
-            {/* Next Button */}
-            {total > 1 && (
+            {/* Next Photo Button (Subtle, desktop & tablet) */}
+            {total > 1 && scale === 1 && (
               <button
                 type="button"
-                onClick={handleNext}
-                title="Siguiente"
-                className="absolute right-2 sm:right-4 z-10 p-2 sm:p-3 rounded-full bg-slate-900/80 hover:bg-amber-500 text-white hover:text-slate-950 border border-slate-700 transition-all shadow-lg cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleNext();
+                }}
+                className="absolute right-2 sm:right-4 z-20 p-2.5 sm:p-3 rounded-full bg-black/40 hover:bg-black/70 text-white/90 hover:text-white backdrop-blur-sm transition-all border border-white/10 cursor-pointer hidden sm:flex items-center justify-center"
+                aria-label="Foto siguiente"
               >
                 <span className="material-symbols-outlined text-[24px]">chevron_right</span>
               </button>
             )}
           </div>
 
-          {/* Bottom Thumbnails Strip in Lightbox */}
-          {total > 1 && (
-            <div
-              onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-4xl flex items-center justify-center gap-2 overflow-x-auto py-2 custom-scrollbar"
-            >
-              {images.map((url, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => {
-                    setActiveLightboxIndex(idx);
-                    setZoomLevel(1);
-                  }}
-                  className={`w-12 h-12 rounded-lg overflow-hidden border-2 transition-all flex-shrink-0 cursor-pointer ${
-                    activeLightboxIndex === idx
-                      ? 'border-amber-400 scale-105 shadow-[0_0_10px_rgba(245,158,11,0.5)]'
-                      : 'border-slate-800 opacity-60 hover:opacity-100'
-                  }`}
-                >
-                  <img src={url} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
-                </button>
-              ))}
-            </div>
-          )}
+          {/* Bottom Thumbnail Strip - WhatsApp Style */}
+          <div className="relative z-30 px-3 py-3 bg-gradient-to-t from-black/90 to-transparent">
+            {total > 1 && (
+              <div className="flex items-center justify-center gap-2 overflow-x-auto py-1 max-w-screen-md mx-auto scrollbar-none">
+                {images.map((url, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      setActiveLightboxIndex(idx);
+                      resetZoomAndPosition();
+                    }}
+                    className={`relative w-11 h-11 sm:w-13 sm:h-13 rounded-lg overflow-hidden flex-shrink-0 transition-all cursor-pointer ${
+                      activeLightboxIndex === idx
+                        ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-black scale-105 opacity-100'
+                        : 'opacity-40 hover:opacity-80'
+                    }`}
+                  >
+                    <img
+                      src={url}
+                      alt={`Miniatura ${idx + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
   );
 };
-
