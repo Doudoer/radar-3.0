@@ -299,9 +299,6 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             {filteredOrders.map((order) => {
-              const price = Number(order.financials?.partPrice || 0);
-              const downPayment = Number(order.financials?.downPayment || 0);
-              const balanceDue = Number(order.financials?.balanceDue ?? Math.max(0, price - downPayment));
               const isReadyInYard = Boolean(order.yardPieceReady);
 
               return (
@@ -369,16 +366,22 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
                         </span>
                       </div>
                       <div>
-                        <span className="text-slate-400 block text-[9px] uppercase font-bold">Cliente</span>
-                        <span className="text-slate-200 truncate block">{order.customer?.name}</span>
+                        <span className="text-slate-400 block text-[9px] uppercase font-bold">Transmisión</span>
+                        <span className="text-slate-200 truncate block">{order.vehicle?.transmission || 'N/D'}</span>
                       </div>
                       <div>
-                        <span className="text-slate-400 block text-[9px] uppercase font-bold">Saldo Pendiente</span>
-                        <span className={`font-bold block ${balanceDue > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                          ${balanceDue.toFixed(2)} USD
-                        </span>
+                        <span className="text-slate-400 block text-[9px] uppercase font-bold">Garantía</span>
+                        <span className="text-slate-200 font-bold block">{order.warrantyDays || 60} días</span>
                       </div>
                     </div>
+
+                    {/* Technical Description snippet if available */}
+                    {order.productSpecs && (
+                      <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800/80 text-[10.5px] font-mono text-slate-300">
+                        <span className="text-slate-400 block text-[9px] uppercase font-bold mb-0.5">Descripción:</span>
+                        <p className="line-clamp-2 italic">{order.productSpecs}</p>
+                      </div>
+                    )}
 
                     {/* Preparation or Yard Note */}
                     {order.preparation && (
@@ -566,16 +569,19 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
             )}
 
             {/* Vehicle & Part */}
-            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
               <span className="text-slate-400 uppercase font-bold text-[10px] block">Vehículo y Pieza</span>
-              <p className="text-base text-white font-bold">{selectedOrder.mainPart}</p>
-              <p className="text-amber-300">
+              <p className="text-lg text-white font-black">{selectedOrder.mainPart}</p>
+              <p className="text-amber-300 font-bold text-sm">
                 {selectedOrder.vehicle?.year} {selectedOrder.vehicle?.make} {selectedOrder.vehicle?.model} {selectedOrder.vehicle?.trim}
               </p>
               {selectedOrder.productSpecs && (
-                <p className="text-slate-300 text-[11px] italic bg-slate-900 p-2 rounded-lg border border-slate-800">
-                  {selectedOrder.productSpecs}
-                </p>
+                <div className="space-y-1 pt-0.5">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Descripción:</span>
+                  <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-200 text-xs font-mono whitespace-pre-line leading-relaxed shadow-inner">
+                    {selectedOrder.productSpecs}
+                  </div>
+                </div>
               )}
               <div className="grid grid-cols-2 gap-2 pt-1 text-slate-300">
                 <div>VIN: <strong>{selectedOrder.vehicle?.vin || 'No registrado'}</strong></div>
@@ -637,45 +643,6 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
                   No hay fotos de referencia adjuntas.
                 </p>
               )}
-            </div>
-
-            {/* Customer Details */}
-            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-              <span className="text-slate-400 uppercase font-bold text-[10px] block">Cliente</span>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-white font-bold text-sm">{selectedOrder.customer?.name}</p>
-                  <p className="text-slate-400">{selectedOrder.customer?.phone || 'Sin teléfono'}</p>
-                </div>
-                {selectedOrder.customer?.phone && (
-                  <a
-                    href={`tel:${selectedOrder.customer.phone}`}
-                    className="px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 font-bold"
-                  >
-                    <span className="material-symbols-outlined text-[16px]">call</span>
-                    <span>Llamar</span>
-                  </a>
-                )}
-              </div>
-            </div>
-
-            {/* Financial Summary */}
-            <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
-              <span className="text-slate-400 uppercase font-bold text-[10px] block">Información de Cobro</span>
-              <div className="flex justify-between text-slate-300">
-                <span>Precio pieza:</span>
-                <span>${(selectedOrder.financials?.partPrice || 0).toFixed(2)} USD</span>
-              </div>
-              <div className="flex justify-between text-slate-300">
-                <span>Anticipo cobrado:</span>
-                <span className="text-emerald-400">${(selectedOrder.financials?.downPayment || 0).toFixed(2)} USD</span>
-              </div>
-              <div className="flex justify-between text-white font-bold border-t border-slate-800 pt-1">
-                <span>Saldo por cobrar en patio:</span>
-                <span className="text-amber-400 text-sm">
-                  ${(selectedOrder.financials?.balanceDue ?? Math.max(0, (selectedOrder.financials?.partPrice || 0) - (selectedOrder.financials?.downPayment || 0))).toFixed(2)} USD
-                </span>
-              </div>
             </div>
 
             {/* Action buttons inside modal */}
