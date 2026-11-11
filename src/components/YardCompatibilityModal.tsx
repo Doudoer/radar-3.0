@@ -239,30 +239,41 @@ export const YardCompatibilityModal: React.FC<YardCompatibilityModalProps> = ({
         
         {/* Modal Header */}
         <div className="flex items-start justify-between border-b border-slate-800 p-4 sm:p-5">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-amber-400 text-[22px]">swap_horiz</span>
-              <h2 className="text-base sm:text-lg font-bold text-white">
-                Compatibilidad & Fotos de Referencia
-              </h2>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
-              <span className="text-amber-400 font-bold">#{order.code}</span>
-              <span>·</span>
-              <span className="text-slate-200 font-bold">{order.mainPart}</span>
-              <span>·</span>
-              <span>{order.vehicle?.year} {order.vehicle?.make} {order.vehicle?.model}</span>
-              <span>·</span>
-              <span>VIN: {order.vehicle?.vin ? order.vehicle.vin.slice(-8) : 'N/D'}</span>
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSaving || isUploading}
+              className="px-2.5 py-1.5 rounded-xl bg-slate-800/90 border border-slate-700 text-slate-200 hover:text-white flex items-center gap-1 font-bold text-xs active:scale-95 transition-all cursor-pointer shadow-sm"
+              aria-label="Volver"
+            >
+              <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+              <span>Atrás</span>
+            </button>
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-amber-400 text-[20px]">swap_horiz</span>
+                <h2 className="text-base sm:text-lg font-bold text-white">
+                  Compatibilidad & Fotos
+                </h2>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-[10.5px] text-slate-400">
+                <span className="text-amber-400 font-bold">#{order.code}</span>
+                <span>·</span>
+                <span className="text-slate-200 font-bold">{order.mainPart}</span>
+                <span>·</span>
+                <span>{order.vehicle?.year} {order.vehicle?.make}</span>
+              </div>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
             disabled={isSaving || isUploading}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
+            aria-label="Cerrar"
           >
-            <span className="material-symbols-outlined text-[22px]">close</span>
+            <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 

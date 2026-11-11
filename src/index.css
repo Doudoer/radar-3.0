@@ -906,3 +906,54 @@ html.light ::-webkit-scrollbar-thumb:hover, html.light .custom-scrollbar::-webki
     font-size: 14pt !important;
   }
 }
+
+/* =========================================================================
+   YARD MOBILE NATIVE UTILITIES (iOS / Android App Experience)
+   ========================================================================= */
+.yard-mobile-shell {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.safe-top-padded {
+  padding-top: max(12px, env(safe-area-inset-top, 12px));
+}
+
+.safe-bottom-padded {
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 16px));
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+}
+.no-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+@keyframes sheetSlideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0.95;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-sheet-up {
+  animation: sheetSlideUp 0.26s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes yardPullGlow {
+  0%, 100% { opacity: 0.6; transform: scale(0.96); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+
+.animate-pull-glow {
+  animation: yardPullGlow 1.2s ease-in-out infinite;
+}
+
