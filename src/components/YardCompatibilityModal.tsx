@@ -3,6 +3,7 @@ import { Order, YardCompatibility, CompatibleVehicleItem } from '../types';
 import { MAKE_MODEL_MAP } from '../data/vehicleData';
 import { apiFetch } from '../services/apiFetch';
 import { uploadOrderFile } from '../services/orderFiles';
+import { formatYearRange, expandYearRangesInText } from '../utils/compatibilityFormat';
 
 interface YardCompatibilityModalProps {
   order: Order;
@@ -77,9 +78,10 @@ export const YardCompatibilityModal: React.FC<YardCompatibilityModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showManualEdit, setShowManualEdit] = useState(false);
-  const [manualText, setManualText] = useState<string>(
-    order.yardCompatibility?.compatibilityList || ''
-  );
+  const [manualText, setManualText] = useState<string>(() => {
+    const raw = order.yardCompatibility?.compatibilityList || '';
+    return expandYearRangesInText(raw);
+  });
 
   // When make changes, select first available model
   const handleMakeChange = (newMake: string) => {
@@ -93,7 +95,7 @@ export const YardCompatibilityModal: React.FC<YardCompatibilityModalProps> = ({
     if (items.length === 0 && !extra.trim()) return '';
     const lines: string[] = ['Compatibilidad'];
     items.forEach((item) => {
-      const yearsStr = item.yearFrom === item.yearTo ? `${item.yearFrom}.` : `${item.yearFrom} y ${item.yearTo}.`;
+      const yearsStr = formatYearRange(item.yearFrom, item.yearTo);
       const notesStr = item.notes ? ` (${item.notes})` : '';
       lines.push(`*${item.make} ${item.model}: ${yearsStr}${notesStr}`);
     });

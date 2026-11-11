@@ -4,6 +4,7 @@ import { apiFetch } from '../services/apiFetch';
 import { CancelOrderModal } from './CancelOrderModal';
 import { YardCompatibilityModal } from './YardCompatibilityModal';
 import { YardPhotoGallery } from './YardPhotoGallery';
+import { expandYearRangesInText } from '../utils/compatibilityFormat';
 
 interface YardPortalViewProps {
   orders: Order[];
@@ -528,7 +529,7 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
                     Modelos y Años Compatibles:
                   </span>
                   <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-slate-100 text-xs font-mono whitespace-pre-line leading-relaxed shadow-inner">
-                    {selectedOrder.yardCompatibility.compatibilityList}
+                    {expandYearRangesInText(selectedOrder.yardCompatibility.compatibilityList)}
                   </div>
                 </div>
               ) : (
