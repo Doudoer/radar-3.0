@@ -12,6 +12,7 @@ import {
   generateGeneralRelationPdf,
   downloadPdfBytes,
 } from '../utils/weeklyRelationPdf';
+import { orderSaleTotal } from '../utils/orderAnalytics';
 
 export interface OfficeEmployee {
   id: string;
@@ -450,6 +451,11 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   const totalSalesVolume = useMemo(() => {
     return movementIncome(movementsInPeriod(income.movements, currentWeekRange));
   }, [income.movements, currentWeekRange]);
+
+  // Valor comercial total pactado de las ventas de la semana
+  const weeklySalesCommercialTotal = useMemo(() => {
+    return sumMoney(weeklySalesOrders.map(orderSaleTotal));
+  }, [weeklySalesOrders]);
 
   const averageSalesTicket = useMemo(() => {
     if (weeklySalesOrders.length === 0) return 0;
@@ -1339,6 +1345,10 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 <p className="text-[11px] text-[#64748b]">
                   Pagos menos reembolsos de la semana seleccionada
                 </p>
+                <div className="mt-2 pt-2 border-t border-slate-800 text-[11px] font-mono text-emerald-400">
+                  <span className="text-slate-400">Valor comercial ventas: </span>
+                  <strong>${weeklySalesCommercialTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</strong>
+                </div>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-[#10b981]/15 border border-[#10b981]/30 flex items-center justify-center text-[#10b981] shrink-0">
                 <span className="material-symbols-outlined text-[24px]">inbox</span>

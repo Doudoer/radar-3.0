@@ -282,6 +282,20 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
     };
   }, [periodSales, periodQuotes, operatorRefunds, operatorClaims, activeOrders]);
 
+  // Ventas de la semana en curso (Lunes a Domingo actual) para el operador seleccionado
+  const currentWeekOperatorSales = useMemo(() => {
+    const currentWeek = getWeekRange(0);
+    const weekOrders = operatorOrders.filter((order) => {
+      const orderDate = parseOrderDate(order);
+      return orderDate && orderDate >= currentWeek.monday && orderDate <= currentWeek.sunday;
+    });
+    const weekSales = weekOrders.filter((o) => saleStatuses.has(o.status));
+    return {
+      sum: sumMoney(weekSales.map(orderSaleTotal)),
+      count: weekSales.length,
+    };
+  }, [operatorOrders]);
+
   // 7. Visual Day-by-Day Breakdown for the Week (Lunes a Domingo)
   const weeklyDayBreakdown = useMemo(() => {
     const days = [
@@ -746,6 +760,22 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
             )}
           </div>
         )}
+
+        {/* Indicador de Ventas de la Semana */}
+        <div className="hidden sm:flex items-center gap-2.5 bg-[#040814] border border-emerald-500/40 rounded-2xl px-3.5 py-2 shadow-[0_0_15px_rgba(16,185,129,0.15)] shrink-0">
+          <div className="w-7 h-7 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+            <span className="material-symbols-outlined text-[16px]">calendar_view_week</span>
+          </div>
+          <div className="text-left font-mono">
+            <span className="text-[9.5px] uppercase font-bold text-emerald-400 block leading-tight">
+              Ventas de la semana:
+            </span>
+            <span className="text-xs font-black text-emerald-300">
+              ${currentWeekOperatorSales.sum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+              <span className="text-[10px] text-slate-400 ml-1 font-normal">({currentWeekOperatorSales.count} {currentWeekOperatorSales.count === 1 ? 'orden' : 'órdenes'})</span>
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* SECTION 3: Key Performance Indicators HUD Matrix */}

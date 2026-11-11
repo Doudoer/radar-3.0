@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { SLAMetric, ActivityItem, Order } from '../types';
 import { useFinanceMovements } from '../hooks/useFinanceState';
 import { financeDateKey, FINANCE_TIME_ZONE, movementIncome, movementsInPeriod, parseFinanceDate, shiftDateKey, sumMoney } from '../utils/finance';
-import { getMonthRange, getWeekRange, getYearRange, operationalDistribution, orderBalance, parseOrderDate, saleStatuses, scaleNetBars, workshopStatuses } from '../utils/orderAnalytics';
+import { getMonthRange, getWeekRange, getYearRange, operationalDistribution, orderBalance, orderSaleTotal, parseOrderDate, saleStatuses, scaleNetBars, workshopStatuses } from '../utils/orderAnalytics';
 export { getMonthRange, getWeekRange, getYearRange, parseOrderDate } from '../utils/orderAnalytics';
 
 interface DashboardViewProps {
@@ -129,6 +129,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       distribution: operationalDistribution(periodOrders),
     };
   }, [periodOrders, slaMetrics, income.movements, currentPeriodRange]);
+
+  // Indicador de Ventas de la Semana Actual en Curso (Lunes a Domingo)
+  const currentWeekMetrics = useMemo(() => {
+    const weekRange = getWeekRange(0);
+    const weekOrders = orders.filter((order) => {
+      const d = parseOrderDate(order);
+      return d && d >= weekRange.start && d <= weekRange.end;
+    });
+    const weekSalesOrders = weekOrders.filter((order) => saleStatuses.has(order.status));
+    const weekSalesValue = sumMoney(weekSalesOrders.map(orderSaleTotal));
+    return {
+      ordersCount: weekOrders.length,
+      salesCount: weekSalesOrders.length,
+      salesValue: weekSalesValue,
+    };
+  }, [orders]);
+
+  // Valor comercial total de órdenes de venta en el período seleccionado
+  const periodSalesValue = useMemo(() => {
+    const salesOrders = periodOrders.filter((order) => saleStatuses.has(order.status));
+    return sumMoney(salesOrders.map(orderSaleTotal));
+  }, [periodOrders]);
 
   // Dynamic Commercial Volume Bar Chart
   const trendBars = useMemo(() => {
@@ -468,10 +490,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
-            {/* Ventas Registradas */}
+            {/* Indicador Principal: Ventas de la Semana */}
+            <div className="bg-[#030712]/90 px-4 py-2 rounded-2xl border-2 border-emerald-500/50 text-right shadow-[0_0_18px_rgba(16,185,129,0.2)]">
+              <span className="text-[9.5px] font-mono uppercase text-emerald-400 block font-bold flex items-center justify-end gap-1">
+                <span className="material-symbols-outlined text-[13px]">calendar_view_week</span>
+                <span>Ventas de la Semana</span>
+              </span>
+              <span className="text-base sm:text-lg font-mono font-black text-emerald-300">
+                ${currentWeekMetrics.salesValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+              </span>
+              <span className="text-[9px] font-mono text-slate-400 block">
+                {currentWeekMetrics.salesCount} {currentWeekMetrics.salesCount === 1 ? 'orden comercial' : 'órdenes comerciales'}
+              </span>
+            </div>
+
+            {/* Ventas Registradas (Ingresos por cobros) */}
             <div className="bg-[#030712]/80 px-3.5 py-2 rounded-2xl border border-cyan-500/20 text-right">
               <span className="text-[9.5px] font-mono uppercase text-cyan-400 block font-bold">
-                Ventas Registradas
+                {periodType === 'semana' ? 'Ventas Registradas' : 'Ingresos del Período'}
               </span>
               <span className="text-base font-mono font-black text-cyan-300">
                 ${dashboardMetrics.totalSales.toFixed(2)} USD
@@ -565,6 +601,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <h3>Ingresos netos acumulados</h3>
               <p className="horizon-chart-total">{income.loaded ? `$${dashboardMetrics.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'No disponible'}</p>
               <p>Pagos − reembolsos</p>
+              <div className="mt-2.5 pt-2 border-t border-slate-800/80">
+                <span className="text-[9.5px] font-mono uppercase text-emerald-400 font-bold block">
+                  Valor Ventas Semana:
+                </span>
+                <span className="text-sm font-mono font-black text-emerald-300">
+                  ${currentWeekMetrics.salesValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                </span>
+                <span className="text-[9px] font-mono text-slate-400 block">
+                  {currentWeekMetrics.salesCount} {currentWeekMetrics.salesCount === 1 ? 'venta confirmada' : 'ventas confirmadas'}
+                </span>
+              </div>
               <span className="horizon-chart-legend"><span />Fecha efectiva</span>
             </div>
             <div className="horizon-net-line">

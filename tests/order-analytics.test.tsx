@@ -192,4 +192,27 @@ describe('verified operational analytics', () => {
     expect(dashHtml).toContain('Telemetría y Control Operativo');
     expect(dashHtml).not.toContain('Comisión 2% Exclusiva Supervisor');
   });
+
+  it('renders weekly sales value indicator in dashboard and operations analytics', () => {
+    const orders = [
+      makeOrder('pagado', { total: 1200 }),
+      makeOrder('en_preparacion', { total: 800 }),
+      makeOrder('cotizacion', { total: 5000 }), // Quotes should NOT count as sales
+    ];
+
+    const dashHtml = renderDashboard(orders);
+    expect(dashHtml).toContain('Ventas de la Semana');
+    expect(dashHtml).toContain('$2,000.00 USD');
+    expect(dashHtml).toContain('2 órdenes comerciales');
+
+    const opsHtml = renderToStaticMarkup(
+      <OperationsView
+        orders={orders}
+        currentUser={{ id: 7, name: 'Carlos', role: 'operador' }}
+        userRole="operador"
+      />
+    );
+    expect(opsHtml).toContain('Ventas de la semana:');
+    expect(opsHtml).toContain('$2,000.00 USD');
+  });
 });
