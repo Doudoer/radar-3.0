@@ -45,7 +45,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 const PIPELINE_STEP_NAMES = ['Cotización', 'Anticipo', 'Preparación', 'Entrega'] as const;
 
-export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
+export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
   orders,
   onSelectOrder,
   onOpenNewOrder,
@@ -2094,4 +2094,4 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = ({
       </div>
     </div>
   );
-};
+});

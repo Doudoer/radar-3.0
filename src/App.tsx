@@ -325,6 +325,48 @@ export default function App() {
     return await updateOrder(updatedOrder);
   }, [updateOrder]);
 
+  const handleOpenNewOrder = useCallback(() => {
+    setPrefillOrderData(null);
+    setEditingOrder(null);
+    setIsNewOrderModalOpen(true);
+  }, []);
+
+  const handleEditOrder = useCallback((order: Order) => {
+    setEditingOrder(order);
+    setIsNewOrderModalOpen(true);
+  }, []);
+
+  const handleOpenExport = useCallback(() => {
+    setIsExportModalOpen(true);
+  }, []);
+
+  const handleOpenStatusRequest = useCallback(() => {
+    setIsStatusRequestOpen(true);
+  }, []);
+
+  const handleStatusUpdate = useCallback((orderId: string, status: OrderStatus) => {
+    if (status === 'entregado') {
+      setDeliveryPaymentOrderId(orderId);
+      handleSelectOrder(orderId);
+      return;
+    }
+    void updateOrderStatus(orderId, status).catch((error) =>
+      setDatabaseMessage(error instanceof Error ? error.message : 'No se pudo guardar el estado.')
+    );
+  }, [updateOrderStatus, handleSelectOrder, setDatabaseMessage]);
+
+  const handleTableRefresh = useCallback(() => {
+    void fetchAllData({ silent: false });
+  }, [fetchAllData]);
+
+  const handleDashboardRefresh = useCallback(() => {
+    void fetchAllData({ silent: true });
+  }, [fetchAllData]);
+
+  const handleNavigateOrders = useCallback(() => {
+    handleNavigate('ordenes');
+  }, []);
+
   const handleCloseNewOrderModal = useCallback(() => {
     setIsNewOrderModalOpen(false);
     setEditingOrder(null);
@@ -399,10 +441,7 @@ export default function App() {
           userAvatar={authUser?.avatar_url}
           userRole={userRole}
           onToggleYardPortal={() => setYardPortalActive(true)}
-          onOpenNewOrder={() => {
-            setPrefillOrderData(null);
-            setIsNewOrderModalOpen(true);
-          }}
+          onOpenNewOrder={handleOpenNewOrder}
           onToggleMobileMenu={() => setIsSidebarOpen(!isSidebarOpen)}
         />
 
@@ -424,8 +463,8 @@ export default function App() {
                 slaMetrics={[]}
                 activities={activities}
                 onSelectOrder={handleSelectOrder}
-                onNavigateTaller={() => handleNavigate('ordenes')}
-                onRefresh={() => fetchAllData({ silent: true })}
+                onNavigateTaller={handleNavigateOrders}
+                onRefresh={handleDashboardRefresh}
               />
             )}
 
@@ -433,27 +472,12 @@ export default function App() {
               <OrdersTableView
                 orders={orders}
                 onSelectOrder={handleSelectOrder}
-                onEditOrder={(order) => {
-                  setEditingOrder(order);
-                  setIsNewOrderModalOpen(true);
-                }}
-                onOpenNewOrder={() => {
-                  setPrefillOrderData(null);
-                  setIsNewOrderModalOpen(true);
-                }}
-                onExport={() => setIsExportModalOpen(true)}
-                onStatusRequest={() => setIsStatusRequestOpen(true)}
-                onUpdateStatus={(orderId, status) => {
-                  if (status === 'entregado') {
-                    setDeliveryPaymentOrderId(orderId);
-                    handleSelectOrder(orderId);
-                    return;
-                  }
-                  void updateOrderStatus(orderId, status).catch((error) =>
-                    setDatabaseMessage(error instanceof Error ? error.message : 'No se pudo guardar el estado.')
-                  );
-                }}
-                onRefresh={() => fetchAllData({ silent: false })}
+                onEditOrder={handleEditOrder}
+                onOpenNewOrder={handleOpenNewOrder}
+                onExport={handleOpenExport}
+                onStatusRequest={handleOpenStatusRequest}
+                onUpdateStatus={handleStatusUpdate}
+                onRefresh={handleTableRefresh}
                 isRefreshing={isRefreshing}
                 lastSyncedAt={lastSyncedAt}
               />

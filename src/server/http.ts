@@ -167,7 +167,8 @@ export const serveFrontend = async (request: IncomingMessage, response: ServerRe
     if (clientEtag && clientEtag === cached.etag) {
       response.writeHead(304, {
         'ETag': cached.etag,
-        'Cache-Control': extension === '.html' ? 'no-cache, must-revalidate' : 'public, max-age=31536000, immutable',
+        'Cache-Control': extension === '.html' ? 'no-cache, no-store, must-revalidate, max-age=0' : 'public, max-age=31536000, immutable',
+        ...(extension === '.html' ? { 'Pragma': 'no-cache', 'Expires': '0' } : {}),
       });
       response.end();
       return true;
@@ -181,7 +182,8 @@ export const serveFrontend = async (request: IncomingMessage, response: ServerRe
       'Content-Type': cached.contentType,
       'Content-Length': String(bodyToSend.length),
       'ETag': cached.etag,
-      'Cache-Control': extension === '.html' ? 'no-cache, must-revalidate' : 'public, max-age=31536000, immutable',
+      'Cache-Control': extension === '.html' ? 'no-cache, no-store, must-revalidate, max-age=0' : 'public, max-age=31536000, immutable',
+      ...(extension === '.html' ? { 'Pragma': 'no-cache', 'Expires': '0' } : {}),
     };
 
     if (canGzip) {
