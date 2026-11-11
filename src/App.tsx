@@ -55,13 +55,15 @@ export default function App() {
   useTheme(); // Initialize theme on mount
   const isHostYard = typeof window !== 'undefined' && (
     window.location.hostname.toLowerCase().startsWith('yard.') ||
-    window.location.hostname.toLowerCase().includes('yard.localhost')
+    window.location.hostname.toLowerCase().includes('yard.localhost') ||
+    window.location.pathname.toLowerCase().startsWith('/yard')
   );
   const [yardPortalActive, setYardPortalActive] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     const hostname = window.location.hostname.toLowerCase();
+    const pathname = window.location.pathname.toLowerCase();
     const search = window.location.search;
-    return hostname.startsWith('yard.') || hostname.includes('yard.localhost') || search.includes('portal=yard');
+    return hostname.startsWith('yard.') || hostname.includes('yard.localhost') || search.includes('portal=yard') || pathname.startsWith('/yard');
   });
   const [currentScreen, setCurrentScreen] = useState<NavScreen>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
