@@ -2259,6 +2259,7 @@ const server = createServer(async (request, response) => {
         }
 
         if (netPaid > 0) {
+          const refundReason = `Devolución automática por cancelación de orden por Administrador. Motivo: ${data.reason.trim()}`.slice(0, 255);
           await connection.execute(
             `INSERT INTO refund_requests (order_id, amount, amount_type, payment_method, reason, status, requested_by, previous_order_status, review_stage, refund_scope, execution, completed_at, completed_by)
              VALUES (?, ?, 'total', ?, ?, 'completed', ?, ?, 'completed', 'purchase', ?, UTC_TIMESTAMP(), ?)`,
@@ -2266,11 +2267,11 @@ const server = createServer(async (request, response) => {
               targetOrderId,
               netPaid,
               methodDbLabel,
-              `Devolución automática por cancelación de orden por Administrador. Motivo: ${data.reason.trim()}`,
+              refundReason,
               currentUserId,
               orderRow.status,
               JSON.stringify(executionData),
-              adminName,
+              currentUserId,
             ]
           );
 

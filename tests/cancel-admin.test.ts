@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import mysql, { type Pool, type RowDataPacket, type ResultSetHeader } from 'mysql2/promise';
+import mysql, { type RowDataPacket, type ResultSetHeader } from 'mysql2/promise';
 
 describe('cancel-admin query structure and execution', () => {
   it('validates SQL statements and parameter bindings for cancel-admin endpoint', async () => {
@@ -60,7 +60,7 @@ describe('cancel-admin query structure and execution', () => {
     const targetOrderId = 633;
     const data = {
       code: '511111',
-      reason: 'Cancelado por inexistencia de stock',
+      reason: 'Cancelado por administrador',
       paymentMethod: 'square',
       version: 1,
     };
@@ -80,7 +80,8 @@ describe('cancel-admin query structure and execution', () => {
       version: 1,
     };
 
-    // 1. Insert refund_requests
+    // 1. Insert refund_requests - completed_by MUST be integer currentUserId
+    const refundReason = `Devolución automática por cancelación de orden por Administrador. Motivo: ${data.reason.trim()}`.slice(0, 255);
     await mockConnection.execute(
       `INSERT INTO refund_requests (order_id, amount, amount_type, payment_method, reason, status, requested_by, previous_order_status, review_stage, refund_scope, execution, completed_at, completed_by)
        VALUES (?, ?, 'total', ?, ?, 'completed', ?, ?, 'completed', 'purchase', ?, UTC_TIMESTAMP(), ?)`,
@@ -88,13 +89,21 @@ describe('cancel-admin query structure and execution', () => {
         targetOrderId,
         netPaid,
         methodDbLabel,
-        `Devolución automática por cancelación de orden por Administrador. Motivo: ${data.reason.trim()}`,
+        refundReason,
         currentUserId,
         orderRow.status,
         JSON.stringify(executionData),
-        adminName,
+        currentUserId,
       ]
     );
+
+    // Verify completed_by is strictly an integer/number
+    const refundInsert = executedQueries.find((q) => q.sql.includes('INSERT INTO refund_requests'));
+    expect(refundInsert).toBeDefined();
+    const completedByParam = refundInsert?.values?.[7];
+    expect(typeof completedByParam).toBe('number');
+    expect(Number.isInteger(completedByParam)).toBe(true);
+    expect(completedByParam).toBe(currentUserId);
 
     // 2. Insert finance_movements
     await mockConnection.execute(
@@ -117,6 +126,11 @@ describe('cancel-admin query structure and execution', () => {
         [orderRow.inventory_part_id]
       );
     }
+
+    // Verify inventory query has NO order_id column
+    const inventoryUpdate = executedQueries.find((q) => q.sql.includes('UPDATE inventory_parts'));
+    expect(inventoryUpdate).toBeDefined();
+    expect(inventoryUpdate?.sql).not.toContain('order_id');
 
     // 4. Update order status
     await mockConnection.execute(
