@@ -616,7 +616,7 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
 
       {/* DETALLE DE ORDEN: NATIVE MOBILE BOTTOM SHEET */}
       {selectedOrder && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/85 backdrop-blur-md animate-fade-in font-mono">
+        <div className="horizon-modal fixed inset-0 z-50 flex flex-col justify-end bg-black/85 backdrop-blur-md animate-fade-in font-mono">
           <div
             style={{
               transform: sheetTranslateY > 0 ? `translateY(${sheetTranslateY}px)` : undefined,
