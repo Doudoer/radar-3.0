@@ -1651,22 +1651,22 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
         {/* View Mode: Table Compact */}
         {viewMode === 'table' && (
         <div className="table-responsive-wrapper custom-scrollbar">
-          <table className="w-full text-left whitespace-nowrap border-collapse min-w-[1080px]">
+          <table className="w-full text-left whitespace-nowrap border-collapse min-w-[980px] lg:min-w-full">
             <thead className="bg-[#040814]/95 border-b border-cyan-500/20 sticky top-0 z-10">
               <tr className="font-mono text-[10px] sm:text-[10.5px] text-cyan-400/80 uppercase tracking-wider">
-                <th className="px-4 py-3 font-bold">Código & Fecha</th>
-                <th className="px-4 py-3 font-bold">Cliente</th>
-                <th className="px-4 py-3 font-bold">Vehículo & VIN</th>
-                <th className="px-4 py-3 font-bold">Refacción Solicitada</th>
-                <th className="px-4 py-3 font-bold text-center">Flujo</th>
-                <th className="px-4 py-3 font-bold">Tipo Entrega</th>
-                <th className="px-4 py-3 font-bold">Estatus</th>
-                <th className="px-4 py-3 font-bold text-right">Balance Financiero</th>
-                <th className="px-4 py-3 font-bold text-center w-28">Acciones</th>
+                <th className="px-3.5 py-3 font-bold">Código & Fecha</th>
+                <th className="px-3.5 py-3 font-bold">Cliente</th>
+                <th className="px-3.5 py-3 font-bold">Vehículo & VIN</th>
+                <th className="px-3.5 py-3 font-bold">Refacción Solicitada</th>
+                <th className="px-2.5 py-3 font-bold text-center">Flujo</th>
+                <th className="px-2.5 py-3 font-bold">Tipo Entrega</th>
+                <th className="px-3 py-3 font-bold">Estatus</th>
+                <th className="px-3.5 py-3 font-bold text-right">Balance Financiero</th>
+                <th className="px-3 py-3 font-bold text-center w-28 sticky right-0 z-20 bg-[#040814] border-l border-cyan-500/20 shadow-[-8px_0_12px_rgba(0,0,0,0.5)]">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-cyan-500/10 text-xs">
-              {paginatedOrders.map((order) => {
+              {paginatedOrders.map((order, rowIdx) => {
                 const { downPayment, coreFee, totalPayable, paidPercentage } = getOrderFinancials(order);
                 const pipeline = getOrderPipeline(order);
                 const coreCommitted = hasCoreCommitment(order);
@@ -1886,8 +1886,11 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                       </div>
                     </td>
 
-                    {/* Acciones */}
-                    <td className="px-3 py-3 sm:px-4 sm:py-3.5 text-center relative" onClick={(e) => e.stopPropagation()}>
+                    {/* Acciones (Sticky Right para que siempre sea visible en cualquier pantalla) */}
+                    <td
+                      className="px-2.5 py-2.5 sm:px-3 text-center sticky right-0 z-10 bg-[#060c18] group-hover:bg-[#0b1426] border-l border-cyan-500/20 shadow-[-8px_0_12px_rgba(0,0,0,0.5)] transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <div className="flex items-center justify-center gap-1">
                         <button
                           type="button"
@@ -1902,7 +1905,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                           type="button"
                           onClick={() => setActiveActionMenu(activeActionMenu === order.id ? null : order.id)}
                           className="text-slate-400 hover:text-cyan-300 p-1.5 rounded-xl hover:bg-slate-800 transition cursor-pointer"
-                          title="Opciones"
+                          title="Opciones (Editar / Archivar)"
                           aria-haspopup="menu"
                           aria-expanded={activeActionMenu === order.id}
                         >
@@ -1912,7 +1915,13 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
 
                       {/* Dropdown Menu */}
                       {activeActionMenu === order.id && (
-                        <div className="absolute right-4 top-12 w-52 bg-[#060c18] border border-cyan-500/30 rounded-2xl shadow-[0_15px_40px_rgba(0,0,0,0.85)] z-30 py-2 text-left text-xs overflow-hidden backdrop-blur-2xl">
+                        <div
+                          className={`absolute right-2 ${
+                            rowIdx >= paginatedOrders.length - 2 && paginatedOrders.length > 2
+                              ? 'bottom-11'
+                              : 'top-11'
+                          } w-52 bg-[#060c18] border border-cyan-500/30 rounded-2xl shadow-[0_15px_40px_rgba(0,0,0,0.85)] z-40 py-2 text-left text-xs overflow-hidden backdrop-blur-2xl`}
+                        >
                           <button
                             onClick={() => {
                               if (onEditOrder) onEditOrder(order);
