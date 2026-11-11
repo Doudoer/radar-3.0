@@ -232,7 +232,7 @@ export const YardCompatibilityModal: React.FC<YardCompatibilityModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-fade-in font-mono">
+    <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-fade-in font-mono">
       <div className="bg-[#0d1424] border border-amber-500/40 rounded-2xl w-full max-w-3xl max-h-[94vh] flex flex-col shadow-[0_0_50px_rgba(245,158,11,0.25)] text-xs text-slate-100">
         
         {/* Modal Header */}

@@ -115,17 +115,21 @@ describe('verified aftersales API', () => {
   it.each([
     ['closed', /cerrado/], ['owner', /responsable/], ['unreviewed', /revisión/], ['unnotified', /notificaste/],
     ['missing-next', /fecha/], ['wrong-order-status', /reembolso/], ['replacement-unconfirmed', /entrega/],
-    ['legacy-status', /histórico/],
   ])('rejects incomplete claim resolution: %s', async (variant, message) => {
     const { apply, row, context } = setup({ status: 'Reclamo' });
     if (variant === 'closed') context.claim.status = 'Resolved';
     if (variant === 'owner') context.claim.assigned_user_id = 99;
     if (variant === 'unreviewed') context.claim.stage = 'registered';
     if (variant === 'wrong-order-status') row.status = 'Solicitud Reembolso';
-    if (variant === 'legacy-status') context.claim.previous_order_status = null;
     await expect(apply({ action: 'claim_update', id: 8, stage: variant === 'missing-next' ? 'review' : variant === 'replacement-unconfirmed' ? 'replacement' : 'resolved',
       notes: 'Resolution explanatory detail', notified: variant !== 'unnotified', files: [] },
     variant === 'owner' ? { sub: '7', role: 'operator' } : actor)).rejects.toThrow(message);
+  });
+  it('resolves legacy claim with automatic fallback previous status', async () => {
+    const { apply, row, context } = setup({ status: 'Reclamo' });
+    context.claim.previous_order_status = null;
+    await apply({ action: 'claim_update', id: 8, stage: 'resolved', notes: 'Resolution explanatory detail', notified: true, files: [] });
+    expect(['Entregado', 'Pagado']).toContain(row.status);
   });
   it('links refund to active claim and reserves funds without a financial movement', async () => {
     const { apply, context, row, connection } = setup({ status: 'Reclamo' });
@@ -155,16 +159,21 @@ describe('verified aftersales API', () => {
   });
   it.each([
     ['unapproved', /aprobación/], ['missing-execution', /dinero/], ['piece', /pieza/], ['closed', /pendiente/],
-    ['budget', /excede/], ['missing-status', /anterior/],
+    ['budget', /excede/],
   ])('rejects unsafe refund completion: %s', async (variant, message) => {
     const { apply, context } = setup();
     if (variant === 'unapproved') context.refund.review_stage = 'review';
     if (variant === 'piece') context.refund.piece_required = 1;
     if (variant === 'closed') context.refund.status = 'completed';
     if (variant === 'budget') context.completed = 1150;
-    if (variant === 'missing-status') context.refund.previous_order_status = null;
     await expect(apply({ action: 'refund_update', id: 9, stage: 'completed', notes: 'Refund attempt detail',
       execution: variant === 'missing-execution' ? undefined : cash })).rejects.toThrow(message);
+  });
+  it('completes refund with automatic fallback previous status', async () => {
+    const { apply, context, row } = setup({ status: 'Solicitud Reembolso' });
+    context.refund.previous_order_status = null;
+    await apply({ action: 'refund_update', id: 9, stage: 'completed', notes: 'Refund attempt detail', execution: cash });
+    expect(['Entregado', 'Pagado', 'Reembolsado']).toContain(row.status);
   });
   it('receives timely core and refunds cash separately without changing status or coverage', async () => {
     const { apply, connection, row } = setup();

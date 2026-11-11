@@ -458,8 +458,9 @@ export async function handleWorkflowRequest(
       const order = workflowOrderFromRow(row);
       const events = eventRows.filter(event => Number(event.order_id) === Number(row.id)).map(workflowEventFromRow);
       const pending = workflowTasks(order, events, today).filter(task => {
-        // "Mi trabajo de hoy": solo Reclamos (incident), Listas para entregar (prepare) y Seguimiento post entrega (post_*)
-        const isAllowedQueue = task.task === 'incident' || task.task === 'prepare' || task.task.startsWith('post_');
+        if (match) return true;
+        // "Mi trabajo de hoy": para operadores, solo Reclamos (incident), Listas para entregar (prepare) y Seguimiento post entrega (post_*)
+        const isAllowedQueue = claims.role === 'admin' || task.task === 'incident' || task.task === 'prepare' || task.task.startsWith('post_');
         if (!isAllowedQueue) return false;
         return claims.role === 'admin' || workflowTaskAssignee(order, task.task).userId === Number(claims.sub);
       });

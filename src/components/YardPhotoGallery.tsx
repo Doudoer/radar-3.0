@@ -97,7 +97,7 @@ export const YardPhotoGallery: React.FC<YardPhotoGalleryProps> = ({
       {activeLightboxIndex !== null && (
         <div
           onClick={handleCloseLightbox}
-          className="fixed inset-0 z-50 flex flex-col items-center justify-center p-3 sm:p-6 bg-black/95 backdrop-blur-md animate-fade-in font-mono"
+          className="horizon-modal fixed inset-0 z-50 flex flex-col items-center justify-center p-3 sm:p-6 bg-black/95 backdrop-blur-md animate-fade-in font-mono"
         >
           {/* Lightbox Controls Header */}
           <div

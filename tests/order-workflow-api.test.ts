@@ -47,7 +47,7 @@ const preparation = preparationSchema.parse({
   dateFrom: '2099-01-02', dateTo: '2099-01-04', balanceNotified: true, paymentMethodsNotified: true,
   corePlan: 'return_core', deliveryType: 'retiro_tienda', address: '', screenshots: [],
 });
-const acknowledged = [{ id: 1, task: 'ack', outcome: 'completed', notes: 'Existing confirmation', evidence: '', actor_id: 7, created_at: new Date().toISOString() }];
+const acknowledged = [{ id: 1, order_id: 901, task: 'ack', outcome: 'completed', notes: 'Existing confirmation', evidence: '', actor_id: 7, created_at: new Date().toISOString() }];
 
 describe('workflow API transactional enforcement', () => {
   it('routes delegated tasks without exposing the seller task to the assignee or unassigned yard followup to the seller', async () => {
@@ -205,11 +205,11 @@ describe('workflow API transactional enforcement', () => {
     expect(broadcast).not.toHaveBeenCalled();
   });
   it('filters the operator queue by authenticated ID, not an advisor name', async () => {
-    const { database, connection } = setup();
+    const { database, connection } = setup({ status: 'En Preparación', workflow_step: 2 }, acknowledged);
     const { req, res, end } = request('GET');
     await handleWorkflowRequest(req, res, '/api/workflow/tasks', { sub: '7', role: 'operator' }, database, vi.fn());
     expect(connection.query.mock.calls[0][0]).toContain('o.user_id=?');
-    expect(connection.query.mock.calls[0][1]).toEqual([7, 7]);
+    expect(connection.query.mock.calls[0][1]).toEqual([7, 7, 7]);
     const result = JSON.parse(String(end.mock.calls[0][0]));
     expect(result.tasks[0].order.userId).toBe(7);
     expect(result.operators).toEqual([]);

@@ -513,7 +513,7 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
 
       {/* Detail Modal for Yard Workers */}
       {selectedOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-fade-in">
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-fade-in">
           <div className="bg-[#0d1424] border border-amber-500/40 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5 sm:p-6 shadow-[0_0_50px_rgba(245,158,11,0.2)] space-y-4 font-mono text-xs">
             {/* Modal Header */}
             <div className="flex items-start justify-between border-b border-slate-800 pb-3">
