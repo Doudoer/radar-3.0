@@ -114,6 +114,13 @@ import {
   PendingClaimItem,
 } from './src/integrations/wasender/notificationTemplates';
 
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Process] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+process.on('uncaughtException', (err, origin) => {
+  console.error('[Process] Uncaught Exception:', err, 'origin:', origin);
+});
+
 // In-memory single-use 2FA OTP state for Financial Module (1 minute expiration)
 interface Financial2FAState {
   code: string;
@@ -363,68 +370,75 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'POST' && pathname === '/api/auth/login') {
-      if (!jwtSecret) return sendJson(response, 503, { message: 'JWT_SECRET no está configurado' });
-      const ip = clientAddress(request);
-      const userAgent = request.headers['user-agent'] || null;
-      if (isLoginRateLimited(ip)) {
+      try {
+        if (!jwtSecret) return sendJson(response, 503, { message: 'JWT_SECRET no está configurado' });
+        const ip = clientAddress(request);
+        const userAgent = request.headers['user-agent'] || null;
+        if (isLoginRateLimited(ip)) {
+          void recordAuditLog(pool, {
+            action: 'LOGIN_FAILED',
+            resourceType: 'auth',
+            details: { reason: 'Rate limit excedido por IP' },
+            ipAddress: ip,
+            userAgent,
+          });
+          return sendJson(response, 429, { message: 'Demasiados intentos. Intenta más tarde.' });
+        }
+        const credentials = loginSchema.parse(await readBody(request));
+        const email = credentials.email.toLowerCase();
+        const accountKey = `account:${email}`;
+        if (isLoginRateLimited(accountKey)) return sendJson(response, 429, { message: 'Demasiados intentos. Intenta más tarde.' });
+        const password = credentials.password;
+        const [rows] = await pool.query<RowDataPacket[]>(
+          'SELECT * FROM users WHERE email = ? AND deleted_at IS NULL LIMIT 1',
+          [email]
+        );
+        const user = rows[0];
+        const validPassword = user ? await bcrypt.compare(password, String(user.password || '')) : false;
+        if (!user || !validPassword || !user.active) {
+          recordLoginFailure(ip);
+          recordLoginFailure(accountKey);
+          void recordAuditLog(pool, {
+            username: email,
+            action: 'LOGIN_FAILED',
+            resourceType: 'auth',
+            details: { reason: !user ? 'Usuario inexistente' : !user.active ? 'Usuario desactivado' : 'Contraseña incorrecta' },
+            ipAddress: ip,
+            userAgent,
+          });
+          return sendJson(response, 401, { message: 'Correo o contraseña incorrectos' });
+        }
+        resetLoginAttempts(ip);
+        resetLoginAttempts(accountKey);
+        const sessionVersion = Number(user.session_version ?? 1) || 1;
+        const token = jwt.sign({ sub: user.id, role: user.role, email: user.email, sessionVersion }, jwtSecret, { expiresIn: '8h' });
+        setSessionCookie(response, token);
         void recordAuditLog(pool, {
-          action: 'LOGIN_FAILED',
+          userId: user.id,
+          username: user.email,
+          action: 'LOGIN_SUCCESS',
           resourceType: 'auth',
-          details: { reason: 'Rate limit excedido por IP' },
+          details: { role: user.role },
           ipAddress: ip,
           userAgent,
         });
-        return sendJson(response, 429, { message: 'Demasiados intentos. Intenta más tarde.' });
-      }
-      const credentials = loginSchema.parse(await readBody(request));
-      const email = credentials.email.toLowerCase();
-      const accountKey = `account:${email}`;
-      if (isLoginRateLimited(accountKey)) return sendJson(response, 429, { message: 'Demasiados intentos. Intenta mas tarde.' });
-      const password = credentials.password;
-      const [rows] = await pool.query<RowDataPacket[]>(
-        'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, password, session_version FROM users WHERE email = ? AND deleted_at IS NULL LIMIT 1',
-        [email]
-      );
-      const user = rows[0];
-      const validPassword = user ? await bcrypt.compare(password, String(user.password || '')) : false;
-      if (!user || !validPassword || !user.active) {
-        recordLoginFailure(ip);
-        recordLoginFailure(accountKey);
-        void recordAuditLog(pool, {
-          username: email,
-          action: 'LOGIN_FAILED',
-          resourceType: 'auth',
-          details: { reason: !user ? 'Usuario inexistente' : !user.active ? 'Usuario desactivado' : 'Contraseña incorrecta' },
-          ipAddress: ip,
-          userAgent,
+        return sendJson(response, 200, {
+          user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            phone: user.phone || '',
+            avatar_url: user.avatar_url || '',
+            role: user.role,
+            permissions: parsePermissions(user.permissions),
+            theme: user.theme || 'light',
+          },
         });
-        return sendJson(response, 401, { message: 'Correo o contraseña incorrectos' });
+      } catch (loginError) {
+        console.error('[Login Error]:', loginError);
+        const errorMsg = loginError instanceof Error ? loginError.message : 'Error interno al autenticar';
+        return sendJson(response, 500, { message: `No fue posible completar la solicitud: ${errorMsg}` });
       }
-      resetLoginAttempts(ip);
-      resetLoginAttempts(accountKey);
-      const token = jwt.sign({ sub: user.id, role: user.role, email: user.email, sessionVersion: Number(user.session_version) }, jwtSecret, { expiresIn: '8h' });
-      setSessionCookie(response, token);
-      void recordAuditLog(pool, {
-        userId: user.id,
-        username: user.email,
-        action: 'LOGIN_SUCCESS',
-        resourceType: 'auth',
-        details: { role: user.role },
-        ipAddress: ip,
-        userAgent,
-      });
-      return sendJson(response, 200, {
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          phone: user.phone || '',
-          avatar_url: user.avatar_url || '',
-          role: user.role,
-          permissions: parsePermissions(user.permissions),
-          theme: user.theme,
-        },
-      });
     }
 
     if (request.method === 'POST' && pathname === '/api/auth/logout') {
@@ -451,16 +465,21 @@ const server = createServer(async (request, response) => {
       if (!claims?.sub) return sendJson(response, 401, { message: 'Sesión no válida' });
       if (!await userIsActive(claims)) return sendJson(response, 401, { message: 'Sesión revocada' });
       const [rows] = await pool.query<RowDataPacket[]>(
-        'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        'SELECT * FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
         [claims.sub]
       );
-      return rows[0]?.active
+      const user = rows[0];
+      return user?.active
         ? sendJson(response, 200, {
             user: {
-              ...rows[0],
-              phone: rows[0].phone || '',
-              avatar_url: rows[0].avatar_url || '',
-              permissions: parsePermissions(rows[0].permissions),
+              id: user.id,
+              name: user.name,
+              email: user.email,
+              phone: user.phone || '',
+              avatar_url: user.avatar_url || '',
+              role: user.role,
+              permissions: parsePermissions(user.permissions),
+              theme: user.theme || 'light',
             },
           })
         : sendJson(response, 401, { message: 'Usuario inactivo' });
@@ -4379,13 +4398,25 @@ async function startServer() {
     'SELECT name FROM schema_migrations WHERE name=?', ['021_outbox_deduplication.sql'],
   );
   if (!migrations.length) throw new Error('Ejecuta scripts/migrate.ts antes de iniciar la aplicación');
+  // Asegurar que la columna session_version exista en users
+  try {
+    const [cols] = await pool.query<RowDataPacket[]>(
+      "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'session_version'"
+    );
+    if (!cols.length) {
+      await pool.query("ALTER TABLE users ADD COLUMN session_version INT NOT NULL DEFAULT 1");
+      console.log('[Startup] Columna session_version agregada a users');
+    }
+  } catch (err) {
+    console.warn('[Startup] Advertencia al verificar session_version en users:', err);
+  }
   // Asegurar que ninguna orden entregada conserve la marca de subasta activa
   await pool.query("UPDATE orders SET auction_search_active = 0 WHERE LOWER(TRIM(status)) = 'entregado' OR delivered_at IS NOT NULL").catch((err) => {
     console.error('[Startup] Advertencia al limpiar auction_search_active en entregadas:', err);
   });
   // Asegurar que registros de exoneración en order_workflow_events tengan downpayment_details en NULL
-  await pool.query("UPDATE order_workflow_events SET downpayment_details = NULL WHERE downpayment_details LIKE '%\"amount\":0%' OR downpayment_details LIKE '%Exonerado%'").catch((err) => {
-    console.error('[Startup] Advertencia al sanear downpayment_details en eventos:', err);
+  await pool.query("UPDATE order_workflow_events SET downpayment_details = NULL WHERE downpayment_details IS NOT NULL AND (CAST(downpayment_details AS CHAR) LIKE '%\"amount\":0%' OR CAST(downpayment_details AS CHAR) LIKE '%Exonerado%')").catch((err) => {
+    console.warn('[Startup] Advertencia al sanear downpayment_details en eventos:', err);
   });
   server.listen(port, '0.0.0.0', () => {
     console.log(`RADAR API disponible en http://0.0.0.0:${port}`);

@@ -1,4 +1,5 @@
 import { IncomingMessage, ServerResponse } from 'node:http';
+import type { RowDataPacket } from 'mysql2/promise';
 import jwt from 'jsonwebtoken';
 import { jwtSecret, pool } from './config';
 
@@ -81,14 +82,15 @@ setInterval(() => {
 export const userIsActive = async (claims: Claims) => {
   if (!claims.sub) return false;
   try {
-    const [rows] = await pool.query<Array<{ active: number; role: string; session_version: number; permissions: unknown } & import('mysql2/promise').RowDataPacket>>(
-      'SELECT active, role, permissions, session_version FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+    const [rows] = await pool.query<RowDataPacket[]>(
+      'SELECT * FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
       [claims.sub]
     );
     const user = rows[0];
     if (!user || !user.active) return false;
-    if (Number(claims.sessionVersion ?? 1) !== Number(user.session_version)) return false;
-    claims.sessionVersion = Number(user.session_version);
+    const sessionVer = Number(user.session_version ?? 1) || 1;
+    if (claims.sessionVersion !== undefined && Number(claims.sessionVersion) !== sessionVer) return false;
+    claims.sessionVersion = sessionVer;
     claims.role = user.role;
     claims.permissions = user.permissions;
 
