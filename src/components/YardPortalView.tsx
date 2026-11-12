@@ -985,7 +985,7 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
 
       {/* Modal Confirmación Pieza No Disponible */}
       {orderForUnavailable && (
-        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+        <div className="horizon-modal fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
           <div className="w-full max-w-md bg-slate-900 border border-rose-500/40 rounded-2xl p-5 shadow-[0_0_30px_rgba(244,63,94,0.25)] flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center shrink-0">
