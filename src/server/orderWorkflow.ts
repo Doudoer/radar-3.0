@@ -272,11 +272,12 @@ export async function handleWorkflowRequest(
   const match = pathname.match(/^\/api\/orders\/(\d+)\/workflow$/);
   const assignment = pathname.match(/^\/api\/orders\/(\d+)\/workflow\/assignee$/);
   const yardReady = pathname.match(/^\/api\/orders\/(\d+)\/yard-ready$/);
+  const yardUnavailable = pathname.match(/^\/api\/orders\/(\d+)\/yard-unavailable$/);
   const verifyDownpayment = pathname.match(/^\/api\/orders\/(\d+)\/verify-downpayment$/);
   const exemptDownpayment = pathname.match(/^\/api\/orders\/(\d+)\/exempt-downpayment$/);
   const yardCompatibility = pathname.match(/^\/api\/orders\/([a-zA-Z0-9_-]+)\/yard-compatibility$/);
   const queue = pathname === '/api/workflow/tasks';
-  if (!match && !queue && !assignment && !yardReady && !verifyDownpayment && !exemptDownpayment && !yardCompatibility) return false;
+  if (!match && !queue && !assignment && !yardReady && !yardUnavailable && !verifyDownpayment && !exemptDownpayment && !yardCompatibility) return false;
   if (!requireRole(response, claims, 'admin', 'operator', 'vendedor_yarda')) return true;
 
   if (yardCompatibility) {
@@ -387,6 +388,137 @@ export async function handleWorkflowRequest(
       return true;
     } catch (error) { await connection.rollback(); throw error; }
     finally { connection.release(); }
+  }
+
+  if (yardUnavailable) {
+    if (!requireRole(response, claims, 'admin', 'vendedor_yarda')) return true;
+    if (request.method !== 'POST') { sendJson(response, 405, { message: 'Método no permitido' }); return true; }
+    const orderId = yardUnavailable[1];
+    let parsed: any = {};
+    try {
+      parsed = (await readBody(request, 64 * 1024)) || {};
+    } catch {
+      parsed = {};
+    }
+    const reason = typeof parsed.reason === 'string' && parsed.reason.trim()
+      ? parsed.reason.trim()
+      : 'Pieza no encontrada o no disponible en patio físico';
+
+    const connection = await database.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [orders] = await connection.query<RowDataPacket[]>(
+        'SELECT id,version,order_code,advisor,user_id,workflow_data,status FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE',
+        [orderId]
+      );
+      if (!orders[0]) fail(404, 'Orden no encontrada');
+      const orderRow = orders[0];
+
+      let workflowData: Record<string, unknown> = {};
+      try {
+        workflowData = typeof orderRow.workflow_data === 'string'
+          ? JSON.parse(orderRow.workflow_data || '{}')
+          : (orderRow.workflow_data || {});
+      } catch {
+        workflowData = {};
+      }
+
+      const nowIso = new Date().toISOString();
+      workflowData.yardPieceUnavailable = true;
+      workflowData.yardPieceUnavailableAt = nowIso;
+      workflowData.yardPieceUnavailableBy = Number(claims.sub);
+      workflowData.yardPieceUnavailableReason = reason;
+
+      // Update order: activate auction search, mark piece not ready in yard, save workflow_data
+      await connection.execute(
+        'UPDATE orders SET auction_search_active=1, yard_piece_ready=0, workflow_data=?, version=version+1 WHERE id=?',
+        [JSON.stringify(workflowData), orderId]
+      );
+
+      // Record in status_orders timeline
+      await connection.execute(
+        'INSERT INTO status_orders (order_id,status,description,user_id) VALUES (?,?,?,?)',
+        [
+          orderId,
+          orderRow.status || 'Pagado',
+          `⚠️ Pieza NO disponible en patio reportada por Yarda. Búsqueda en subasta activada. Se requiere contactar al cliente para extensión de tiempo o definir cancelación/reembolso. Motivo: ${reason}`,
+          Number(claims.sub)
+        ]
+      );
+
+      // Record in audit_logs
+      await connection.execute(
+        "INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details) VALUES (?,?,'YARD_PIECE_UNAVAILABLE','order',?,?)",
+        [
+          Number(claims.sub),
+          String(claims.sub),
+          String(orderId),
+          JSON.stringify({
+            orderCode: orderRow.order_code,
+            reason,
+            auctionActive: true,
+            yardPieceUnavailable: true
+          })
+        ]
+      );
+
+      // Send alert notification to Admin and Advisor
+      const alertMsg = `⚠️ ALERTA PATIO - PIEZA NO DISPONIBLE\nOrden: ${orderRow.order_code}\nMotivo: ${reason}\n\nSe activó la búsqueda en subasta Copart/IAAI.\nAsesor y Administrador deben contactar al cliente para:\n1. Solicitar extensión de tiempo de entrega.\n2. Evaluar cancelación de orden o reembolso.`;
+
+      // 1. Queue to BUSQUEDA_SUBASTAS channel (superadmin & multicast)
+      try {
+        const { queueSystemNotification } = await import('../integrations/wasender/notificationService');
+        await queueSystemNotification(connection, 'BUSQUEDA_SUBASTAS', alertMsg, {
+          creatorUserId: orderRow.user_id,
+          orderStatus: String(orderRow.status || 'pagado'),
+        });
+      } catch (e) {
+        console.warn('[YardUnavailable] Could not queue channel notification:', e);
+      }
+
+      // 2. Also locate advisor's phone and queue direct notification if advisor has phone
+      try {
+        if (orderRow.user_id || orderRow.advisor) {
+          const res = await connection.query<RowDataPacket[]>(
+            'SELECT phone, name FROM users WHERE id=? OR name=? LIMIT 1',
+            [orderRow.user_id || 0, orderRow.advisor || '']
+          );
+          const advisorRows = Array.isArray(res) ? res[0] : [];
+          if (Array.isArray(advisorRows) && advisorRows[0]?.phone) {
+            await connection.execute('INSERT INTO notification_outbox (payload) VALUES (?)', [
+              JSON.stringify({ phone: advisorRows[0].phone, text: alertMsg })
+            ]);
+          }
+        }
+      } catch (e) {
+        console.warn('[YardUnavailable] Could not queue advisor direct notification:', e);
+      }
+
+      await connection.commit();
+
+      broadcast('order:updated', {
+        orderId: Number(orderId),
+        action: 'YARD_PIECE_UNAVAILABLE',
+        auctionActive: true,
+        yardPieceUnavailable: true,
+        yardPieceUnavailableReason: reason,
+        yardPieceUnavailableAt: nowIso,
+        timestamp: Date.now()
+      });
+
+      sendJson(response, 200, {
+        ok: true,
+        auctionActive: true,
+        yardPieceUnavailable: true,
+        reason,
+      });
+      return true;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 
   if (verifyDownpayment) {

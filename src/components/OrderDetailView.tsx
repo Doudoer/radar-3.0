@@ -880,6 +880,14 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               </span>
             )}
 
+            {/* Insignia: Pieza No Disponible en Patio */}
+            {order.yardPieceUnavailable && (
+              <span className="px-2.5 py-0.5 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[11px] font-mono font-bold flex items-center gap-1 shadow-[0_0_12px_rgba(244,63,94,0.25)] animate-pulse">
+                <span className="material-symbols-outlined text-[14px] text-rose-400">production_quantity_limits</span>
+                <span>No Disponible en Patio · En Subasta</span>
+              </span>
+            )}
+
             {/* Quick Reembolso Button */}
             <button
               type="button"
@@ -945,6 +953,95 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
           </div>
         </div>
+
+        {/* ALERTA DE PATIO: PIEZA NO DISPONIBLE EN PATIO Y BÚSQUEDA EN SUBASTA ACTIVADA */}
+        {order.yardPieceUnavailable && (
+          <div className="rounded-2xl border-2 border-rose-500/50 bg-gradient-to-r from-rose-950/60 via-slate-900/95 to-amber-950/40 p-4 shadow-[0_0_25px_rgba(244,63,94,0.25)] flex flex-col md:flex-row items-start md:items-center justify-between gap-4 font-mono animate-in fade-in duration-200 mb-2">
+            <div className="flex items-start gap-3.5 flex-1 min-w-0">
+              <div className="w-11 h-11 rounded-xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(244,63,94,0.3)]">
+                <span className="material-symbols-outlined text-[26px] text-rose-400 animate-pulse">production_quantity_limits</span>
+              </div>
+              <div className="space-y-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-md bg-rose-500 text-slate-950 font-black text-[11px] uppercase tracking-wider">
+                    ⚠️ Alerta de Patio
+                  </span>
+                  <span className="text-white font-bold text-sm tracking-tight">
+                    Pieza no disponible en patio físico · Búsqueda en Subasta Activada
+                  </span>
+                </div>
+                <p className="text-xs text-rose-200/90">
+                  <strong>Motivo reportado:</strong> {order.yardPieceUnavailableReason || 'No encontrada en inventario físico'}
+                  {order.yardPieceUnavailableAt && (
+                    <span className="text-slate-400 text-[11px] ml-2">
+                      ({new Date(order.yardPieceUnavailableAt).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })})
+                    </span>
+                  )}
+                </p>
+                <p className="text-[11.5px] text-amber-200/90 leading-relaxed">
+                  👉 <strong>Instrucción para Asesor y Administrador:</strong> Contactar al cliente urgentemente para acordar:
+                  <span className="text-white"> 1) Extensión de tiempo (mientras se ubica en subasta Copart/IAAI)</span>,
+                  <span className="text-white"> 2) Cancelación de orden</span> o
+                  <span className="text-white"> 3) Reembolso del anticipo o core</span>.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0 w-full md:w-auto pt-2 md:pt-0 border-t md:border-t-0 border-rose-500/20">
+              {/* Botón WhatsApp al Cliente */}
+              {order.customer?.phone && (
+                <a
+                  href={`https://wa.me/${order.customer.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                    `Hola ${order.customer.name}, le saludamos de RADAR Autopartes sobre su orden #${order.orderCode} (${order.partType} para ${order.vehicle?.year || ''} ${order.vehicle?.make || ''} ${order.vehicle?.model || ''}). Le informamos que estamos gestionando la búsqueda de su pieza en subasta y quisiéramos consultar si nos permite una extensión de tiempo o si prefiere la cancelación y reembolso correspondiente.`
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-all shadow-[0_0_12px_rgba(16,185,129,0.3)] active:scale-95 cursor-pointer"
+                  title="Abrir chat de WhatsApp con plantilla de notificación al cliente"
+                >
+                  <span className="material-symbols-outlined text-[16px]">chat</span>
+                  <span>Notificar WhatsApp</span>
+                </a>
+              )}
+
+              {/* Botón Ver Subastas */}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAuctionPanel(true);
+                  const el = document.getElementById('auction-panel-section');
+                  if (el) el.scrollIntoView({ behavior: 'smooth' });
+                }}
+                className="px-3 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[16px]">search</span>
+                <span>Ver Subasta</span>
+              </button>
+
+              {/* Botón Reembolso */}
+              <button
+                type="button"
+                onClick={() => setSubView('refund')}
+                className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[16px]">account_balance_wallet</span>
+                <span>Reembolso</span>
+              </button>
+
+              {/* Botón Cancelar Orden (Super Admin) */}
+              {isSuperAdmin && order.status !== 'cancelado' && (
+                <button
+                  type="button"
+                  onClick={() => setIsCancelOrderModalOpen(true)}
+                  className="px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                >
+                  <span className="material-symbols-outlined text-[16px]">block</span>
+                  <span>Cancelar</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
             <div className="horizon-detail-tabs horizon-view-tabs flex flex-wrap items-center gap-2">
               <button

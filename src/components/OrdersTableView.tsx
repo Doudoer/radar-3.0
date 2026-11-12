@@ -1359,6 +1359,15 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                         </div>
                         <div className="shrink-0 flex flex-col items-end gap-1">
                           {renderStatusBadge(order.status)}
+                          {order.yardPieceUnavailable && (
+                            <span
+                              className="text-rose-900 dark:text-rose-300 font-mono text-[9.5px] font-bold inline-flex items-center gap-0.5 bg-rose-100/90 dark:bg-rose-500/15 px-1.5 py-0.5 rounded border border-rose-400/70 dark:border-rose-500/30 shrink-0"
+                              title="Reportada NO disponible en patio físico · Búsqueda en subasta"
+                            >
+                              <span className="material-symbols-outlined text-[11px] text-rose-600 dark:text-rose-400">production_quantity_limits</span>
+                              <span>No en Patio</span>
+                            </span>
+                          )}
                           {isOrderAuction(order) && (
                             <span
                               className="text-amber-900 dark:text-amber-400 font-mono text-[9.5px] font-bold inline-flex items-center gap-0.5 bg-amber-100/90 dark:bg-amber-500/15 px-1.5 py-0.5 rounded border border-amber-400/70 dark:border-amber-500/30 shrink-0"
@@ -1760,6 +1769,15 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-slate-100 font-semibold">{order.mainPart}</span>
                           <InventoryAvailabilityBadge availability={order.inventoryAvailability} />
+                          {order.yardPieceUnavailable && (
+                            <span
+                              className="text-rose-900 dark:text-rose-300 font-mono text-[9.5px] font-bold inline-flex items-center gap-0.5 bg-rose-100/90 dark:bg-rose-500/15 px-1.5 py-0.5 rounded border border-rose-400/70 dark:border-rose-500/30 shrink-0"
+                              title="Reportada NO disponible en patio físico · Búsqueda en subasta"
+                            >
+                              <span className="material-symbols-outlined text-[11px] text-rose-600 dark:text-rose-400">production_quantity_limits</span>
+                              <span>No en Patio</span>
+                            </span>
+                          )}
                           {isOrderAuction(order) && (
                             <span
                               className="text-amber-900 dark:text-amber-400 font-mono text-[9.5px] font-bold inline-flex items-center gap-0.5 bg-amber-100/90 dark:bg-amber-500/15 px-1.5 py-0.5 rounded border border-amber-400/70 dark:border-amber-500/30 shrink-0"

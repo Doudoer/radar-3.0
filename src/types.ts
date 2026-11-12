@@ -181,6 +181,10 @@ export interface Order {
   yardPieceReady?: boolean;
   yardPieceReadyAt?: string;
   yardPieceReadyBy?: number;
+  yardPieceUnavailable?: boolean;
+  yardPieceUnavailableAt?: string;
+  yardPieceUnavailableBy?: number;
+  yardPieceUnavailableReason?: string;
   downpaymentVerified?: boolean;
   downpaymentVerifiedAt?: string;
   downpaymentVerifiedBy?: number;

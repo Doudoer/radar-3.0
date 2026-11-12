@@ -487,6 +487,40 @@ describe('workflow API transactional enforcement', () => {
     expect(connection.execute.mock.calls.some(call => String(call[0]).includes('SET yard_piece_ready=1'))).toBe(true);
     expect(connection.commit).toHaveBeenCalledOnce();
   });
+  it('allows vendedor_yarda and admin to mark yard piece unavailable, activates auction search and records timeline and audit', async () => {
+    const { database, connection } = setup();
+    connection.query.mockReset().mockResolvedValueOnce([[{
+      id: 901,
+      version: 1,
+      order_code: 'ORD-901',
+      status: 'Pagado',
+      advisor: 'Carlos Mendoza',
+      user_id: 12,
+      workflow_data: null,
+    }] as RowDataPacket[], []]);
+
+    const op = request('POST', { reason: 'No encontrada en anaqueles' });
+    const opDenied = await handleWorkflowRequest(op.req, op.res, '/api/orders/901/yard-unavailable', { sub: '7', role: 'operator' }, database, vi.fn());
+    expect(opDenied).toBe(true);
+    expect(op.res.statusCode).toBe(403);
+    expect(connection.execute).not.toHaveBeenCalled();
+
+    const yardWorker = request('POST', { reason: 'No encontrada en inventario físico' });
+    const broadcastMock = vi.fn();
+    const yardAllowed = await handleWorkflowRequest(yardWorker.req, yardWorker.res, '/api/orders/901/yard-unavailable', { sub: '15', role: 'vendedor_yarda' }, database, broadcastMock);
+    expect(yardAllowed).toBe(true);
+    expect(yardWorker.res.statusCode).toBe(200);
+    expect(connection.execute.mock.calls.some(call => String(call[0]).includes('auction_search_active=1'))).toBe(true);
+    expect(connection.execute.mock.calls.some(call => String(call[0]).includes('status_orders'))).toBe(true);
+    expect(connection.execute.mock.calls.some(call => String(call[0]).includes('YARD_PIECE_UNAVAILABLE'))).toBe(true);
+    expect(connection.commit).toHaveBeenCalledOnce();
+    expect(broadcastMock).toHaveBeenCalledWith('order:updated', expect.objectContaining({
+      orderId: 901,
+      action: 'YARD_PIECE_UNAVAILABLE',
+      auctionActive: true,
+      yardPieceUnavailable: true,
+    }));
+  });
   it('allows only admin to verify downpayment and transitions order to Pagado', async () => {
     const { database, connection } = setup();
     connection.query.mockReset().mockResolvedValueOnce([[{ id: 901, version: 1, order_code: 'ORD-901', status: 'En Espera Confirmación' }] as RowDataPacket[], []]);

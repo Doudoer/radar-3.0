@@ -30,6 +30,9 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [orderToCancel, setOrderToCancel] = useState<Order | null>(null);
   const [markingReadyId, setMarkingReadyId] = useState<string | null>(null);
+  const [markingUnavailableId, setMarkingUnavailableId] = useState<string | null>(null);
+  const [orderForUnavailable, setOrderForUnavailable] = useState<Order | null>(null);
+  const [unavailableReason, setUnavailableReason] = useState<string>('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [orderForCompatibility, setOrderForCompatibility] = useState<Order | null>(null);
   const [isCompatibilityModalOpen, setIsCompatibilityModalOpen] = useState(false);
@@ -190,6 +193,46 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
       alert(err instanceof Error ? err.message : 'Error al marcar pieza en yarda');
     } finally {
       setMarkingReadyId(null);
+    }
+  };
+
+  // Reportar pieza no disponible en patio físico
+  const handleMarkYardUnavailable = async (order: Order, reason?: string) => {
+    setMarkingUnavailableId(order.id);
+    triggerHaptic(25);
+    try {
+      const finalReason = (reason || unavailableReason || 'Pieza no encontrada en inventario físico').trim();
+      const response = await apiFetch(`/orders/${order.id}/yard-unavailable`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: finalReason }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'No se pudo reportar la pieza como no disponible.');
+
+      const updated: Order = {
+        ...order,
+        yardPieceReady: false,
+        yardPieceUnavailable: true,
+        yardPieceUnavailableAt: new Date().toISOString(),
+        yardPieceUnavailableBy: currentUser?.id,
+        yardPieceUnavailableReason: finalReason,
+        auctionActive: true,
+      };
+
+      if (onUpdateOrder) {
+        await onUpdateOrder(updated);
+      }
+      if (selectedOrder && selectedOrder.id === order.id) {
+        setSelectedOrder(updated);
+      }
+      setOrderForUnavailable(null);
+      setUnavailableReason('');
+      showToast(`⚠️ Pieza #${order.code} reportada NO disponible. Alerta enviada a Asesor y Admin.`);
+      window.dispatchEvent(new Event('radar:data-changed'));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al reportar pieza');
+    } finally {
+      setMarkingUnavailableId(null);
     }
   };
 
@@ -584,21 +627,43 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
                       </div>
                     )}
 
-                    {/* BOTÓN DE ACCIÓN: CONFIRMAR PIEZA LISTA */}
-                    <div className="pt-2">
+                    {/* BOTONES DE ACCIÓN EN PATIO */}
+                    <div className="pt-2 flex flex-col gap-2">
                       {!isReadyInYard ? (
-                        <button
-                          type="button"
-                          disabled={markingReadyId === order.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleMarkYardReady(order);
-                          }}
-                          className="w-full min-h-[48px] py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(245,158,11,0.25)] transition-all cursor-pointer active:scale-95"
-                        >
-                          <span className="material-symbols-outlined text-[18px]">build_circle</span>
-                          <span>{markingReadyId === order.id ? 'Confirmando...' : 'Confirmar Pieza Lista en Patio'}</span>
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            disabled={markingReadyId === order.id || markingUnavailableId === order.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleMarkYardReady(order);
+                            }}
+                            className="w-full min-h-[48px] py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(245,158,11,0.25)] transition-all cursor-pointer active:scale-95"
+                          >
+                            <span className="material-symbols-outlined text-[18px]">build_circle</span>
+                            <span>{markingReadyId === order.id ? 'Confirmando...' : 'Confirmar Pieza Lista en Patio'}</span>
+                          </button>
+
+                          {order.yardPieceUnavailable ? (
+                            <div className="w-full py-2.5 px-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-300 font-mono font-bold text-xs flex items-center justify-center gap-2">
+                              <span className="material-symbols-outlined text-[18px] text-rose-400">warning</span>
+                              <span>No Disponible en Patio · Subasta Activada</span>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={markingReadyId === order.id || markingUnavailableId === order.id}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOrderForUnavailable(order);
+                              }}
+                              className="w-full min-h-[42px] py-2 px-4 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 font-mono font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-95"
+                            >
+                              <span className="material-symbols-outlined text-[18px] text-rose-400">production_quantity_limits</span>
+                              <span>Pieza No Disponible en Patio</span>
+                            </button>
+                          )}
+                        </>
                       ) : (
                         <div className="w-full py-2.5 px-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-mono font-bold text-xs flex items-center justify-center gap-2">
                           <span className="material-symbols-outlined text-[18px] text-emerald-400">check_circle</span>
@@ -830,11 +895,32 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
                 </button>
               )}
 
+              {/* Botón Pieza No Disponible / Subasta */}
+              {!selectedOrder.yardPieceReady && (
+                selectedOrder.yardPieceUnavailable ? (
+                  <div className="py-2.5 px-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 font-mono font-bold text-xs flex items-center justify-center gap-1.5">
+                    <span className="material-symbols-outlined text-[16px] text-rose-400">warning</span>
+                    <span>En Subasta</span>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={markingReadyId === selectedOrder.id || markingUnavailableId === selectedOrder.id}
+                    onClick={() => setOrderForUnavailable(selectedOrder)}
+                    title="Reportar pieza no disponible en patio y activar búsqueda en subasta"
+                    className="py-3 px-3 rounded-xl border border-rose-500/40 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 text-xs font-mono font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">production_quantity_limits</span>
+                    <span className="hidden sm:inline">No Disponible</span>
+                  </button>
+                )
+              )}
+
               {/* Botón Confirmar Pieza Lista (Primario) */}
               {!selectedOrder.yardPieceReady ? (
                 <button
                   type="button"
-                  disabled={markingReadyId === selectedOrder.id}
+                  disabled={markingReadyId === selectedOrder.id || markingUnavailableId === selectedOrder.id}
                   onClick={() => handleMarkYardReady(selectedOrder)}
                   className="flex-1 py-3 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono font-black text-xs sm:text-sm flex items-center justify-center gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.3)] active:scale-95 transition-all cursor-pointer"
                 >
@@ -896,6 +982,91 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
           );
         })}
       </nav>
+
+      {/* Modal Confirmación Pieza No Disponible */}
+      {orderForUnavailable && (
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+          <div className="w-full max-w-md bg-slate-900 border border-rose-500/40 rounded-2xl p-5 shadow-[0_0_30px_rgba(244,63,94,0.25)] flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center shrink-0">
+                <span className="material-symbols-outlined text-[24px] text-rose-400">production_quantity_limits</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <span>Pieza No Disponible en Patio</span>
+                </h3>
+                <p className="text-xs text-rose-300 font-mono mt-0.5">
+                  #{orderForUnavailable.code} · {orderForUnavailable.mainPart}
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  {orderForUnavailable.vehicle?.year} {orderForUnavailable.vehicle?.make} {orderForUnavailable.vehicle?.model}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-rose-950/40 border border-rose-500/30 rounded-xl p-3 text-xs text-rose-200/90 flex flex-col gap-1.5 leading-relaxed">
+              <p className="font-bold text-rose-300 flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[16px]">info</span>
+                ¿Qué sucederá al confirmar?
+              </p>
+              <ul className="list-disc pl-4 space-y-1 text-[11.5px] text-slate-300">
+                <li>Se activará la <strong>búsqueda en subasta</strong> (Copart/IAAI) en el dashboard de asesores.</li>
+                <li>Se emitirá una <strong>alerta inmediata</strong> al Asesor asignado y al Administrador.</li>
+                <li>Se solicitará contactar al cliente para coordinar <strong>extensión de tiempo</strong> o definir <strong>cancelación / reembolso</strong>.</li>
+              </ul>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-mono font-bold text-slate-300 flex items-center gap-1">
+                <span className="material-symbols-outlined text-[14px] text-amber-400">notes</span>
+                Motivo / Observación de Patio:
+              </label>
+              <input
+                type="text"
+                value={unavailableReason}
+                onChange={(e) => setUnavailableReason(e.target.value)}
+                placeholder="Ej: No encontrada en anaqueles, pieza dañada..."
+                className="w-full px-3 py-2.5 rounded-xl bg-slate-950/70 border border-slate-700 focus:border-rose-400 text-white text-xs placeholder:text-slate-500 focus:outline-none"
+              />
+              <div className="flex flex-wrap gap-1 mt-1">
+                {['No encontrada en patio', 'Pieza con daño o fisura', 'Vehículo no coincide'].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setUnavailableReason(preset)}
+                    className="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 cursor-pointer active:scale-95"
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                disabled={markingUnavailableId === orderForUnavailable.id}
+                onClick={() => {
+                  setOrderForUnavailable(null);
+                  setUnavailableReason('');
+                }}
+                className="flex-1 py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono font-bold text-xs transition-all cursor-pointer"
+              >
+                Volver
+              </button>
+              <button
+                type="button"
+                disabled={markingUnavailableId === orderForUnavailable.id}
+                onClick={() => handleMarkYardUnavailable(orderForUnavailable, unavailableReason)}
+                className="flex-1 py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-mono font-black text-xs shadow-[0_0_15px_rgba(244,63,94,0.3)] transition-all cursor-pointer active:scale-95 flex items-center justify-center gap-1.5"
+              >
+                <span className="material-symbols-outlined text-[16px]">warning</span>
+                <span>{markingUnavailableId === orderForUnavailable.id ? 'Reportando...' : 'Confirmar Alerta'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Cancel Order Modal */}
       {isSuperAdmin && isCancelModalOpen && orderToCancel && (
