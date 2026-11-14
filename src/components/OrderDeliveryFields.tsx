@@ -58,7 +58,7 @@ export const OrderImageFields: React.FC<{
       <fieldset disabled={disabled || uploading} className="min-w-0 space-y-3.5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
           <label className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-slate-200 flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary-400 text-base">photo_library</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-primary-400 text-base">photo_library</span>
             {label}
           </label>
           <span className="text-[11px] text-slate-400 font-medium">
@@ -85,7 +85,7 @@ export const OrderImageFields: React.FC<{
             }}
           />
           <div className="p-3 rounded-full bg-primary-500/10 text-primary-400 group-hover:bg-primary-500/20 group-hover:scale-110 transition-all mb-2">
-            <span className="material-symbols-outlined text-2xl sm:text-3xl">add_photo_alternate</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-2xl sm:text-3xl">add_photo_alternate</span>
           </div>
           <div className="text-center">
             <p className="text-xs sm:text-sm font-medium text-slate-200">
@@ -123,7 +123,7 @@ export const OrderImageFields: React.FC<{
                     rel="noreferrer"
                     className="text-[11px] font-semibold text-white/90 hover:text-primary-400 truncate flex items-center gap-1 drop-shadow"
                   >
-                    <span className="material-symbols-outlined text-xs">visibility</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-xs">visibility</span>
                     <span>{imageLabel} {index + 1}</span>
                   </a>
                   <button
@@ -132,7 +132,7 @@ export const OrderImageFields: React.FC<{
                     className="p-1 rounded-lg bg-red-500/80 hover:bg-red-500 text-white transition-all shadow-sm shrink-0"
                     title={`${removeLabel} ${index + 1}`}
                   >
-                    <span className="material-symbols-outlined text-xs">delete</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-xs">delete</span>
                     <span className="sr-only">{removeLabel} {index + 1}</span>
                   </button>
                 </div>
@@ -144,14 +144,14 @@ export const OrderImageFields: React.FC<{
 
       {uploading && (
         <div className="flex items-center gap-2 p-3 rounded-xl bg-primary-950/40 border border-primary-500/40 text-primary-300 text-xs sm:text-sm animate-pulse">
-          <span className="material-symbols-outlined text-lg animate-spin">progress_activity</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-lg animate-spin">progress_activity</span>
           <p role="status">Subiendo y procesando imágenes…</p>
         </div>
       )}
 
       {error && (
         <div className="flex items-center gap-2 p-3 rounded-xl bg-red-950/40 border border-red-500/40 text-red-300 text-xs sm:text-sm">
-          <span className="material-symbols-outlined text-lg">error</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-lg">error</span>
           <p role="alert">{error}</p>
         </div>
       )}
@@ -173,7 +173,7 @@ export const OrderDeliveryFields: React.FC<{
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-start gap-3.5">
           <div className="p-2.5 rounded-xl bg-cyan-500/20 text-cyan-400 shrink-0">
-            <span className="material-symbols-outlined text-2xl">local_shipping</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-2xl">local_shipping</span>
           </div>
           <div>
             <div className="flex items-center gap-2">
@@ -191,7 +191,7 @@ export const OrderDeliveryFields: React.FC<{
         </div>
 
         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-900/30 border border-cyan-500/30 text-cyan-200 text-xs self-start sm:self-auto">
-          <span className="material-symbols-outlined text-base">verified</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-base">verified</span>
           <span>Garantía activa al entregar</span>
         </div>
       </div>

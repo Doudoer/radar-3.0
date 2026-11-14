@@ -181,7 +181,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         <div className="flex items-center justify-between px-5 py-4 border-b border-cyan-500/20 bg-[#091124]/90">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-cyan-950/80 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.3)]">
-              <span className="material-symbols-outlined text-[20px]">account_circle</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[20px]">account_circle</span>
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -205,7 +205,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             disabled={saving}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors cursor-pointer"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
@@ -221,7 +221,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <span className="material-symbols-outlined text-[16px]">badge</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">badge</span>
             <span>Datos & Avatar</span>
           </button>
           <button
@@ -234,7 +234,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <span className="material-symbols-outlined text-[16px]">lock_reset</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">lock_reset</span>
             <span>Seguridad & Contraseña</span>
           </button>
         </div>
@@ -243,14 +243,14 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
           {error && (
             <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/40 text-red-300 text-xs flex items-center gap-2 shadow-[0_0_15px_rgba(239,68,68,0.15)]">
-              <span className="material-symbols-outlined text-[18px] shrink-0">error</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px] shrink-0">error</span>
               <span>{error}</span>
             </div>
           )}
 
           {successMessage && (
             <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/40 text-emerald-300 text-xs flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.15)]">
-              <span className="material-symbols-outlined text-[18px] shrink-0">check_circle</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px] shrink-0">check_circle</span>
               <span>{successMessage}</span>
             </div>
           )}
@@ -261,11 +261,11 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               <div className="horizon-dialog-section p-4 rounded-xl bg-[#040814] border border-cyan-500/25 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-200 font-mono flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-[16px] text-cyan-400">face</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-400">face</span>
                     Avatar de Perfil
                   </span>
                   <label className="text-[11px] font-mono text-cyan-400 hover:text-cyan-200 cursor-pointer flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[14px]">upload</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">upload</span>
                     <span>Subir Foto</span>
                     <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleFileUpload} className="hidden" />
                   </label>
@@ -319,7 +319,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     onClick={() => setShowCustomUrlInput(!showCustomUrlInput)}
                     className="text-[11px] text-cyan-400/80 hover:text-cyan-300 font-mono flex items-center gap-1 cursor-pointer"
                   >
-                    <span className="material-symbols-outlined text-[13px]">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[13px]">
                       {showCustomUrlInput ? 'expand_less' : 'add_link'}
                     </span>
                     <span>{showCustomUrlInput ? 'Ocultar URL personalizada' : 'Usar URL de imagen externa'}</span>
@@ -339,7 +339,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               {/* Name Field */}
               <div>
                 <label className="block text-xs font-bold text-slate-300 font-mono mb-1.5 flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[15px] text-cyan-400">person</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-cyan-400">person</span>
                   Nombre Completo *
                 </label>
                 <input
@@ -355,7 +355,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               {/* Email Field */}
               <div>
                 <label className="block text-xs font-bold text-slate-300 font-mono mb-1.5 flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[15px] text-cyan-400">mail</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-cyan-400">mail</span>
                   Correo Electrónico *
                 </label>
                 <input
@@ -371,7 +371,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               {/* Phone Field */}
               <div>
                 <label className="block text-xs font-bold text-slate-300 font-mono mb-1.5 flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[15px] text-cyan-400">phone</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-cyan-400">phone</span>
                   Número de Teléfono / WhatsApp
                 </label>
                 <input
@@ -391,7 +391,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           {activeTab === 'security' && (
             <div className="space-y-4 animate-fade-in">
               <div className="p-3 rounded-xl bg-cyan-950/30 border border-cyan-500/20 text-cyan-300 text-xs flex items-start gap-2">
-                <span className="material-symbols-outlined text-[18px] shrink-0 mt-0.5">shield</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px] shrink-0 mt-0.5">shield</span>
                 <span>
                   Solo completa los siguientes campos si deseas cambiar tu clave de acceso a RADAR V3.
                 </span>
@@ -415,7 +415,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     onClick={() => setShowPasswords(!showPasswords)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-cyan-300 cursor-pointer"
                   >
-                    <span className="material-symbols-outlined text-[16px]">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[16px]">
                       {showPasswords ? 'visibility_off' : 'visibility'}
                     </span>
                   </button>
@@ -454,15 +454,15 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               <div className="p-3 rounded-xl bg-[#030712] border border-cyan-500/20 text-[11px] font-mono text-slate-400 space-y-1">
                 <span className="font-bold text-slate-200 block mb-1">Requisitos de Seguridad:</span>
                 <div className="flex items-center gap-1.5">
-                  <span className={`material-symbols-outlined text-[13px] ${newPassword.length >= 8 ? 'text-emerald-400' : 'text-slate-600'}`}>check_circle</span>
+                  <span aria-hidden="true" className={`material-symbols-outlined text-[13px] ${newPassword.length >= 8 ? 'text-emerald-400' : 'text-slate-600'}`}>check_circle</span>
                   <span>Mínimo 8 caracteres</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className={`material-symbols-outlined text-[13px] ${/[A-Z]/.test(newPassword) && /[a-z]/.test(newPassword) ? 'text-emerald-400' : 'text-slate-600'}`}>check_circle</span>
+                  <span aria-hidden="true" className={`material-symbols-outlined text-[13px] ${/[A-Z]/.test(newPassword) && /[a-z]/.test(newPassword) ? 'text-emerald-400' : 'text-slate-600'}`}>check_circle</span>
                   <span>Mayúsculas y minúsculas</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className={`material-symbols-outlined text-[13px] ${/[0-9]/.test(newPassword) && /[^a-zA-Z0-9]/.test(newPassword) ? 'text-emerald-400' : 'text-slate-600'}`}>check_circle</span>
+                  <span aria-hidden="true" className={`material-symbols-outlined text-[13px] ${/[0-9]/.test(newPassword) && /[^a-zA-Z0-9]/.test(newPassword) ? 'text-emerald-400' : 'text-slate-600'}`}>check_circle</span>
                   <span>Números y símbolos especiales</span>
                 </div>
               </div>
@@ -484,7 +484,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               disabled={saving}
               className="px-5 py-2 rounded-xl text-xs font-black tracking-wide bg-gradient-to-r from-cyan-400 via-blue-500 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 shadow-[0_0_15px_rgba(6,182,212,0.35)] transition cursor-pointer flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
             >
-              <span className="material-symbols-outlined text-[16px]">
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">
                 {saving ? 'sync' : 'save'}
               </span>
               <span>{saving ? 'Guardando...' : 'Guardar Cambios'}</span>

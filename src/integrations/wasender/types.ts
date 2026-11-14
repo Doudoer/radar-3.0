@@ -17,6 +17,7 @@ export interface WasenderClientOptions {
   sendTextPath?: string;
   testPhone?: string;
   forceTestRecipient?: boolean;
+  enabled?: boolean;
 }
 
 export interface WasenderResponse<T = unknown> {

@@ -121,7 +121,7 @@ export const RefundModal: React.FC<RefundModalProps> = ({
         <div className="flex items-center justify-between px-5 py-4 border-b border-amber-500/20 bg-[#0a1022]/80 backdrop-blur-md shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.3)] shrink-0">
-              <span className="material-symbols-outlined text-[22px]">account_balance_wallet</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[22px]">account_balance_wallet</span>
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -143,7 +143,7 @@ export const RefundModal: React.FC<RefundModalProps> = ({
             onClick={onClose}
             className="p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800/60 cursor-pointer transition-colors"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
@@ -152,7 +152,7 @@ export const RefundModal: React.FC<RefundModalProps> = ({
           <div className="p-4 sm:p-5 overflow-y-auto custom-scrollbar flex-1 space-y-4">
           {error && (
             <div className="p-3 rounded-2xl bg-red-950/70 border border-red-500/40 text-red-300 text-xs flex items-center gap-2">
-              <span className="material-symbols-outlined text-[18px] text-red-400">error</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-red-400">error</span>
               <span>{error}</span>
             </div>
           )}
@@ -333,7 +333,7 @@ export const RefundModal: React.FC<RefundModalProps> = ({
               disabled={isSubmitting || effectiveAmount <= 0}
               className="px-4 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-[0_0_15px_rgba(245,158,11,0.4)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 active:scale-95 transition-all"
             >
-              <span className="material-symbols-outlined text-[16px]">
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">
                 {isSubmitting ? 'sync' : 'verified'}
               </span>
               <span>

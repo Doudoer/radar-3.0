@@ -42,6 +42,13 @@ No enviar cambios directamente a `production`: saltaria las pruebas y el gate.
 La concurrencia de Actions no cancela una release activa; el servidor tambien
 usa un lock exclusivo. No hay migraciones automaticas al arrancar la API.
 
+## Wasender: configuración local y producción
+
+La integración se configura solo por variables de entorno; no hay claves en el código. El gate de producción rechaza cualquier archivo `.env*` distinto de `.env.example`, así que los secretos nunca viajan en el artefacto.
+
+- **Local (solo `radar-desktop-*`):** copiar `wasender.local.env.example` a `.env.wasender.local`, completar `WASENDER_API_KEY` y `WASENDER_TEST_PHONE` con un número interno (`WASENDER_DEVICE_ID` solo si la cuenta lo exige), y ejecutar `npm run local:wasender`. El override `compose.wasender.local.yml` fuerza `WASENDER_FORCE_TEST_RECIPIENT=true` y exige el número de prueba: ningún mensaje llega a clientes. Además conecta la app a la red `egress` porque la red base `isolated` es interna y no tiene salida a internet; el modo por defecto sigue aislado. Para volver al modo aislado: `npm run local:wasender:off`.
+- **Producción:** definir `WASENDER_ENABLED=true`, `WASENDER_API_KEY`, `WASENDER_DEVICE_ID` y `WASENDER_BASE_URL` en el entorno de la app en Dokploy; dejar `WASENDER_TEST_PHONE` vacío y `WASENDER_FORCE_TEST_RECIPIENT=false`. No se edita ningún archivo del repo ni del servidor desde una sesión local.
+
 ## Instalacion y acceso
 
 - Workflow: [production.yml](./.github/workflows/production.yml).

@@ -1,5 +1,6 @@
 import type { Order } from '../types';
-import { financeDateKey, financeMidnight, getFinanceWeekRange, parseFinanceDate, shiftDateKey, sumMoney } from './finance';
+import { financeDateKey, financeMidnight, getFinanceWeekRange, movementsInPeriod, parseFinanceDate, shiftDateKey, sumMoney } from './finance';
+import type { FinanceMovement } from './finance';
 
 export const parseOrderDate = (order: Order): Date | null => {
   const raw = (order.createdAtIso || order.createdAt || '').trim();
@@ -65,6 +66,15 @@ export const matchesOrderAdvisor = (order: Order, id: string, name: string) => {
   if (order.userId) return String(order.userId) === id;
   const advisor = (order.advisor || '').trim().toLowerCase();
   return Boolean(advisor && advisor !== 'sin asignar' && advisor === name.trim().toLowerCase());
+};
+
+export const ordersForMovements = (
+  orders: Order[],
+  movements: FinanceMovement[],
+  range: { start: Date; end: Date },
+) => {
+  const movementOrderIds = new Set(movementsInPeriod(movements, range).map(movement => String(movement.orderId)));
+  return orders.filter(order => movementOrderIds.has(String(order.id)) || movementOrderIds.has(order.code));
 };
 
 export function operationalDistribution(orders: ReadonlyArray<{ status: string }>) {

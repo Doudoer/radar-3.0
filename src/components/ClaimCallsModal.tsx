@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Claim, ClaimCall } from '../types';
 import { apiFetch } from '../services/apiFetch';
+import { useDialogAccessibility } from '../hooks/useDialogAccessibility';
 
 interface ClaimCallsModalProps {
   claim: Claim;
@@ -10,10 +12,10 @@ interface ClaimCallsModalProps {
 }
 
 const CALL_QUICK_NOTES = [
-  'Se contactó al cliente; enviará fotos o video de la falla por WhatsApp.',
+  'Se contactó al cliente; enviará fotos o video de la falla.',
   'Cliente informa que el mecánico está revisando la pieza en el taller.',
   'Se explicó diagnóstico técnico y pasos de garantía al cliente.',
-  'Llamada sin respuesta; se dejó mensaje de voz y WhatsApp de seguimiento.',
+  'Llamada sin respuesta; se dejó mensaje de voz y mensaje de texto de seguimiento.',
   'Se acordó con el cliente la solución del reclamo y fecha de seguimiento.',
 ];
 
@@ -38,6 +40,8 @@ export const ClaimCallsModal: React.FC<ClaimCallsModalProps> = ({ claim, isOpen,
     setError('');
   }, [claim, isOpen]);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogAccessibility({ open: isOpen, dialogRef, onEscape: onClose });
 
   if (!isOpen) return null;
 
@@ -84,9 +88,11 @@ export const ClaimCallsModal: React.FC<ClaimCallsModalProps> = ({ claim, isOpen,
     }
   };
 
-  return (
+  const dialog = (
     <div
-      className="horizon-modal fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+      ref={dialogRef}
+      tabIndex={-1}
+      className="horizon-modal fixed inset-0 z-[95] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm outline-none"
       role="dialog"
       aria-modal="true"
       aria-label="Bitácora de llamadas"
@@ -95,11 +101,11 @@ export const ClaimCallsModal: React.FC<ClaimCallsModalProps> = ({ claim, isOpen,
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border-color)] bg-[var(--bg-card-subtle)] p-5">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="w-8 h-8 rounded-lg bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[18px]">phone_in_talk</span>
+              <span className="w-8 h-8 rounded-lg bg-[var(--brand-soft)] border border-[var(--border-color)] text-[var(--brand)] flex items-center justify-center">
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">phone_in_talk</span>
               </span>
               <h2 className="text-base font-bold text-[var(--text-primary)]">Bitácora de llamadas</h2>
-              <span className="rounded-lg border border-cyan-500/30 bg-cyan-500/15 px-2.5 py-0.5 font-mono text-xs font-bold text-cyan-400">
+              <span className="rounded-lg border border-[var(--brand)] bg-[var(--brand-soft)] px-2.5 py-0.5 font-mono text-xs font-bold text-[var(--brand)]">
                 {claim.id}
               </span>
             </div>
@@ -113,14 +119,14 @@ export const ClaimCallsModal: React.FC<ClaimCallsModalProps> = ({ claim, isOpen,
             className="rounded-lg p-2 text-[var(--text-secondary)] hover:bg-[var(--bg-card)] hover:text-[var(--text-primary)] cursor-pointer"
             aria-label="Cerrar bitácora"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </header>
 
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5 custom-scrollbar">
           {calls.length >= 3 && (
-            <div className="flex gap-3 rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-400">
-              <span className="material-symbols-outlined text-rose-400">warning</span>
+            <div className="flex gap-3 rounded-xl border border-[var(--state-urgency-border)] bg-[var(--state-urgency-tint)] p-3 text-xs text-[var(--state-urgency-text)]">
+              <span aria-hidden="true" className="material-symbols-outlined text-[var(--state-urgency-text)]">warning</span>
               <div>
                 <strong className="block text-[var(--text-primary)]">
                   Seguimiento prioritario: {calls.length} conversaciones
@@ -135,14 +141,14 @@ export const ClaimCallsModal: React.FC<ClaimCallsModalProps> = ({ claim, isOpen,
             className="space-y-3 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] p-4"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="flex items-center gap-1.5 text-xs font-bold text-cyan-400">
-                <span className="material-symbols-outlined text-[17px]">add_call</span>
+              <h3 className="flex items-center gap-1.5 text-xs font-bold text-[var(--brand)]">
+                <span aria-hidden="true" className="material-symbols-outlined text-[17px]">add_call</span>
                 <span>Registrar seguimiento</span>
               </h3>
               <button
                 type="button"
                 onClick={() => setShowContactFields((prev) => !prev)}
-                className="text-[11px] font-semibold text-[var(--text-secondary)] hover:text-cyan-400 cursor-pointer"
+                className="text-[11px] font-semibold text-[var(--text-secondary)] hover:text-[var(--brand)] cursor-pointer"
               >
                 {showContactFields ? 'Ocultar datos de contacto' : `Contacto: ${callerName} (${callerPhone}) · Editar`}
               </button>
@@ -156,7 +162,7 @@ export const ClaimCallsModal: React.FC<ClaimCallsModalProps> = ({ claim, isOpen,
                     required
                     value={callerName}
                     onChange={(event) => setCallerName(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                    className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
                   />
                 </label>
                 <label className="text-[11px] font-semibold text-[var(--text-secondary)]">
@@ -165,7 +171,7 @@ export const ClaimCallsModal: React.FC<ClaimCallsModalProps> = ({ claim, isOpen,
                     required
                     value={callerPhone}
                     onChange={(event) => setCallerPhone(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                    className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
                   />
                 </label>
                 <label className="text-[11px] font-semibold text-[var(--text-secondary)]">
@@ -174,7 +180,7 @@ export const ClaimCallsModal: React.FC<ClaimCallsModalProps> = ({ claim, isOpen,
                     required
                     value={attendedBy}
                     onChange={(event) => setAttendedBy(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                    className="mt-1 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
                   />
                 </label>
               </div>
@@ -195,7 +201,7 @@ export const ClaimCallsModal: React.FC<ClaimCallsModalProps> = ({ claim, isOpen,
                         prev.trim() ? `${prev.trim()} ${chip}` : chip
                       )
                     }
-                    className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-secondary)] hover:border-cyan-400/50 hover:text-[var(--text-primary)] cursor-pointer transition-colors text-left"
+                    className="inline-flex min-h-8 items-center rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--text-secondary)] hover:border-[var(--brand)] hover:text-[var(--text-primary)] cursor-pointer transition-colors text-left"
                   >
                     + {chip}
                   </button>
@@ -211,11 +217,11 @@ export const ClaimCallsModal: React.FC<ClaimCallsModalProps> = ({ claim, isOpen,
                 value={conversationSummary}
                 onChange={(event) => setConversationSummary(event.target.value)}
                 placeholder="Ej. El cliente llamó por seguimiento. Se acordó confirmar diagnóstico mañana antes de las 3:00 PM."
-                className="mt-1 w-full resize-y rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] p-3 text-xs leading-relaxed text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                className="mt-1 w-full resize-y rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] p-3 text-xs leading-relaxed text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
               />
             </label>
             {error && (
-              <p className="rounded-lg border border-rose-500/35 bg-rose-500/10 p-2 text-xs font-semibold text-rose-400">
+              <p className="rounded-lg border border-[var(--danger)] bg-[var(--bg-card-subtle)] p-2 text-xs font-semibold text-[var(--danger)]">
                 {error}
               </p>
             )}
@@ -225,7 +231,7 @@ export const ClaimCallsModal: React.FC<ClaimCallsModalProps> = ({ claim, isOpen,
                 disabled={isSaving}
                 className="horizon-primary flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold cursor-pointer disabled:opacity-60"
               >
-                <span className="material-symbols-outlined text-[17px]">save</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[17px]">save</span>
                 {isSaving ? 'Guardando...' : 'Guardar conversación'}
               </button>
             </div>
@@ -248,7 +254,7 @@ export const ClaimCallsModal: React.FC<ClaimCallsModalProps> = ({ claim, isOpen,
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-md border border-cyan-500/30 bg-cyan-500/15 px-2 py-0.5 font-mono font-bold text-cyan-400">
+                        <span className="rounded-md border border-[var(--brand)] bg-[var(--brand-soft)] px-2 py-0.5 font-mono font-bold text-[var(--brand)]">
                           Llamada #{call.callNumber || calls.length - index}
                         </span>
                         <strong className="text-[var(--text-primary)]">{call.callerName}</strong>
@@ -261,11 +267,11 @@ export const ClaimCallsModal: React.FC<ClaimCallsModalProps> = ({ claim, isOpen,
                         })}
                       </time>
                     </div>
-                    <p className="border-l-2 border-cyan-400 pl-3 leading-relaxed text-[var(--text-primary)]">
+                    <p className="border-l-2 border-[var(--brand)] pl-3 leading-relaxed text-[var(--text-primary)]">
                       {call.conversationSummary}
                     </p>
                     <p className="text-[11px] text-[var(--text-secondary)]">
-                      Atendido por <strong className="text-emerald-500">{call.attendedBy}</strong>
+                      Atendido por <strong className="text-[var(--positive)]">{call.attendedBy}</strong>
                     </p>
                   </article>
                 ))}
@@ -276,4 +282,7 @@ export const ClaimCallsModal: React.FC<ClaimCallsModalProps> = ({ claim, isOpen,
       </div>
     </div>
   );
+
+  const portalTarget = typeof document === 'undefined' ? null : document.getElementById('root') ?? document.body;
+  return portalTarget ? createPortal(dialog, portalTarget) : dialog;
 };

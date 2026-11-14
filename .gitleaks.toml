@@ -1,0 +1,11 @@
+title = "Radar gitleaks"
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Falsos positivos verificados: UUIDs de fixtures, vector RFC 6238 y clave de localStorage"
+regexes = [
+  '''[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}''',
+  '''GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ''',
+  '''radar_finance_legacy_migrated_v1''',
+]

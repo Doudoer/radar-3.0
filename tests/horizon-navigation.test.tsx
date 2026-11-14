@@ -16,6 +16,8 @@ describe('Horizon navigation preserves Radar access and routes', () => {
   it('keeps the vault destination hidden for operators', () => {
     const html = renderToStaticMarkup(<Sidebar currentScreen="ordenes" userRole="operator" onNavigate={() => {}} />);
     expect(html).not.toContain('Relación Semanal');
+    expect(html).not.toContain('Sistema');
+    expect(html).not.toContain('Usuarios');
     expect(html).toContain('Lista de Órdenes');
   });
   it('separates operational navigation from administration without dropping destinations', () => {

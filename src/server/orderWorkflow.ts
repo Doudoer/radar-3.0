@@ -9,7 +9,7 @@ import type { OrderStatus } from '../types';
 import { ORDER_STATUS_LABELS } from '../utils/orderStatusRules';
 import { requireRole } from './auth';
 import { readBody, sendJson } from './http';
-import { fail } from './business';
+import { fail, beginIdempotentRequest, finishIdempotentRequest } from './business';
 import { statusFromDatabase, statusToDatabase, toMysqlDateTime, warrantyFromRow } from './orders';
 import { isBalancePaymentMethod, settlementSchema } from '../utils/orderPayments';
 import { applyOrderSettlement, completeOrderDelivery } from './orderPayments';
@@ -17,8 +17,10 @@ import { downpaymentSchema } from '../utils/downpaymentConfirmation';
 import { preparationSchema } from '../utils/orderPreparation';
 import { deliveryPhotosSchema } from '../utils/orderDelivery';
 import { assertPaymentImages } from './paymentEvidence';
+import { financeVaultExpiry } from './financeVault';
 import { communicationSchema } from '../utils/followupCommunication';
 import { wasender } from '../integrations/wasender/client';
+import { YARD_ACTION_STATUSES, YARD_REVERT_STATUSES } from '../utils/yardStatuses';
 import {
   addWorkingDays, completedWorkflowStages, validateWorkflowAction, workflowDate, workflowRequired, workflowTasks, workflowTaskAssignee,
   type WorkflowAction, type WorkflowEvent, type WorkflowOrder, type WorkflowTask, type WorkflowTaskKey,
@@ -28,6 +30,8 @@ const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
   const date = new Date(`${value}T12:00:00Z`);
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }, 'Fecha inválida');
+
+const YARD_REASON_MAX_LENGTH = 500;
 export const workflowActionSchema = z.object({
   version: z.number().int().positive(),
   task: z.enum(['quote', 'ack', 'prepare', 'delivery', 'post_3', 'post_7', 'post_14', 'incident']),
@@ -272,13 +276,22 @@ export async function handleWorkflowRequest(
   const match = pathname.match(/^\/api\/orders\/(\d+)\/workflow$/);
   const assignment = pathname.match(/^\/api\/orders\/(\d+)\/workflow\/assignee$/);
   const yardReady = pathname.match(/^\/api\/orders\/(\d+)\/yard-ready$/);
+  const yardReadyAck = pathname.match(/^\/api\/orders\/(\d+)\/yard-ready-ack$/);
+  const yardReadyRevert = pathname.match(/^\/api\/orders\/(\d+)\/revert-yard-ready$/);
   const yardUnavailable = pathname.match(/^\/api\/orders\/(\d+)\/yard-unavailable$/);
+  const claimReady = pathname.match(/^\/api\/orders\/(\d+)\/claim-ready$/);
+  const claimReadyRevert = pathname.match(/^\/api\/orders\/(\d+)\/revert-claim-ready$/);
   const verifyDownpayment = pathname.match(/^\/api\/orders\/(\d+)\/verify-downpayment$/);
   const exemptDownpayment = pathname.match(/^\/api\/orders\/(\d+)\/exempt-downpayment$/);
   const yardCompatibility = pathname.match(/^\/api\/orders\/([a-zA-Z0-9_-]+)\/yard-compatibility$/);
   const queue = pathname === '/api/workflow/tasks';
-  if (!match && !queue && !assignment && !yardReady && !yardUnavailable && !verifyDownpayment && !exemptDownpayment && !yardCompatibility) return false;
-  if (!requireRole(response, claims, 'admin', 'operator', 'vendedor_yarda')) return true;
+  if (!match && !queue && !assignment && !yardReady && !yardReadyAck && !yardReadyRevert && !yardUnavailable && !claimReady && !claimReadyRevert && !verifyDownpayment && !exemptDownpayment && !yardCompatibility) return false;
+  const isYardAction = Boolean(yardReady || yardUnavailable || claimReady);
+  if (isYardAction) {
+    if (!requireRole(response, claims, 'admin', 'vendedor_yarda')) return true;
+  } else if (!requireRole(response, claims, 'admin', 'operator')) {
+    return true;
+  }
 
   if (yardCompatibility) {
     if (!requireRole(response, claims, 'admin')) return true;
@@ -352,22 +365,122 @@ export async function handleWorkflowRequest(
   }
 
   if (yardReady) {
-    if (!requireRole(response, claims, 'admin', 'vendedor_yarda')) return true;
     if (request.method !== 'POST') { sendJson(response, 405, { message: 'Método no permitido' }); return true; }
     const orderId = yardReady[1];
+    let parsed: any = {};
+    try {
+      parsed = (await readBody(request, 8 * 1024)) || {};
+    } catch {
+      parsed = {};
+    }
+    const version = Number(parsed.version);
+    if (!Number.isInteger(version) || version < 1) fail(400, 'Actualiza la orden antes de confirmar la pieza.');
+    const idempotencyKey = typeof parsed.idempotencyKey === 'string' ? parsed.idempotencyKey.trim() : '';
+    if (idempotencyKey.length > 100) fail(400, 'Clave de idempotencia inválida.');
+
     const connection = await database.getConnection();
     try {
       await connection.beginTransaction();
       const [orders] = await connection.query<RowDataPacket[]>(
-        'SELECT id,version,order_code,yard_piece_ready,preparation_details,workflow_step,yard_compatibility FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE',
+        `SELECT id,version,order_code,status,yard_piece_ready,preparation_details,workflow_step,yard_compatibility,workflow_data,
+                auction_search_active,user_id,product_type,year,brand,model,
+                (SELECT TRIM(CONCAT_WS(' ',c.first_name,c.last_name)) FROM customers c WHERE c.id=orders.customer_id LIMIT 1) AS customer_name
+         FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE`,
         [orderId]
       );
       if (!orders[0]) fail(404, 'Orden no encontrada');
       const orderRow = orders[0];
-      await connection.execute('UPDATE orders SET yard_piece_ready=1,yard_piece_ready_at=CURRENT_TIMESTAMP,yard_piece_ready_by=?,version=version+1 WHERE id=?',
-        [Number(claims.sub), orderId]);
+      if (!YARD_ACTION_STATUSES.has(statusFromDatabase(orderRow.status))) {
+        fail(409, 'La orden ya no está en una etapa de patio.');
+      }
+      if (Boolean(orderRow.yard_piece_ready)) {
+        await connection.commit();
+        sendJson(response, 200, { ok: true, yardPieceReady: true, alreadyReady: true, cleanedImagesCount: 0, notifiedRecipients: 0 });
+        return true;
+      }
+      if (Number(orderRow.version) !== version) {
+        fail(409, 'La orden cambió. Actualiza los datos antes de confirmar la pieza.');
+      }
+      if (idempotencyKey) {
+        const replayId = await beginIdempotentRequest(connection, 'yard-ready', idempotencyKey, Number(claims.sub), { orderId: Number(orderId), version });
+        if (replayId) {
+          await connection.commit();
+          sendJson(response, 200, { ok: true, yardPieceReady: true, alreadyReady: true, cleanedImagesCount: 0, notifiedRecipients: 0 });
+          return true;
+        }
+      }
+
+      let workflowData: Record<string, unknown> = {};
+      try {
+        workflowData = typeof orderRow.workflow_data === 'string'
+          ? JSON.parse(orderRow.workflow_data || '{}')
+          : (orderRow.workflow_data || {});
+      } catch {
+        workflowData = {};
+      }
+      // Finding the piece resolves an open auction search; keep the history in
+      // workflow_data but drop the active flags so office views stop alerting.
+      const wasUnavailable = workflowData.yardPieceUnavailable === true;
+      const wasAuctionActive = Boolean(orderRow.auction_search_active) || wasUnavailable;
+      if (wasUnavailable) {
+        workflowData.yardPieceUnavailable = false;
+        workflowData.yardPieceUnavailableResolvedAt = new Date().toISOString();
+        workflowData.yardPieceUnavailableResolvedBy = Number(claims.sub);
+      } else if (wasAuctionActive) {
+        workflowData.auctionSearchResolvedAt = new Date().toISOString();
+        workflowData.auctionSearchResolvedBy = Number(claims.sub);
+      }
+
+      if (wasAuctionActive) {
+        await connection.execute(
+          'UPDATE orders SET yard_piece_ready=1,yard_piece_ready_at=CURRENT_TIMESTAMP,yard_piece_ready_by=?,yard_piece_ready_ack_at=NULL,yard_piece_ready_ack_by=NULL,auction_search_active=0,workflow_data=?,version=version+1 WHERE id=?',
+          [Number(claims.sub), JSON.stringify(workflowData), orderId]
+        );
+        await connection.execute(
+          'INSERT INTO status_orders (order_id,status,description,user_id) VALUES (?,?,?,?)',
+          [orderId, orderRow.status || 'Pagado', '✅ Pieza localizada en patio. Se desactivó la búsqueda en subasta.', Number(claims.sub)]
+        );
+      } else {
+        await connection.execute('UPDATE orders SET yard_piece_ready=1,yard_piece_ready_at=CURRENT_TIMESTAMP,yard_piece_ready_by=?,yard_piece_ready_ack_at=NULL,yard_piece_ready_ack_by=NULL,version=version+1 WHERE id=?',
+          [Number(claims.sub), orderId]);
+      }
       await connection.execute("INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details) VALUES (?,?,'YARD_PIECE_READY','order',?,?)",
-        [Number(claims.sub), String(claims.sub), String(orderId), JSON.stringify({ orderCode: orderRow.order_code })]);
+        [Number(claims.sub), String(claims.sub), String(orderId), JSON.stringify({ orderCode: orderRow.order_code, resolvedUnavailable: wasUnavailable, resolvedAuction: wasAuctionActive })]);
+
+      // Alert the order advisor and admins even if they are not watching the app.
+      let notifiedRecipients = 0;
+      try {
+        const customerName = orderRow.customer_name || 'Cliente';
+        const vehicle = [orderRow.year, orderRow.brand, orderRow.model].filter(Boolean).join(' ') || 'Vehículo no especificado';
+        const message = [
+          '✅ *PIEZA LISTA EN YARDA*',
+          `Orden: #${orderRow.order_code}`,
+          `Cliente: ${customerName}`,
+          `Vehículo: ${vehicle}`,
+          `Pieza: ${orderRow.product_type || 'Refacción'}`,
+          '',
+          'La pieza ya está lista en patio. Contacta al cliente para acordar retiro/entrega y pasa la orden a *Listo para Retiro*.'
+        ].join('\n');
+        const [recipientRows] = await connection.query<RowDataPacket[]>(
+          `SELECT phone FROM users
+           WHERE deleted_at IS NULL AND phone IS NOT NULL AND phone <> ''
+             AND (role='admin' OR id=?)`,
+          [Number(orderRow.user_id) || 0]
+        );
+        const phones = new Set<string>();
+        for (const recipient of recipientRows) {
+          const phone = String(recipient.phone || '').trim();
+          if (phone) phones.add(phone);
+        }
+        for (const phone of phones) {
+          await connection.execute('INSERT INTO notification_outbox (payload) VALUES (?)', [
+            JSON.stringify({ phone, text: message })
+          ]);
+        }
+        notifiedRecipients = phones.size;
+      } catch (notificationError) {
+        console.warn('[YardReady] Could not queue notifications:', notificationError);
+      }
 
       // If the customer was already contacted and order is ready for delivery, clean up images immediately
       const isDeliveryReady = Boolean(orderRow.preparation_details) || Number(orderRow.workflow_step) >= 3;
@@ -375,23 +488,178 @@ export async function handleWorkflowRequest(
       if (isDeliveryReady) {
         cleanedCount = await performYardImagesCleanup(connection, Number(orderId), orderRow.yard_compatibility, orderRow.order_code, claims);
       }
+      if (idempotencyKey) {
+        await finishIdempotentRequest(connection, 'yard-ready', idempotencyKey, Number(orderId));
+      }
 
       await connection.commit();
       broadcast('order:updated', {
         orderId: Number(orderId),
         action: 'YARD_PIECE_READY',
         yardPieceReady: true,
+        ...(wasAuctionActive ? { auctionActive: false, yardPieceUnavailable: false } : {}),
         cleanedReferenceImages: cleanedCount,
         timestamp: Date.now()
       });
-      sendJson(response, 200, { ok: true, yardPieceReady: true, cleanedImagesCount: cleanedCount });
+      sendJson(response, 200, {
+        ok: true,
+        yardPieceReady: true,
+        cleanedImagesCount: cleanedCount,
+        notifiedRecipients,
+        resolvedUnavailable: wasUnavailable,
+      });
+      return true;
+    } catch (error) { await connection.rollback(); throw error; }
+    finally { connection.release(); }
+  }
+
+  if (yardReadyAck) {
+    if (request.method !== 'POST') { sendJson(response, 405, { message: 'Método no permitido' }); return true; }
+    const orderId = yardReadyAck[1];
+    const connection = await database.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [orders] = await connection.query<RowDataPacket[]>(
+        'SELECT id,version,order_code,status,yard_piece_ready,yard_piece_ready_ack_at FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE',
+        [orderId]
+      );
+      if (!orders[0]) fail(404, 'Orden no encontrada');
+      const orderRow = orders[0];
+      if (statusFromDatabase(orderRow.status) !== 'pagado' || !Boolean(orderRow.yard_piece_ready)) {
+        fail(409, 'La pieza aún no está lista en patio.');
+      }
+      if (orderRow.yard_piece_ready_ack_at) {
+        await connection.commit();
+        sendJson(response, 200, {
+          ok: true,
+          alreadyAcknowledged: true,
+          yardPieceReadyAckAt: new Date(orderRow.yard_piece_ready_ack_at).toISOString(),
+        });
+        return true;
+      }
+
+      const ackAt = new Date().toISOString();
+      await connection.execute(
+        'UPDATE orders SET yard_piece_ready_ack_at=?,yard_piece_ready_ack_by=? WHERE id=?',
+        [ackAt.slice(0, 19).replace('T', ' '), Number(claims.sub), orderId]
+      );
+      await connection.execute(
+        "INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details) VALUES (?,?,'YARD_PIECE_READY_ACKNOWLEDGED','order',?,?)",
+        [
+          Number(claims.sub),
+          String(claims.sub),
+          String(orderId),
+          JSON.stringify({ orderCode: orderRow.order_code, yardPieceReadyAckAt: ackAt }),
+        ]
+      );
+
+      await connection.commit();
+      broadcast('order:updated', {
+        orderId: Number(orderId),
+        action: 'YARD_PIECE_READY_ACKNOWLEDGED',
+        yardPieceReadyAckAt: ackAt,
+        timestamp: Date.now(),
+      });
+      sendJson(response, 200, { ok: true, alreadyAcknowledged: false, yardPieceReadyAckAt: ackAt });
+      return true;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  if (yardReadyRevert) {
+    if (!requireRole(response, claims, 'admin')) return true;
+    if (request.method !== 'POST') { sendJson(response, 405, { message: 'Método no permitido' }); return true; }
+    const orderId = yardReadyRevert[1];
+    let parsed: any = {};
+    try {
+      parsed = (await readBody(request, 8 * 1024)) || {};
+    } catch {
+      parsed = {};
+    }
+    const version = Number(parsed.version);
+    if (!Number.isInteger(version) || version < 1) fail(400, 'Actualiza la orden antes de revertir la pieza.');
+    const idempotencyKey = typeof parsed.idempotencyKey === 'string' ? parsed.idempotencyKey.trim() : '';
+    if (idempotencyKey.length > 100) fail(400, 'Clave de idempotencia inválida.');
+
+    const connection = await database.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [orders] = await connection.query<RowDataPacket[]>(
+        'SELECT id,version,order_code,status,yard_piece_ready,yard_piece_ready_at FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE',
+        [orderId]
+      );
+      if (!orders[0]) fail(404, 'Orden no encontrada');
+      const orderRow = orders[0];
+      if (!YARD_REVERT_STATUSES.has(statusFromDatabase(orderRow.status))) {
+        fail(409, 'La orden ya no está en una etapa de patio.');
+      }
+      if (!Boolean(orderRow.yard_piece_ready)) {
+        await connection.commit();
+        sendJson(response, 200, { ok: true, yardPieceReady: false, alreadyPending: true });
+        return true;
+      }
+      if (Number(orderRow.version) !== version) {
+        fail(409, 'La orden cambió. Actualiza los datos antes de revertir la pieza.');
+      }
+      if (idempotencyKey) {
+        const replayId = await beginIdempotentRequest(connection, 'revert-yard-ready', idempotencyKey, Number(claims.sub), { orderId: Number(orderId), version });
+        if (replayId) {
+          await connection.commit();
+          sendJson(response, 200, { ok: true, yardPieceReady: false, alreadyPending: true });
+          return true;
+        }
+      }
+
+      await connection.execute(
+        'UPDATE orders SET yard_piece_ready=0,yard_piece_ready_at=NULL,yard_piece_ready_by=NULL,yard_piece_ready_ack_at=NULL,yard_piece_ready_ack_by=NULL,version=version+1 WHERE id=?',
+        [orderId]
+      );
+      const revertStatus = statusFromDatabase(orderRow.status);
+      await connection.execute(
+        'INSERT INTO status_orders (order_id,status,description,user_id) VALUES (?,?,?,?)',
+        [
+          orderId,
+          orderRow.status || 'Pagado',
+          revertStatus === 'pagado'
+            ? '↩️ Confirmación de pieza lista revertida por administrador. La orden vuelve a pendientes de patio.'
+            : '↩️ Confirmación de pieza lista revertida por administrador. La orden permanece en preparación.',
+          Number(claims.sub)
+        ]
+      );
+      await connection.execute(
+        "INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details) VALUES (?,?,'YARD_PIECE_READY_REVERTED','order',?,?)",
+        [
+          Number(claims.sub),
+          String(claims.sub),
+          String(orderId),
+          JSON.stringify({
+            orderCode: orderRow.order_code,
+            previousReadyAt: orderRow.yard_piece_ready_at || null,
+          })
+        ]
+      );
+      if (idempotencyKey) {
+        await finishIdempotentRequest(connection, 'revert-yard-ready', idempotencyKey, Number(orderId));
+      }
+
+      await connection.commit();
+      broadcast('order:updated', {
+        orderId: Number(orderId),
+        action: 'YARD_PIECE_READY_REVERTED',
+        yardPieceReady: false,
+        timestamp: Date.now()
+      });
+      sendJson(response, 200, { ok: true, yardPieceReady: false, alreadyPending: false });
       return true;
     } catch (error) { await connection.rollback(); throw error; }
     finally { connection.release(); }
   }
 
   if (yardUnavailable) {
-    if (!requireRole(response, claims, 'admin', 'vendedor_yarda')) return true;
     if (request.method !== 'POST') { sendJson(response, 405, { message: 'Método no permitido' }); return true; }
     const orderId = yardUnavailable[1];
     let parsed: any = {};
@@ -403,12 +671,19 @@ export async function handleWorkflowRequest(
     const reason = typeof parsed.reason === 'string' && parsed.reason.trim()
       ? parsed.reason.trim()
       : 'Pieza no encontrada o no disponible en patio físico';
+    if (reason.length > YARD_REASON_MAX_LENGTH) {
+      fail(400, `El motivo no puede superar los ${YARD_REASON_MAX_LENGTH} caracteres.`);
+    }
+    const version = Number(parsed.version);
+    if (!Number.isInteger(version) || version < 1) fail(400, 'Actualiza la orden antes de reportar la pieza.');
+    const idempotencyKey = typeof parsed.idempotencyKey === 'string' ? parsed.idempotencyKey.trim() : '';
+    if (idempotencyKey.length > 100) fail(400, 'Clave de idempotencia inválida.');
 
     const connection = await database.getConnection();
     try {
       await connection.beginTransaction();
       const [orders] = await connection.query<RowDataPacket[]>(
-        'SELECT id,version,order_code,advisor,user_id,workflow_data,status FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE',
+        'SELECT id,version,order_code,user_id,workflow_data,status FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE',
         [orderId]
       );
       if (!orders[0]) fail(404, 'Orden no encontrada');
@@ -423,6 +698,32 @@ export async function handleWorkflowRequest(
         workflowData = {};
       }
 
+      if (!YARD_ACTION_STATUSES.has(statusFromDatabase(orderRow.status))) {
+        fail(409, 'La orden ya no está en una etapa de patio.');
+      }
+      if (workflowData.yardPieceUnavailable === true) {
+        await connection.commit();
+        sendJson(response, 200, {
+          ok: true,
+          auctionActive: true,
+          yardPieceUnavailable: true,
+          alreadyUnavailable: true,
+          reason: typeof workflowData.yardPieceUnavailableReason === 'string' ? workflowData.yardPieceUnavailableReason : reason,
+        });
+        return true;
+      }
+      if (Number(orderRow.version) !== version) {
+        fail(409, 'La orden cambió. Actualiza los datos antes de reportar la pieza.');
+      }
+      if (idempotencyKey) {
+        const replayId = await beginIdempotentRequest(connection, 'yard-unavailable', idempotencyKey, Number(claims.sub), { orderId: Number(orderId), version });
+        if (replayId) {
+          await connection.commit();
+          sendJson(response, 200, { ok: true, auctionActive: true, yardPieceUnavailable: true, alreadyUnavailable: true, reason });
+          return true;
+        }
+      }
+
       const nowIso = new Date().toISOString();
       workflowData.yardPieceUnavailable = true;
       workflowData.yardPieceUnavailableAt = nowIso;
@@ -431,7 +732,7 @@ export async function handleWorkflowRequest(
 
       // Update order: activate auction search, mark piece not ready in yard, save workflow_data
       await connection.execute(
-        'UPDATE orders SET auction_search_active=1, yard_piece_ready=0, workflow_data=?, version=version+1 WHERE id=?',
+        'UPDATE orders SET auction_search_active=1, yard_piece_ready=0, yard_piece_ready_ack_at=NULL, yard_piece_ready_ack_by=NULL, workflow_data=?, version=version+1 WHERE id=?',
         [JSON.stringify(workflowData), orderId]
       );
 
@@ -478,10 +779,10 @@ export async function handleWorkflowRequest(
 
       // 2. Also locate advisor's phone and queue direct notification if advisor has phone
       try {
-        if (orderRow.user_id || orderRow.advisor) {
+        if (orderRow.user_id) {
           const res = await connection.query<RowDataPacket[]>(
-            'SELECT phone, name FROM users WHERE id=? OR name=? LIMIT 1',
-            [orderRow.user_id || 0, orderRow.advisor || '']
+            'SELECT phone, name FROM users WHERE id=? LIMIT 1',
+            [orderRow.user_id]
           );
           const advisorRows = Array.isArray(res) ? res[0] : [];
           if (Array.isArray(advisorRows) && advisorRows[0]?.phone) {
@@ -492,6 +793,10 @@ export async function handleWorkflowRequest(
         }
       } catch (e) {
         console.warn('[YardUnavailable] Could not queue advisor direct notification:', e);
+      }
+
+      if (idempotencyKey) {
+        await finishIdempotentRequest(connection, 'yard-unavailable', idempotencyKey, Number(orderId));
       }
 
       await connection.commit();
@@ -521,9 +826,276 @@ export async function handleWorkflowRequest(
     }
   }
 
+  if (claimReady) {
+    if (request.method !== 'POST') { sendJson(response, 405, { message: 'Método no permitido' }); return true; }
+    const orderId = claimReady[1];
+    let parsed: any = {};
+    try {
+      parsed = (await readBody(request, 8 * 1024)) || {};
+    } catch {
+      parsed = {};
+    }
+    const version = Number(parsed.version);
+    if (!Number.isInteger(version) || version < 1) fail(400, 'Actualiza la orden antes de notificar la pieza de cambio.');
+    const idempotencyKey = typeof parsed.idempotencyKey === 'string' ? parsed.idempotencyKey.trim() : '';
+    if (idempotencyKey.length > 100) fail(400, 'Clave de idempotencia inválida.');
+
+    const connection = await database.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [orders] = await connection.query<RowDataPacket[]>(
+        `SELECT id,version,order_code,status,workflow_data,user_id,customer_id,product_type,stock_nr,
+          brand,model,year,claim_reason
+         FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE`,
+        [orderId]
+      );
+      if (!orders[0]) fail(404, 'Orden no encontrada');
+      const orderRow = orders[0];
+      if (statusFromDatabase(orderRow.status) !== 'reclamo') {
+        fail(409, 'La orden ya no está en reclamo.');
+      }
+
+      let workflowData: Record<string, unknown> = {};
+      try {
+        workflowData = typeof orderRow.workflow_data === 'string'
+          ? JSON.parse(orderRow.workflow_data || '{}')
+          : (orderRow.workflow_data || {});
+      } catch {
+        workflowData = {};
+      }
+
+      if (workflowData.claimPieceReady === true) {
+        await connection.commit();
+        sendJson(response, 200, {
+          ok: true,
+          claimPieceReady: true,
+          alreadyReady: true,
+          claimPieceReadyAt: typeof workflowData.claimPieceReadyAt === 'string' ? workflowData.claimPieceReadyAt : undefined,
+        });
+        return true;
+      }
+      if (Number(orderRow.version) !== version) {
+        fail(409, 'La orden cambió. Actualiza los datos antes de notificar la pieza.');
+      }
+      if (idempotencyKey) {
+        const replayId = await beginIdempotentRequest(connection, 'claim-ready', idempotencyKey, Number(claims.sub), { orderId: Number(orderId), version });
+        if (replayId) {
+          await connection.commit();
+          sendJson(response, 200, { ok: true, claimPieceReady: true, alreadyReady: true });
+          return true;
+        }
+      }
+
+      const nowIso = new Date().toISOString();
+      workflowData.claimPieceReady = true;
+      workflowData.claimPieceReadyAt = nowIso;
+      workflowData.claimPieceReadyBy = Number(claims.sub);
+
+      await connection.execute(
+        'UPDATE orders SET workflow_data=?, version=version+1 WHERE id=?',
+        [JSON.stringify(workflowData), orderId]
+      );
+      await connection.execute(
+        'INSERT INTO status_orders (order_id,status,description,user_id) VALUES (?,?,?,?)',
+        [
+          orderId,
+          orderRow.status,
+          '🔔 Pieza de cambio lista en patio. Asesores y administradores notificados para coordinar el cambio.',
+          Number(claims.sub)
+        ]
+      );
+      await connection.execute(
+        "INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details) VALUES (?,?,'CLAIM_REPLACEMENT_READY','order',?,?)",
+        [
+          Number(claims.sub),
+          String(claims.sub),
+          String(orderId),
+          JSON.stringify({ orderCode: orderRow.order_code, claimPieceReadyAt: nowIso })
+        ]
+      );
+
+      const [customerRows] = await connection.query<RowDataPacket[]>(
+        'SELECT first_name,last_name FROM customers WHERE id=? LIMIT 1',
+        [orderRow.customer_id]
+      );
+      const [claimRows] = await connection.query<RowDataPacket[]>(
+        'SELECT assigned_user_id FROM claims WHERE order_id=? AND deleted_at IS NULL ORDER BY id DESC LIMIT 1',
+        [orderId]
+      );
+      const claimAssigneeId = Number(claimRows[0]?.assigned_user_id) || 0;
+      const [recipientRows] = await connection.query<RowDataPacket[]>(
+        `SELECT name, phone FROM users
+         WHERE deleted_at IS NULL AND phone IS NOT NULL AND phone <> ''
+           AND (role IN ('admin','operator') OR id IN (?, ?))`,
+        [claimAssigneeId, Number(orderRow.user_id) || 0]
+      );
+
+      const customerName = [customerRows[0]?.first_name, customerRows[0]?.last_name].filter(Boolean).join(' ') || 'Cliente';
+      const vehicle = [orderRow.year, orderRow.brand, orderRow.model].filter(Boolean).join(' ') || 'Vehículo no especificado';
+      const message = [
+        '🔔 *PIEZA DE CAMBIO LISTA*',
+        `Orden: #${orderRow.order_code}`,
+        `Cliente: ${customerName}`,
+        `Vehículo: ${vehicle}`,
+        `Pieza: ${orderRow.product_type || 'Refacción'}`,
+        `Ubicación / Pallet: ${orderRow.stock_nr || 'Pendiente'}`,
+        orderRow.claim_reason ? `Motivo del reclamo: ${orderRow.claim_reason}` : '',
+        '',
+        'La pieza de cambio está lista en patio. Coordinen con el cliente para realizar el cambio.'
+      ].filter(Boolean).join('\n');
+
+      const phones = new Set<string>();
+      for (const recipient of recipientRows) {
+        const phone = String(recipient.phone || '').trim();
+        if (phone) phones.add(phone);
+      }
+      for (const phone of phones) {
+        await connection.execute('INSERT INTO notification_outbox (payload) VALUES (?)', [
+          JSON.stringify({ phone, text: message })
+        ]);
+      }
+
+      if (idempotencyKey) {
+        await finishIdempotentRequest(connection, 'claim-ready', idempotencyKey, Number(orderId));
+      }
+
+      await connection.commit();
+
+      broadcast('order:updated', {
+        orderId: Number(orderId),
+        action: 'CLAIM_REPLACEMENT_READY',
+        claimPieceReady: true,
+        claimPieceReadyAt: nowIso,
+        timestamp: Date.now()
+      });
+
+      sendJson(response, 200, {
+        ok: true,
+        claimPieceReady: true,
+        claimPieceReadyAt: nowIso,
+        notifiedRecipients: phones.size,
+      });
+      return true;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  if (claimReadyRevert) {
+    if (!requireRole(response, claims, 'admin')) return true;
+    if (request.method !== 'POST') { sendJson(response, 405, { message: 'Método no permitido' }); return true; }
+    const orderId = claimReadyRevert[1];
+    let parsed: any = {};
+    try {
+      parsed = (await readBody(request, 8 * 1024)) || {};
+    } catch {
+      parsed = {};
+    }
+    const version = Number(parsed.version);
+    if (!Number.isInteger(version) || version < 1) fail(400, 'Actualiza la orden antes de revertir la pieza de cambio.');
+    const idempotencyKey = typeof parsed.idempotencyKey === 'string' ? parsed.idempotencyKey.trim() : '';
+    if (idempotencyKey.length > 100) fail(400, 'Clave de idempotencia inválida.');
+
+    const connection = await database.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [orders] = await connection.query<RowDataPacket[]>(
+        'SELECT id,version,order_code,status,workflow_data FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE',
+        [orderId]
+      );
+      if (!orders[0]) fail(404, 'Orden no encontrada');
+      const orderRow = orders[0];
+      if (statusFromDatabase(orderRow.status) !== 'reclamo') {
+        fail(409, 'La orden ya no está en reclamo.');
+      }
+
+      let workflowData: Record<string, unknown> = {};
+      try {
+        workflowData = typeof orderRow.workflow_data === 'string'
+          ? JSON.parse(orderRow.workflow_data || '{}')
+          : (orderRow.workflow_data || {});
+      } catch {
+        workflowData = {};
+      }
+
+      if (workflowData.claimPieceReady !== true) {
+        await connection.commit();
+        sendJson(response, 200, { ok: true, claimPieceReady: false, alreadyPending: true });
+        return true;
+      }
+      if (Number(orderRow.version) !== version) {
+        fail(409, 'La orden cambió. Actualiza los datos antes de revertir la pieza de cambio.');
+      }
+      if (idempotencyKey) {
+        const replayId = await beginIdempotentRequest(connection, 'revert-claim-ready', idempotencyKey, Number(claims.sub), { orderId: Number(orderId), version });
+        if (replayId) {
+          await connection.commit();
+          sendJson(response, 200, { ok: true, claimPieceReady: false, alreadyPending: true });
+          return true;
+        }
+      }
+
+      const previousReadyAt = typeof workflowData.claimPieceReadyAt === 'string' ? workflowData.claimPieceReadyAt : null;
+      delete workflowData.claimPieceReady;
+      delete workflowData.claimPieceReadyAt;
+      delete workflowData.claimPieceReadyBy;
+      workflowData.claimPieceReadyRevertedAt = new Date().toISOString();
+      workflowData.claimPieceReadyRevertedBy = Number(claims.sub);
+
+      await connection.execute(
+        'UPDATE orders SET workflow_data=?, version=version+1 WHERE id=?',
+        [JSON.stringify(workflowData), orderId]
+      );
+      await connection.execute(
+        'INSERT INTO status_orders (order_id,status,description,user_id) VALUES (?,?,?,?)',
+        [
+          orderId,
+          orderRow.status || 'Reclamo',
+          '↩️ Notificación de pieza de cambio revertida por administrador. La pieza vuelve a pendiente de cambio.',
+          Number(claims.sub)
+        ]
+      );
+      await connection.execute(
+        "INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details) VALUES (?,?,'CLAIM_REPLACEMENT_READY_REVERTED','order',?,?)",
+        [
+          Number(claims.sub),
+          String(claims.sub),
+          String(orderId),
+          JSON.stringify({ orderCode: orderRow.order_code, previousReadyAt })
+        ]
+      );
+
+      if (idempotencyKey) {
+        await finishIdempotentRequest(connection, 'revert-claim-ready', idempotencyKey, Number(orderId));
+      }
+
+      await connection.commit();
+      broadcast('order:updated', {
+        orderId: Number(orderId),
+        action: 'CLAIM_REPLACEMENT_READY_REVERTED',
+        claimPieceReady: false,
+        timestamp: Date.now()
+      });
+      sendJson(response, 200, { ok: true, claimPieceReady: false, alreadyPending: false });
+      return true;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
   if (verifyDownpayment) {
     if (!requireRole(response, claims, 'admin')) return true;
     if (request.method !== 'POST') { sendJson(response, 405, { message: 'Método no permitido' }); return true; }
+    if (!financeVaultExpiry(request, claims)) {
+      sendJson(response, 403, { code: 'FINANCE_LOCKED', message: 'Desbloquea la bóveda de seguridad antes de verificar anticipos.' });
+      return true;
+    }
     const orderId = verifyDownpayment[1];
     const connection = await database.getConnection();
     try {
@@ -547,6 +1119,10 @@ export async function handleWorkflowRequest(
   if (exemptDownpayment) {
     if (!requireRole(response, claims, 'admin')) return true;
     if (request.method !== 'POST') { sendJson(response, 405, { message: 'Método no permitido' }); return true; }
+    if (!financeVaultExpiry(request, claims)) {
+      sendJson(response, 403, { code: 'FINANCE_LOCKED', message: 'Desbloquea la bóveda de seguridad antes de exonerar anticipos.' });
+      return true;
+    }
     const orderId = exemptDownpayment[1];
     let parsedBody: any = {};
     try {
@@ -731,6 +1307,10 @@ export async function handleWorkflowRequest(
   }
   if (request.method !== 'POST' || !match) { sendJson(response, 405, { message: 'Método no permitido' }); return true; }
   const requestAction = workflowActionSchema.parse(await readBody(request));
+  if (requestAction.exemptDownpayment && !financeVaultExpiry(request, claims)) {
+    sendJson(response, 403, { code: 'FINANCE_LOCKED', message: 'Desbloquea la bóveda de seguridad antes de exonerar anticipos.' });
+    return true;
+  }
   const connection = await database.getConnection();
   try {
     await connection.beginTransaction();

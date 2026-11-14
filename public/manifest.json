@@ -6,8 +6,8 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#070b14",
-  "theme_color": "#070b14",
+  "background_color": "#f2f4f8",
+  "theme_color": "#f2f4f8",
   "icons": [
     {
       "src": "/icon-yard-192.svg",
@@ -23,4 +23,3 @@
     }
   ]
 }
-

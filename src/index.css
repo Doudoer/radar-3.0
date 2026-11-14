@@ -4,9 +4,10 @@
 
 @layer base {
   :root {
-    --font-outfit: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-inter: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-mono: 'JetBrains Mono', monospace;
+    --font-sans: 'DM Sans Variable', 'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-inter: var(--font-sans);
+    --font-outfit: var(--font-sans);
+    --font-mono: ui-monospace, 'SFMono-Regular', 'Cascadia Code', Menlo, Consolas, monospace;
 
     --bg-primary: #050811;
     --bg-surface: rgba(7, 12, 24, 0.85);
@@ -54,7 +55,7 @@
   }
 
   body {
-    font-family: var(--font-inter);
+    font-family: var(--font-sans);
     background-color: var(--bg-primary);
     color: var(--text-primary);
     overflow-x: hidden;
@@ -69,16 +70,14 @@
 }
 
 /* Typography Helpers */
-.font-headline-md, .font-headline-sm, .font-display-lg {
-  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
-}
-
+.font-headline-md, .font-headline-sm, .font-display-lg,
 .font-body-sm, .font-body-md, .font-body-lg {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .font-data-mono, .font-data-label {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .radar-view {
@@ -396,7 +395,7 @@ html.light aside button[class*="text-cyan-300"] {
 }
 
 /* 3. Modal Dialogs & Backdrops in Light Mode */
-html.light [class*="fixed inset-0"][class*="bg-black"] {
+html.light [class*="fixed inset-0"][class*="bg-black"]:not(.yard-lightbox) {
   background-color: rgba(15, 23, 42, 0.65) !important;
   backdrop-filter: blur(8px) !important;
 }
@@ -408,6 +407,23 @@ html.light [class*="rounded-2xl"][class*="shadow-"] {
   background-color: #ffffff !important;
   border-color: rgba(6, 182, 212, 0.35) !important;
   box-shadow: 0 10px 30px -4px rgba(15, 23, 42, 0.08), 0 0 1px rgba(15, 23, 42, 0.15) !important;
+}
+
+/* Operational amber surfaces keep their urgency color instead of the generic card look */
+html.light [class*="rounded-2xl"][class*="shadow-"][class*="border-amber-500"] {
+  border-color: #f59e0b !important;
+}
+
+html.light [class*="rounded-2xl"][class*="shadow-"][class*="from-amber-950"] {
+  background-image: none !important;
+  background-color: #fffbeb !important;
+  border-color: #d97706 !important;
+  box-shadow: 0 10px 30px -4px rgba(217, 119, 6, 0.22) !important;
+}
+
+html.light #root .horizon-modal > div[class*="border-amber-500"],
+html.light #root .horizon-modal > form[class*="border-amber-500"] {
+  border-color: #f59e0b !important;
 }
 
 html.light [class*="bg-gradient-to-r"][class*="from-[#0"],
@@ -957,3 +973,588 @@ html.light ::-webkit-scrollbar-thumb:hover, html.light .custom-scrollbar::-webki
   animation: yardPullGlow 1.2s ease-in-out infinite;
 }
 
+/* =========================================================================
+   YARD APP — NATIVE HIGH-CONTRAST THEME ISLAND
+   Scoped to .yard-app so the office portal keeps its own visual system.
+   ========================================================================= */
+.yard-app {
+  color-scheme: light;
+  --yard-bg: #f2f4f8;
+  --yard-surface: #ffffff;
+  --yard-raised: #f8fafc;
+  --yard-sunken: #eef1f6;
+  --yard-line: #e2e6ee;
+  --yard-line-strong: #cbd3df;
+  --yard-ink: #0b1220;
+  --yard-ink-soft: #1f2937;
+  --yard-muted: #5b6478;
+  --yard-faint: #667085;
+  --yard-accent: #f59e0b;
+  --yard-accent-strong: #a84e08;
+  --yard-accent-soft: #fef3c7;
+  --yard-accent-ink: #201403;
+  --yard-success: #047857;
+  --yard-success-strong: #047857;
+  --yard-success-soft: #d1fae5;
+  --yard-danger: #e11d48;
+  --yard-danger-strong: #be123c;
+  --yard-danger-soft: #ffe4e6;
+  --yard-info: #0284c7;
+  --yard-info-strong: #0369a1;
+  --yard-info-soft: #e0f2fe;
+  --yard-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05), 0 10px 24px -18px rgba(15, 23, 42, 0.35);
+  --yard-shadow-2: 0 -12px 44px rgba(15, 23, 42, 0.2);
+  --yard-shadow-nav: 0 -1px 0 rgba(15, 23, 42, 0.06), 0 -10px 28px rgba(15, 23, 42, 0.07);
+  background-color: var(--yard-bg);
+  color: var(--yard-ink);
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Physical yard work happens outdoors: the portal keeps its light high-contrast
+   island even when the office switches to dark mode. */
+
+/* #root-scoped to outrank the office portal's global brand focus ring */
+#root .yard-app :focus-visible {
+  outline: 2px solid var(--yard-accent-strong);
+  outline-offset: 2px;
+}
+
+/* The sheet surface receives programmatic focus for a11y; it doesn't need a ring. */
+#root .yard-app .yard-sheet:focus-visible { outline: none; }
+
+/* ---------- Native building blocks ---------- */
+.yard-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--yard-muted);
+}
+
+.yard-card {
+  position: relative;
+  background: var(--yard-surface);
+  border: 1px solid var(--yard-line);
+  border-radius: 18px;
+  box-shadow: var(--yard-shadow-1);
+}
+
+.yard-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-radius: 18px 0 0 18px;
+  background: var(--yard-line-strong);
+}
+
+.yard-card--pending::before { background: var(--yard-accent); }
+.yard-card--ready::before { background: var(--yard-success); }
+/* Reclamo is an operational state: amber urgency, never red. */
+.yard-card--claim::before { background: var(--yard-accent); }
+.yard-card--sale::before { background: var(--yard-info); }
+
+.yard-card--active {
+  border-color: color-mix(in srgb, var(--yard-accent) 55%, var(--yard-line));
+}
+
+.yard-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.5rem;
+  border: 1px solid var(--yard-line);
+  border-radius: 8px;
+  background: var(--yard-sunken);
+  color: var(--yard-muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.yard-chip--accent {
+  background: var(--yard-accent-soft);
+  border-color: #fcd34d;
+  color: var(--yard-accent-strong);
+}
+
+.yard-chip--success {
+  background: var(--yard-success-soft);
+  border-color: #6ee7b7;
+  color: var(--yard-success-strong);
+}
+
+.yard-chip--info {
+  background: var(--yard-info-soft);
+  border-color: #7dd3fc;
+  color: var(--yard-info-strong);
+}
+
+.yard-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.5rem;
+  border: 1px solid;
+  border-radius: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  line-height: 1.25;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.yard-status--pending {
+  background: var(--yard-accent-soft);
+  border-color: #fcd34d;
+  color: var(--yard-accent-strong);
+}
+
+.yard-status--ready {
+  background: var(--yard-success-soft);
+  border-color: #6ee7b7;
+  color: var(--yard-success-strong);
+}
+
+.yard-status--claim {
+  background: var(--yard-accent-soft);
+  border-color: #fcd34d;
+  color: var(--yard-accent-strong);
+}
+
+.yard-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 48px;
+  padding: 0 1rem;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+  text-align: center;
+  transition: transform 0.12s ease, background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+.yard-btn:active { transform: scale(0.97); }
+.yard-btn:disabled { opacity: 0.55; pointer-events: none; }
+
+.yard-btn--primary {
+  background: var(--yard-accent);
+  color: var(--yard-accent-ink);
+  box-shadow: 0 10px 22px -12px rgba(245, 158, 11, 0.9);
+}
+
+.yard-btn--primary:hover { background: #fbbf24; }
+
+.yard-btn--success {
+  background: var(--yard-success);
+  color: #ffffff;
+  box-shadow: 0 10px 22px -12px rgba(4, 120, 87, 0.85);
+}
+
+.yard-btn--success:hover { background: #059669; }
+
+.yard-btn--secondary {
+  background: var(--yard-accent-soft);
+  border-color: #fcd34d;
+  color: var(--yard-accent-strong);
+}
+
+.yard-btn--secondary:hover { background: #fde68a; }
+
+.yard-btn--ghost {
+  background: var(--yard-surface);
+  border-color: var(--yard-line-strong);
+  color: var(--yard-ink-soft);
+}
+
+.yard-btn--ghost:hover { background: var(--yard-raised); }
+
+.yard-btn--danger {
+  background: var(--yard-danger-soft);
+  border-color: #fda4af;
+  color: var(--yard-danger-strong);
+}
+
+.yard-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--yard-line);
+  border-radius: 12px;
+  background: var(--yard-surface);
+  color: var(--yard-muted);
+  transition: transform 0.12s ease, background-color 0.16s ease, color 0.16s ease;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+.yard-icon-btn:hover {
+  background: var(--yard-raised);
+  color: var(--yard-ink);
+}
+
+.yard-icon-btn:active { transform: scale(0.94); }
+
+.yard-field {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 2.75rem 0 2.75rem;
+  border: 1px solid var(--yard-line-strong);
+  border-radius: 14px;
+  background: var(--yard-surface);
+  color: var(--yard-ink);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  box-shadow: var(--yard-shadow-1);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.yard-field::placeholder { color: var(--yard-faint); }
+
+.yard-field:focus {
+  outline: none;
+  border-color: var(--yard-accent);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.22);
+}
+
+.yard-select {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 1px solid var(--yard-line-strong);
+  border-radius: 12px;
+  background: var(--yard-surface);
+  color: var(--yard-ink);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.yard-select:focus {
+  outline: none;
+  border-color: var(--yard-accent);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.22);
+}
+
+.yard-select:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.yard-textarea {
+  width: 100%;
+  min-height: 132px;
+  padding: 10px 12px;
+  border: 1px solid var(--yard-line-strong);
+  border-radius: 12px;
+  background: var(--yard-surface);
+  color: var(--yard-ink);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.yard-textarea::placeholder { color: var(--yard-faint); }
+
+.yard-textarea:focus {
+  outline: none;
+  border-color: var(--yard-accent);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.22);
+}
+
+.yard-sheet {
+  background: var(--yard-surface);
+  border: 1px solid var(--yard-line);
+  border-bottom: 0;
+  border-radius: 24px 24px 0 0;
+  box-shadow: var(--yard-shadow-2);
+}
+
+.yard-nav {
+  background: var(--yard-surface);
+  border-top: 1px solid var(--yard-line);
+  box-shadow: var(--yard-shadow-nav);
+}
+
+.yard-tab {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 52px;
+  padding: 4px 2px;
+  border-radius: 14px;
+  color: var(--yard-muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  transition: background-color 0.16s ease, color 0.16s ease;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+.yard-tab[aria-current='page'] {
+  background: var(--yard-accent-soft);
+  color: var(--yard-accent-strong);
+}
+
+.yard-tab:active { transform: scale(0.96); }
+
+.yard-count {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--yard-ink);
+  color: var(--yard-surface);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.yard-tab[aria-current='page'] .yard-count {
+  background: var(--yard-accent);
+  color: var(--yard-accent-ink);
+}
+
+/* Boot skeleton used while the first page of the queue arrives */
+@keyframes yardSkeletonPulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.yard-skeleton {
+  background: var(--yard-line);
+  border-radius: 10px;
+  animation: yardSkeletonPulse 1.4s ease-in-out infinite;
+}
+
+/* ---------- Legacy dark utilities painted for the light theme ---------- */
+html #root .yard-app .bg-\[\#070b14\] {
+  background-color: var(--yard-bg) !important;
+}
+
+html #root .yard-app .bg-\[\#0d1424\],
+html #root .yard-app .bg-\[\#0d1424\]\/95,
+html #root .yard-app .bg-\[\#0d1424\]\/90,
+html #root .yard-app .bg-\[\#0d1424\]\/80 {
+  background-color: var(--yard-surface) !important;
+}
+
+html #root .yard-app .bg-slate-950,
+html #root .yard-app .bg-slate-950\/80 {
+  background-color: var(--yard-sunken) !important;
+}
+
+html #root .yard-app .bg-slate-900,
+html #root .yard-app .bg-slate-900\/90,
+html #root .yard-app .bg-slate-900\/80,
+html #root .yard-app .bg-slate-900\/60,
+html #root .yard-app .bg-slate-900\/50 {
+  background-color: var(--yard-raised) !important;
+}
+
+html #root .yard-app .bg-slate-800,
+html #root .yard-app .bg-slate-800\/90,
+html #root .yard-app .bg-slate-800\/80 {
+  background-color: var(--yard-sunken) !important;
+}
+
+html #root .yard-app .hover\:bg-slate-700:hover,
+html #root .yard-app .hover\:bg-slate-800:hover {
+  background-color: #e5e9f0 !important;
+}
+
+html #root .yard-app .border-slate-800,
+html #root .yard-app .border-slate-700,
+html #root .yard-app .border-slate-700\/70,
+html #root .yard-app .border-slate-600 {
+  border-color: var(--yard-line) !important;
+}
+
+html #root .yard-app .text-white,
+html #root .yard-app .text-slate-100 {
+  color: var(--yard-ink) !important;
+}
+
+html #root .yard-app .text-slate-200 {
+  color: var(--yard-ink-soft) !important;
+}
+
+html #root .yard-app .text-slate-300 {
+  color: #334155 !important;
+}
+
+html #root .yard-app .text-slate-400 {
+  color: var(--yard-muted) !important;
+}
+
+html #root .yard-app .text-slate-500 {
+  color: var(--yard-faint) !important;
+}
+
+html #root .yard-app .placeholder\:text-slate-500::placeholder {
+  color: var(--yard-faint) !important;
+}
+
+html #root .yard-app .text-amber-200,
+html #root .yard-app .text-amber-300,
+html #root .yard-app .text-amber-400 {
+  color: var(--yard-accent-strong) !important;
+}
+
+html #root .yard-app .text-emerald-300,
+html #root .yard-app .text-emerald-400 {
+  color: var(--yard-success-strong) !important;
+}
+
+html #root .yard-app .text-rose-200,
+html #root .yard-app .text-rose-300,
+html #root .yard-app .text-rose-400,
+html #root .yard-app .text-red-300,
+html #root .yard-app .text-red-400 {
+  color: var(--yard-danger-strong) !important;
+}
+
+html #root .yard-app .text-cyan-300,
+html #root .yard-app .text-cyan-400 {
+  color: var(--yard-info-strong) !important;
+}
+
+html #root .yard-app .hover\:text-white:hover,
+html #root .yard-app .hover\:text-slate-200:hover {
+  color: var(--yard-ink) !important;
+}
+
+html #root .yard-app .bg-rose-950\/95,
+html #root .yard-app .bg-rose-950\/50,
+html #root .yard-app .bg-rose-900\/30 {
+  background-color: var(--yard-danger-soft) !important;
+}
+
+html #root .yard-app .bg-amber-950\/95,
+html #root .yard-app .bg-amber-950\/25 {
+  background-color: var(--yard-accent-soft) !important;
+}
+
+html #root .yard-app .bg-emerald-950\/95 {
+  background-color: var(--yard-success-soft) !important;
+}
+
+/* Keep amber/rose urgency on legacy dialog shells and dark photo overlays */
+html #root .yard-app [class*="rounded-2xl"][class*="shadow-"][class*="border-amber-500"] {
+  border-color: #f59e0b !important;
+}
+
+html #root .yard-app [class*="rounded-2xl"][class*="shadow-"][class*="border-emerald-500"] {
+  border-color: #10b981 !important;
+}
+
+html #root .yard-app [class*="bg-black"] .text-amber-300,
+html #root .yard-app [class*="bg-black"] .text-amber-400 {
+  color: #fcd34d !important;
+}
+
+html #root .yard-app [class*="bg-amber-500\/"] .text-white,
+html #root .yard-app [class*="bg-emerald-500\/"] .text-white {
+  color: var(--yard-ink) !important;
+}
+
+/* Office form normalization forces --input-* on every control; the exception
+   that restores yard tokens lives in horizon.css, next to that rule */
+html #root .yard-app .yard-field { border-radius: 14px !important; }
+html #root .yard-app :is(.yard-select, .yard-textarea) { border-radius: 12px !important; }
+
+html #root .yard-app :is(input[type='checkbox'], input[type='radio']) {
+  accent-color: var(--yard-accent);
+}
+
+html #root .yard-app :is(button, a, input, select, textarea):focus-visible {
+  outline-color: var(--yard-accent-strong);
+}
+
+/* Reduced motion: keep the app usable without decorative movement */
+@media (prefers-reduced-motion: reduce) {
+  .yard-app *,
+  .yard-app *::before,
+  .yard-app *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+
+/* Tablet/desktop: the tab bar floats as a centered native pill */
+@media (min-width: 768px) {
+  .yard-nav {
+    background: transparent;
+    border-top: 0;
+    box-shadow: none;
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
+  }
+  .yard-nav-inner {
+    max-width: 30rem;
+    background: var(--yard-surface);
+    border: 1px solid var(--yard-line-strong);
+    border-radius: 20px;
+    box-shadow: var(--yard-shadow-nav);
+    padding: 4px;
+  }
+}
+
+/* Detail sheet on tablet/desktop: centered dialog instead of a full-width bottom sheet */
+@keyframes yardDialogIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (min-width: 640px) {
+  .yard-sheet {
+    border-radius: 24px;
+    border-bottom: 1px solid var(--yard-line);
+    animation: yardDialogIn 0.16s ease-out;
+  }
+}
+
+/* Photo lightbox: horizon.css repaints .text-white inside #root, so the id scope
+   keeps the viewer black with white chrome in both themes. The extra [class]
+   outranks horizon's html :is(#root) :is(.text-white) rule. */
+html #root .yard-lightbox[class] {
+  background-color: rgba(0, 0, 0, var(--lightbox-fade, 1)) !important;
+  color: #fff !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  overscroll-behavior: contain;
+}
+
+#root .yard-lightbox .text-white { color: #fff !important; }
+#root .yard-lightbox .text-white\/90 { color: rgba(255, 255, 255, 0.9) !important; }
+#root .yard-lightbox .text-white\/80 { color: rgba(255, 255, 255, 0.8) !important; }
+#root .yard-lightbox .text-white\/60 { color: rgba(255, 255, 255, 0.6) !important; }
+#root .yard-lightbox .hover\:text-white:hover { color: #fff !important; }
+#root .yard-lightbox:focus-visible { outline: none; }
+
+/* Dark image overlays keep white labels in the light theme too */
+html #root .yard-app [class*="bg-black"] .text-white {
+  color: #fff !important;
+}

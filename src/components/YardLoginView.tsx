@@ -44,7 +44,7 @@ export const YardLoginView: React.FC<YardLoginViewProps> = ({ onAuthenticated })
           {/* Header */}
           <div className="text-center mb-6">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-400 mb-3 shadow-[0_0_20px_rgba(245,158,11,0.25)]">
-              <span className="material-symbols-outlined text-3xl">agriculture</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-3xl">agriculture</span>
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-white flex items-center justify-center gap-2">
               <span>RADAR</span>
@@ -53,7 +53,7 @@ export const YardLoginView: React.FC<YardLoginViewProps> = ({ onAuthenticated })
               </span>
             </h1>
             <p className="text-xs text-slate-400 mt-1 font-mono">
-              Portal de Operaciones de Patio · yard.localhost.com
+              Portal de Operaciones de Patio · {typeof window !== 'undefined' ? window.location.host : 'Radar Yarda'}
             </p>
           </div>
 
@@ -62,7 +62,7 @@ export const YardLoginView: React.FC<YardLoginViewProps> = ({ onAuthenticated })
               role="alert"
               className="mb-5 rounded-xl border border-red-500/50 bg-red-950/40 p-3 text-xs text-red-300 font-mono flex items-center gap-2"
             >
-              <span className="material-symbols-outlined text-[18px]">error</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">error</span>
               <span>{error}</span>
             </div>
           )}
@@ -73,7 +73,7 @@ export const YardLoginView: React.FC<YardLoginViewProps> = ({ onAuthenticated })
                 Usuario / Correo Electrónico
               </label>
               <div className="relative">
-                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[20px]">
+                <span aria-hidden="true" className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[20px]">
                   person
                 </span>
                 <input
@@ -95,7 +95,7 @@ export const YardLoginView: React.FC<YardLoginViewProps> = ({ onAuthenticated })
                 Contraseña
               </label>
               <div className="relative">
-                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[20px]">
+                <span aria-hidden="true" className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[20px]">
                   key
                 </span>
                 <input
@@ -113,7 +113,7 @@ export const YardLoginView: React.FC<YardLoginViewProps> = ({ onAuthenticated })
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
                 >
-                  <span className="material-symbols-outlined text-[20px]">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[20px]">
                     {showPassword ? 'visibility_off' : 'visibility'}
                   </span>
                 </button>
@@ -125,7 +125,7 @@ export const YardLoginView: React.FC<YardLoginViewProps> = ({ onAuthenticated })
               disabled={submitting}
               className="w-full mt-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold py-3 text-sm flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(245,158,11,0.3)] transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed font-mono tracking-wider"
             >
-              <span className="material-symbols-outlined text-[18px]">login</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">login</span>
               <span>{submitting ? 'Ingresando...' : 'Entrar a Yarda'}</span>
             </button>
           </form>

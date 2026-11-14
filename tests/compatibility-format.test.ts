@@ -42,3 +42,4 @@ describe('expandYearRangesInText', () => {
     expect(output).toBe('*Honda Civic: 2006 y 2007.');
   });
 });
+

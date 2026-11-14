@@ -27,6 +27,16 @@
     --warning: #fbbf24;
     --danger: #fda4af;
     --grid-line: transparent;
+    --state-urgency: #f59e0b;
+    --state-urgency-text: #fbbf24;
+    --state-urgency-tint: rgba(245, 158, 11, 0.14);
+    --state-urgency-border: rgba(245, 158, 11, 0.5);
+    --state-urgency-ink: #1f2937;
+    --state-action: var(--brand);
+    --state-action-soft: var(--brand-soft);
+    --state-success: var(--positive);
+    --state-info: #22d3ee;
+    --state-destructive: #fdba74;
   }
 
   html.light {
@@ -54,6 +64,11 @@
     --warning: #b45309;
     --danger: #b91c1c;
     --grid-line: transparent;
+    --state-urgency-text: #92400e;
+    --state-urgency-tint: rgba(245, 158, 11, 0.16);
+    --state-urgency-border: rgba(180, 83, 9, 0.35);
+    --state-info: #0e7490;
+    --state-destructive: #9a3412;
   }
 
   html body {
@@ -64,7 +79,6 @@
   }
   html { color-scheme: dark; }
   html.light { color-scheme: light; }
-  #root .horizon-app > [class*="blur-"][class*="pointer-events-none"] { display: none; }
   html #root :is(.horizon-workspace, .horizon-workspace > main) {
     background: var(--bg-primary);
     backdrop-filter: none;
@@ -203,6 +217,19 @@
     box-shadow: 0 0 0 3px var(--brand-soft) !important;
   }
   html #root select option { background: var(--bg-card); color: var(--text-primary); }
+  /* Yard island: its form controls keep yard tokens instead of the office palette */
+  html #root .yard-app :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    background-color: var(--yard-surface) !important;
+    color: var(--yard-ink) !important;
+    border-color: var(--yard-line-strong) !important;
+    box-shadow: var(--yard-shadow-1) !important;
+  }
+  html #root .yard-app :is(input, textarea)::placeholder { color: var(--yard-faint) !important; }
+  html #root .yard-app :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea):focus {
+    border-color: var(--yard-accent) !important;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.22) !important;
+  }
+  html #root .yard-app select option { background: var(--yard-surface); color: var(--yard-ink); }
   #root :is(button, a, input, select, textarea):focus-visible {
     outline: 2px solid var(--brand);
     outline-offset: 3px;
@@ -215,6 +242,12 @@
     background: var(--bg-card-subtle);
     color: var(--text-primary);
     border-color: var(--border-color);
+    box-shadow: none;
+  }
+  html #root .cyber-btn-secondary:hover:not(:disabled) {
+    background: var(--brand-soft);
+    color: var(--brand);
+    border-color: var(--brand);
     box-shadow: none;
   }
   html #root :is(.horizon-primary, .cyber-btn-primary):hover:not(:disabled) {
@@ -230,6 +263,15 @@
   html :is(#root, .horizon-followup-portal) :is([class*="text-emerald-"], [class*="text-green-"]) { color: var(--positive) !important; }
   html :is(#root, .horizon-followup-portal) :is([class*="text-amber-"], [class*="text-orange-"], [class*="text-yellow-"]) { color: var(--warning) !important; }
   html :is(#root, .horizon-followup-portal) :is([class*="text-rose-"], [class*="text-red-"]) { color: var(--danger) !important; }
+  html :is(#root, .horizon-followup-portal) :is([class*="border-emerald-"], [class*="border-green-"]) {
+    border-color: color-mix(in srgb, var(--positive) 35%, transparent) !important;
+  }
+  html :is(#root, .horizon-followup-portal) :is([class*="border-amber-"], [class*="border-orange-"], [class*="border-yellow-"]) {
+    border-color: color-mix(in srgb, var(--warning) 35%, transparent) !important;
+  }
+  html :is(#root, .horizon-followup-portal) :is([class*="border-rose-"], [class*="border-red-"]) {
+    border-color: color-mix(in srgb, var(--danger) 35%, transparent) !important;
+  }
   html :is(#root, .horizon-followup-portal) :is(
     [class^="bg-emerald-50/"], [class*=" bg-emerald-50/"],
     [class^="bg-emerald-500/"], [class*=" bg-emerald-500/"],
@@ -289,7 +331,7 @@
     background: transparent !important;
     border: 0 !important;
     font-weight: 500;
-    min-height: 48px;
+    min-height: 52px;
     font-size: 14px;
   }
   html #root .horizon-sidebar .horizon-nav-item:hover {
@@ -501,8 +543,13 @@
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
   }
-  #root .horizon-topbar .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
   #root main { scrollbar-color: var(--input-border) var(--bg-primary); }
+  #root .h-scroll-fade {
+    scroll-snap-type: x proximity;
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  }
+  #root .h-scroll-fade > button { scroll-snap-align: start; }
   #root .radar-view { gap: 20px; }
   #root .horizon-dashboard > div { margin-top: 0; }
   html #root .horizon-kpis > div {
@@ -542,21 +589,30 @@
   #root ::-webkit-scrollbar-track { background: var(--bg-primary); }
   #root ::-webkit-scrollbar-thumb { background: var(--input-border); border: 0; }
 
-  #root .horizon-nav-groups { min-height: 0; }
-  #root .horizon-nav-group + .horizon-nav-group { margin-top: 24px; }
+  #root .horizon-nav-groups {
+    min-height: 0;
+    padding-bottom: 14px;
+    padding-right: 2px;
+    scrollbar-color: var(--input-border) transparent;
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent);
+  }
+  #root .horizon-nav-group + .horizon-nav-group { margin-top: 20px; }
   #root .horizon-nav-label {
     padding: 0 12px;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
     font-size: 11px;
     font-weight: 600;
     color: var(--text-secondary);
     letter-spacing: 0.06em;
     text-transform: uppercase;
   }
+  #root .horizon-sidebar-account {
+    padding: 14px 16px;
+    box-shadow: 0 -10px 24px var(--bg-card);
+  }
   html #root .horizon-sidebar .horizon-nav-item { margin-bottom: 4px; }
-  #root .horizon-sidebar-account { padding: 16px; }
   #root .horizon-header-title h1 { font-size: 30px; line-height: 1.25; margin-top: 4px; }
-  #root .horizon-header-search { width: 210px; }
+  #root .horizon-header-search { width: 210px; flex-shrink: 0; }
   html #root .horizon-topbar .horizon-icon-button {
     display: inline-flex;
     align-items: center;
@@ -650,7 +706,9 @@
     line-height: 1.25;
     font-weight: 700;
     color: var(--text-heading);
-    overflow-wrap: anywhere;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     font-variant-numeric: tabular-nums;
   }
   #root .horizon-stat-note { font-size: 11px; line-height: 1.5; color: var(--text-secondary); }
@@ -949,6 +1007,13 @@
   html #root .horizon-detail-grid h3 { font-size: 20px; margin: 8px 0; }
   html .horizon-modal :is(h2, h3, h4) { color: var(--text-heading) !important; }
   html .horizon-modal > :is(div, form) { max-height: calc(100dvh - 32px); overflow-y: auto; }
+  html.light #root .horizon-flow-dialog :is([class*="rounded-2xl"][class*="shadow-"], [class*="rounded-3xl"][class*="shadow-"]) {
+    border-color: var(--border-color) !important;
+  }
+  html .horizon-modal > .horizon-flow-dialog {
+    max-height: min(94vh, 860px);
+    overflow: hidden;
+  }
   html .horizon-modal :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
     background: var(--input-bg) !important;
     color: var(--input-text) !important;
@@ -993,7 +1058,7 @@
     #root .horizon-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     #root .horizon-stat { padding: 12px; gap: 8px; }
     #root .horizon-stat-icon { width: 32px; height: 32px; }
-    #root .horizon-stat-value { font-size: 18px; }
+    #root .horizon-stat-value { font-size: 16px; }
     #root .horizon-chart-grid, #root .horizon-dashboard-lower { grid-template-columns: minmax(0, 1fr); }
     #root .horizon-cumulative-summary { width: 100px; }
     #root .horizon-chart-total { font-size: 24px; }
@@ -1021,14 +1086,21 @@
     html #root .horizon-topbar { padding: 16px 20px; }
     #root .horizon-dashboard-toolbar { flex-wrap: wrap; }
   }
+  @media (max-width: 1535px) {
+    #root .horizon-header-search { width: 190px; }
+  }
+  @media (min-width: 1536px) {
+    #root .horizon-header-search { width: 230px; }
+  }
   @media (min-width: 768px) and (max-width: 1099px) {
     #root .horizon-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
-  @media (min-width: 1100px) and (max-width: 1399px) {
-    #root .horizon-stat { padding: 14px 10px; gap: 8px; }
-    #root .horizon-stat-icon { width: 28px; height: 28px; }
-    #root .horizon-stat-icon .material-symbols-outlined { font-size: 18px; }
-    #root .horizon-stat-value { font-size: 16px; }
+  @media (min-width: 1100px) and (max-width: 1535px) {
+    #root .horizon-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    #root .horizon-stat { padding: 14px 12px; gap: 10px; }
+    #root .horizon-stat-icon { width: 32px; height: 32px; }
+    #root .horizon-stat-icon .material-symbols-outlined { font-size: 19px; }
+    #root .horizon-stat-value { font-size: 19px; }
   }
   @media (min-width: 768px) and (max-width: 1023px) {
     #root .horizon-chart-grid { grid-template-columns: minmax(0, 1fr); }

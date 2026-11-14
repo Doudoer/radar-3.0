@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch } from '../services/apiFetch';
+import { useDialogAccessibility } from '../hooks/useDialogAccessibility';
 
 export interface CustomerDuplicateMember {
   id: number;
@@ -80,6 +81,9 @@ export const CustomerDuplicatesModal: React.FC<CustomerDuplicatesModalProps> = (
     }
   }, [currentIndex, currentGroup]);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogAccessibility({ open: isOpen, dialogRef, onEscape: onClose });
+
   if (!isOpen) return null;
 
   const handleMerge = async () => {
@@ -152,7 +156,9 @@ export const CustomerDuplicatesModal: React.FC<CustomerDuplicatesModalProps> = (
 
   return (
     <div
-      className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in"
+      ref={dialogRef}
+      tabIndex={-1}
+      className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in outline-none"
       role="dialog"
       aria-modal="true"
       aria-labelledby="merge-modal-title"
@@ -164,7 +170,7 @@ export const CustomerDuplicatesModal: React.FC<CustomerDuplicatesModalProps> = (
         <div className="flex items-start justify-between gap-4 border-b border-cyan-500/15 pb-4">
           <div className="flex items-center gap-3.5">
             <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.25)] shrink-0">
-              <span className="material-symbols-outlined text-[26px]">merge_type</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[26px]">merge_type</span>
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -189,14 +195,14 @@ export const CustomerDuplicatesModal: React.FC<CustomerDuplicatesModalProps> = (
             className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors"
             title="Cerrar modal"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
         {/* Loading State */}
         {loading && (
           <div className="p-12 text-center space-y-3 font-mono">
-            <span className="material-symbols-outlined text-4xl text-cyan-400 animate-spin">
+            <span aria-hidden="true" className="material-symbols-outlined text-4xl text-cyan-400 animate-spin">
               progress_activity
             </span>
             <p className="text-xs text-slate-400">Analizando base de datos para detectar clientes duplicados…</p>
@@ -207,7 +213,7 @@ export const CustomerDuplicatesModal: React.FC<CustomerDuplicatesModalProps> = (
         {!loading && groups.length === 0 && (
           <div className="p-10 text-center space-y-3 font-mono">
             <div className="w-16 h-16 mx-auto rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
-              <span className="material-symbols-outlined text-3xl">verified</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-3xl">verified</span>
             </div>
             <h3 className="text-base font-bold text-white">¡Base de datos limpia y sin duplicados!</h3>
             <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
@@ -231,7 +237,7 @@ export const CustomerDuplicatesModal: React.FC<CustomerDuplicatesModalProps> = (
             {/* Match Reason Banner */}
             <div className="p-3 rounded-2xl bg-cyan-950/40 border border-cyan-500/30 flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
               <div className="flex items-center gap-2 text-cyan-300">
-                <span className="material-symbols-outlined text-[18px]">
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">
                   {currentGroup.matchType === 'phone'
                     ? 'call'
                     : currentGroup.matchType === 'email'
@@ -259,11 +265,11 @@ export const CustomerDuplicatesModal: React.FC<CustomerDuplicatesModalProps> = (
               <div
                 className={`p-3 rounded-2xl text-xs font-mono flex items-center gap-2 ${
                   feedback.type === 'success'
-                    ? 'bg-emerald-950/50 border border-emerald-500/40 text-emerald-300'
-                    : 'bg-rose-950/50 border border-rose-500/40 text-rose-300'
+                    ? 'bg-emerald-500/10 border border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+                    : 'bg-[var(--state-urgency-tint)] border border-[var(--state-urgency-border)] text-[var(--state-urgency-text)]'
                 }`}
               >
-                <span className="material-symbols-outlined text-base">
+                <span aria-hidden="true" className="material-symbols-outlined text-base">
                   {feedback.type === 'success' ? 'check_circle' : 'error'}
                 </span>
                 <span>{feedback.text}</span>
@@ -306,12 +312,13 @@ export const CustomerDuplicatesModal: React.FC<CustomerDuplicatesModalProps> = (
                         </div>
 
                         {isSelected ? (
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center gap-1 shadow-[0_0_8px_#22d3ee]">
-                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-[var(--brand-soft)] text-[var(--brand)] border border-[var(--brand)]/40 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[var(--brand)]" />
                             Registro Principal
                           </span>
                         ) : (
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-500/10 text-rose-300 border border-rose-500/30 flex items-center gap-1">
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-[var(--bg-card-subtle)] text-[var(--text-secondary)] border border-[var(--border-color)] flex items-center gap-1">
+                            <span aria-hidden="true" className="material-symbols-outlined text-[12px]">archive</span>
                             Se archivará
                           </span>
                         )}
@@ -325,7 +332,7 @@ export const CustomerDuplicatesModal: React.FC<CustomerDuplicatesModalProps> = (
                           </h4>
                           {c.company && (
                             <p className="text-xs text-cyan-300 font-mono mt-0.5 flex items-center gap-1">
-                              <span className="material-symbols-outlined text-[13px]">apartment</span>
+                              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">apartment</span>
                               <span>{c.company}</span>
                             </p>
                           )}
@@ -333,7 +340,7 @@ export const CustomerDuplicatesModal: React.FC<CustomerDuplicatesModalProps> = (
 
                         <div className="flex flex-col items-end gap-1">
                           <span className="px-2.5 py-1 rounded-xl text-xs font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[14px]">receipt_long</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[14px]">receipt_long</span>
                             <span>{c.orderCount} Órdenes</span>
                           </span>
                           {c.callCount > 0 && (
@@ -351,7 +358,7 @@ export const CustomerDuplicatesModal: React.FC<CustomerDuplicatesModalProps> = (
                           <span className="text-slate-200 font-bold">{c.phone || '—'}</span>
                         </div>
                         <div className="flex justify-between py-1 border-b border-slate-800/60">
-                          <span className="text-slate-400">WhatsApp:</span>
+                          <span className="text-slate-400">Teléfono alternativo:</span>
                           <span className="text-slate-200">{c.whatsapp || '—'}</span>
                         </div>
                         <div className="flex justify-between py-1 border-b border-slate-800/60">
@@ -392,7 +399,7 @@ export const CustomerDuplicatesModal: React.FC<CustomerDuplicatesModalProps> = (
                             : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
                         }`}
                       >
-                        <span className="material-symbols-outlined text-[16px]">
+                        <span aria-hidden="true" className="material-symbols-outlined text-[16px]">
                           {isSelected ? 'check_circle' : 'radio_button_unchecked'}
                         </span>
                         <span>{isSelected ? 'Seleccionado como Principal' : 'Hacer Principal'}</span>
@@ -459,7 +466,7 @@ export const CustomerDuplicatesModal: React.FC<CustomerDuplicatesModalProps> = (
                 onClick={() => void handleMerge()}
                 className="cyber-btn-primary px-5 py-2.5 text-xs font-black flex items-center gap-2 disabled:opacity-50 cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.4)]"
               >
-                <span className="material-symbols-outlined text-[18px]">
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">
                   {merging ? 'sync' : 'merge_type'}
                 </span>
                 <span>{merging ? 'Fusionando Clientes...' : 'Fusionar Clientes'}</span>

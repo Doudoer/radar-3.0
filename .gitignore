@@ -4,6 +4,7 @@ dist/
 coverage/
 .DS_Store
 *.log
+cookies.txt
 .env*
 !.env.example
 backups/
@@ -12,3 +13,5 @@ uploads/
 !migrations/*.sql
 !deploy/desktop-runtime-grants.sql
 capturas_sistema/
+.gstack/
+.claude/session-data/

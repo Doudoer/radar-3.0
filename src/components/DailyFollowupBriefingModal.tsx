@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { PendingFollowupItem } from '../types';
 import { RegisterFollowupCallModal } from './RegisterFollowupCallModal';
+import { useDialogAccessibility } from '../hooks/useDialogAccessibility';
 
 interface DailyFollowupBriefingModalProps {
   isOpen: boolean;
@@ -57,6 +58,13 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
     return () => clearInterval(interval);
   }, [isOpen, onRefreshPending]);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogAccessibility({
+    open: isOpen && !selectedItemForCall,
+    dialogRef,
+    onEscape: onClose,
+  });
+
   if (!isOpen) return null;
 
   // Get unique advisors from items for filter
@@ -89,12 +97,12 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
 
   const modalContent = (
     <div className="horizon-modal horizon-followup-portal horizon-followup-briefing fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 md:p-6">
-      <div role="dialog" aria-modal="true" aria-labelledby="daily-followup-title" aria-describedby="daily-followup-description" className="horizon-followup-panel relative w-full max-w-5xl max-h-[92dvh] flex flex-col rounded-3xl overflow-hidden">
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="daily-followup-title" aria-describedby="daily-followup-description" className="horizon-followup-panel relative w-full max-w-5xl max-h-[92dvh] flex flex-col rounded-3xl overflow-hidden outline-none">
         {/* Modal Header */}
         <div className="horizon-followup-header px-4 py-4 sm:px-6 sm:py-5 flex items-start justify-between gap-3 shrink-0">
           <div className="flex items-start gap-3 min-w-0">
             <div className="horizon-followup-icon w-11 h-11 rounded-2xl flex items-center justify-center shrink-0">
-              <span className="material-symbols-outlined text-[24px]">phone_in_talk</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[24px]">phone_in_talk</span>
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -106,7 +114,7 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
                 </span>
               </div>
               <p id="daily-followup-description" className="text-xs text-slate-400 mt-1 leading-relaxed">
-                Garantía Temprana (14 Días) • Atención por llamada o mensaje de texto (WhatsApp/SMS) asignada al asesor de venta
+                Garantía Temprana (14 Días) • Atención por llamada o mensaje de texto (SMS) asignada al asesor de venta
               </p>
             </div>
           </div>
@@ -119,7 +127,7 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
               title="Cerrar (Permanecerá accesible en barra superior)"
               aria-label="Cerrar seguimiento post-entrega"
             >
-              <span className="material-symbols-outlined text-[20px]">close</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
             </button>
           </div>
         </div>
@@ -129,19 +137,19 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
           {/* Quick Metrics */}
           <div className="horizon-followup-metrics grid grid-cols-3 gap-2 w-full sm:w-auto">
             <div className="horizon-followup-metric flex items-center gap-1.5 px-3 py-2.5 rounded-2xl text-xs" data-urgency="atrasada">
-              <span className="material-symbols-outlined text-[16px] text-rose-400">error</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-rose-400">error</span>
               <span>Atrasadas:</span>
               <strong className="text-lg font-bold">{overdueCount}</strong>
             </div>
 
             <div className="horizon-followup-metric flex items-center gap-1.5 px-3 py-2.5 rounded-2xl text-xs" data-urgency="hoy">
-              <span className="material-symbols-outlined text-[16px] text-amber-400">schedule</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-amber-400">schedule</span>
               <span>Hoy:</span>
               <strong className="text-lg font-bold">{todayCount}</strong>
             </div>
 
             <div className="horizon-followup-metric flex items-center gap-1.5 px-3 py-2.5 rounded-2xl text-xs" data-urgency="proxima">
-              <span className="material-symbols-outlined text-[16px] text-cyan-400">event</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-400">event</span>
               <span>Próximas:</span>
               <strong className="text-lg font-bold">{upcomingCount}</strong>
             </div>
@@ -151,7 +159,7 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
           <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
             <div className="flex items-center gap-1.5 min-w-0 flex-1">
               <label htmlFor="followup-advisor" className="text-xs text-slate-400 flex items-center gap-1">
-                <span className="material-symbols-outlined text-[15px] text-cyan-400">person</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-cyan-400">person</span>
                 <span className="hidden sm:inline">Asesor:</span>
               </label>
               <select
@@ -179,7 +187,7 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
               className="horizon-followup-secondary inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold disabled:opacity-50 cursor-pointer"
               title="Actualizar lista de órdenes de seguimiento ahora"
             >
-              <span className={`material-symbols-outlined text-[16px] ${isRefreshing ? 'animate-spin text-cyan-300' : 'text-cyan-400'}`}>
+              <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${isRefreshing ? 'animate-spin text-cyan-300' : 'text-cyan-400'}`}>
                 refresh
               </span>
               <span>{isRefreshing ? 'Actualizando...' : 'Actualizar'}</span>
@@ -191,7 +199,7 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
         <div className="horizon-followup-list flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-4 custom-scrollbar">
           {filteredItems.length === 0 ? (
             <div className="p-8 text-center bg-cyan-950/20 border border-cyan-500/30 rounded-xl">
-              <span className="material-symbols-outlined text-[48px] text-emerald-400 mb-2">verified</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[48px] text-emerald-400 mb-2">verified</span>
               <h3 className="text-sm sm:text-base font-bold text-white font-mono">¡Excelente trabajo!</h3>
               <p className="text-xs text-slate-300 font-mono mt-1">
                 No tienes llamadas de seguimiento pendientes ni atrasadas en este momento.
@@ -229,7 +237,7 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
                       {/* Customer & Vehicle */}
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-mono">
                         <div className="flex items-center gap-1.5 text-slate-200">
-                          <span className="material-symbols-outlined text-[15px] text-cyan-400">person</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-cyan-400">person</span>
                           <strong className="text-white">{item.customerName}</strong>
                           <span
                             className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold border ${
@@ -244,35 +252,22 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
                         </div>
 
                         <div className="flex items-center gap-1 text-slate-300">
-                          <span className="material-symbols-outlined text-[15px] text-amber-400">directions_car</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-amber-400">directions_car</span>
                           <span>{item.vehicle}</span>
                           <span className="text-cyan-400 font-bold">({item.mainPart})</span>
                         </div>
                       </div>
 
-                      {/* Phone, WhatsApp & Click-to-call */}
+                      {/* Phone & Click-to-call */}
                       <div className="flex flex-wrap items-center gap-2 pt-0.5">
                         <a
                           href={`tel:${item.customerPhone.replace(/\D/g, '')}`}
                           className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-mono font-black transition-all cursor-pointer shadow-[0_0_10px_rgba(16,185,129,0.2)] active:scale-95"
                           title="Llamar directamente desde teléfono o softphone"
                         >
-                          <span className="material-symbols-outlined text-[15px]">call</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[15px]">call</span>
                           <span>{item.customerPhone || 'Sin teléfono'}</span>
                         </a>
-
-                        {item.customerPhone && (
-                          <a
-                            href={`https://wa.me/${item.customerPhone.replace(/\D/g, '').length === 10 ? '1' + item.customerPhone.replace(/\D/g, '') : item.customerPhone.replace(/\D/g, '').startsWith('0') ? '58' + item.customerPhone.replace(/\D/g, '').slice(1) : item.customerPhone.replace(/\D/g, '')}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 text-xs font-mono font-bold transition-all cursor-pointer"
-                            title="Abrir chat de WhatsApp"
-                          >
-                            <span className="material-symbols-outlined text-[14px]">chat</span>
-                            <span>WhatsApp</span>
-                          </a>
-                        )}
 
                         {item.customerPhone && (
                           <button
@@ -281,7 +276,7 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
                             className="p-1 rounded bg-[#0b162c] hover:bg-cyan-500/20 border border-cyan-500/30 text-slate-300 hover:text-white transition-colors cursor-pointer"
                             title="Copiar número"
                           >
-                            <span className="material-symbols-outlined text-[14px]">
+                            <span aria-hidden="true" className="material-symbols-outlined text-[14px]">
                               {copiedPhone === item.orderId ? 'check' : 'content_copy'}
                             </span>
                           </button>
@@ -312,7 +307,7 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
                         onClick={() => handleOpenCallModal(item)}
                         className="horizon-followup-primary w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold cursor-pointer"
                       >
-                        <span className="material-symbols-outlined text-[16px]">phone_callback</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[16px]">phone_callback</span>
                         <span>Registrar Llamada / SMS</span>
                       </button>
 
@@ -324,7 +319,7 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
                         }}
                         className="w-full sm:w-auto inline-flex items-center justify-center gap-1 px-3 py-1 rounded-xl bg-[#0b162c] hover:bg-[#102042] border border-cyan-500/40 text-cyan-300 text-xs font-mono font-bold transition-all cursor-pointer"
                       >
-                        <span className="material-symbols-outlined text-[14px]">visibility</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[14px]">visibility</span>
                         <span>Ver Orden</span>
                       </button>
                     </div>
@@ -338,9 +333,9 @@ export const DailyFollowupBriefingModal: React.FC<DailyFollowupBriefingModalProp
         {/* Modal Footer Instructions & Dismiss */}
         <div className="horizon-followup-footer px-4 py-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2 text-xs font-mono text-slate-400 text-center sm:text-left">
-            <span className="material-symbols-outlined text-[18px] text-amber-400 shrink-0">info</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-amber-400 shrink-0">info</span>
             <span>
-              <strong>Regla Operativa:</strong> El seguimiento post-entrega debe realizarse de forma directa (llamada o mensaje WhatsApp/SMS) por el asesor que realizó la venta.
+              <strong>Regla Operativa:</strong> El seguimiento post-entrega debe realizarse de forma directa (llamada o mensaje SMS) por el asesor que realizó la venta.
             </span>
           </div>
 

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { InventoryPart } from '../types';
 import { escapeHtml } from '../utils/html';
 import { inventoryCsv } from '../utils/inventoryExport';
+import { useFeedback } from './FeedbackProvider';
 
 interface InventoryPrintModalProps {
   isOpen: boolean;
@@ -18,6 +19,7 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
   const [selectedType, setSelectedType] = useState<'all' | 'Motor' | 'Transmisión' | 'Transfer Case' | 'Diferencial'>('all');
   const [selectedStatus, setSelectedStatus] = useState<'all' | 'disponible' | 'reservado' | 'vendido'>('all');
   const [showNotes, setShowNotes] = useState(true);
+  const { toast } = useFeedback();
   const [showVin, setShowVin] = useState(true);
 
   // Available unique brands
@@ -79,7 +81,7 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
   const handlePrint = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
-      alert('Por favor permite las ventanas emergentes (popups) para imprimir el inventario.');
+      toast({ title: 'Ventana emergente bloqueada', message: 'Permite las ventanas emergentes para imprimir el inventario.', tone: 'error' });
       return;
     }
     printWindow.opener = null;
@@ -429,7 +431,7 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
         <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-cyan-500/20 bg-slate-50/90 dark:bg-[#0a1022]/90 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-cyan-100 border border-cyan-200 dark:bg-cyan-500/15 dark:border-cyan-500/35 flex items-center justify-center text-cyan-800 dark:text-cyan-400 shadow-xs dark:shadow-[0_0_15px_rgba(6,182,212,0.3)]">
-              <span className="material-symbols-outlined text-[24px]">print</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[24px]">print</span>
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white uppercase tracking-wide">
@@ -445,7 +447,7 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
             onClick={onClose}
             className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors cursor-pointer"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
@@ -662,7 +664,7 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
               onClick={handleExportCsv}
               className="px-3.5 py-2.5 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-mono font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
             >
-              <span className="material-symbols-outlined text-[16px] text-cyan-600 dark:text-cyan-400">table_chart</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-600 dark:text-cyan-400">table_chart</span>
               <span>CSV por Marcas</span>
             </button>
 
@@ -672,7 +674,7 @@ export const InventoryPrintModal: React.FC<InventoryPrintModalProps> = ({
               disabled={groupedByBrand.length === 0}
               className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 text-xs font-mono font-black uppercase tracking-wider flex items-center gap-2 transition-all shadow-md dark:shadow-[0_0_20px_rgba(6,182,212,0.4)] cursor-pointer hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <span className="material-symbols-outlined text-[18px]">print</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">print</span>
               <span>Imprimir Reporte (PDF)</span>
             </button>
           </div>

@@ -18,6 +18,7 @@ export const useTheme = () => {
       root.classList.remove('light');
       root.classList.add('dark');
     }
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', newTheme === 'light' ? '#f2f4f8' : '#0b1220');
     localStorage.setItem('radar_theme', newTheme);
   }, []);
 

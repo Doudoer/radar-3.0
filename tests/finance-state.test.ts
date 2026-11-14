@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiFetch } from '../src/services/apiFetch';
-import { FinanceConflictError, loadFinanceState, persistFinanceState, readLegacyFinanceState } from '../src/hooks/useFinanceState';
+import {
+  FinanceConflictError,
+  LEGACY_FINANCE_KEYS,
+  LEGACY_FINANCE_MIGRATED_KEY,
+  clearLegacyFinanceState,
+  loadFinanceState,
+  persistFinanceState,
+  readLegacyFinanceState,
+} from '../src/hooks/useFinanceState';
 
 vi.mock('../src/services/apiFetch', () => ({ apiFetch: vi.fn() }));
 const fetchMock = vi.mocked(apiFetch);
@@ -57,5 +65,12 @@ describe('finance server persistence', () => {
     expect(originals.radar_office_employees_v1).toBe('[{"id":"e","name":"Real","weeklySalary":50}]');
     expect(readLegacyFinanceState({ getItem: () => null })).toEqual({ employees: [], recurringExpenses: [], otherExpenses: [] });
     expect(() => readLegacyFinanceState({ getItem: () => '{}' })).toThrow('Datos locales inválidos');
+  });
+
+  it('deletes legacy keys and records the completed migration', () => {
+    const storage = { removeItem: vi.fn(), setItem: vi.fn() };
+    clearLegacyFinanceState(storage);
+    expect(storage.removeItem.mock.calls.map((call) => call[0])).toEqual([...LEGACY_FINANCE_KEYS]);
+    expect(storage.setItem).toHaveBeenCalledWith(LEGACY_FINANCE_MIGRATED_KEY, expect.any(String));
   });
 });

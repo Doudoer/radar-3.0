@@ -6,6 +6,7 @@ vi.mock('react', async importOriginal => ({
   ...await importOriginal<typeof import('react')>(),
   useState: (initial: unknown) => [initial, vi.fn()],
   useMemo: (factory: () => unknown) => factory(),
+  useContext: () => ({ toast: vi.fn(), confirm: vi.fn(async () => true) }),
 }));
 import { InventoryPrintModal } from '../src/components/InventoryPrintModal';
 

@@ -92,7 +92,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ isOpen
         <div className="flex items-center justify-between p-4 sm:p-5 border-b border-cyan-500/20 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.25)] shrink-0">
-              <span className="material-symbols-outlined text-[20px]">lock_reset</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[20px]">lock_reset</span>
             </div>
             <div>
               <h3 className="font-bold text-base text-slate-100">Cambiar Contraseña</h3>
@@ -105,7 +105,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ isOpen
             disabled={loading}
             className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
@@ -113,14 +113,14 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ isOpen
         <form onSubmit={handleSubmit} className="p-4 sm:p-5 flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col gap-3.5">
           {error && (
             <div className="p-3 bg-rose-950/30 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-center gap-2 animate-shake">
-              <span className="material-symbols-outlined text-[18px] shrink-0 text-rose-400">error</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px] shrink-0 text-rose-400">error</span>
               <span>{error}</span>
             </div>
           )}
 
           {success && (
             <div className="p-3 bg-emerald-950/30 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-center gap-2 animate-fade-in shadow-[0_0_12px_rgba(16,185,129,0.25)]">
-              <span className="material-symbols-outlined text-[18px] shrink-0 text-emerald-400">check_circle</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px] shrink-0 text-emerald-400">check_circle</span>
               <span>¡Contraseña actualizada exitosamente!</span>
             </div>
           )}
@@ -171,7 +171,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ isOpen
                     rule.met ? 'text-emerald-400 font-medium' : 'text-slate-500'
                   }`}
                 >
-                  <span className="material-symbols-outlined text-[14px]">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[14px]">
                     {rule.met ? 'check_circle' : 'radio_button_unchecked'}
                   </span>
                   <span>{rule.label}</span>
@@ -201,7 +201,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ isOpen
                   passwordsMatch ? 'text-emerald-400' : 'text-rose-400'
                 }`}
               >
-                <span className="material-symbols-outlined text-[14px]">
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">
                   {passwordsMatch ? 'check_circle' : 'cancel'}
                 </span>
                 <span>{passwordsMatch ? 'Las contraseñas coinciden' : 'Las contraseñas no coinciden'}</span>
@@ -243,7 +243,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ isOpen
                 </>
               ) : (
                 <>
-                  <span className="material-symbols-outlined text-[16px]">save</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">save</span>
                   <span>Guardar Contraseña</span>
                 </>
               )}

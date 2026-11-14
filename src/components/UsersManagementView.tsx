@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { apiFetch } from '../services/apiFetch';
 import { PRESET_AVATARS, DEFAULT_AVATAR } from './UserProfileModal';
 import { VaultUnlockModal } from './VaultUnlockModal';
+import { useFeedback } from './FeedbackProvider';
 
 export type ManagedUser = {
   id: number;
@@ -231,7 +232,7 @@ const UserEditModal: React.FC<UserEditModalProps> = React.memo(({
             className="p-1 rounded-xl text-slate-400 hover:text-white hover:bg-cyan-500/20 transition-all cursor-pointer"
             aria-label="Cerrar"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
@@ -243,7 +244,7 @@ const UserEditModal: React.FC<UserEditModalProps> = React.memo(({
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-mono uppercase text-slate-300 font-bold">Avatar de Perfil</span>
                   <label className="text-[10.5px] font-mono text-cyan-400 hover:text-cyan-200 cursor-pointer flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[13px]">upload</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[13px]">upload</span>
                     <span>Subir</span>
                     <input
                       type="file"
@@ -381,7 +382,7 @@ const UserEditModal: React.FC<UserEditModalProps> = React.memo(({
         {error && (
           <div className="mt-4 rounded-xl border border-red-500/40 bg-red-950/30 p-3 text-xs text-red-300 flex flex-col sm:flex-row items-center justify-between gap-2.5 shrink-0">
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-red-400 text-[18px]">error</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-red-400 text-[18px]">error</span>
               <span>{error}</span>
             </div>
             {(error.toLowerCase().includes('boveda') || error.toLowerCase().includes('bóveda') || isVaultLocked) && (
@@ -390,7 +391,7 @@ const UserEditModal: React.FC<UserEditModalProps> = React.memo(({
                 onClick={() => onUnlockVaultNeeded(() => {})}
                 className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs font-mono flex items-center gap-1.5 shrink-0 shadow-md cursor-pointer"
               >
-                <span className="material-symbols-outlined text-[16px]">key</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">key</span>
                 <span>Desbloquear Bóveda (2FA)</span>
               </button>
             )}
@@ -546,7 +547,7 @@ const UserCreateModal: React.FC<UserCreateModalProps> = React.memo(({
             className="p-1 rounded-xl text-slate-400 hover:text-white hover:bg-cyan-500/20 transition-all cursor-pointer"
             aria-label="Cerrar"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
@@ -556,7 +557,7 @@ const UserCreateModal: React.FC<UserCreateModalProps> = React.memo(({
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-mono uppercase text-slate-300 font-bold">Avatar Inicial</span>
               <label className="text-[10.5px] font-mono text-cyan-400 hover:text-cyan-200 cursor-pointer flex items-center gap-1">
-                <span className="material-symbols-outlined text-[13px]">upload</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[13px]">upload</span>
                 <span>Subir Foto</span>
                 <input
                   type="file"
@@ -653,7 +654,7 @@ const UserCreateModal: React.FC<UserCreateModalProps> = React.memo(({
               <div className="mt-2.5 p-3 bg-[#040814] border border-cyan-500/20 rounded-2xl space-y-1.5 text-[10px]">
                 {passwordRules.map((item, i) => (
                   <div key={i} className={`flex items-center gap-1.5 ${item.met ? 'text-emerald-400' : 'text-slate-500'}`}>
-                    <span className="material-symbols-outlined text-[14px]">{item.met ? 'check_circle' : 'radio_button_unchecked'}</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">{item.met ? 'check_circle' : 'radio_button_unchecked'}</span>
                     <span>{item.label}</span>
                   </div>
                 ))}
@@ -698,7 +699,7 @@ const UserCreateModal: React.FC<UserCreateModalProps> = React.memo(({
         {error && (
           <div className="mt-4 rounded-xl border border-red-500/40 bg-red-950/30 p-3 text-xs text-red-300 flex flex-col sm:flex-row items-center justify-between gap-2.5 shrink-0">
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-red-400 text-[18px]">error</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-red-400 text-[18px]">error</span>
               <span>{error}</span>
             </div>
             {(error.toLowerCase().includes('boveda') || error.toLowerCase().includes('bóveda') || isVaultLocked) && (
@@ -707,7 +708,7 @@ const UserCreateModal: React.FC<UserCreateModalProps> = React.memo(({
                 onClick={() => onUnlockVaultNeeded(() => {})}
                 className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs font-mono flex items-center gap-1.5 shrink-0 shadow-md cursor-pointer"
               >
-                <span className="material-symbols-outlined text-[16px]">key</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">key</span>
                 <span>Desbloquear Bóveda (2FA)</span>
               </button>
             )}
@@ -795,12 +796,18 @@ const YardReceiversSection: React.FC<YardReceiversSectionProps> = React.memo(({
       onRefresh();
       showToast(`Estado de "${receiver.name}" actualizado.`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al actualizar estado.');
+      toast({ title: 'No se pudo actualizar el estado', message: err instanceof Error ? err.message : undefined, tone: 'error' });
     }
   };
 
   const handleDelete = async (receiver: YardCashReceiver) => {
-    if (!window.confirm(`¿Eliminar a "${receiver.name}" de la lista de receptores de efectivo en yarda?`)) return;
+    const confirmed = await confirm({
+      title: `¿Eliminar a "${receiver.name}"?`,
+      message: 'Saldrá de la lista de receptores de efectivo en yarda.',
+      confirmLabel: 'Eliminar',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       const response = await apiFetch(`/yard-cash-receivers/${receiver.id}`, {
         method: 'DELETE',
@@ -812,10 +819,11 @@ const YardReceiversSection: React.FC<YardReceiversSectionProps> = React.memo(({
       onRefresh();
       showToast(`"${receiver.name}" eliminado de la lista de yarda.`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al eliminar empleado.');
+      toast({ title: 'No se pudo eliminar al empleado', message: err instanceof Error ? err.message : undefined, tone: 'error' });
     }
   };
 
+  const { confirm, toast } = useFeedback();
   const activeCount = useMemo(() => receivers.filter((r) => r.active).length, [receivers]);
 
   return (
@@ -825,7 +833,7 @@ const YardReceiversSection: React.FC<YardReceiversSectionProps> = React.memo(({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-start gap-3.5">
           <div className="w-11 h-11 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-[24px]">payments</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[24px]">payments</span>
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -847,7 +855,7 @@ const YardReceiversSection: React.FC<YardReceiversSectionProps> = React.memo(({
       <form onSubmit={handleAdd} className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end bg-[#040814] border border-emerald-500/20 rounded-2xl p-4">
         <label className="sm:col-span-5 flex flex-col gap-1.5 text-xs font-semibold text-slate-300">
           <span className="flex items-center gap-1.5">
-            <span className="material-symbols-outlined text-[15px] text-emerald-400">badge</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-emerald-400">badge</span>
             <span>Nombre del empleado de la yarda *</span>
           </span>
           <input
@@ -864,7 +872,7 @@ const YardReceiversSection: React.FC<YardReceiversSectionProps> = React.memo(({
 
         <label className="sm:col-span-4 flex flex-col gap-1.5 text-xs font-semibold text-slate-300">
           <span className="flex items-center gap-1.5">
-            <span className="material-symbols-outlined text-[15px] text-cyan-400">work</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-cyan-400">work</span>
             <span>Cargo o función en yarda</span>
           </span>
           <input
@@ -883,7 +891,7 @@ const YardReceiversSection: React.FC<YardReceiversSectionProps> = React.memo(({
             disabled={saving || newName.trim().length < 2}
             className="w-full cyber-btn-primary px-4 py-2.5 text-xs font-black flex items-center justify-center gap-1.5 disabled:opacity-50"
           >
-            <span className="material-symbols-outlined text-[18px]">person_add</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">person_add</span>
             <span>{saving ? 'Guardando...' : 'Agregar Empleado'}</span>
           </button>
         </div>
@@ -953,7 +961,7 @@ const YardReceiversSection: React.FC<YardReceiversSectionProps> = React.memo(({
                   className="p-1.5 rounded-lg text-red-400 hover:bg-red-950/40 border border-red-500/20 transition-colors"
                   title="Eliminar empleado"
                 >
-                  <span className="material-symbols-outlined text-[15px]">delete</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[15px]">delete</span>
                 </button>
               </div>
             </div>
@@ -990,6 +998,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
   const [isVaultLocked, setIsVaultLocked] = useState(false);
   const [vaultExpiresAt, setVaultExpiresAt] = useState(0);
 
+  const { confirm, toast } = useFeedback();
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 4000);
@@ -1042,7 +1051,13 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
 
   const handleDeleteUser = useCallback(async (user: ManagedUser) => {
     if (user.id === currentUserId) return;
-    if (!window.confirm(`¿Eliminar al usuario ${user.name}? Esta acción desactivará su cuenta y lo retirará del listado.`)) return;
+    const confirmed = await confirm({
+      title: `¿Eliminar al usuario ${user.name}?`,
+      message: 'Esta acción desactivará su cuenta y lo retirará del listado.',
+      confirmLabel: 'Desactivar usuario',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       const response = await apiFetch(`/users/${user.id}`, { method: 'DELETE' });
       const payload = await response.json().catch(() => ({}));
@@ -1062,7 +1077,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
       setUsersList((curr) => curr.filter((u) => u.id !== user.id));
       showToast(`Usuario "${user.name}" desactivado.`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'No se pudo eliminar el usuario.');
+      toast({ title: 'No se pudo eliminar el usuario', message: err instanceof Error ? err.message : undefined, tone: 'error' });
     }
   }, [currentUserId, showToast]);
 
@@ -1079,7 +1094,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
       {/* Toast Feedback */}
       {toastMessage && (
         <div className="fixed top-20 right-6 z-50 bg-emerald-400 text-slate-950 font-black text-xs py-2.5 px-4 rounded-2xl shadow-[0_0_25px_rgba(16,185,129,0.5)] flex items-center gap-2 animate-bounce border border-emerald-300">
-          <span className="material-symbols-outlined text-[18px]">verified</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[18px]">verified</span>
           <span>{toastMessage}</span>
         </div>
       )}
@@ -1088,7 +1103,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
       <div className="horizon-view-header">
         <div className="flex items-center gap-3.5">
           <div className="relative w-12 h-12 rounded-2xl bg-[#040814] border border-cyan-500/40 text-cyan-300 flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.3)] shrink-0">
-            <span className="material-symbols-outlined text-[26px]">manage_accounts</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[26px]">manage_accounts</span>
             <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee] animate-pulse" />
           </div>
           <div>
@@ -1116,7 +1131,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
                 : 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500/25 shadow-[0_0_15px_rgba(245,158,11,0.2)]'
             }`}
           >
-            <span className="material-symbols-outlined text-[17px]">
+            <span aria-hidden="true" className="material-symbols-outlined text-[17px]">
               {isVaultUnlocked ? 'lock_open' : 'lock'}
             </span>
             <span>
@@ -1129,7 +1144,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
             onClick={() => setIsNewUserModalOpen(true)}
             className="cyber-btn-primary px-4 py-2.5 text-xs font-black flex items-center gap-2 cursor-pointer"
           >
-            <span className="material-symbols-outlined text-[18px]">person_add</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">person_add</span>
             <span>Nuevo Colaborador</span>
           </button>
         </div>
@@ -1156,7 +1171,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
                 <tr>
                   <td colSpan={6} className="px-4 py-12 text-center text-slate-400 font-mono">
                     <div className="inline-flex items-center gap-2 text-cyan-400">
-                      <span className="material-symbols-outlined animate-spin text-[20px]">sync</span>
+                      <span aria-hidden="true" className="material-symbols-outlined animate-spin text-[20px]">sync</span>
                       <span>Cargando colaboradores de Radar...</span>
                     </div>
                   </td>
@@ -1182,7 +1197,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
                     <td className="py-3.5 px-4">
                       <div className="space-y-0.5">
                         <div className="font-mono text-[11.5px] text-cyan-300 flex items-center gap-1">
-                          <span className="material-symbols-outlined text-[14px] text-cyan-400">phone</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-cyan-400">phone</span>
                           <span>{user.phone || 'Sin registrar'}</span>
                         </div>
                         <div className="font-mono text-[10.5px] text-slate-400">{user.email}</div>

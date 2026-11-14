@@ -1,9 +1,10 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Order, YardCompatibility, CompatibleVehicleItem } from '../types';
 import { MAKE_MODEL_MAP } from '../data/vehicleData';
 import { apiFetch } from '../services/apiFetch';
 import { uploadOrderFile } from '../services/orderFiles';
 import { formatYearRange, expandYearRangesInText } from '../utils/compatibilityFormat';
+import { useDialogAccessibility } from '../hooks/useDialogAccessibility';
 
 interface YardCompatibilityModalProps {
   order: Order;
@@ -11,6 +12,7 @@ interface YardCompatibilityModalProps {
   onClose: () => void;
   onSaved: (compatibility: YardCompatibility) => void;
   onToast: (msg: string) => void;
+  registerCloseRequest?: (handler: (() => void) | null) => void;
 }
 
 export const YardCompatibilityModal: React.FC<YardCompatibilityModalProps> = ({
@@ -19,6 +21,7 @@ export const YardCompatibilityModal: React.FC<YardCompatibilityModalProps> = ({
   onClose,
   onSaved,
   onToast,
+  registerCloseRequest,
 }) => {
   const makeOptions = useMemo(() => Object.keys(MAKE_MODEL_MAP).sort(), []);
 
@@ -57,7 +60,6 @@ export const YardCompatibilityModal: React.FC<YardCompatibilityModalProps> = ({
   const initialYear = Number(order.vehicle?.year) || currentYear;
   const [selectedYearFrom, setSelectedYearFrom] = useState<number>(initialYear);
   const [selectedYearTo, setSelectedYearTo] = useState<number>(initialYear);
-  const [extraCustomNotes, setExtraCustomNotes] = useState<string>('');
 
   // Structured vehicles list
   const [vehiclesList, setVehiclesList] = useState<CompatibleVehicleItem[]>(() => {
@@ -76,6 +78,7 @@ export const YardCompatibilityModal: React.FC<YardCompatibilityModalProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const isBusy = isSaving || isUploading;
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showManualEdit, setShowManualEdit] = useState(false);
   const [manualText, setManualText] = useState<string>(() => {
@@ -91,26 +94,27 @@ export const YardCompatibilityModal: React.FC<YardCompatibilityModalProps> = ({
   };
 
   // Helper: Format compatibility text
-  const formatCompatibilityText = (items: CompatibleVehicleItem[], extra: string): string => {
-    if (items.length === 0 && !extra.trim()) return '';
+  const formatCompatibilityText = (items: CompatibleVehicleItem[]): string => {
+    if (items.length === 0) return '';
     const lines: string[] = ['Compatibilidad'];
     items.forEach((item) => {
       const yearsStr = formatYearRange(item.yearFrom, item.yearTo);
       const notesStr = item.notes ? ` (${item.notes})` : '';
       lines.push(`*${item.make} ${item.model}: ${yearsStr}${notesStr}`);
     });
-    if (extra.trim()) {
-      lines.push(extra.trim());
-    }
     return lines.join('\n');
   };
 
-  // Keep manual text in sync if not manually edited
+  // Regenerate only when the selector list actually changes; toggling between
+  // selectors and free text must not overwrite what the person already typed.
+  const selectorSnapshotRef = useRef(JSON.stringify(vehiclesList));
   useEffect(() => {
-    if (!showManualEdit && vehiclesList.length > 0) {
-      setManualText(formatCompatibilityText(vehiclesList, extraCustomNotes));
-    }
-  }, [vehiclesList, extraCustomNotes, showManualEdit]);
+    const nextSnapshot = JSON.stringify(vehiclesList);
+    if (nextSnapshot === selectorSnapshotRef.current) return;
+    selectorSnapshotRef.current = nextSnapshot;
+    if (showManualEdit) return;
+    setManualText(formatCompatibilityText(vehiclesList));
+  }, [vehiclesList, showManualEdit]);
 
   // Action: Add vehicle from selectors
   const handleAddVehicle = () => {
@@ -197,7 +201,7 @@ export const YardCompatibilityModal: React.FC<YardCompatibilityModalProps> = ({
 
     const finalText = showManualEdit
       ? manualText.trim()
-      : formatCompatibilityText(vehiclesList, extraCustomNotes);
+      : formatCompatibilityText(vehiclesList);
 
     try {
       const response = await apiFetch(`/orders/${order.id}/yard-compatibility`, {
@@ -231,278 +235,337 @@ export const YardCompatibilityModal: React.FC<YardCompatibilityModalProps> = ({
     }
   };
 
+  // Snapshot of what the order already has, to detect unsaved edits before closing.
+  const initialSnapshotRef = useRef({
+    vehicles: JSON.stringify(order.yardCompatibility?.compatibleVehicles || []),
+    images: JSON.stringify(order.yardCompatibility?.referenceImages || []),
+    manualText: expandYearRangesInText(order.yardCompatibility?.compatibilityList || '').trim(),
+  });
+
+  const isDirty = useMemo(() => {
+    const base = initialSnapshotRef.current;
+    if (JSON.stringify(images) !== base.images) return true;
+    if (JSON.stringify(vehiclesList) !== base.vehicles) return true;
+    if (showManualEdit && manualText.trim() !== base.manualText) return true;
+    return false;
+  }, [images, vehiclesList, showManualEdit, manualText]);
+
+  const [isDiscardConfirmOpen, setIsDiscardConfirmOpen] = useState(false);
+  const discardSafeRef = useRef<HTMLButtonElement>(null);
+  const discardTriggerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!isDiscardConfirmOpen) return;
+    const timer = window.setTimeout(() => discardSafeRef.current?.focus({ preventScroll: true }), 30);
+    return () => window.clearTimeout(timer);
+  }, [isDiscardConfirmOpen]);
+
+  const dismissDiscardConfirm = useCallback(() => {
+    setIsDiscardConfirmOpen(false);
+    window.setTimeout(() => discardTriggerRef.current?.focus({ preventScroll: true }), 0);
+  }, []);
+
+  const requestClose = useCallback(() => {
+    if (isSaving || isUploading) return;
+    if (isDiscardConfirmOpen) { dismissDiscardConfirm(); return; }
+    if (isDirty) {
+      discardTriggerRef.current = document.activeElement as HTMLElement | null;
+      setIsDiscardConfirmOpen(true);
+      return;
+    }
+    onClose();
+  }, [isSaving, isUploading, isDiscardConfirmOpen, isDirty, dismissDiscardConfirm, onClose]);
+
+  useEffect(() => {
+    registerCloseRequest?.(requestClose);
+    return () => registerCloseRequest?.(null);
+  }, [registerCloseRequest, requestClose]);
+
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogAccessibility({ open: isOpen, dialogRef, onEscape: requestClose });
+
   if (!isOpen) return null;
 
+  const currentVehicleLabel = [order.vehicle?.year, order.vehicle?.make, order.vehicle?.model]
+    .filter(Boolean)
+    .join(' ');
+  const photosLabel = `${images.length} ${images.length === 1 ? 'foto' : 'fotos'}`;
+
   return (
-    <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-fade-in font-mono">
-      <div className="bg-[#0d1424] border border-amber-500/40 rounded-2xl w-full max-w-3xl max-h-[94vh] flex flex-col shadow-[0_0_50px_rgba(245,158,11,0.25)] text-xs text-slate-100">
-        
-        {/* Modal Header */}
-        <div className="flex items-start justify-between border-b border-slate-800 p-4 sm:p-5">
-          <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={isSaving || isUploading}
-              className="px-2.5 py-1.5 rounded-xl bg-slate-800/90 border border-slate-700 text-slate-200 hover:text-white flex items-center gap-1 font-bold text-xs active:scale-95 transition-all cursor-pointer shadow-sm"
-              aria-label="Volver"
-            >
-              <span className="material-symbols-outlined text-[16px]">arrow_back</span>
-              <span>Atrás</span>
-            </button>
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-amber-400 text-[20px]">swap_horiz</span>
-                <h2 className="text-base sm:text-lg font-bold text-white">
-                  Compatibilidad & Fotos
-                </h2>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-[10.5px] text-slate-400">
-                <span className="text-amber-400 font-bold">#{order.code}</span>
-                <span>·</span>
-                <span className="text-slate-200 font-bold">{order.mainPart}</span>
-                <span>·</span>
-                <span>{order.vehicle?.year} {order.vehicle?.make}</span>
-              </div>
-            </div>
-          </div>
+    <>
+      <div className="yard-overlay fixed inset-0 z-50 flex flex-col justify-end sm:items-center sm:justify-center sm:p-6 bg-black/85 backdrop-blur-md animate-fade-in font-sans">
+        <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-busy={isBusy}
+        tabIndex={-1}
+        aria-label={`Compatibilidad y fotos de la orden ${order.code}`}
+        className="yard-sheet max-h-[92dvh] w-full max-w-2xl mx-auto flex flex-col animate-sheet-up sm:max-h-[88dvh] sm:overflow-hidden"
+      >
+        {/* Grabber: solo en móvil */}
+        <div className="sm:hidden pt-3 pb-1 flex flex-col items-center select-none">
+          <div className="w-12 h-1.5 rounded-full bg-yard-line-strong" />
+        </div>
+
+        {/* Header compacto */}
+        <div className="flex items-center gap-2 px-3 sm:px-4 py-2.5 border-b border-yard-line">
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             disabled={isSaving || isUploading}
-            className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
-            aria-label="Cerrar"
+            aria-label="Volver a la cola de patio"
+            className="yard-icon-btn shrink-0 disabled:opacity-50"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">arrow_back</span>
+          </button>
+
+          <div className="min-w-0 flex-1 text-center sm:text-left">
+            <h2 className="text-[15px] sm:text-base font-black text-yard-ink leading-tight break-words">
+              Compatibilidad y fotos
+            </h2>
+            <p className="mt-0.5 text-[10.5px] font-mono text-yard-muted break-words">
+              #{order.code} · {order.mainPart} · {currentVehicleLabel || 'Vehículo sin datos'}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={requestClose}
+            disabled={isSaving || isUploading}
+            aria-label="Cerrar"
+            className="yard-icon-btn shrink-0 disabled:opacity-50"
+          >
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
-        {/* Modal Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5 custom-scrollbar">
-          
-          {/* Error message */}
+        {/* Contenido desplazable */}
+        <div className="flex-1 overflow-y-auto bg-yard-bg p-3 sm:p-4 space-y-3 custom-scrollbar">
           {errorMessage && (
-            <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-500/50 text-rose-300 flex items-center gap-2">
-              <span className="material-symbols-outlined text-[18px]">error</span>
-              <span>{errorMessage}</span>
+            <div
+              role="alert"
+              className="rounded-2xl border border-yard-danger bg-yard-danger-soft px-4 py-3 flex items-start gap-2 text-[12px] font-medium text-yard-danger-strong"
+            >
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px] shrink-0">error</span>
+              <span className="leading-snug">{errorMessage}</span>
             </div>
           )}
 
-          {/* Section 1: Compatibility with Selectors */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="text-slate-200 uppercase font-bold text-[12px] flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[18px] text-amber-400">tune</span>
-                <span>Selectores de Compatibilidad Vehicular</span>
-              </label>
+          {/* VEHÍCULOS COMPATIBLES */}
+          <section className="rounded-2xl border border-yard-line bg-yard-surface p-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="yard-eyebrow flex items-center gap-1.5">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-yard-accent-strong">swap_horiz</span>
+                  Vehículos compatibles
+                </p>
+                <p className="mt-1 text-[11px] text-yard-muted">
+                  Define marcas, modelos y años que aceptan esta pieza.
+                </p>
+              </div>
+              <span className="yard-chip shrink-0">
+                {vehiclesList.length} {vehiclesList.length === 1 ? 'agregado' : 'agregados'}
+              </span>
+            </div>
 
+            <div className="flex items-center justify-between gap-2">
+              <span className="yard-eyebrow hidden min-[360px]:inline">{showManualEdit ? 'Texto libre' : 'Agregar compatibilidad'}</span>
               <button
                 type="button"
                 onClick={() => setShowManualEdit(!showManualEdit)}
-                className="text-[10px] text-slate-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer"
+                disabled={isBusy}
+                className="min-h-[44px] px-2.5 rounded-lg text-[10.5px] font-mono font-bold text-yard-accent-strong hover:bg-yard-accent-soft flex items-center gap-1 whitespace-nowrap transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <span className="material-symbols-outlined text-[14px]">
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px]">
                   {showManualEdit ? 'tune' : 'edit_note'}
                 </span>
-                <span>{showManualEdit ? 'Volver a Selectores' : 'Ajustar texto libre'}</span>
+                <span>{showManualEdit ? 'Usar selectores' : 'Ajustar texto libre'}</span>
               </button>
             </div>
 
-            {/* Selectors Form Card */}
             {!showManualEdit ? (
-              <div className="p-4 rounded-xl bg-slate-900/90 border border-amber-500/30 space-y-3 shadow-inner">
-                {/* Row 1: Make & Model */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
-                      1. Marca (Make)
-                    </label>
+              <div className="rounded-xl border border-yard-line bg-yard-sunken p-3 space-y-2.5">
+                <div className="grid grid-cols-1 min-[380px]:grid-cols-2 gap-2.5">
+                  <label className="block">
+                    <span className="block text-[10.5px] font-mono font-bold uppercase tracking-wide text-yard-muted mb-1">
+                      1 · Marca
+                    </span>
                     <select
                       value={selectedMake}
                       onChange={(e) => handleMakeChange(e.target.value)}
-                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-amber-500 focus:outline-none font-mono text-xs cursor-pointer"
+                      disabled={isBusy}
+                      className="yard-select"
                     >
                       {makeOptions.map((make) => (
-                        <option key={make} value={make}>
-                          {make}
-                        </option>
+                        <option key={make} value={make}>{make}</option>
                       ))}
                     </select>
-                  </div>
+                  </label>
 
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
-                      2. Modelo (Model)
-                    </label>
+                  <label className="block">
+                    <span className="block text-[10.5px] font-mono font-bold uppercase tracking-wide text-yard-muted mb-1">
+                      2 · Modelo
+                    </span>
                     <select
                       value={selectedModel}
                       onChange={(e) => setSelectedModel(e.target.value)}
-                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-amber-500 focus:outline-none font-mono text-xs cursor-pointer"
+                      disabled={isBusy}
+                      className="yard-select"
                     >
                       {modelOptions.map((model) => (
-                        <option key={model} value={model}>
-                          {model}
-                        </option>
+                        <option key={model} value={model}>{model}</option>
                       ))}
                     </select>
-                  </div>
-                </div>
+                  </label>
 
-                {/* Row 2: Year Range */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
-                      3. Año Desde
-                    </label>
+                  <label className="block">
+                    <span className="block text-[10.5px] font-mono font-bold uppercase tracking-wide text-yard-muted mb-1">
+                      3 · Año desde
+                    </span>
                     <select
                       value={selectedYearFrom}
                       onChange={(e) => setSelectedYearFrom(Number(e.target.value))}
-                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-amber-500 focus:outline-none font-mono text-xs cursor-pointer"
+                      disabled={isBusy}
+                      className="yard-select"
                     >
                       {yearOptions.map((yr) => (
-                        <option key={yr} value={yr}>
-                          {yr}
-                        </option>
+                        <option key={yr} value={yr}>{yr}</option>
                       ))}
                     </select>
-                  </div>
+                  </label>
 
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
-                      4. Año Hasta
-                    </label>
+                  <label className="block">
+                    <span className="block text-[10.5px] font-mono font-bold uppercase tracking-wide text-yard-muted mb-1">
+                      4 · Año hasta
+                    </span>
                     <select
                       value={selectedYearTo}
                       onChange={(e) => setSelectedYearTo(Number(e.target.value))}
-                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-amber-500 focus:outline-none font-mono text-xs cursor-pointer"
+                      disabled={isBusy}
+                      className="yard-select"
                     >
                       {yearOptions.map((yr) => (
-                        <option key={yr} value={yr}>
-                          {yr}
-                        </option>
+                        <option key={yr} value={yr}>{yr}</option>
                       ))}
                     </select>
-                  </div>
+                  </label>
                 </div>
 
-                {/* Action Buttons: Add to List */}
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800">
-                  <button
-                    type="button"
-                    onClick={handleAddCurrentOrderVehicle}
-                    className="text-[10px] text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer"
-                  >
-                    <span className="material-symbols-outlined text-[14px]">bolt</span>
-                    <span>Copiar vehículo de la orden ({order.vehicle?.year} {order.vehicle?.make} {order.vehicle?.model})</span>
-                  </button>
+                <button
+                  type="button"
+                  onClick={handleAddCurrentOrderVehicle}
+                  disabled={isBusy}
+                  className="w-full min-h-[44px] px-3 rounded-xl border border-yard-line bg-yard-surface text-yard-ink-soft hover:bg-yard-raised font-mono font-bold text-[10.5px] flex items-center justify-center gap-1.5 text-center transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-yard-accent-strong">bolt</span>
+                  <span className="truncate">
+                    Copiar vehículo de la orden<span className="hidden sm:inline"> ({currentVehicleLabel})</span>
+                  </span>
+                </button>
 
-                  <button
-                    type="button"
-                    onClick={handleAddVehicle}
-                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold flex items-center gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.25)] transition-all cursor-pointer"
-                  >
-                    <span className="material-symbols-outlined text-[18px]">add_circle</span>
-                    <span>+ Agregar a Compatibilidad</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={handleAddVehicle}
+                  disabled={isBusy}
+                  className="yard-btn yard-btn--primary w-full"
+                >
+                  <span aria-hidden="true" className="material-symbols-outlined text-[18px]">add_circle</span>
+                  <span>Agregar a compatibilidad</span>
+                </button>
               </div>
             ) : (
-              /* Fallback Manual Textarea */
-              <div className="space-y-2">
-                <textarea
-                  rows={6}
-                  value={manualText}
-                  onChange={(e) => setManualText(e.target.value)}
-                  placeholder={`Compatibilidad\n*Nissan Pathfinder: 2015 y 2016.\n*Infiniti QX60: 2015 y 2016.`}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-900/90 p-3 text-white placeholder-slate-500 focus:border-amber-500 focus:outline-none font-mono text-xs leading-relaxed"
-                />
+              <textarea
+                rows={6}
+                value={manualText}
+                onChange={(e) => setManualText(e.target.value)}
+                disabled={isBusy}
+                placeholder={`Compatibilidad\n*Nissan Pathfinder: 2015 y 2016.\n*Infiniti QX60: 2015 y 2016.`}
+                className="yard-textarea disabled:opacity-60 disabled:cursor-not-allowed"
+              />
+            )}
+
+            {!showManualEdit && vehiclesList.length === 0 && (
+              <div className="rounded-xl border border-dashed border-yard-line-strong bg-yard-sunken px-4 py-5 text-center">
+                <span aria-hidden="true" className="material-symbols-outlined text-[22px] text-yard-muted">directions_car</span>
+                <p className="mt-1 text-[11.5px] font-bold text-yard-ink-soft">Aún no hay vehículos compatibles</p>
+                <p className="text-[10.5px] text-yard-muted">Agrega marca, modelo y años arriba.</p>
               </div>
             )}
 
-            {/* List of Added Vehicles */}
-            <div className="space-y-2">
-              <span className="text-[11px] font-bold text-slate-300 uppercase block">
-                Vehículos Compatibles Agregados ({vehiclesList.length}):
-              </span>
-
-              {vehiclesList.length === 0 ? (
-                <div className="p-4 rounded-xl border border-dashed border-slate-800 bg-slate-950/40 text-center text-slate-500 text-[11px] space-y-1">
-                  <p>Aún no has agregado vehículos compatibles.</p>
-                  <p className="text-[10px] text-slate-600">
-                    Usa los selectores de Marca, Modelo y Años arriba y haz clic en <strong>+ Agregar a Compatibilidad</strong>.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
-                  {vehiclesList.map((item, idx) => (
-                    <div
-                      key={item.id || idx}
-                      className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-amber-500/40 flex items-center justify-between gap-2 transition-all shadow-sm"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center justify-center text-[12px] font-bold">
-                          {idx + 1}
-                        </span>
-                        <div>
-                          <div className="font-bold text-white text-xs">
-                            {item.make} {item.model}
-                            <span className="text-amber-400 ml-2 font-mono">
-                              ({item.yearFrom === item.yearTo ? item.yearFrom : `${item.yearFrom} - ${item.yearTo}`})
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveVehicle(item.id, idx)}
-                        title="Eliminar de la lista"
-                        className="p-1 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">delete</span>
-                      </button>
+            {vehiclesList.length > 0 && (
+              <div className="space-y-2 sm:max-h-56 sm:overflow-y-auto custom-scrollbar pr-0.5">
+                {vehiclesList.map((item, idx) => (
+                  <div
+                    key={item.id || idx}
+                    className="flex items-center gap-2.5 p-2 pl-2.5 rounded-xl border border-yard-line bg-yard-sunken"
+                  >
+                    <span className="w-6 h-6 shrink-0 rounded-lg bg-yard-accent-soft text-yard-accent-strong border border-yard-accent/40 flex items-center justify-center text-[11px] font-mono font-black">
+                      {idx + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[12.5px] font-bold text-yard-ink truncate">
+                        {item.make} {item.model}
+                      </p>
+                      <p className="text-[10.5px] font-mono font-bold text-yard-accent-strong">
+                        {item.yearFrom === item.yearTo ? item.yearFrom : `${item.yearFrom} – ${item.yearTo}`}
+                      </p>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Generated WhatsApp Text Preview */}
-            {vehiclesList.length > 0 && !showManualEdit && (
-              <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-1">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">
-                  Vista Previa del Texto Generado (Formato WhatsApp/Patio):
-                </span>
-                <pre className="text-[11px] text-amber-300 font-mono whitespace-pre-line leading-relaxed bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/60">
-                  {formatCompatibilityText(vehiclesList, extraCustomNotes)}
-                </pre>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveVehicle(item.id, idx)}
+                      disabled={isBusy}
+                      aria-label={`Eliminar ${item.make} ${item.model}`}
+                      className="shrink-0 w-11 h-11 rounded-xl border border-yard-line bg-yard-surface text-yard-muted hover:text-yard-danger-strong hover:border-yard-danger/50 flex items-center justify-center transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span aria-hidden="true" className="material-symbols-outlined text-[18px]">delete</span>
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
-          </div>
 
-          {/* Section 2: Reference Images Gallery */}
-          <div className="space-y-3 pt-2 border-t border-slate-800">
-            <div className="flex items-center justify-between">
-              <label className="text-slate-200 uppercase font-bold text-[12px] flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[18px] text-amber-400">photo_library</span>
-                <span>Fotos de Referencia de la Pieza ({images.length})</span>
-              </label>
+            {vehiclesList.length > 0 && !showManualEdit && (
+              <div className="rounded-xl border border-yard-line bg-yard-sunken p-3 space-y-1.5">
+                <p className="yard-eyebrow">Vista previa del texto para patio</p>
+                <div className="whitespace-pre-line font-mono text-[11px] leading-relaxed text-yard-ink-soft">
+                  {formatCompatibilityText(vehiclesList)}
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* FOTOS DE REFERENCIA */}
+          <section className="rounded-2xl border border-yard-line bg-yard-surface p-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="yard-eyebrow flex items-center gap-1.5">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-yard-accent-strong">photo_library</span>
+                  Fotos de referencia
+                </p>
+                <p className="mt-1 text-[11px] text-yard-muted">
+                  Frente, convertidor, acoples, carcasa y etiquetas para que patio verifique la pieza.
+                </p>
+              </div>
+              <span className="yard-chip shrink-0">{photosLabel}</span>
             </div>
 
-            <p className="text-[10px] text-slate-400">
-              Sube fotos desde distintos ángulos (frente, convertidor de torque, acoples, carcasa, etiquetas) para que en patio verifiquen la pieza físicamente.
+            <p className="sr-only" role="status" aria-live="polite">
+              {isUploading
+                ? uploadProgress || 'Subiendo imágenes…'
+                : `${photosLabel} de referencia`}
             </p>
 
-            {/* Mobile Touch Quick Actions: Camera + Gallery */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {/* Acciones táctiles: cámara y galería */}
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 disabled={isUploading || isSaving}
                 onClick={() => cameraInputRef.current?.click()}
-                className="py-2.5 px-4 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50 text-xs shadow-sm"
+                className="yard-btn yard-btn--secondary text-[11px]"
               >
-                <span className="material-symbols-outlined text-[20px]">photo_camera</span>
-                <span>Tomar Foto con Cámara</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">photo_camera</span>
+                <span>Tomar foto</span>
               </button>
               <input
                 ref={cameraInputRef}
@@ -518,10 +581,10 @@ export const YardCompatibilityModal: React.FC<YardCompatibilityModalProps> = ({
                 type="button"
                 disabled={isUploading || isSaving}
                 onClick={() => fileInputRef.current?.click()}
-                className="py-2.5 px-4 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50 text-xs shadow-sm"
+                className="yard-btn yard-btn--ghost text-[11px]"
               >
-                <span className="material-symbols-outlined text-[20px]">collections</span>
-                <span>Elegir de Galería / Archivos</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">collections</span>
+                <span>Galería / archivos</span>
               </button>
               <input
                 ref={fileInputRef}
@@ -534,67 +597,80 @@ export const YardCompatibilityModal: React.FC<YardCompatibilityModalProps> = ({
               />
             </div>
 
-            {/* Upload Area / Dropzone */}
-            <div className="border-2 border-dashed border-slate-700 hover:border-amber-500/60 rounded-xl p-4 text-center bg-slate-900/40 transition-colors relative">
+            {isUploading && (
+              <div className="min-h-[40px] px-3 rounded-xl bg-yard-accent-soft border border-yard-accent text-yard-accent-strong text-[11px] font-mono font-bold flex items-center justify-center gap-1.5">
+                <span className="material-symbols-outlined text-[16px] animate-spin" aria-hidden="true">progress_activity</span>
+                <span>{uploadProgress || 'Subiendo imágenes…'}</span>
+              </div>
+            )}
+
+            {/* Dropzone para escritorio */}
+            <div className="hidden sm:flex border-2 border-dashed border-yard-line-strong hover:border-yard-accent rounded-xl p-4 text-center bg-yard-sunken transition-colors relative items-center justify-center">
               <input
                 type="file"
                 multiple
                 accept="image/jpeg,image/png,image/webp,image/gif"
                 disabled={isUploading || isSaving}
                 onChange={handleFilesSelected}
+                aria-label="Arrastrar o elegir fotos de referencia"
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
               />
-              <div className="flex flex-col items-center justify-center gap-1.5 pointer-events-none">
-                <span className="material-symbols-outlined text-amber-400 text-3xl">add_photo_alternate</span>
-                <span className="text-xs font-bold text-slate-200">
-                  {isUploading ? uploadProgress || 'Subiendo imágenes...' : 'O arrastra fotos aquí desde tu ordenador'}
+              <div className="flex flex-col items-center justify-center gap-1 pointer-events-none">
+                <span aria-hidden="true" className="material-symbols-outlined text-yard-accent-strong text-[26px]">add_photo_alternate</span>
+                <span className="text-[11.5px] font-bold text-yard-ink-soft">
+                  {isUploading ? uploadProgress || 'Subiendo imágenes…' : 'O arrastra fotos aquí'}
                 </span>
-                <span className="text-[10px] text-slate-500">
-                  Formatos JPG, PNG, WebP (hasta 10MB c/u · Selección múltiple soportada)
+                <span className="text-[10.5px] text-yard-muted">
+                  JPG, PNG o WebP · hasta 10 MB c/u · selección múltiple
                 </span>
               </div>
             </div>
 
-            {/* Images Grid */}
-            {images.length > 0 && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+            {images.length === 0 ? (
+              <div className="sm:hidden rounded-xl border border-dashed border-yard-line-strong bg-yard-sunken px-4 py-4 text-center">
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px] text-yard-muted">hide_image</span>
+                <p className="mt-1 text-[11px] font-bold text-yard-ink-soft">Sin fotos todavía</p>
+                <p className="text-[10.5px] text-yard-muted">Usa la cámara o la galería para agregarlas.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {images.map((imgUrl, index) => (
                   <div
                     key={index}
-                    className="relative group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 aspect-square flex items-center justify-center"
+                    className="relative rounded-xl overflow-hidden border border-yard-line bg-yard-sunken aspect-square"
                   >
                     <img
                       src={imgUrl}
                       alt={`Referencia ${index + 1}`}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                      loading="lazy"
+                      className="w-full h-full object-cover"
                     />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveImage(index)}
-                        title="Eliminar foto"
-                        className="p-1.5 rounded-lg bg-rose-600/90 text-white hover:bg-rose-500 transition-colors shadow-md cursor-pointer"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">delete</span>
-                      </button>
-                    </div>
-                    <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/75 text-[9px] font-bold text-white">
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveImage(index)}
+                      disabled={isBusy}
+                      aria-label={`Eliminar foto ${index + 1}`}
+                      className="absolute top-1.5 right-1.5 w-11 h-11 rounded-xl bg-black/65 text-white hover:bg-yard-danger-strong flex items-center justify-center backdrop-blur-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span aria-hidden="true" className="material-symbols-outlined text-[18px]">delete</span>
+                    </button>
+                    <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-black/70 text-[9px] font-mono font-bold text-white">
                       #{index + 1}
                     </span>
                   </div>
                 ))}
               </div>
             )}
-          </div>
+          </section>
         </div>
 
-        {/* Modal Footer */}
-        <div className="flex items-center justify-end gap-3 border-t border-slate-800 p-4 sm:p-5">
+        {/* Footer de acciones */}
+        <div className="border-t border-yard-line bg-yard-surface px-3 sm:px-4 pt-3 pb-3 safe-bottom-padded flex flex-wrap items-center gap-2 sm:justify-between">
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             disabled={isSaving || isUploading}
-            className="px-4 py-2 rounded-xl border border-slate-700 bg-slate-800/60 hover:bg-slate-700 text-slate-300 hover:text-white transition-all font-bold cursor-pointer"
+            className="yard-btn yard-btn--ghost order-2 sm:order-none flex-1 sm:flex-none px-4"
           >
             Cancelar
           </button>
@@ -602,15 +678,68 @@ export const YardCompatibilityModal: React.FC<YardCompatibilityModalProps> = ({
             type="button"
             onClick={handleSave}
             disabled={isSaving || isUploading}
-            className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold flex items-center gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.3)] transition-all disabled:opacity-60 cursor-pointer"
+            className="yard-btn yard-btn--primary order-first w-full sm:order-none sm:w-auto sm:min-w-[260px]"
           >
-            <span className="material-symbols-outlined text-[18px]">
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">
               {isSaving ? 'hourglass_top' : 'save'}
             </span>
-            <span>{isSaving ? 'Guardando...' : 'Guardar Compatibilidad y Fotos'}</span>
+            <span className="truncate">{isSaving ? 'Guardando…' : 'Guardar compatibilidad y fotos'}</span>
           </button>
         </div>
+        </div>
       </div>
-    </div>
+
+      {isDiscardConfirmOpen && (
+        <div
+          className="yard-discard-modal fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) dismissDiscardConfirm();
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="yard-discard-title"
+            aria-describedby="yard-discard-desc"
+            tabIndex={-1}
+            className="w-full max-w-sm rounded-3xl border border-yard-line bg-yard-surface p-5 shadow-[0_18px_50px_rgba(0,0,0,0.45)]"
+          >
+            <div className="flex items-start gap-3">
+              <span className="w-11 h-11 shrink-0 rounded-2xl bg-yard-accent-soft border border-yard-accent/40 text-yard-accent-strong flex items-center justify-center">
+                <span aria-hidden="true" className="material-symbols-outlined text-[22px]">edit_note</span>
+              </span>
+              <div className="min-w-0">
+                <h3 id="yard-discard-title" className="text-[15px] font-black text-yard-ink leading-tight">
+                  ¿Descartar cambios?
+                </h3>
+                <p id="yard-discard-desc" className="mt-1 text-[11.5px] text-yard-muted leading-snug">
+                  La compatibilidad o las fotos que editaste todavía no se guardaron.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
+              <button
+                ref={discardSafeRef}
+                type="button"
+                onClick={dismissDiscardConfirm}
+                className="yard-btn yard-btn--primary"
+              >
+                Seguir editando
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDiscardConfirmOpen(false);
+                  onClose();
+                }}
+                className="yard-btn yard-btn--danger"
+              >
+                Descartar cambios
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };

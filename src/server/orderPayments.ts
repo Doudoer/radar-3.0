@@ -88,7 +88,13 @@ export async function applyOrderSettlement(connection: PoolConnection, row: RowD
 }
 export async function completeOrderDelivery(connection: PoolConnection, row: RowDataPacket, claims: Claims, description: string) {
   await assertUnrefundedSale(connection, row);
-  const payload = { ...mapOrder(row), status: 'entregado' as const, deliveredAt: row.delivered_at ? new Date(row.delivered_at).toISOString() : new Date().toISOString() };
+  const mapped = mapOrder(row);
+  const payload = {
+    ...mapped,
+    inventoryPartId: mapped.inventoryPartId === undefined ? undefined : Number(mapped.inventoryPartId),
+    status: 'entregado' as const,
+    deliveredAt: row.delivered_at ? new Date(row.delivered_at).toISOString() : new Date().toISOString(),
+  };
   validateOrder(payload, row, claims.role || '');
   await syncInventory(connection, Number(row.id), row.inventory_part_id, 'entregado');
   await connection.execute('UPDATE orders SET status=?,delivered_at=?,warranty_started=1,auction_search_active=0 WHERE id=?',

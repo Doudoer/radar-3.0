@@ -8,7 +8,7 @@ const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrom
 const BASE_URL = 'http://localhost:3000';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@radar.com';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
-const ADMIN_TOTP_SECRET = 'Q4CAMMFWSRIGVJZHKISONKG3S27MUFQY';
+const ADMIN_TOTP_SECRET = process.env.ADMIN_TOTP_SECRET || '';
 
 if (!fs.existsSync(OUTPUT_DIR)) {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });

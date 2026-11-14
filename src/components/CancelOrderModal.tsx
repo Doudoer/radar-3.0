@@ -122,7 +122,7 @@ export const CancelOrderModal: React.FC<CancelOrderModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between border-b border-red-500/20 pb-3">
           <div className="flex items-center gap-2 text-red-400 font-mono font-bold text-sm">
-            <span className="material-symbols-outlined text-[22px]">block</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[22px]">block</span>
             <span>Cancelar Orden Administrativamente · #{order.code}</span>
           </div>
           <button
@@ -131,13 +131,13 @@ export const CancelOrderModal: React.FC<CancelOrderModalProps> = ({
             disabled={loading}
             className="text-slate-400 hover:text-white transition-colors"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
         {successMsg ? (
           <div className="p-4 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono text-xs text-center flex items-center justify-center gap-2">
-            <span className="material-symbols-outlined text-[20px]">check_circle</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">check_circle</span>
             <span>{successMsg}</span>
           </div>
         ) : (
@@ -145,7 +145,7 @@ export const CancelOrderModal: React.FC<CancelOrderModalProps> = ({
             {/* Warning and explanation banner */}
             <div className="p-3.5 rounded-xl bg-red-950/40 border border-red-500/30 text-xs font-mono space-y-2 text-red-200">
               <p className="font-bold flex items-center gap-1.5 text-red-300">
-                <span className="material-symbols-outlined text-[18px]">verified_user</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">verified_user</span>
                 Regla especial de cancelación · Exclusivo Super Administrador
               </p>
               <p className="text-[11px] text-slate-300 leading-relaxed">
@@ -195,7 +195,7 @@ export const CancelOrderModal: React.FC<CancelOrderModalProps> = ({
                         : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700 hover:text-white'
                     }`}
                   >
-                    <span className="material-symbols-outlined text-[18px]">{m.icon}</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[18px]">{m.icon}</span>
                     <span className="text-[11px] font-mono leading-tight">{m.label}</span>
                   </button>
                 ))}
@@ -240,7 +240,7 @@ export const CancelOrderModal: React.FC<CancelOrderModalProps> = ({
                   onClick={handleRequestOtp}
                   className="px-4 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 text-xs font-mono font-bold flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_15px_rgba(239,68,68,0.2)]"
                 >
-                  <span className="material-symbols-outlined text-[16px]">sms</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">sms</span>
                   <span>{loading ? 'Enviando código...' : 'Solicitar código por SMS/WhatsApp'}</span>
                 </button>
               </div>
@@ -249,7 +249,7 @@ export const CancelOrderModal: React.FC<CancelOrderModalProps> = ({
                 <div className="p-3.5 rounded-xl bg-slate-950 border border-red-500/40 space-y-2.5">
                   <div className="flex items-center justify-between text-xs font-mono">
                     <span className="text-emerald-400 flex items-center gap-1 font-bold">
-                      <span className="material-symbols-outlined text-[16px]">mark_chat_read</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px]">mark_chat_read</span>
                       Código enviado al Super Admin
                       {targetPhoneMasked && <span className="text-slate-400">({targetPhoneMasked})</span>}
                     </span>
@@ -297,7 +297,7 @@ export const CancelOrderModal: React.FC<CancelOrderModalProps> = ({
                       disabled={loading || code.length !== 6}
                       className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-mono font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-red-950 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <span className="material-symbols-outlined text-[16px]">gavel</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px]">gavel</span>
                       <span>{loading ? 'Cancelando...' : 'Confirmar Cancelación'}</span>
                     </button>
                   </div>

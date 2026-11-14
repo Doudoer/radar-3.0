@@ -45,6 +45,7 @@ services:
       TRUST_PROXY: "1"
       WASENDER_BASE_URL: http://127.0.0.1:9
       WASENDER_ENABLED: "false"
+      LOCAL_OTP_DEVCODE: "true"
     volumes:
       - uploads:/app/uploads
       - app_backups:/app/backups
@@ -73,7 +74,7 @@ services:
     image: nginx:stable-alpine
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3000:80"
+      - "127.0.0.1:${RADAR_DESKTOP_HTTP_PORT:-3000}:80"
     configs:
       - source: local_proxy
         target: /etc/nginx/nginx.conf

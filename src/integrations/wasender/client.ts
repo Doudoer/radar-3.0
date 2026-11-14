@@ -39,6 +39,7 @@ export class WasenderClient {
   private readonly sendTextPath: string;
   private readonly testPhone: string;
   private readonly forceTestRecipient: boolean;
+  private readonly enabled: boolean;
 
   constructor(options: WasenderClientOptions = {}) {
     this.baseUrl = trimSlash(options.baseUrl || process.env.WASENDER_BASE_URL || DEFAULT_WASENDER_BASE_URL);
@@ -50,10 +51,12 @@ export class WasenderClient {
       options.forceTestRecipient !== undefined
         ? options.forceTestRecipient
         : process.env.WASENDER_FORCE_TEST_RECIPIENT === 'true';
+    // Sending requires an explicit opt-in; a present API key alone never enables it.
+    this.enabled = options.enabled ?? process.env.WASENDER_ENABLED?.trim().toLowerCase() === 'true';
   }
 
   get configured(): boolean {
-    return process.env.WASENDER_ENABLED?.trim().toLowerCase() !== 'false' && Boolean(this.baseUrl && this.apiKey);
+    return this.enabled && Boolean(this.baseUrl && this.apiKey);
   }
 
   get isTestMode(): boolean {

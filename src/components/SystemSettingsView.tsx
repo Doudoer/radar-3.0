@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { apiFetch } from '../services/apiFetch';
+import { HEALTH_URL } from '../services/apiBase';
 import { useTheme } from '../hooks/useTheme';
 import { WasenderNotificationsManager } from './WasenderNotificationsManager';
 import { VaultUnlockModal } from './VaultUnlockModal';
@@ -29,6 +30,16 @@ interface SystemSettingsViewProps {
   userRole?: 'admin' | 'operador';
   onOpenChangePassword?: () => void;
 }
+
+const formatWasenderTimestamp = (iso: string): string => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return 'hora no disponible';
+  const today = new Date();
+  const sameDay = date.toDateString() === today.toDateString();
+  const time = date.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
+  if (sameDay) return time;
+  return `${date.toLocaleDateString('es-VE', { day: '2-digit', month: 'short' })} · ${time}`;
+};
 
 export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   userRole,
@@ -78,7 +89,8 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     designatedTestPhone: string;
     sessionName: string;
     connectedPhone: string;
-    accountName: string;
+    businessName: string;
+    verifiedAt: string | null;
     service: string;
   } | null>(null);
   const [dbHealth, setDbHealth] = useState<{ ok: boolean; service?: string; database?: string } | null>(null);
@@ -88,7 +100,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
 
   const fetchDbHealth = useCallback(async () => {
     try {
-      const res = await apiFetch('/health');
+      const res = await fetch(HEALTH_URL, { credentials: 'include', cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setDbHealth(data);
@@ -110,22 +122,29 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     }
   }, []);
 
-  const handleSendTestPing = async () => {
+  const handleSendTestPing = async (messageOverride?: string) => {
     setSendingTestPing(true);
     setTestPingFeedback(null);
     try {
+      const message = (messageOverride ?? testCustomMessage).trim();
       const res = await apiFetch('/wasender/test-ping', {
         method: 'POST',
         body: JSON.stringify({
-          message: testCustomMessage.trim() || undefined,
+          message: message || undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
 
       if (res.ok && data.dispatched) {
+        if (data.verifiedAt) {
+          setWasenderStatus((prev) => (prev ? { ...prev, verifiedAt: data.verifiedAt } : prev));
+        }
+        const verificationLabel = data.verifiedAt
+          ? formatWasenderTimestamp(data.verifiedAt)
+          : formatWasenderTimestamp(new Date().toISOString());
         setTestPingFeedback({
           type: 'success',
-          text: `Mensaje de prueba transmitido. Destino: ${data.recipientUsed || 'No informado por el servidor'}.`,
+          text: `Conexión verificada a las ${verificationLabel}. Destino: ${data.recipientMasked || 'no informado'}.`,
         });
       } else {
         setTestPingFeedback({
@@ -142,6 +161,25 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       setSendingTestPing(false);
     }
   };
+
+  const wasenderVerification = (() => {
+    if (!wasenderStatus) return { label: 'Estado no disponible', tone: 'neutral' as const };
+    if (!wasenderStatus.configured) return { label: 'No configurado', tone: 'urgency' as const };
+    if (wasenderStatus.isTestMode) return { label: 'Modo prueba', tone: 'info' as const };
+    if (wasenderStatus.verifiedAt) return { label: 'Verificado', tone: 'success' as const };
+    return { label: 'Configurado · sin verificar', tone: 'info' as const };
+  })();
+  const wasenderBadgeToneClass =
+    wasenderVerification.tone === 'success'
+      ? 'border-[color:var(--state-success)]/40 bg-[color:var(--state-success)]/10 text-[var(--state-success)]'
+      : wasenderVerification.tone === 'urgency'
+        ? 'border-[var(--state-urgency-border)] bg-[var(--state-urgency-tint)] text-[var(--state-urgency-text)]'
+        : wasenderVerification.tone === 'info'
+          ? 'border-[color:var(--state-info)]/40 bg-[color:var(--state-info)]/10 text-[var(--state-info)]'
+          : 'border-[var(--border-subtle)] bg-[var(--bg-card-subtle)] text-[var(--text-secondary)]';
+  const wasenderLastVerification = wasenderStatus?.verifiedAt
+    ? formatWasenderTimestamp(wasenderStatus.verifiedAt)
+    : null;
 
   const checkVaultStatus = useCallback(async () => {
     try {
@@ -177,6 +215,13 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       const response = await apiFetch('/system/backups');
       const data = await response.json();
       if (!response.ok) {
+        if (data.code === 'FINANCE_LOCKED' || response.status === 403) {
+          setIsVaultLocked(true);
+          setVaultExpiresAt(0);
+          setBackups([]);
+          setBackupMessage({ type: 'error', text: 'Desbloquea la bóveda de seguridad para consultar los respaldos.' });
+          return;
+        }
         throw new Error(data.message || 'No se pudo consultar los respaldos');
       }
       if (!Array.isArray(data)) throw new Error('Respuesta de respaldos invalida');
@@ -191,8 +236,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   }, [isSuperAdmin]);
 
   useEffect(() => {
-    void checkVaultStatus();
-    void fetchBackups();
+    void checkVaultStatus().then(active => { if (active) void fetchBackups(); });
     void fetchWasenderStatus();
     void fetchDbHealth();
   }, [checkVaultStatus, fetchBackups, fetchWasenderStatus, fetchDbHealth]);
@@ -374,7 +418,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
 
         <div className="flex items-center gap-3.5">
           <div className="relative w-12 h-12 rounded-2xl bg-[#040814] border border-cyan-500/40 text-cyan-300 flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.3)] shrink-0">
-            <span className="material-symbols-outlined text-[26px]">settings</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[26px]">settings</span>
             <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee] animate-pulse" />
           </div>
           <div>
@@ -397,7 +441,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
             <div>
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.2)]">
-                  <span className="material-symbols-outlined text-[19px]">database</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[19px]">database</span>
                 </div>
                 <h2 className="text-base font-black text-white uppercase font-mono tracking-wider">
                   Centro de Respaldos & Rollback (Disaster Recovery)
@@ -426,7 +470,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#040814] border border-cyan-500/20 text-slate-400 text-xs font-mono">
-                  <span className="material-symbols-outlined text-[15px] text-cyan-400">shield</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-cyan-400">shield</span>
                   <span>Protegido con 2FA</span>
                 </div>
               )}
@@ -437,7 +481,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                 disabled={creatingBackup}
                 className="cyber-btn-primary px-4 py-2.5 text-xs font-black flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <span className="material-symbols-outlined text-[18px]">
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">
                   {creatingBackup ? 'sync' : 'add_circle'}
                 </span>
                 <span>{creatingBackup ? 'Generando Snapshot...' : 'Crear Respaldo Ahora'}</span>
@@ -449,7 +493,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                 className="cyber-btn-secondary px-3.5 py-2.5 text-xs font-bold flex items-center gap-1.5"
                 title="Descargar volcado dinámico SQL actual"
               >
-                <span className="material-symbols-outlined text-[18px]">download</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">download</span>
                 <span className="hidden sm:inline">Descarga Directa</span>
               </button>
             </div>
@@ -464,7 +508,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
               }`}
             >
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-[18px]">
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">
                   {backupMessage.type === 'success' ? 'check_circle' : 'error'}
                 </span>
                 <span>{backupMessage.text}</span>
@@ -474,7 +518,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                 onClick={() => setBackupMessage(null)}
                 className="text-slate-400 hover:text-white"
               >
-                <span className="material-symbols-outlined text-[16px]">close</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">close</span>
               </button>
             </div>
           )}
@@ -484,7 +528,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
             <div className="lg:col-span-1 bg-[#040814] rounded-2xl border border-cyan-500/20 p-4 flex flex-col justify-between gap-4">
               <div>
                 <h3 className="text-xs font-bold text-white uppercase font-mono tracking-wider flex items-center gap-2 mb-2">
-                  <span className="material-symbols-outlined text-cyan-400 text-[18px]">upload_file</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-[18px]">upload_file</span>
                   Subir y Restaurar Archivo .SQL
                 </h3>
                 <p className="text-[11px] text-slate-400 leading-relaxed">
@@ -511,7 +555,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                     className="hidden"
                   />
                   <div className="w-10 h-10 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
-                    <span className="material-symbols-outlined text-[22px]">cloud_upload</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[22px]">cloud_upload</span>
                   </div>
                   <span className="text-xs font-semibold text-slate-200">
                     {uploadedFile ? uploadedFile.name : 'Haz clic o arrastra tu archivo .sql'}
@@ -549,7 +593,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                   title="Restauración directa deshabilitada por seguridad"
                   className="w-full bg-gradient-to-r from-amber-500 to-red-500 hover:from-amber-400 hover:to-red-400 text-slate-950 font-black py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(245,158,11,0.35)] cursor-pointer active:scale-95 transition-all"
                 >
-                  <span className="material-symbols-outlined text-[18px]">restore</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[18px]">restore</span>
                   <span>Restaurar desde este archivo</span>
                 </button>
               )}
@@ -560,16 +604,22 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-xs font-bold text-white uppercase font-mono tracking-wider flex items-center gap-2">
-                    <span className="material-symbols-outlined text-emerald-400 text-[18px]">history</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-emerald-400 text-[18px]">history</span>
                     Respaldos Automáticos y Puntos de Rollback
                   </h3>
                   <button
                     type="button"
-                    onClick={() => void fetchBackups()}
+                    onClick={() => {
+                      if (isVaultLocked) {
+                        setIsUnlockModalOpen(true);
+                        return;
+                      }
+                      void fetchBackups();
+                    }}
                     disabled={loadingBackups}
                     className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-mono cursor-pointer"
                   >
-                    <span className={`material-symbols-outlined text-[14px] ${loadingBackups ? 'animate-spin' : ''}`}>
+                    <span aria-hidden="true" className={`material-symbols-outlined text-[14px] ${loadingBackups ? 'animate-spin' : ''}`}>
                       refresh
                     </span>
                     <span>Actualizar lista</span>
@@ -581,8 +631,39 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
 
                 {loadingBackups && backups.length === 0 ? (
                   <div className="py-12 text-center text-slate-400 text-xs font-mono flex items-center justify-center gap-2">
-                    <span className="material-symbols-outlined text-[18px] animate-spin text-cyan-400">sync</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[18px] animate-spin text-cyan-400">sync</span>
                     <span>Cargando respaldos disponibles...</span>
+                  </div>
+                ) : isVaultLocked ? (
+                  <div className="py-10 px-4 text-center bg-[#070c18] rounded-xl border border-amber-500/30 space-y-3">
+                    <p className="text-amber-300 text-xs font-mono flex items-center justify-center gap-2">
+                      <span aria-hidden="true" className="material-symbols-outlined text-[18px]">shield_lock</span>
+                      <span>La lista de respaldos requiere desbloquear la bóveda de seguridad.</span>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setIsUnlockModalOpen(true)}
+                      className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-mono font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px]">lock_open</span>
+                      <span>Desbloquear bóveda</span>
+                    </button>
+                  </div>
+                ) : backupMessage?.type === 'error' ? (
+                  <div className="py-8 px-4 text-center bg-[#070c18] rounded-xl border border-amber-500/35 space-y-3">
+                    <p className="text-amber-200 text-xs font-mono flex items-center justify-center gap-2">
+                      <span aria-hidden="true" className="material-symbols-outlined text-[18px]">cloud_off</span>
+                      <span>No pudimos cargar la lista de respaldos.</span>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void fetchBackups()}
+                      disabled={loadingBackups}
+                      className="px-4 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 disabled:opacity-50 text-amber-200 border border-amber-500/40 text-xs font-mono font-bold inline-flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${loadingBackups ? 'animate-spin' : ''}`}>refresh</span>
+                      <span>Reintentar</span>
+                    </button>
                   </div>
                 ) : backups.length === 0 ? (
                   <div className="py-10 text-center text-slate-400 text-xs font-mono bg-[#070c18] rounded-xl border border-cyan-500/15">
@@ -610,7 +691,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                                 : 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300'
                             }`}
                           >
-                            <span className="material-symbols-outlined text-[17px]">
+                            <span aria-hidden="true" className="material-symbols-outlined text-[17px]">
                               {item.isSafetySnapshot ? 'shield' : isAuto ? 'schedule' : 'save'}
                             </span>
                           </div>
@@ -653,7 +734,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                             className="p-1.5 rounded-lg bg-[#040814] border border-cyan-500/20 hover:border-cyan-400 text-slate-300 hover:text-white transition-all text-xs flex items-center gap-1 cursor-pointer"
                             title="Descargar archivo .sql"
                           >
-                            <span className="material-symbols-outlined text-[16px]">download</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">download</span>
                             <span className="text-[10px] font-mono">Descargar</span>
                           </button>
 
@@ -664,7 +745,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                             title="Restauración directa deshabilitada por seguridad"
                             className="p-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 hover:border-amber-400 text-amber-300 font-bold transition-all text-xs flex items-center gap-1 cursor-pointer"
                           >
-                            <span className="material-symbols-outlined text-[16px]">settings_backup_restore</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">settings_backup_restore</span>
                             <span className="text-[10px] font-mono">Rollback</span>
                           </button>
                         </div>
@@ -689,7 +770,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
             <div className="px-4 py-2.5 border-b border-red-500/20 bg-red-950/30 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <div className="w-6 h-6 rounded-lg bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 shrink-0">
-                  <span className="material-symbols-outlined text-[16px]">warning</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">warning</span>
                 </div>
                 <div>
                   <h3 className="font-black text-white text-xs sm:text-sm tracking-wide uppercase font-mono leading-tight">
@@ -705,7 +786,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                   onClick={() => setIsRestoreModalOpen(false)}
                   className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
                 >
-                  <span className="material-symbols-outlined text-[18px]">close</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[18px]">close</span>
                 </button>
               )}
             </div>
@@ -744,7 +825,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                     {/* Active Phase Status */}
                     <div className="flex items-center justify-between text-[10.5px] font-mono text-slate-300">
                       <span className="flex items-center gap-1 text-cyan-300 font-semibold truncate">
-                        <span className="material-symbols-outlined text-[13px] animate-spin text-cyan-400">sync</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[13px] animate-spin text-cyan-400">sync</span>
                         <span className="truncate">{restoreStepName || 'Procesando volcado SQL...'}</span>
                       </span>
                       <span className="text-slate-400 text-[9.5px] shrink-0 font-mono ml-2">
@@ -774,7 +855,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                                 : 'bg-slate-900/40 border-slate-800 text-slate-400'
                             }`}
                           >
-                            <span className={`material-symbols-outlined text-[12px] ${isCurrent ? 'animate-bounce text-cyan-300' : ''}`}>
+                            <span aria-hidden="true" className={`material-symbols-outlined text-[12px] ${isCurrent ? 'animate-bounce text-cyan-300' : ''}`}>
                               {isDone ? 'check' : step.icon}
                             </span>
                             <span className="text-[8.5px] font-mono font-bold truncate max-w-full">{step.label}</span>
@@ -792,7 +873,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                 <>
                   <div className="p-2.5 rounded-xl bg-red-950/25 border border-red-500/30 text-[10.5px] text-red-200 leading-snug space-y-1">
                     <p className="font-bold flex items-center gap-1 text-red-300 text-xs">
-                      <span className="material-symbols-outlined text-[14px]">report</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[14px]">report</span>
                       ¡ADVERTENCIA DE SOBREESCRITURA!
                     </p>
                     <p className="text-[10px] text-slate-300">
@@ -842,7 +923,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                 <div className="py-1 space-y-2">
                   <div className="p-2.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs space-y-1">
                     <div className="flex items-center gap-1.5 font-bold text-xs">
-                      <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[18px]">check_circle</span>
                       <span>{restoreResult.message}</span>
                     </div>
                     <div className="grid grid-cols-2 gap-1 text-[10px] font-mono text-slate-400 pt-0.5">
@@ -894,7 +975,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
             <div className="px-4 py-2.5 border-t border-cyan-500/20 bg-[#0a1022] flex items-center justify-end gap-2 shrink-0">
               {restoring ? (
                 <div className="flex items-center gap-1.5 text-cyan-300 font-mono text-xs py-0.5">
-                  <span className="material-symbols-outlined text-[14px] animate-spin">sync</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[14px] animate-spin">sync</span>
                   <span className="font-bold text-[11px]">Restaurando ({Math.round(restoreProgress)}%)...</span>
                 </div>
               ) : !restoreResult ? (
@@ -914,7 +995,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                     disabled
                     className="bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-black px-3.5 py-1.5 rounded-lg text-xs flex items-center gap-1.5 shadow-[0_0_12px_rgba(239,68,68,0.4)] disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer active:scale-95 transition-all"
                   >
-                    <span className="material-symbols-outlined text-[15px]">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[15px]">
                       database
                     </span>
                     <span>Confirmar Restauración Total</span>
@@ -929,7 +1010,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                   }}
                   className="cyber-btn-primary px-3.5 py-1.5 text-xs font-black flex items-center gap-1"
                 >
-                  <span className="material-symbols-outlined text-[15px]">refresh</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[15px]">refresh</span>
                   <span>Finalizar y Recargar</span>
                 </button>
               )}
@@ -945,7 +1026,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
           <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_8px_#22d3ee]" />
 
           <h3 className="font-bold text-sm text-white flex items-center gap-2 font-mono uppercase tracking-wider">
-            <span className="material-symbols-outlined text-cyan-400 text-[18px]">dns</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-[18px]">dns</span>
             <span>Conexión de Base de Datos y Servidor</span>
           </h3>
           <div className="flex flex-col gap-3 text-xs">
@@ -955,19 +1036,19 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                 dbHealth?.ok ? 'neon-badge-emerald text-emerald-400' : 'neon-badge-amber text-amber-400'
               }`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${dbHealth?.ok ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-                {dbHealth?.ok ? 'En Línea (Conectado)' : 'Comprobando conexión...'}
+                {dbHealth === null ? 'Comprobando conexión...' : dbHealth.ok ? 'En Línea (Conectado)' : 'No disponible'}
               </span>
             </div>
             <div className="flex justify-between items-center py-2 border-b border-cyan-500/15">
               <span className="text-slate-400 font-mono">Base de Datos Activa</span>
               <span className="font-mono text-cyan-300">
-                {dbHealth?.ok ? 'radar_v3 (MariaDB InnoDB)' : 'Consultando...'}
+                {dbHealth === null ? 'Consultando...' : dbHealth.ok ? 'radar_v3 (MariaDB InnoDB)' : 'Sin conexión'}
               </span>
             </div>
             <div className="flex justify-between items-center py-2 border-b border-cyan-500/15">
               <span className="text-slate-400 font-mono">Puerto de Servicio</span>
               <span className="font-mono text-slate-200">
-                {dbHealth?.ok ? '3000 (API) / 3306 (SQL)' : 'Consultando...'}
+                {dbHealth === null ? 'Consultando...' : dbHealth.ok ? '3000 (API) / 3306 (SQL)' : 'Sin conexión'}
               </span>
             </div>
           </div>
@@ -978,7 +1059,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
           <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_8px_#22d3ee]" />
 
           <h3 className="font-bold text-sm text-white flex items-center gap-2 font-mono uppercase tracking-wider">
-            <span className="material-symbols-outlined text-cyan-400 text-[18px]">security</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-[18px]">security</span>
             <span>Seguridad & Control de Acceso</span>
           </h3>
           <div className="flex flex-col gap-3 text-xs">
@@ -1001,7 +1082,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                   onClick={onOpenChangePassword}
                   className="cyber-btn-secondary w-full py-2.5 px-3 text-xs font-bold justify-center"
                 >
-                  <span className="material-symbols-outlined text-[16px]">lock_reset</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">lock_reset</span>
                   <span>Cambiar mi contraseña</span>
                 </button>
               </div>
@@ -1014,7 +1095,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
           <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_8px_#22d3ee]" />
 
           <h3 className="font-bold text-sm text-white flex items-center gap-2 font-mono uppercase tracking-wider">
-            <span className="material-symbols-outlined text-cyan-400 text-[18px]">palette</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-[18px]">palette</span>
             <span>Apariencia y Tema Visual del Sistema</span>
           </h3>
           <p className="text-xs text-slate-400">
@@ -1033,13 +1114,13 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
               }`}
             >
               <div className="w-10 h-10 rounded-xl bg-slate-900 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shrink-0 shadow-inner">
-                <span className="material-symbols-outlined text-[22px]">dark_mode</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[22px]">dark_mode</span>
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
                   <strong className="text-xs font-bold text-white block font-mono">Modo Cyberpunk Oscuro</strong>
                   {theme === 'dark' && (
-                    <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_#22d3ee] animate-pulse" />
+                    <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_#22d3ee]" />
                   )}
                 </div>
                 <span className="text-[11px] text-slate-400 block mt-0.5">
@@ -1059,13 +1140,13 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
               }`}
             >
               <div className="w-10 h-10 rounded-xl bg-white border border-cyan-500/40 flex items-center justify-center text-cyan-600 shrink-0 shadow-sm">
-                <span className="material-symbols-outlined text-[22px]">light_mode</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[22px]">light_mode</span>
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
                   <strong className="text-xs font-bold text-white block font-mono">Modo Claro Optimizado</strong>
                   {theme === 'light' && (
-                    <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_#22d3ee] animate-pulse" />
+                    <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_#22d3ee]" />
                   )}
                 </div>
                 <span className="text-[11px] text-slate-400 block mt-0.5">
@@ -1077,81 +1158,113 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
         </div>
 
         {/* Integrations: Wasender Gateway */}
-        <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-emerald-500/30 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col gap-5 md:col-span-2">
-          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-transparent shadow-[0_0_8px_#34d399]" />
+        <div className="relative rounded-3xl bg-[var(--bg-card)] backdrop-blur-2xl border border-[var(--border-subtle)] p-5 md:p-6 shadow-[var(--card-shadow)] overflow-hidden flex flex-col gap-5 md:col-span-2">
 
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-emerald-500/20 pb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-subtle)] pb-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.25)]">
-                <span className="material-symbols-outlined text-[22px]">send</span>
+              <div className="w-10 h-10 rounded-2xl bg-[var(--brand-soft)] border border-[var(--brand)]/30 flex items-center justify-center text-[var(--brand)]">
+                <span aria-hidden="true" className="material-symbols-outlined text-[22px]">send</span>
               </div>
               <div>
-                <h3 className="font-bold text-sm text-white flex items-center gap-2 font-mono uppercase tracking-wider">
+                <h3 className="font-bold text-sm text-[var(--text-heading)] flex items-center gap-2 font-mono uppercase tracking-wider">
                   <span>Wasender Gateway (WhatsApp API)</span>
                 </h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">
+                <p className="text-[11px] text-[var(--text-secondary)] mt-0.5">
                   Motor de mensajería automatizada, notificaciones de órdenes, alertas de despacho y códigos de seguridad 2FA.
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="px-3 py-1 rounded-full text-[11px] font-mono font-bold bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 flex items-center gap-1.5 shadow-sm">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                {wasenderStatus ? (wasenderStatus.configured ? 'CONFIGURADO (no verifica conexión)' : 'NO CONFIGURADO') : 'ESTADO NO DISPONIBLE'}
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`px-3 py-1 rounded-full text-[11px] font-mono font-bold flex items-center gap-1.5 border ${wasenderBadgeToneClass}`}
+                role="status"
+              >
+                <span aria-hidden="true" className="w-2 h-2 rounded-full bg-current" />
+                {wasenderVerification.label}
+                {wasenderVerification.tone === 'success' && wasenderLastVerification ? ` · ${wasenderLastVerification}` : ''}
               </span>
               <button
                 type="button"
+                onClick={() => void handleSendTestPing('')}
+                disabled={sendingTestPing || !wasenderStatus?.configured}
+                className="px-3 py-1.5 rounded-xl border border-[var(--brand)]/35 bg-[var(--brand-soft)] text-[var(--brand)] hover:border-[var(--brand)]/60 text-[11px] font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {sendingTestPing ? (
+                  <>
+                    <span aria-hidden="true" className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    <span>Probando...</span>
+                  </>
+                ) : (
+                  <>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[15px]">network_check</span>
+                    <span>Probar conexión</span>
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
                 onClick={() => void fetchWasenderStatus()}
-                className="p-1.5 rounded-lg border border-slate-700 bg-slate-800/60 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors"
+                className="p-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-color)] transition-colors"
                 title="Actualizar estado Wasender"
               >
-                <span className="material-symbols-outlined text-[16px]">refresh</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">refresh</span>
               </button>
             </div>
           </div>
 
+          {wasenderStatus?.isTestMode && (
+            <div className="flex items-start gap-2 rounded-xl border border-[color:var(--state-info)]/35 bg-[color:var(--state-info)]/10 px-3 py-2 text-[11px] text-[var(--text-primary)]" role="status">
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-[var(--state-info)]">info</span>
+              <span>Modo prueba activo: todos los envíos se redirigen al teléfono de pruebas, no a clientes reales.</span>
+            </div>
+          )}
+
           {/* Metadata Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-            <div className="bg-[#050914] border border-cyan-500/20 rounded-2xl p-3.5 flex flex-col justify-between shadow-inner">
-              <span className="text-[11px] text-slate-400 font-mono uppercase">Sesión Conectada</span>
-              <span className="font-bold text-slate-100 text-sm mt-1">{wasenderStatus?.sessionName || 'No disponible'}</span>
-              <span className="font-mono text-[11px] text-emerald-400 mt-0.5">{wasenderStatus?.connectedPhone || 'Sin registrar'}</span>
+            <div className="bg-[var(--bg-card-subtle)] border border-[var(--border-subtle)] rounded-2xl p-3.5 flex flex-col justify-between">
+              <span className="text-[11px] text-[var(--text-secondary)] font-mono uppercase">Sesión Conectada</span>
+              <span className="font-bold text-[var(--text-primary)] text-sm mt-1">{wasenderStatus?.sessionName || 'No disponible'}</span>
+              <span className="font-mono text-[11px] text-[var(--brand)] mt-0.5">{wasenderStatus?.connectedPhone || 'Sin registrar'}</span>
             </div>
 
-            <div className="bg-[#050914] border border-cyan-500/20 rounded-2xl p-3.5 flex flex-col justify-between shadow-inner">
-              <span className="text-[11px] text-slate-400 font-mono uppercase">Cuenta WhatsApp</span>
-              <span className="font-bold text-slate-100 text-sm mt-1">{wasenderStatus?.accountName || 'Sin registrar'}</span>
-              <span className="text-[10px] text-slate-400 mt-0.5">Sesión Activa en Servidor</span>
+            <div className="bg-[var(--bg-card-subtle)] border border-[var(--border-subtle)] rounded-2xl p-3.5 flex flex-col justify-between">
+              <span className="text-[11px] text-[var(--text-secondary)] font-mono uppercase">Empresa</span>
+              <span className="font-bold text-[var(--text-primary)] text-sm mt-1">{wasenderStatus?.businessName || 'Sin registrar'}</span>
+              <span className="text-[10px] text-[var(--text-secondary)] mt-0.5">Nombre comercial configurado</span>
             </div>
 
-            <div className="bg-[#050914] border border-emerald-500/30 rounded-2xl p-3.5 flex flex-col justify-between shadow-inner bg-emerald-950/20">
-              <span className="text-[11px] text-emerald-400 font-mono uppercase font-bold flex items-center gap-1">
-                <span className="material-symbols-outlined text-[13px]">shield</span>
+            <div className="bg-[var(--bg-card-subtle)] border border-[color:var(--state-info)]/30 rounded-2xl p-3.5 flex flex-col justify-between">
+              <span className="text-[11px] text-[var(--text-secondary)] font-mono uppercase font-bold flex items-center gap-1">
+                <span aria-hidden="true" className="material-symbols-outlined text-[13px]">shield</span>
                 <span>Teléfono de Pruebas</span>
               </span>
-              <span className="font-mono font-bold text-emerald-300 text-sm mt-1">
+              <span className="font-mono font-bold text-[var(--text-primary)] text-sm mt-1">
                 {wasenderStatus?.designatedTestPhone || 'Sin registrar'}
               </span>
-              <span className="text-[10px] text-emerald-400/80 mt-0.5">Enrutamiento seguro activo</span>
+              <span className="text-[10px] text-[var(--text-secondary)] mt-0.5">
+                {wasenderStatus?.isTestMode ? 'Redirección activa' : 'Enrutamiento de pruebas'}
+              </span>
             </div>
 
-            <div className="bg-[#050914] border border-cyan-500/20 rounded-2xl p-3.5 flex flex-col justify-between shadow-inner">
-              <span className="text-[11px] text-slate-400 font-mono uppercase">Proveedor API</span>
-              <span className="font-bold text-slate-100 text-sm mt-1">WasenderAPI.com</span>
-              <span className="font-mono text-[10px] text-cyan-400 mt-0.5">POST /api/send-message</span>
+            <div className="bg-[var(--bg-card-subtle)] border border-[var(--border-subtle)] rounded-2xl p-3.5 flex flex-col justify-between">
+              <span className="text-[11px] text-[var(--text-secondary)] font-mono uppercase">Última verificación</span>
+              <span className="font-bold text-[var(--text-primary)] text-sm mt-1">
+                {wasenderLastVerification || 'Sin verificar'}
+              </span>
+              <span className="text-[10px] text-[var(--text-secondary)] mt-0.5">Registrada por «Probar conexión»</span>
             </div>
           </div>
 
           {/* Interactive Live Message Test Box */}
-          <div className="bg-[#050914]/90 border border-emerald-500/25 rounded-2xl p-4 flex flex-col gap-3">
+          <div className="bg-[var(--bg-card-subtle)] border border-[var(--border-subtle)] rounded-2xl p-4 flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 font-mono">
-                <span className="material-symbols-outlined text-[17px]">terminal</span>
-                <span>Transmisor de Pruebas WhatsApp en Vivo</span>
+              <div className="flex items-center gap-2 text-xs font-bold text-[var(--text-heading)] font-mono">
+                <span aria-hidden="true" className="material-symbols-outlined text-[17px]">terminal</span>
+                <span>Mensaje de prueba en vivo</span>
               </div>
-              <span className="text-[11px] text-slate-400">
-                Destino: <strong className="font-mono text-emerald-300">{wasenderStatus?.designatedTestPhone || 'Sin registrar'}</strong>
+              <span className="text-[11px] text-[var(--text-secondary)]">
+                Destino: <strong className="font-mono text-[var(--text-primary)]">{wasenderStatus?.designatedTestPhone || 'Sin registrar'}</strong>
               </span>
             </div>
 
@@ -1160,24 +1273,25 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                 type="text"
                 value={testCustomMessage}
                 onChange={(e) => setTestCustomMessage(e.target.value)}
-                placeholder="Escribe un mensaje de prueba para WhatsApp (o déjalo vacío para ping con hora)..."
-                className="flex-1 rounded-xl bg-[#080e1c] border border-cyan-500/30 px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-400 placeholder:text-slate-500 font-mono"
+                placeholder="Escribe un mensaje de prueba (o déjalo vacío para ping con hora)..."
+                aria-label="Mensaje de prueba para WhatsApp"
+                className="flex-1 rounded-xl bg-[var(--input-bg)] border border-[var(--input-border)] px-3.5 py-2.5 text-xs text-[var(--input-text)] focus:outline-none focus:border-[var(--brand)] placeholder:text-[var(--text-secondary)] font-mono"
               />
               <button
                 type="button"
-                onClick={handleSendTestPing}
+                onClick={() => void handleSendTestPing()}
                 disabled={sendingTestPing || !wasenderStatus?.configured}
-                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.35)] cursor-pointer transition-all active:scale-95 disabled:opacity-50 shrink-0"
+                className="px-4 py-2.5 rounded-xl bg-[var(--brand-solid)] hover:bg-[var(--brand-hover)] text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
               >
                 {sendingTestPing ? (
                   <>
-                    <span className="w-3.5 h-3.5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                    <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
                     <span>Transmitiendo...</span>
                   </>
                 ) : (
                   <>
-                    <span className="material-symbols-outlined text-[16px]">send</span>
-                    <span>Enviar Prueba a WhatsApp</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[16px]">send</span>
+                    <span>Enviar prueba</span>
                   </>
                 )}
               </button>
@@ -1185,13 +1299,17 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
 
             {testPingFeedback && (
               <div
+                role={testPingFeedback.type === 'success' ? 'status' : 'alert'}
                 className={`p-3 rounded-xl border text-xs flex items-center gap-2 animate-fade-in ${
                   testPingFeedback.type === 'success'
-                    ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-300'
-                    : 'bg-rose-950/50 border-rose-500/40 text-rose-300'
+                    ? 'bg-[color:var(--state-success)]/10 border-[color:var(--state-success)]/40 text-[var(--text-primary)]'
+                    : 'bg-[var(--state-urgency-tint)] border-[var(--state-urgency-border)] text-[var(--state-urgency-text)]'
                 }`}
               >
-                <span className="material-symbols-outlined text-[18px]">
+                <span
+                  aria-hidden="true"
+                  className={`material-symbols-outlined text-[18px] ${testPingFeedback.type === 'success' ? 'text-[var(--state-success)]' : 'text-[var(--state-urgency)]'}`}
+                >
                   {testPingFeedback.type === 'success' ? 'check_circle' : 'error'}
                 </span>
                 <span>{testPingFeedback.text}</span>
@@ -1225,6 +1343,8 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
             const action = pendingAction;
             setPendingAction(null);
             setTimeout(() => action(), 100);
+          } else {
+            void fetchBackups();
           }
         }}
       />

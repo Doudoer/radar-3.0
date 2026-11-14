@@ -1,6 +1,6 @@
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig(() => {
   return {
@@ -34,6 +34,29 @@ export default defineConfig(() => {
           manualChunks: {
             pdf: ['pdf-lib'],
             vendor: ['react', 'react-dom'],
+          },
+        },
+      },
+    },
+    test: {
+      testTimeout: 20000,
+      coverage: {
+        provider: 'v8' as const,
+        include: ['src/**/*.{ts,tsx}', 'server.ts'],
+        exclude: ['src/**/*.test.*', 'src/**/__tests__/**'],
+        reporter: ['text-summary', 'json-summary', 'lcov'],
+        reportsDirectory: 'coverage',
+        // Suelo anti-regresión sobre la cobertura medida el 2026-11-14; subir cuando aumente.
+        thresholds: {
+          lines: 33.5,
+          statements: 32,
+          functions: 25,
+          branches: 28,
+          'src/server/**/*.ts': {
+            lines: 74,
+            statements: 71.5,
+            functions: 76,
+            branches: 65.5,
           },
         },
       },

@@ -2,55 +2,211 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Claim, ClaimStatus, Order } from '../types';
 import { apiFetch } from '../services/apiFetch';
 import { ClaimDetailView, type ClaimQuickAction } from './ClaimDetailView';
+import { FlowDialog } from './FlowDialog';
 import { getClaimWarrantyError } from '../utils/orderWarranty';
 import { OrderAftersalesPanel } from './OrderAftersales';
+import { Icon } from './Icon';
 
 interface ClaimsViewProps {
   orders?: Order[];
   onUpdateOrder?: (order: Order) => Promise<Order | void>;
   userRole?: string;
   onSelectOrder?: (orderId: string) => void;
+  focusOrderId?: string | null;
 }
 
 const fieldClass =
-  'rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3.5 py-2 text-xs sm:text-sm text-[var(--text-primary)] focus:outline-none focus:border-cyan-400 transition-colors';
+  'rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3.5 py-2 text-xs sm:text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--brand)] transition-colors';
 const buttonClass =
   'cyber-btn-secondary rounded-xl px-3.5 py-2 text-xs font-bold disabled:opacity-50 cursor-pointer transition-all';
 
 const STATUS_META: Record<string, { label: string; cls: string; icon: string }> = {
   Pending: {
-    label: 'Pendiente',
-    cls: 'bg-amber-500/15 border-amber-500/35 text-amber-500',
-    icon: 'schedule',
+    label: 'Nuevo',
+    cls: 'bg-[var(--state-urgency-tint)] border-[var(--state-urgency-border)] text-[var(--state-urgency-text)]',
+    icon: 'inbox',
   },
   'In Process': {
-    label: 'En proceso',
-    cls: 'bg-cyan-500/15 border-cyan-500/35 text-cyan-400',
+    label: 'En revisión',
+    cls: 'bg-[var(--brand-soft)] border-[var(--brand)] text-[var(--brand)]',
     icon: 'build_circle',
   },
   Resolved: {
     label: 'Resuelto',
-    cls: 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500',
+    cls: 'bg-[var(--bg-card-subtle)] border-[var(--positive)] text-[var(--positive)]',
     icon: 'check_circle',
   },
   Denied: {
     label: 'Denegado',
-    cls: 'bg-rose-500/15 border-rose-500/35 text-rose-400',
+    cls: 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)]',
     icon: 'cancel',
   },
 };
 
-const PRIORITY_META: Record<string, { label: string; cls: string }> = {
-  Alta: { label: '🔥 Prioridad Alta', cls: 'bg-rose-500/15 border-rose-500/35 text-rose-400' },
-  Media: { label: '⚡ Prioridad Media', cls: 'bg-amber-500/15 border-amber-500/35 text-amber-500' },
-  Baja: { label: '🟢 Prioridad Baja', cls: 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500' },
+type ClaimPriority = 'Alta' | 'Media' | 'Baja';
+type ClaimViewMode = 'board' | 'list';
+type SlaTone = 'overdue' | 'soon' | 'ok' | 'closed' | 'none';
+
+const PRIORITY_META: Record<ClaimPriority, { label: string; dot: string; text: string; chip: string }> = {
+  Alta: {
+    label: 'Alta',
+    dot: 'bg-[var(--state-urgency)]',
+    text: 'text-[var(--state-urgency-text)]',
+    chip: 'border-[var(--state-urgency-border)] bg-[var(--state-urgency-tint)] text-[var(--state-urgency-text)]',
+  },
+  Media: {
+    label: 'Media',
+    dot: 'bg-[var(--warning)]',
+    text: 'text-[var(--text-secondary)]',
+    chip: 'border-[var(--border-color)] bg-[var(--bg-card-subtle)] text-[var(--warning)]',
+  },
+  Baja: {
+    label: 'Baja',
+    dot: 'bg-[var(--text-secondary)]',
+    text: 'text-[var(--text-secondary)]',
+    chip: 'border-[var(--border-color)] bg-[var(--bg-card-subtle)] text-[var(--text-secondary)]',
+  },
 };
 
-export const ClaimsView: React.FC<ClaimsViewProps> = ({ orders = [], userRole = 'operador', onSelectOrder }) => {
+const SLA_TONE_CLASS: Record<SlaTone, string> = {
+  overdue: 'border-[var(--state-urgency-border)] bg-[var(--state-urgency-tint)] text-[var(--state-urgency-text)]',
+  soon: 'border-[var(--state-urgency-border)] bg-[var(--state-urgency-tint)] text-[var(--state-urgency-text)]',
+  ok: 'border-[var(--border-color)] bg-[var(--bg-card-subtle)] text-[var(--text-secondary)]',
+  closed: 'border-[var(--border-color)] bg-[var(--bg-card-subtle)] text-[var(--text-secondary)]',
+  none: 'border-[var(--border-color)] bg-[var(--bg-card-subtle)] text-[var(--text-secondary)]',
+};
+
+const SLA_TARGET_HOURS: Record<'Pending' | 'In Process', number> = {
+  Pending: 48,
+  'In Process': 168,
+};
+
+const BOARD_COLUMNS: { id: string; label: string; icon: string; statuses: ClaimStatus[]; empty: string }[] = [
+  { id: 'nuevo', label: 'Nuevo', icon: 'inbox', statuses: ['Pending'], empty: 'Sin reclamos nuevos' },
+  { id: 'revision', label: 'En revisión', icon: 'build_circle', statuses: ['In Process'], empty: 'Sin reclamos en revisión' },
+  { id: 'resuelto', label: 'Resuelto', icon: 'task_alt', statuses: ['Resolved', 'Denied'], empty: 'Sin reclamos cerrados' },
+];
+
+const STATUS_FILTERS = [
+  { id: 'Todos', label: 'Todos' },
+  { id: 'Pending', label: 'Nuevo' },
+  { id: 'In Process', label: 'En revisión' },
+  { id: 'Resolved', label: 'Resuelto' },
+  { id: 'Denied', label: 'Denegado' },
+];
+
+const parseClaimDate = (value?: string): Date | null => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const endOfDay = (value: Date): Date => {
+  const copy = new Date(value);
+  copy.setHours(23, 59, 59, 999);
+  return copy;
+};
+
+const formatSlaDistance = (hours: number): string => {
+  if (hours >= 48) return `${Math.floor(hours / 24)} d`;
+  if (hours >= 24) return '1 d';
+  return `${Math.max(1, Math.round(hours))} h`;
+};
+
+const getSlaChipClass = (claim: Claim, sla: { tone: SlaTone }): string =>
+  claim.status === 'Resolved'
+    ? 'border-[var(--positive)] bg-[var(--bg-card-subtle)] text-[var(--positive)]'
+    : SLA_TONE_CLASS[sla.tone];
+
+const getClaimSla = (claim: Claim, now: number = Date.now()): { tone: SlaTone; label: string } => {
+  if (claim.status === 'Resolved') return { tone: 'closed', label: 'Resuelto' };
+  if (claim.status === 'Denied') return { tone: 'closed', label: 'Denegado' };
+  const reviewDate = parseClaimDate(claim.nextReviewDate);
+  const createdDate = parseClaimDate(claim.createdAt);
+  const target = reviewDate
+    ? endOfDay(reviewDate)
+    : createdDate
+      ? new Date(createdDate.getTime() + SLA_TARGET_HOURS[claim.status === 'In Process' ? 'In Process' : 'Pending'] * 3_600_000)
+      : null;
+  if (!target) return { tone: 'none', label: 'Sin fecha de revisión' };
+  const remainingHours = (target.getTime() - now) / 3_600_000;
+  if (remainingHours < 0) return { tone: 'overdue', label: `Vencido hace ${formatSlaDistance(Math.abs(remainingHours))}` };
+  if (remainingHours <= 24) return { tone: 'soon', label: `Vence en ${formatSlaDistance(remainingHours)}` };
+  return { tone: 'ok', label: `SLA en ${formatSlaDistance(remainingHours)}` };
+};
+
+const getClaimPriority = (claim: Claim, sla: { tone: SlaTone } = getClaimSla(claim), now: number = Date.now()): ClaimPriority => {
+  if (claim.status === 'Resolved' || claim.status === 'Denied') return claim.priority;
+  if (sla.tone === 'overdue' || sla.tone === 'soon') return 'Alta';
+  const createdDate = parseClaimDate(claim.createdAt);
+  if (claim.status === 'Pending' && createdDate && now - createdDate.getTime() <= 12 * 3_600_000) return 'Baja';
+  return 'Media';
+};
+
+const getNextAction = (claim: Claim): string => {
+  if (claim.status === 'Pending') {
+    return claim.callCount > 0 ? 'Evaluar evidencia y diagnosticar' : 'Contactar al cliente y pedir evidencia';
+  }
+  if (claim.status === 'In Process') return 'Confirmar diagnóstico con yarda';
+  if (claim.status === 'Resolved') return 'Cerrar bitácora y archivar';
+  return 'Notificar la decisión al cliente';
+};
+
+const ClaimBoardCard: React.FC<{ claim: Claim; onOpen: (claim: Claim) => void }> = ({ claim, onOpen }) => {
+  const sla = getClaimSla(claim);
+  const priority = PRIORITY_META[getClaimPriority(claim, sla)];
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(claim)}
+      className="group w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2.5 text-left transition-colors hover:border-[var(--brand)] hover:bg-[var(--bg-card-subtle)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
+      title={`${claim.id} · ${claim.customerName} · Asesor: ${claim.advisor} · ${claim.callCount || 0} llamadas`}
+    >
+      <span className="flex min-w-0 items-center justify-between gap-2">
+        <span className="min-w-0 truncate font-mono text-[10.5px] font-bold text-[var(--brand)]">
+          {claim.id}
+          <span className="font-semibold text-[var(--text-secondary)]"> · {claim.orderCode}</span>
+        </span>
+        <span className={`inline-flex shrink-0 items-center gap-1 text-[10px] font-bold uppercase tracking-wide ${priority.text}`}>
+          <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${priority.dot}`} />
+          {priority.label}
+        </span>
+      </span>
+      <span className="mt-0.5 flex min-w-0 items-baseline gap-2">
+        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-tight text-[var(--text-primary)]">
+          {claim.customerName}
+        </span>
+        <span className="max-w-[42%] shrink-0 truncate text-[10.5px] text-[var(--text-secondary)]">{claim.mainPart}</span>
+      </span>
+      <span className="mt-1.5 flex min-w-0 items-center justify-between gap-2 border-t border-[var(--border-subtle)] pt-1.5">
+        <span className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${getSlaChipClass(claim, sla)}`}>
+          <Icon name={sla.tone === 'overdue' ? 'timer_off' : 'timer'} size={12} />
+          {sla.label}
+        </span>
+        <span className="inline-flex min-w-0 items-center gap-1 text-[10px] font-semibold text-[var(--text-secondary)]">
+          <span aria-hidden="true" className="material-symbols-outlined shrink-0 text-[13px]">arrow_forward</span>
+          <span className="truncate">{getNextAction(claim)}</span>
+        </span>
+      </span>
+    </button>
+  );
+};
+
+export const ClaimsView: React.FC<ClaimsViewProps> = ({ orders = [], userRole = 'operador', onSelectOrder, focusOrderId }) => {
   const [claims, setClaims] = useState<Claim[]>([]);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('Todos');
   const [priority, setPriority] = useState('Todas');
+  const [operator, setOperator] = useState('Todos');
+  const [view, setView] = useState<ClaimViewMode>(() => {
+    if (typeof window === 'undefined') return 'board';
+    try {
+      return window.localStorage.getItem('radar.claims.view') === 'list' ? 'list' : 'board';
+    } catch {
+      return 'board';
+    }
+  });
+  const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [initialAction, setInitialAction] = useState<ClaimQuickAction>('');
   const [managingId, setManagingId] = useState('');
@@ -62,6 +218,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({ orders = [], userRole = 
   const [message, setMessage] = useState('');
   const busyRef = useRef(false);
   const generation = useRef(0);
+  const focusHandledRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     const requestId = ++generation.current;
@@ -75,8 +232,18 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({ orders = [], userRole = 
       }
     } catch (error) {
       if (requestId === generation.current) setError(error instanceof Error ? error.message : 'Error al cargar reclamos.');
+    } finally {
+      if (requestId === generation.current) setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!focusOrderId || focusHandledRef.current === focusOrderId || claims.length === 0) return;
+    focusHandledRef.current = focusOrderId;
+    const match = claims.find((claim) => String(claim.orderId) === String(focusOrderId) && !['Resolved', 'Denied'].includes(claim.status))
+      || claims.find((claim) => String(claim.orderId) === String(focusOrderId));
+    if (match) setSelectedId(match.id);
+  }, [focusOrderId, claims]);
 
   useEffect(() => {
     void load();
@@ -107,20 +274,51 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({ orders = [], userRole = 
         return (
           text.includes(search.toLowerCase()) &&
           (status === 'Todos' || claim.status === status) &&
-          (priority === 'Todas' || claim.priority === priority)
+          (priority === 'Todas' || getClaimPriority(claim) === priority) &&
+          (operator === 'Todos' || claim.advisor === operator)
         );
       }),
-    [claims, search, status, priority]
+    [claims, search, status, priority, operator]
   );
+
+  const operatorOptions = useMemo(() => {
+    const names = new Set<string>();
+    claims.forEach((claim) => {
+      if (claim.advisor) names.add(claim.advisor);
+    });
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [claims]);
 
   const selectedClaim = claims.find((claim) => claim.id === selectedId);
 
   const stats = useMemo(() => {
-    const open = claims.filter((c) => !['Resolved', 'Denied'].includes(c.status)).length;
-    const high = claims.filter((c) => c.priority === 'Alta' && !['Resolved', 'Denied'].includes(c.status)).length;
+    const now = Date.now();
+    const openClaims = claims.filter((c) => !['Resolved', 'Denied'].includes(c.status));
+    const overdue = openClaims.filter((c) => getClaimSla(c, now).tone === 'overdue').length;
+    const high = openClaims.filter((c) => getClaimPriority(c, getClaimSla(c, now), now) === 'Alta').length;
     const resolved = claims.filter((c) => c.status === 'Resolved').length;
-    return { total: claims.length, open, high, resolved };
+    return { total: claims.length, open: openClaims.length, overdue, high, resolved };
   }, [claims]);
+
+  const changeView = (next: ClaimViewMode) => {
+    setView(next);
+    if (next === 'board') setStatus('Todos');
+    try {
+      window.localStorage.setItem('radar.claims.view', next);
+    } catch {
+      // Preference persistence is optional; the view still switches for this session.
+    }
+  };
+
+  const openClaim = (claim: Claim, action: ClaimQuickAction = '') => {
+    setInitialAction(action);
+    setSelectedId(claim.id);
+  };
+
+  const closeDetail = () => {
+    setSelectedId(null);
+    setInitialAction('');
+  };
 
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -137,423 +335,447 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({ orders = [], userRole = 
   };
 
   const managingOrder = orders.find((order) => String(order.id) === managingId);
+  const drawerClaim = managingOrder ? undefined : selectedClaim;
+
   if (managingOrder) {
     return (
-      <div className="radar-view horizon-view space-y-4 pb-10">
-        <div className="horizon-view-card flex flex-wrap items-center justify-between gap-3 p-4">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className="p-2 rounded-xl bg-[var(--bg-card-subtle)] border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/20 transition-all cursor-pointer"
-              onClick={() => setManagingId('')}
-            >
-              <span className="material-symbols-outlined text-[18px]">arrow_back</span>
-            </button>
-            <div>
-              <h1 className="text-lg sm:text-xl font-black text-[var(--text-primary)]">
-                Gestión de garantía · <span className="font-mono text-cyan-400">#{managingOrder.code}</span>
-              </h1>
-              <p className="text-xs text-[var(--text-secondary)]">
-                {managingOrder.customer?.name} · {managingOrder.vehicle?.make} {managingOrder.vehicle?.model}
-              </p>
-            </div>
-          </div>
-          <button type="button" className={buttonClass} onClick={() => setManagingId('')}>
-            Volver a reclamos
-          </button>
-        </div>
+      <FlowDialog
+        open
+        onClose={() => setManagingId('')}
+        labelledBy="claim-manage-title"
+        icon="shield_with_heart"
+        title="Gestión de garantía"
+        badge={
+          <span className="rounded-lg border border-[var(--brand)] bg-[var(--brand-soft)] px-2.5 py-0.5 font-mono text-xs font-bold text-[var(--brand)]">
+            #{managingOrder.code}
+          </span>
+        }
+        subtitle={`${managingOrder.customer?.name || ''} · ${managingOrder.vehicle?.make || ''} ${managingOrder.vehicle?.model || ''}`.trim()}
+        isBlocked={() => Boolean(document.querySelector('[role="dialog"][aria-modal="true"]:not([data-flow-dialog])'))}
+      >
         <OrderAftersalesPanel order={managingOrder} />
-      </div>
+      </FlowDialog>
     );
   }
 
   return (
     <div className="radar-view horizon-view space-y-5 pb-10 text-[var(--text-primary)]">
       {error && (
-        <p role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-xs sm:text-sm font-semibold text-red-500">
-          {error}
-        </p>
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--state-urgency-border)] bg-[var(--state-urgency-tint)] p-3 text-xs sm:text-sm font-semibold text-[var(--state-urgency-text)]">
+          <span className="flex items-center gap-2">
+            <Icon name="error" size={18} />
+            {error}
+          </span>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="rounded-lg border border-[var(--state-urgency-border)] bg-[var(--bg-card)] px-3 py-1.5 text-xs font-bold transition-colors hover:bg-[var(--bg-card-subtle)] cursor-pointer"
+          >
+            Reintentar
+          </button>
+        </div>
       )}
       {message && (
-        <p role="status" className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs sm:text-sm font-semibold text-emerald-500">
+        <p role="status" className="rounded-xl border border-[var(--positive)] bg-[var(--bg-card-subtle)] p-3 text-xs sm:text-sm font-semibold text-[var(--positive)]">
           {message}
         </p>
       )}
 
-      {selectedClaim ? (
-        <ClaimDetailView
-          claim={selectedClaim}
-          order={orders.find(
-            (order) => String(order.id) === String(selectedClaim.orderId) || order.code === selectedClaim.orderCode
+      {/* Header */}
+      <header className="horizon-view-header flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="w-11 h-11 shrink-0 rounded-2xl border border-[var(--state-urgency-border)] bg-[var(--state-urgency-tint)] text-[var(--state-urgency-text)] flex items-center justify-center">
+            <span aria-hidden="true" className="material-symbols-outlined text-[24px]">build_circle</span>
+          </span>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-black text-[var(--text-primary)]">Reclamos</h1>
+            <p className="text-xs sm:text-sm text-[var(--text-secondary)]">
+              Garantías, seguimiento técnico y bitácora de llamadas
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div role="group" aria-label="Formato de vista" className="inline-flex rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] p-0.5">
+            {([
+              { id: 'board', label: 'Tablero', icon: 'view_kanban' },
+              { id: 'list', label: 'Lista', icon: 'table_rows' },
+            ] as { id: ClaimViewMode; label: string; icon: string }[]).map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                aria-pressed={view === option.id}
+                onClick={() => changeView(option.id)}
+                className={`inline-flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
+                  view === option.id
+                    ? 'bg-[var(--brand-soft)] text-[var(--brand)] shadow-sm'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">{option.icon}</span>
+                <span>{option.label}</span>
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className={`${buttonClass} inline-flex items-center gap-1.5`}
+            onClick={() => window.print()}
+          >
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">print</span>
+            <span>Imprimir</span>
+          </button>
+          <button
+            type="button"
+            className="horizon-primary rounded-xl px-4 py-2 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+            onClick={() => setCreating(true)}
+          >
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">add_circle</span>
+            <span>Nuevo reclamo</span>
+          </button>
+        </div>
+      </header>
+
+      {/* KPI summary */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="horizon-view-card p-4 flex items-center justify-between gap-3">
+          <div>
+            <span className="text-xs text-[var(--text-secondary)] block">Total registrados</span>
+            <strong className="text-2xl font-black text-[var(--text-primary)] tabular-nums">{stats.total}</strong>
+          </div>
+          <span className="w-10 h-10 rounded-xl bg-[var(--brand-soft)] border border-[var(--border-color)] text-[var(--brand)] flex items-center justify-center">
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">folder_special</span>
+          </span>
+        </div>
+
+        <div className="horizon-view-card p-4 flex items-center justify-between gap-3">
+          <div>
+            <span className="text-xs text-[var(--text-secondary)] block">Abiertos</span>
+            <strong className="text-2xl font-black text-[var(--text-primary)] tabular-nums">{stats.open}</strong>
+          </div>
+          <span className="w-10 h-10 rounded-xl bg-[var(--brand-soft)] border border-[var(--border-color)] text-[var(--brand)] flex items-center justify-center">
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">pending_actions</span>
+          </span>
+        </div>
+
+        <div className="horizon-view-card p-4 flex items-center justify-between gap-3">
+          <div>
+            <span className="text-xs text-[var(--text-secondary)] block">SLA vencidos</span>
+            <strong className="text-2xl font-black text-[var(--state-urgency-text)] tabular-nums">{stats.overdue}</strong>
+            <span className="block text-[10.5px] text-[var(--text-secondary)]">{stats.high} de prioridad alta</span>
+          </div>
+          <span className="w-10 h-10 rounded-xl bg-[var(--state-urgency-tint)] border border-[var(--state-urgency-border)] text-[var(--state-urgency-text)] flex items-center justify-center">
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">timer_off</span>
+          </span>
+        </div>
+
+        <div className="horizon-view-card p-4 flex items-center justify-between gap-3">
+          <div>
+            <span className="text-xs text-[var(--text-secondary)] block">Casos resueltos</span>
+            <strong className="text-2xl font-black text-[var(--positive)] tabular-nums">{stats.resolved}</strong>
+          </div>
+          <span className="w-10 h-10 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--positive)] text-[var(--positive)] flex items-center justify-center">
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">task_alt</span>
+          </span>
+        </div>
+      </div>
+
+      {/* Filter toolbar */}
+      <div className="horizon-view-toolbar horizon-view-card space-y-3 p-3 sm:p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[220px] flex-1">
+            <input
+              className={`${fieldClass} w-full`}
+              aria-label="Buscar reclamos"
+              placeholder="Buscar por orden, cliente, vehículo, pieza o motivo..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+          <select
+            className={fieldClass}
+            aria-label="Operador"
+            value={operator}
+            onChange={(event) => setOperator(event.target.value)}
+          >
+            <option value="Todos">Operador: todos</option>
+            {operatorOptions.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+          <select
+            className={fieldClass}
+            aria-label="Prioridad"
+            value={priority}
+            onChange={(event) => setPriority(event.target.value)}
+          >
+            <option value="Todas">Prioridad: todas</option>
+            <option value="Alta">Alta</option>
+            <option value="Media">Media</option>
+            <option value="Baja">Baja</option>
+          </select>
+          {view === 'list' && (
+            <select
+              className={fieldClass}
+              aria-label="Estado del reclamo"
+              value={status}
+              onChange={(event) => setStatus(event.target.value)}
+            >
+              {STATUS_FILTERS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.id === 'Todos' ? 'Estado: todos' : option.label}
+                </option>
+              ))}
+            </select>
           )}
-          userRole={userRole}
-          initialAction={initialAction}
-          onBack={() => {
-            setSelectedId(null);
-            setInitialAction('');
-          }}
-          onCallAdded={(call) =>
-            setClaims((previous) =>
-              previous.map((claim) =>
-                claim.id === selectedId
-                  ? { ...claim, calls: [call, ...(claim.calls || [])], callCount: (claim.callCount || 0) + 1 }
-                  : claim
-              )
-            )
-          }
-          onResolve={() => {
-            void changeStatus(selectedClaim, 'Resolved');
-          }}
-          onReloadClaims={load}
-          onSelectOrder={onSelectOrder}
-        />
+          {(search || operator !== 'Todos' || priority !== 'Todas' || status !== 'Todos') && (
+            <button
+              type="button"
+              className={buttonClass}
+              onClick={() => {
+                setSearch('');
+                setOperator('Todos');
+                setPriority('Todas');
+                setStatus('Todos');
+              }}
+            >
+              Limpiar filtros
+            </button>
+          )}
+        </div>
+
+        {view === 'list' && (
+          <div className="flex flex-wrap items-center gap-1.5 border-t border-[var(--border-color)] pt-2">
+            {STATUS_FILTERS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setStatus(option.id)}
+                className={`rounded-lg border px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${
+                  status === option.id
+                    ? 'bg-[var(--brand-soft)] border-[var(--brand)] text-[var(--brand)] shadow-sm'
+                    : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+            <span className="ml-auto text-[11px] font-semibold text-[var(--text-secondary)] tabular-nums">
+              {filtered.length} de {claims.length}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {view === 'board' ? (
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          {BOARD_COLUMNS.map((column) => {
+            const items = filtered
+              .filter((claim) => column.statuses.includes(claim.status))
+              .sort((a, b) => {
+                const rank = (claim: Claim) => {
+                  const tone = getClaimSla(claim).tone;
+                  return tone === 'overdue' ? 0 : tone === 'soon' ? 1 : tone === 'ok' ? 2 : 3;
+                };
+                const byRank = rank(a) - rank(b);
+                return byRank !== 0 ? byRank : String(b.createdAt).localeCompare(String(a.createdAt));
+              });
+            const overdue = items.filter((claim) => getClaimSla(claim).tone === 'overdue').length;
+            return (
+              <section
+                key={column.id}
+                className="flex min-h-[220px] flex-col rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)]"
+              >
+                <header className="flex items-center justify-between gap-2 border-b border-[var(--border-color)] px-3.5 py-2.5">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[17px] text-[var(--brand)]">{column.icon}</span>
+                    <h2 className="truncate text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">{column.label}</h2>
+                    <span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-card)] px-1.5 py-0.5 text-[10.5px] font-bold tabular-nums text-[var(--text-primary)]">
+                      {items.length}
+                    </span>
+                  </div>
+                  {overdue > 0 && (
+                    <span className="inline-flex shrink-0 items-center gap-1 text-[10.5px] font-semibold text-[var(--state-urgency-text)]">
+                      <Icon name="timer_off" size={13} />
+                      {overdue} vencido{overdue === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </header>
+                <div className="flex flex-1 flex-col gap-2 p-2.5">
+                  {items.map((claim) => (
+                    <ClaimBoardCard key={claim.id} claim={claim} onOpen={openClaim} />
+                  ))}
+                  {!items.length && (
+                    <p className="px-2 py-10 text-center text-[11px] text-[var(--text-secondary)]">
+                      {loading ? 'Cargando reclamos…' : column.empty}
+                    </p>
+                  )}
+                </div>
+              </section>
+            );
+          })}
+        </div>
       ) : (
-        <>
-          {/* Header */}
-          <header className="horizon-view-header flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <span className="w-11 h-11 rounded-2xl bg-amber-500/15 border border-amber-500/35 text-amber-500 flex items-center justify-center shrink-0">
-                <span className="material-symbols-outlined text-[24px]">build_circle</span>
-              </span>
-              <div>
-                <h1 className="text-xl sm:text-2xl font-black text-[var(--text-primary)]">Reclamos</h1>
-                <p className="text-xs sm:text-sm text-[var(--text-secondary)]">
-                  Garantías, seguimiento técnico y bitácora de llamadas
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className={`${buttonClass} inline-flex items-center gap-1.5`}
-                onClick={() => window.print()}
-              >
-                <span className="material-symbols-outlined text-[16px]">print</span>
-                <span>Imprimir</span>
-              </button>
-              <button
-                type="button"
-                className="horizon-primary rounded-xl px-4 py-2 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
-                onClick={() => setCreating(true)}
-              >
-                <span className="material-symbols-outlined text-[16px]">add_circle</span>
-                <span>Nuevo reclamo</span>
-              </button>
-            </div>
-          </header>
-
-          {/* KPI Summary Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="horizon-view-card p-4 flex items-center justify-between gap-3">
-              <div>
-                <span className="text-xs text-[var(--text-secondary)] block">Total registrados</span>
-                <strong className="text-2xl font-black text-[var(--text-primary)] tabular-nums">{stats.total}</strong>
-              </div>
-              <span className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[20px]">folder_Special</span>
-              </span>
-            </div>
-
-            <div className="horizon-view-card p-4 flex items-center justify-between gap-3">
-              <div>
-                <span className="text-xs text-[var(--text-secondary)] block">Abiertos / En revisión</span>
-                <strong className="text-2xl font-black text-amber-500 tabular-nums">{stats.open}</strong>
-              </div>
-              <span className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-500 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[20px]">pending_actions</span>
-              </span>
-            </div>
-
-            <div className="horizon-view-card p-4 flex items-center justify-between gap-3">
-              <div>
-                <span className="text-xs text-[var(--text-secondary)] block">Prioridad alta activa</span>
-                <strong className="text-2xl font-black text-rose-400 tabular-nums">{stats.high}</strong>
-              </div>
-              <span className="w-10 h-10 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[20px]">priority_high</span>
-              </span>
-            </div>
-
-            <div className="horizon-view-card p-4 flex items-center justify-between gap-3">
-              <div>
-                <span className="text-xs text-[var(--text-secondary)] block">Casos resueltos</span>
-                <strong className="text-2xl font-black text-emerald-500 tabular-nums">{stats.resolved}</strong>
-              </div>
-              <span className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 flex items-center justify-center">
-                <span className="material-symbols-outlined text-[20px]">task_alt</span>
-              </span>
-            </div>
-          </div>
-
-          {/* Filter Toolbar */}
-          <div className="horizon-view-toolbar horizon-view-card p-4 space-y-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="relative flex-1 min-w-[240px]">
-                <input
-                  className={`${fieldClass} w-full`}
-                  aria-label="Buscar reclamos"
-                  placeholder="Buscar por orden, cliente, vehículo, pieza o motivo..."
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                />
-              </div>
-              <select
-                className={fieldClass}
-                aria-label="Estado del reclamo"
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-              >
-                {['Todos', 'Pending', 'In Process', 'Resolved', 'Denied'].map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-              <select
-                className={fieldClass}
-                aria-label="Prioridad"
-                value={priority}
-                onChange={(event) => setPriority(event.target.value)}
-              >
-                {['Todas', 'Alta', 'Media', 'Baja'].map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Quick 1-click Status Pills */}
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[var(--border-color)]">
-              <div className="flex flex-wrap items-center gap-1.5">
-                {[
-                  { id: 'Todos', label: 'Todos' },
-                  { id: 'Pending', label: '⏳ Pendientes' },
-                  { id: 'In Process', label: '🔧 En proceso' },
-                  { id: 'Resolved', label: '✅ Resueltos' },
-                  { id: 'Denied', label: '🚫 Denegados' },
-                ].map((pill) => (
-                  <button
-                    key={pill.id}
-                    type="button"
-                    onClick={() => setStatus(pill.id)}
-                    className={`rounded-lg border px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${
-                      status === pill.id
-                        ? 'bg-cyan-500/20 border-cyan-400 text-cyan-400 shadow-sm'
-                        : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                    }`}
-                  >
-                    {pill.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-1.5">
-                {['Todas', 'Alta', 'Media', 'Baja'].map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setPriority(p)}
-                    className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition-all cursor-pointer ${
-                      priority === p
-                        ? 'bg-amber-500/20 border-amber-400 text-amber-400'
-                        : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                    }`}
-                  >
-                    {p === 'Todas' ? 'Prioridad: Todas' : p}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Claims Cards List */}
-          <div className="space-y-3">
-            {filtered.map((claim) => {
-              const statusMeta = STATUS_META[claim.status] || {
-                label: claim.status,
-                cls: 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)]',
-                icon: 'info',
-              };
-              const prioMeta = PRIORITY_META[claim.priority] || {
-                label: claim.priority,
-                cls: 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)]',
-              };
-
-              return (
-                <article
-                  key={claim.id}
-                  className="horizon-view-card rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4 sm:p-5 space-y-3.5 shadow-sm"
-                >
-                  {/* Top Bar */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[var(--border-color)]">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1.5 font-mono text-sm font-black text-cyan-400 hover:underline cursor-pointer"
-                        onClick={() => setSelectedId(claim.id)}
-                      >
-                        <span className="material-symbols-outlined text-[17px]">folder_open</span>
-                        <span>
-                          {claim.id} · {claim.orderCode}
-                        </span>
-                      </button>
-                      <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-bold ${statusMeta.cls}`}>
-                        <span className="material-symbols-outlined text-[13px]">{statusMeta.icon}</span>
-                        <span>{statusMeta.label}</span>
-                      </span>
-                      <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-bold ${prioMeta.cls}`}>
-                        {prioMeta.label}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-3 text-xs text-[var(--text-secondary)]">
-                      <span className="inline-flex items-center gap-1 font-semibold">
-                        <span className="material-symbols-outlined text-[15px] text-cyan-400">phone_in_talk</span>
-                        <span>{claim.callCount || 0} llamadas</span>
-                      </span>
-                      <span>·</span>
-                      <span>Asesor: <strong className="text-[var(--text-primary)]">{claim.advisor}</strong></span>
-                    </div>
-                  </div>
-
-                  {/* Customer, Vehicle & Reason */}
-                  <div className="grid gap-3 md:grid-cols-[1fr_1.4fr] text-xs sm:text-sm">
-                    <div className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3 space-y-1">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] block">
-                        Cliente y pieza reclamada
-                      </span>
-                      <strong className="font-bold text-[var(--text-primary)] block">
-                        {claim.customerName}
-                      </strong>
-                      <p className="text-xs text-cyan-400 font-semibold">
-                        {claim.vehicle} · {claim.mainPart}
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3 space-y-1">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] block">
-                        Motivo reportado
-                      </span>
-                      <p className="text-xs sm:text-sm text-[var(--text-primary)] leading-relaxed">
-                        {claim.claimReason}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* 3-Step Visual Progress Bar */}
-                  <div className="grid grid-cols-3 gap-2 text-[11px]">
-                    {[
-                      { num: 1, label: '1. Apertura' },
-                      { num: 2, label: '2. Revisión y Diagnóstico' },
-                      { num: 3, label: '3. Solución Verificable' },
-                    ].map((s) => {
-                      const isClosed = claim.status === 'Resolved' || claim.status === 'Denied';
-                      const stepIdx = isClosed ? 3 : claim.status === 'In Process' ? 2 : 1;
-                      const done = stepIdx > s.num || (isClosed && s.num === 3);
-                      const active = !isClosed && stepIdx === s.num;
-                      return (
-                        <div
-                          key={s.num}
-                          className={`rounded-lg border px-2.5 py-1.5 font-semibold flex items-center justify-between gap-1 ${
-                            done
-                              ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500'
-                              : active
-                              ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-400'
-                              : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)] opacity-70'
-                          }`}
-                        >
-                          <span className="truncate">{s.label}</span>
-                          <span className="material-symbols-outlined text-[14px]">
-                            {done ? 'check_circle' : active ? 'radio_button_checked' : 'schedule'}
+        <div className="horizon-view-card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[620px] table-fixed border-collapse text-left">
+              <colgroup>
+                <col className="w-[15%]" />
+                <col className="w-[26%]" />
+                <col className="w-[13%]" />
+                <col className="w-[18%]" />
+                <col className="w-[10%]" />
+                <col className="hidden w-[9%] xl:table-column" />
+                <col className="w-[9%]" />
+              </colgroup>
+              <thead>
+                <tr className="border-b border-[var(--border-color)] text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">
+                  <th className="whitespace-nowrap px-3 py-2.5">Reclamo</th>
+                  <th className="whitespace-nowrap px-3 py-2.5">Cliente · Pieza</th>
+                  <th className="whitespace-nowrap px-3 py-2.5">Estado</th>
+                  <th className="whitespace-nowrap px-3 py-2.5">SLA</th>
+                  <th className="whitespace-nowrap px-3 py-2.5">Prioridad</th>
+                  <th className="hidden whitespace-nowrap px-3 py-2.5 xl:table-cell">Asesor</th>
+                  <th className="px-3 py-2.5 text-right">Abrir</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((claim) => {
+                  const sla = getClaimSla(claim);
+                  const statusMeta = STATUS_META[claim.status] || {
+                    label: claim.status,
+                    cls: 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)]',
+                    icon: 'info',
+                  };
+                  const priorityMeta = PRIORITY_META[getClaimPriority(claim, sla)];
+                  return (
+                    <tr
+                      key={claim.id}
+                      onClick={() => openClaim(claim)}
+                      className="cursor-pointer border-b border-[var(--border-subtle)] transition-colors last:border-b-0 hover:bg-[var(--bg-card-subtle)]"
+                    >
+                      <td className="px-3 py-2.5 align-middle">
+                        <div className="flex min-w-0 flex-col">
+                          <span className="truncate font-mono text-[11px] font-bold text-[var(--brand)]">{claim.id}</span>
+                          <span className="truncate font-mono text-[10px] text-[var(--text-secondary)]">{claim.orderCode}</span>
+                        </div>
+                      </td>
+                      <td className="min-w-0 px-3 py-2.5 align-middle">
+                        <div className="flex min-w-0 flex-col">
+                          <span className="truncate text-xs font-semibold text-[var(--text-primary)]">{claim.customerName}</span>
+                          <span className="truncate text-[10px] text-[var(--text-secondary)]" title={`${claim.vehicle} · ${claim.mainPart}`}>
+                            {claim.vehicle} · {claim.mainPart}
                           </span>
                         </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Action Bar */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className={buttonClass}
-                        onClick={() => {
-                          setInitialAction('');
-                          setSelectedId(claim.id);
-                        }}
-                      >
-                        Detalle y llamadas
-                      </button>
-                      {onSelectOrder && (
+                      </td>
+                      <td className="px-3 py-2.5 align-middle">
+                        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusMeta.cls}`}>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[12px]">{statusMeta.icon}</span>
+                          {statusMeta.label}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 align-middle">
+                        <span className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${getSlaChipClass(claim, sla)}`}>
+                          <Icon name={sla.tone === 'overdue' ? 'timer_off' : 'timer'} size={12} />
+                          {sla.label}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 align-middle">
+                        <span className={`inline-flex items-center gap-1 text-[10.5px] font-bold uppercase tracking-wide ${priorityMeta.text}`}>
+                          <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${priorityMeta.dot}`} />
+                          {priorityMeta.label}
+                        </span>
+                      </td>
+                      <td className="hidden px-3 py-2.5 align-middle xl:table-cell">
+                        <span className="block truncate text-[11px] text-[var(--text-secondary)]" title={claim.advisor}>
+                          {claim.advisor}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right align-middle">
                         <button
                           type="button"
-                          className={buttonClass}
-                          onClick={() => {
-                            const order = orders.find(
-                              (order) => String(order.id) === String(claim.orderId) || order.code === claim.orderCode
-                            );
-                            if (order) onSelectOrder(order.id);
+                          className="rounded-lg border border-[var(--border-color)] px-2 py-1 text-[10.5px] font-bold text-[var(--brand)] transition-colors hover:border-[var(--brand)] cursor-pointer"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openClaim(claim);
                           }}
                         >
-                          Ver orden
+                          Detalle
                         </button>
-                      )}
-                    </div>
-
-                    {claim.status !== 'Resolved' && claim.status !== 'Denied' && (
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          className={buttonClass}
-                          disabled={busy}
-                          onClick={() => {
-                            setInitialAction('claim_review');
-                            setSelectedId(claim.id);
-                          }}
-                        >
-                          En proceso
-                        </button>
-                        <button
-                          type="button"
-                          className="horizon-primary rounded-xl px-3.5 py-2 text-xs font-bold disabled:opacity-50 cursor-pointer"
-                          disabled={busy}
-                          onClick={() => {
-                            setInitialAction('claim_resolved');
-                            setSelectedId(claim.id);
-                          }}
-                        >
-                          Resolver
-                        </button>
-                        {userRole === 'admin' && (
-                          <button
-                            type="button"
-                            className={buttonClass}
-                            disabled={busy}
-                            onClick={() => {
-                              setInitialAction('claim_denied');
-                              setSelectedId(claim.id);
-                            }}
-                          >
-                            Denegar garantía
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </article>
-              );
-            })}
-
-            {!filtered.length && (
-              <div className="horizon-view-card p-8 text-center text-sm text-[var(--text-secondary)]">
-                No hay reclamos para estos filtros.
-              </div>
-            )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!filtered.length && (
+                  <tr>
+                    <td colSpan={7} className="px-3 py-10 text-center text-xs text-[var(--text-secondary)]">
+                      {loading ? 'Cargando reclamos…' : 'No hay reclamos para estos filtros.'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
-        </>
+        </div>
       )}
 
+      <FlowDialog
+        open={Boolean(drawerClaim)}
+        onClose={closeDetail}
+        labelledBy="claim-detail-title"
+        icon="support_agent"
+        title="Detalle de reclamo"
+        badge={
+          drawerClaim ? (
+            <span className="rounded-lg border border-[var(--brand)] bg-[var(--brand-soft)] px-2.5 py-0.5 font-mono text-xs font-bold text-[var(--brand)]">
+              {drawerClaim.id}
+            </span>
+          ) : null
+        }
+        subtitle={
+          drawerClaim
+            ? `Orden ${drawerClaim.orderCode} · ${drawerClaim.customerName} · ${drawerClaim.vehicle}`
+            : null
+        }
+        isBlocked={() => Boolean(document.querySelector('[role="dialog"][aria-modal="true"]:not([data-flow-dialog])'))}
+      >
+        {drawerClaim && (
+          <ClaimDetailView
+            embedded
+            claim={{ ...drawerClaim, priority: getClaimPriority(drawerClaim) }}
+            order={orders.find(
+              (order) => String(order.id) === String(drawerClaim.orderId) || order.code === drawerClaim.orderCode
+            )}
+            userRole={userRole}
+            initialAction={initialAction}
+            onBack={closeDetail}
+            onCallAdded={(call) =>
+              setClaims((previous) =>
+                previous.map((claim) =>
+                  claim.id === drawerClaim.id
+                    ? { ...claim, calls: [call, ...(claim.calls || [])], callCount: (claim.callCount || 0) + 1 }
+                    : claim
+                )
+              )
+            }
+            onResolve={() => {
+              setSelectedId(null);
+              setInitialAction('');
+              void changeStatus(drawerClaim, 'Resolved');
+            }}
+            onReloadClaims={load}
+            onSelectOrder={
+              onSelectOrder
+                ? (selectedOrderId) => {
+                    closeDetail();
+                    onSelectOrder(selectedOrderId);
+                  }
+                : undefined
+            }
+          />
+        )}
+      </FlowDialog>
       {creating && (
         <div className="horizon-modal fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <form
@@ -561,8 +783,8 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({ orders = [], userRole = 
             className="bg-[var(--bg-card)] border border-[var(--border-color)] rounded-2xl p-6 w-full max-w-xl space-y-4 shadow-xl"
           >
             <div className="flex items-center gap-3 pb-3 border-b border-[var(--border-color)]">
-              <span className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/35 text-amber-500 flex items-center justify-center shrink-0">
-                <span className="material-symbols-outlined text-[20px]">report_problem</span>
+              <span className="w-10 h-10 rounded-xl bg-[var(--state-urgency-tint)] border border-[var(--state-urgency-border)] text-[var(--state-urgency-text)] flex items-center justify-center shrink-0">
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">report_problem</span>
               </span>
               <div>
                 <h2 className="text-lg font-bold text-[var(--text-primary)]">Nuevo reclamo</h2>
@@ -594,7 +816,7 @@ export const ClaimsView: React.FC<ClaimsViewProps> = ({ orders = [], userRole = 
             <p className="text-xs text-[var(--text-secondary)] rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3">
               En el siguiente paso registrarás el motivo, soportes y próxima revisión.
             </p>
-            {error && <p role="alert" className="text-xs text-red-500 font-semibold">{error}</p>}
+            {error && <p role="alert" className="text-xs text-[var(--state-urgency-text)] font-semibold">{error}</p>}
             <div className="flex justify-end gap-2.5 pt-2">
               <button type="button" className={buttonClass} disabled={busy} onClick={() => setCreating(false)}>
                 Volver

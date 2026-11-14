@@ -550,7 +550,9 @@ docker compose -f compose.desktop.yml up -d --build --wait
 
 Abrir http://127.0.0.1:3000. Se conservan las cuentas y contrasenas de la copia
 restaurada; no se cambian usuarios de produccion. Para acceder mediante HTTP
-local se usa `NODE_ENV=development`, aunque el frontend esta compilado.
+local se usa `NODE_ENV=development`, aunque el frontend esta compilado. El puerto
+se puede cambiar con `RADAR_DESKTOP_HTTP_PORT` (por defecto, `3000`) para ejecutar
+otra copia en un proyecto Docker separado sin reemplazar los volumenes existentes.
 
 La base de datos y la aplicacion no publican puertos. Un proxy Nginx publica
 la web solo en la interfaz local del equipo. La app y MariaDB usan exclusivamente
@@ -720,8 +722,9 @@ Variables principales:
 | `CORS_ORIGIN` | Origen permitido del frontend. |
 | `APP_URL` | URL pública de la aplicación. |
 | `TRUST_PROXY` | `1` solo con Node accesible exclusivamente desde un proxy confiable que sobrescribe `X-Real-IP` y `X-Forwarded-Proto`; por defecto no se confia en esas cabeceras. |
-| `WASENDER_ENABLED` | `false` deshabilita WhatsApp explícitamente. |
+| `WASENDER_ENABLED` | Solo con `true` se envía WhatsApp; ausente equivale a deshabilitado. |
 | `WASENDER_API_KEY` | Credencial solo por entorno; sin valor incorporado. |
+| `LOCAL_OTP_DEVCODE` | Solo local: expone el PIN 2FA en logs y respuesta cuando WhatsApp no está configurado. |
 | `VITE_API_URL` | URL de API usada por Vite en desarrollo. |
 | `ADMIN_NAME` | Nombre del administrador creado por el seed. |
 | `ADMIN_EMAIL` | Correo del administrador creado por el seed. |

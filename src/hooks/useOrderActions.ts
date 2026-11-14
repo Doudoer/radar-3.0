@@ -47,9 +47,15 @@ export const useOrderActions = ({
 
   const updateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
     const order = orders.find((currentOrder) => currentOrder.id === orderId);
-    if (order && canTransitionOrderStatus(order.status, newStatus)) {
-      return await updateOrder({ ...order, status: newStatus });
+    if (!order) {
+      setDatabaseMessage('No se encontró la orden. Actualiza la lista e intenta de nuevo.');
+      return;
     }
+    if (!canTransitionOrderStatus(order.status, newStatus)) {
+      setDatabaseMessage(`La orden ${order.code} no puede pasar de "${order.status}" a "${newStatus}". Actualiza la lista e intenta de nuevo.`);
+      return;
+    }
+    return await updateOrder({ ...order, status: newStatus });
   };
 
   const createOrderClaim = async (orderId: string, reason: string) => {

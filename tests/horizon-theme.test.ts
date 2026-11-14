@@ -25,9 +25,15 @@ describe('Horizon presentation contracts', () => {
       const source = readFileSync(resolve('src/components', name), 'utf8');
       const overlays = source.match(/className="[^"]*\bfixed inset-0\b[^"]*"/g) || [];
       for (const overlay of overlays) {
-        expect(overlay, `${name}: ${overlay}`).toMatch(/horizon-(modal|drawer-backdrop|loading)/);
+        expect(overlay, `${name}: ${overlay}`).toMatch(/horizon-(modal|drawer-backdrop|loading)|yard-overlay|yard-lightbox|yard-discard-modal/);
       }
     }
+  });
+
+  it('paints the always-dark yard lightbox explicitly so the light theme cannot repaint it', () => {
+    const indexCss = readFileSync(resolve('src/index.css'), 'utf8');
+    expect(indexCss).toContain('#root .yard-lightbox');
+    expect(indexCss).toContain('overscroll-behavior: contain');
   });
 
   it('preserves the icon font separately from the DM Sans content font', () => {

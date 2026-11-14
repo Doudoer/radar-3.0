@@ -1,30 +1,34 @@
 import React, { useMemo, useState } from 'react';
-import { SLAMetric, ActivityItem, Order } from '../types';
+import { ActivityItem, Order } from '../types';
 import { useFinanceMovements } from '../hooks/useFinanceState';
 import { financeDateKey, FINANCE_TIME_ZONE, movementIncome, movementsInPeriod, parseFinanceDate, shiftDateKey, sumMoney } from '../utils/finance';
-import { getMonthRange, getWeekRange, getYearRange, operationalDistribution, orderBalance, orderSaleTotal, parseOrderDate, saleStatuses, scaleNetBars, workshopStatuses } from '../utils/orderAnalytics';
+import { getMonthRange, getWeekRange, getYearRange, operationalDistribution, orderBalance, orderSaleTotal, parseOrderDate, quoteStatuses, saleStatuses, scaleNetBars, workshopStatuses } from '../utils/orderAnalytics';
 export { getMonthRange, getWeekRange, getYearRange, parseOrderDate } from '../utils/orderAnalytics';
 
 interface DashboardViewProps {
   orders: Order[];
-  slaMetrics?: SLAMetric[];
   activities: ActivityItem[];
+  userRole?: string;
   onSelectOrder: (orderId: string) => void;
-  onNavigateTaller: () => void;
+  onNavigateTaller: (range?: { from: string; to: string }) => void;
   onRefresh?: () => Promise<void>;
 }
 
 export type PeriodType = 'semana' | 'mes' | 'ano';
 
+const deliveredStatuses = new Set(['entregado', 'facturado']);
+const readyStatuses = new Set(['listo_retiro', 'listo_despacho']);
+
 export const DashboardView: React.FC<DashboardViewProps> = ({
   orders = [],
-  slaMetrics = [],
   activities = [],
+  userRole,
   onSelectOrder,
   onNavigateTaller,
   onRefresh,
 }) => {
-  const income = useFinanceMovements(true, 'dashboard');
+  const canViewFinance = !userRole || userRole === 'admin';
+  const income = useFinanceMovements(canViewFinance, 'dashboard');
   // Period filter states: 'semana' (default), 'mes', 'ano'
   const [periodType, setPeriodType] = useState<PeriodType>('semana');
   const [weekOffset, setWeekOffset] = useState<number>(0);
@@ -111,6 +115,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const claimsCount = periodOrders.filter(
       (order) => order.status === 'reclamo' || order.status === 'solicitud_reembolso'
     ).length;
+    const deliveredCount = periodOrders.filter((order) => deliveredStatuses.has(order.status)).length;
+    const readyCount = periodOrders.filter((order) => readyStatuses.has(order.status)).length;
+    const quoteCount = periodOrders.filter((order) => quoteStatuses.has(order.status)).length;
 
     const effectiveDeliveryRate = periodOrders.length > 0
       ? Math.round(((periodOrders.length - claimsCount) / periodOrders.length) * 100)
@@ -124,11 +131,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       totalBalanceDue,
       activeInWorkshop,
       claimsCount,
+      deliveredCount,
+      readyCount,
+      quoteCount,
       effectiveDeliveryRate,
-      overdueSlas: slaMetrics.filter((sla) => sla.status === 'overdue').length,
       distribution: operationalDistribution(periodOrders),
     };
-  }, [periodOrders, slaMetrics, income.movements, currentPeriodRange]);
+  }, [periodOrders, income.movements, currentPeriodRange]);
+
+  const workshopAging = useMemo(() => {
+    const active = orders.filter((order) => workshopStatuses.has(order.status));
+    const now = Date.now();
+    const aging = { healthy: 0, attention: 0, overdue: 0, total: active.length, oldestDays: 0 };
+    active.forEach((order) => {
+      const created = parseOrderDate(order);
+      if (!created) return;
+      const days = Math.max(0, Math.floor((now - created.getTime()) / 86_400_000));
+      aging.oldestDays = Math.max(aging.oldestDays, days);
+      if (days <= 3) aging.healthy++;
+      else if (days <= 7) aging.attention++;
+      else aging.overdue++;
+    });
+    return aging;
+  }, [orders]);
 
   // Indicador de Ventas de la Semana Actual en Curso (Lunes a Domingo)
   const currentWeekMetrics = useMemo(() => {
@@ -145,12 +170,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       salesValue: weekSalesValue,
     };
   }, [orders]);
-
-  // Valor comercial total de órdenes de venta en el período seleccionado
-  const periodSalesValue = useMemo(() => {
-    const salesOrders = periodOrders.filter((order) => saleStatuses.has(order.status));
-    return sumMoney(salesOrders.map(orderSaleTotal));
-  }, [periodOrders]);
 
   // Dynamic Commercial Volume Bar Chart
   const trendBars = useMemo(() => {
@@ -292,6 +311,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const linePoints = cumulativeIncome.map((bar, index) =>
     `${20 + index * (460 / Math.max(1, cumulativeIncome.length - 1))},${lineY(bar.cumulative)}`
   ).join(' ');
+  const cumulativeOrders = useMemo(() => {
+    let total = 0;
+    return trendBars.map(bar => {
+      total += bar.count;
+      return { ...bar, cumulative: total };
+    });
+  }, [trendBars]);
+  const orderLineMaximum = Math.max(1, ...cumulativeOrders.map(bar => bar.cumulative));
+  const orderLineY = (count: number) => 180 - (count / orderLineMaximum) * 150;
+  const orderLinePoints = cumulativeOrders.map((bar, index) =>
+    `${20 + index * (460 / Math.max(1, cumulativeOrders.length - 1))},${orderLineY(bar.cumulative)}`
+  ).join(' ');
+  const maxPeriodOrderCount = Math.max(1, ...trendBars.map(bar => bar.count));
   const distributionColors = ['#4318ff', '#6ad2ff', '#a3aed0', '#f6ad55', '#c4b5fd'];
   let distributionEnd = 0;
   const pieBackground = dashboardMetrics.totalOrders
@@ -305,7 +337,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      const [incomeUpdated] = await Promise.all([income.refresh(), onRefresh?.()]);
+      const [incomeUpdated] = await Promise.all([
+        canViewFinance ? income.refresh() : Promise.resolve(true),
+        onRefresh?.(),
+      ]);
       if (incomeUpdated) setLastUpdated(
         new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date())
       );
@@ -318,6 +353,51 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setMonthOffset(0);
     setYearOffset(0);
   };
+
+  const openPeriodOrders = () => onNavigateTaller({
+    from: financeDateKey(currentPeriodRange.start),
+    to: financeDateKey(currentPeriodRange.end),
+  });
+
+  const kpiCards = canViewFinance ? [
+    { label: 'Ingresos netos del período', icon: 'trending_up', tone: 'positive',
+      value: income.loaded ? `$${dashboardMetrics.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'No disponible',
+      note: 'Pagos − reembolsos por fecha efectiva. No incluye saldos legacy sin fecha.' },
+    { label: 'Órdenes Operativas', icon: 'inventory_2', tone: 'brand',
+      value: dashboardMetrics.totalOrders,
+      note: `${dashboardMetrics.activeInWorkshop} activas en taller / proceso`, onClick: openPeriodOrders },
+    { label: 'Cobros del período', icon: 'payments', tone: 'brand',
+      value: income.loaded ? `$${dashboardMetrics.totalAdvanceCollected.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'No disponible',
+      note: `Saldo actual de ventas creadas en el período: $${dashboardMetrics.totalBalanceDue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+    { label: 'Reclamos & Incidencias', icon: 'warning', tone: 'warning',
+      value: dashboardMetrics.claimsCount,
+      note: 'Órdenes creadas en el período en estado de reclamo o solicitud de reembolso.' },
+    { label: 'En taller / proceso', icon: 'build', tone: 'brand',
+      value: dashboardMetrics.activeInWorkshop,
+      note: 'Órdenes creadas en el período que siguen activas en taller / proceso.', onClick: openPeriodOrders },
+    { label: 'Saldo pendiente', icon: 'account_balance_wallet', tone: 'brand',
+      value: `$${dashboardMetrics.totalBalanceDue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      note: 'Saldo actual de ventas creadas en el período, no ingresos cobrados.' },
+  ] : [
+    { label: 'Órdenes del período', icon: 'inventory_2', tone: 'brand',
+      value: dashboardMetrics.totalOrders,
+      note: 'Órdenes creadas dentro del período seleccionado.', onClick: openPeriodOrders },
+    { label: 'En taller / proceso', icon: 'build', tone: 'brand',
+      value: dashboardMetrics.activeInWorkshop,
+      note: 'Órdenes del período que siguen activas en taller o proceso.', onClick: openPeriodOrders },
+    { label: 'Reclamos & Incidencias', icon: 'warning', tone: 'warning',
+      value: dashboardMetrics.claimsCount,
+      note: 'Órdenes del período en estado de reclamo o solicitud de reembolso.' },
+    { label: 'Listas para entrega', icon: 'local_shipping', tone: 'brand',
+      value: dashboardMetrics.readyCount,
+      note: 'Órdenes del período listas para retiro o despacho.' },
+    { label: 'Entregadas / facturadas', icon: 'task_alt', tone: 'positive',
+      value: dashboardMetrics.deliveredCount,
+      note: 'Órdenes del período ya entregadas o facturadas.' },
+    { label: 'Cotizaciones abiertas', icon: 'request_quote', tone: 'warning',
+      value: dashboardMetrics.quoteCount,
+      note: 'Órdenes del período en cotización o esperando confirmación de pago.' },
+  ];
 
   return (
     <div className="radar-view horizon-dashboard pb-8">
@@ -338,7 +418,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               }`}
               title="Actualizar telemetría"
             >
-              <span className="material-symbols-outlined text-[16px]">refresh</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">refresh</span>
             </button>
           </div>
         </div>
@@ -361,7 +441,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               }`}
               title="Mostrar datos operativos de la semana (Lunes a Domingo)"
             >
-              <span className="material-symbols-outlined text-[16px]">calendar_view_week</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">calendar_view_week</span>
               <span>Semana</span>
               {periodType === 'semana' && weekOffset === 0 && (
                 <span className="w-1.5 h-1.5 rounded-full bg-slate-950" />
@@ -382,7 +462,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               }`}
               title="Consultar datos operativos agrupados por mes"
             >
-              <span className="material-symbols-outlined text-[16px]">calendar_month</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">calendar_month</span>
               <span>Mes</span>
             </button>
 
@@ -400,7 +480,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               }`}
               title="Consultar consolidado operativo anual"
             >
-              <span className="material-symbols-outlined text-[16px]">analytics</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">analytics</span>
               <span>Año</span>
             </button>
           </div>
@@ -417,11 +497,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               className="p-2 rounded-xl bg-[#060e1d]/90 border border-cyan-500/30 text-slate-300 hover:text-cyan-300 hover:border-cyan-400 transition-all cursor-pointer shadow-[0_0_10px_rgba(6,182,212,0.1)]"
               title="Período anterior"
             >
-              <span className="material-symbols-outlined text-[18px]">chevron_left</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">chevron_left</span>
             </button>
 
             <div className="px-3 py-1.5 rounded-xl bg-[#060e1d]/90 border border-cyan-500/30 flex items-center gap-2 text-xs font-mono shadow-[0_0_15px_rgba(6,182,212,0.15)]">
-              <span className="material-symbols-outlined text-[16px] text-cyan-400">
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-400">
                 {periodType === 'semana' ? 'event' : periodType === 'mes' ? 'calendar_month' : 'date_range'}
               </span>
               <span className="font-bold text-white">{periodLabel.title}</span>
@@ -447,7 +527,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               }`}
               title="Período siguiente"
             >
-              <span className="material-symbols-outlined text-[18px]">chevron_right</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">chevron_right</span>
             </button>
 
             {(!periodLabel.isCurrent || periodType !== 'semana') && (
@@ -457,7 +537,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 className="px-2.5 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-400/40 text-[11px] font-mono text-cyan-300 font-bold flex items-center gap-1 cursor-pointer transition-all shadow-[0_0_10px_rgba(6,182,212,0.15)]"
                 title="Volver a la semana operativa actual en curso"
               >
-                <span className="material-symbols-outlined text-[14px]">replay</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">replay</span>
                 <span className="hidden sm:inline">Semana Actual</span>
               </button>
             )}
@@ -472,7 +552,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(6,182,212,0.25)]">
-              <span className="material-symbols-outlined text-[22px]">monitoring</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[22px]">monitoring</span>
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
@@ -490,34 +570,62 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
-            {/* Indicador Principal: Ventas de la Semana */}
-            <div className="bg-[#030712]/90 px-4 py-2 rounded-2xl border-2 border-emerald-500/50 text-right shadow-[0_0_18px_rgba(16,185,129,0.2)]">
-              <span className="text-[9.5px] font-mono uppercase text-emerald-400 block font-bold flex items-center justify-end gap-1">
-                <span className="material-symbols-outlined text-[13px]">calendar_view_week</span>
-                <span>Ventas de la Semana</span>
-              </span>
-              <span className="text-base sm:text-lg font-mono font-black text-emerald-300">
-                ${currentWeekMetrics.salesValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-              </span>
-              <span className="text-[9px] font-mono text-slate-400 block">
-                {currentWeekMetrics.salesCount} {currentWeekMetrics.salesCount === 1 ? 'orden comercial' : 'órdenes comerciales'}
-              </span>
-            </div>
+            {canViewFinance ? (
+              <>
+                {/* Indicador Principal: Ventas de la Semana */}
+                <div className="bg-[#030712]/90 px-4 py-2 rounded-2xl border-2 border-emerald-500/50 text-right shadow-[0_0_18px_rgba(16,185,129,0.2)]">
+                  <span className="text-[9.5px] font-mono uppercase text-emerald-400 block font-bold flex items-center justify-end gap-1">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[13px]">calendar_view_week</span>
+                    <span>Valor ventas colocadas</span>
+                  </span>
+                  <span className="text-base sm:text-lg font-mono font-black text-emerald-300">
+                    ${currentWeekMetrics.salesValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                  </span>
+                  <span className="text-[9px] font-mono text-slate-400 block">
+                    {currentWeekMetrics.salesCount} {currentWeekMetrics.salesCount === 1 ? 'orden comercial' : 'órdenes comerciales'}
+                  </span>
+                </div>
 
-            {/* Ventas Registradas (Ingresos por cobros) */}
-            <div className="bg-[#030712]/80 px-3.5 py-2 rounded-2xl border border-cyan-500/20 text-right">
-              <span className="text-[9.5px] font-mono uppercase text-cyan-400 block font-bold">
-                {periodType === 'semana' ? 'Ventas Registradas' : 'Ingresos del Período'}
-              </span>
-              <span className="text-base font-mono font-black text-cyan-300">
-                ${dashboardMetrics.totalSales.toFixed(2)} USD
-              </span>
-            </div>
+                {/* Ventas Registradas (Ingresos por cobros) */}
+                <div className="bg-[#030712]/80 px-3.5 py-2 rounded-2xl border border-cyan-500/20 text-right">
+                  <span className="text-[9.5px] font-mono uppercase text-cyan-400 block font-bold">
+                    {periodType === 'semana' ? 'Cobrado en la semana' : 'Cobrado en el período'}
+                  </span>
+                  <span className="text-base font-mono font-black text-cyan-300">
+                    {income.loaded ? `$${dashboardMetrics.totalSales.toFixed(2)} USD` : 'No disponible'}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="bg-[#030712]/90 px-4 py-2 rounded-2xl border-2 border-cyan-500/50 text-right shadow-[0_0_18px_rgba(6,182,212,0.2)]">
+                  <span className="text-[9.5px] font-mono uppercase text-cyan-400 block font-bold flex items-center justify-end gap-1">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[13px]">calendar_view_week</span>
+                    <span>Órdenes de la semana</span>
+                  </span>
+                  <span className="text-base sm:text-lg font-mono font-black text-cyan-300">
+                    {currentWeekMetrics.ordersCount}
+                  </span>
+                  <span className="text-[9px] font-mono text-slate-400 block">
+                    {currentWeekMetrics.salesCount} {currentWeekMetrics.salesCount === 1 ? 'venta colocada' : 'ventas colocadas'}
+                  </span>
+                </div>
+
+                <div className="bg-[#030712]/80 px-3.5 py-2 rounded-2xl border border-cyan-500/20 text-right">
+                  <span className="text-[9.5px] font-mono uppercase text-cyan-400 block font-bold">
+                    Listas para entrega
+                  </span>
+                  <span className="text-base font-mono font-black text-cyan-300">
+                    {dashboardMetrics.readyCount} en el período
+                  </span>
+                </div>
+              </>
+            )}
 
             {/* Efectividad SLA */}
             <div className="bg-[#030712]/80 px-3.5 py-2 rounded-2xl border border-cyan-500/20 text-right">
               <span className="text-[9.5px] font-mono uppercase text-emerald-400 block font-bold">
-                Efectividad sin Reclamos
+                Órdenes sin reclamo
               </span>
               <span className="text-base font-mono font-black text-emerald-300">
                 {dashboardMetrics.effectiveDeliveryRate}%
@@ -526,13 +634,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             {/* Cuellos de Botella Taller */}
             <div
-              onClick={onNavigateTaller}
+              onClick={openPeriodOrders}
               className="bg-[#030712]/80 hover:bg-[#061226] px-3.5 py-2 rounded-2xl border border-cyan-500/20 text-right cursor-pointer transition"
-              title="Ir a taller para revisar órdenes activas"
+              title="Ir a taller para revisar órdenes activas del período"
             >
               <span className="text-[9.5px] font-mono uppercase text-cyan-400 block font-bold flex items-center justify-end gap-1">
                 <span>Taller en Proceso</span>
-                <span className="material-symbols-outlined text-[12px]">arrow_forward</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[12px]">arrow_forward</span>
               </span>
               <span className="text-base font-mono font-black text-cyan-300">
                 {dashboardMetrics.activeInWorkshop} activas
@@ -543,26 +651,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       <div className="horizon-kpis">
-        {[
-          { label: 'Ingresos netos del período', icon: 'trending_up', tone: 'positive',
-            value: income.loaded ? `$${dashboardMetrics.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'No disponible',
-            note: 'Pagos − reembolsos por fecha efectiva. No incluye saldos legacy sin fecha.' },
-          { label: 'Órdenes Operativas', icon: 'inventory_2', tone: 'brand',
-            value: dashboardMetrics.totalOrders,
-            note: `${dashboardMetrics.activeInWorkshop} activas en taller / proceso`, onClick: onNavigateTaller },
-          { label: 'Cobros del período', icon: 'payments', tone: 'brand',
-            value: income.loaded ? `$${dashboardMetrics.totalAdvanceCollected.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'No disponible',
-            note: `Saldo actual de ventas creadas en el período: $${dashboardMetrics.totalBalanceDue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
-          { label: 'Reclamos & Incidencias', icon: 'warning', tone: 'warning',
-            value: dashboardMetrics.claimsCount,
-            note: slaMetrics.length ? `${dashboardMetrics.overdueSlas} alertas de tiempo SLA` : 'SLA no disponible' },
-          { label: 'En taller / proceso', icon: 'build', tone: 'brand',
-            value: dashboardMetrics.activeInWorkshop,
-            note: 'Órdenes creadas en el período que siguen activas en taller / proceso.', onClick: onNavigateTaller },
-          { label: 'Saldo pendiente', icon: 'account_balance_wallet', tone: 'brand',
-            value: `$${dashboardMetrics.totalBalanceDue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-            note: 'Saldo actual de ventas creadas en el período, no ingresos cobrados.' },
-        ].map(metric => (
+        {kpiCards.map(metric => (
           <div key={metric.label} className="horizon-stat" data-tone={metric.tone}
             title={`${metric.label}: ${metric.value}. ${metric.note}`}
             role={metric.onClick ? 'button' : undefined}
@@ -576,7 +665,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               }
             } : undefined}>
             <div className="horizon-stat-icon">
-              <span className="material-symbols-outlined">{metric.icon}</span>
+              <span aria-hidden="true" className="material-symbols-outlined">{metric.icon}</span>
             </div>
             <div className="horizon-stat-content">
               <p className="horizon-stat-label">{metric.label}</p>
@@ -590,11 +679,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {periodOrders.length === 0 && <p role="status" className="horizon-empty-period">
         No hay órdenes creadas en este período. Selecciona un período anterior para consultar el histórico.
       </p>}
+      {canViewFinance ? (
       <div className="horizon-chart-grid">
         <section className="horizon-dashboard-card horizon-cumulative-card" aria-label="Ingresos netos acumulados">
           <div className="horizon-card-heading">
-            <span className="horizon-chart-period"><span className="material-symbols-outlined">calendar_today</span>{periodLabel.subtitle}</span>
-            <span className="material-symbols-outlined horizon-card-symbol">bar_chart</span>
+            <span className="horizon-chart-period"><span aria-hidden="true" className="material-symbols-outlined">calendar_today</span>{periodLabel.subtitle}</span>
+            <span aria-hidden="true" className="material-symbols-outlined horizon-card-symbol">bar_chart</span>
           </div>
           <div className="horizon-cumulative-body">
             <div className="horizon-cumulative-summary">
@@ -615,7 +705,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span className="horizon-chart-legend"><span />Fecha efectiva</span>
             </div>
             <div className="horizon-net-line">
-              {!income.loaded ? <p role={income.error ? 'alert' : 'status'}>{income.error || 'Cargando movimientos…'}</p> :
+              {!income.loaded ? (
+                <div role={income.error ? 'alert' : 'status'} className="flex flex-col items-center gap-2">
+                  <p>{income.error || 'Cargando movimientos…'}</p>
+                  {income.error && <button type="button" onClick={() => void income.refresh()} className="horizon-card-action">Reintentar</button>}
+                </div>
+              ) :
                 !trendBars.some(bar => bar.rawAmount !== 0) ? <p role="status">Sin ingresos netos registrados en este período</p> :
                   <svg viewBox="0 0 500 210" role="img" aria-label="Evolución acumulada de pagos menos reembolsos por fecha efectiva">
                     <line x1="20" y1={lineY(0)} x2="480" y2={lineY(0)} className="horizon-chart-zero" />
@@ -637,7 +732,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="horizon-card-heading flex flex-wrap justify-between items-center gap-3">
             <div>
               <h3 className="text-lg font-black text-white">Ingresos netos por fecha efectiva</h3>
-              {!income.loaded && <p role={income.error ? 'alert' : 'status'} className="text-amber-300 text-xs">{income.error || 'Cargando movimientos…'} No se infieren cobros del estado de la orden.</p>}
+              {!income.loaded && (
+                <div className="flex items-center gap-2 text-amber-300 text-xs">
+                  <p role={income.error ? 'alert' : 'status'}>{income.error || 'Cargando movimientos…'} No se infieren cobros del estado de la orden.</p>
+                  {income.error && <button type="button" onClick={() => void income.refresh()} className="horizon-card-action">Reintentar</button>}
+                </div>
+              )}
               <p className="sr-only">
                 {periodType === 'semana'
                   ? 'Actividad diaria de la semana operativa (Lunes a Domingo)'
@@ -729,11 +829,108 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
       </div>
+      ) : (
+      <div className="horizon-chart-grid">
+        <section className="horizon-dashboard-card horizon-cumulative-card" aria-label="Órdenes acumuladas del período">
+          <div className="horizon-card-heading">
+            <span className="horizon-chart-period"><span aria-hidden="true" className="material-symbols-outlined">calendar_today</span>{periodLabel.subtitle}</span>
+            <span aria-hidden="true" className="material-symbols-outlined horizon-card-symbol">timeline</span>
+          </div>
+          <div className="horizon-cumulative-body">
+            <div className="horizon-cumulative-summary">
+              <h3>Órdenes acumuladas</h3>
+              <p className="horizon-chart-total">{dashboardMetrics.totalOrders}</p>
+              <p>por fecha de creación</p>
+              <div className="mt-2.5 pt-2 border-t border-slate-800/80">
+                <span className="text-[9.5px] font-mono uppercase text-cyan-400 font-bold block">
+                  En taller ahora:
+                </span>
+                <span className="text-sm font-mono font-black text-cyan-300">
+                  {workshopAging.total} órdenes activas
+                </span>
+                <span className="text-[9px] font-mono text-slate-400 block">
+                  {dashboardMetrics.readyCount} listas para entrega en el período
+                </span>
+              </div>
+              <span className="horizon-chart-legend"><span />Fecha de creación</span>
+            </div>
+            <div className="horizon-net-line">
+              {!dashboardMetrics.totalOrders ? <p role="status">Sin órdenes creadas en este período</p> : (
+                <svg viewBox="0 0 500 210" role="img" aria-label="Evolución acumulada de órdenes creadas en el período">
+                  <line x1="20" y1={orderLineY(0)} x2="480" y2={orderLineY(0)} className="horizon-chart-zero" />
+                  <polyline points={orderLinePoints} fill="none" stroke="var(--brand-solid)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+                  {cumulativeOrders.map((bar, index) => (
+                    <circle key={bar.label} cx={20 + index * (460 / Math.max(1, cumulativeOrders.length - 1))} cy={orderLineY(bar.cumulative)} r="4" fill="var(--bg-card)" stroke="var(--brand-solid)" strokeWidth="2">
+                      <title>{`${bar.fullLabel}: ${bar.cumulative} órdenes acumuladas`}</title>
+                    </circle>
+                  ))}
+                </svg>
+              )}
+              <div className="horizon-line-labels">{cumulativeOrders.map(bar => <span key={bar.label}>{bar.label}</span>)}</div>
+            </div>
+          </div>
+        </section>
+        <div className="horizon-dashboard-card horizon-revenue-card flex flex-col overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee]" />
+
+          <div className="horizon-card-heading flex flex-wrap justify-between items-center gap-3">
+            <div>
+              <h3 className="text-lg font-black text-white">Órdenes creadas por período</h3>
+              <p className="text-[11px] text-slate-400 font-mono">
+                Vista operativa. Las finanzas globales están reservadas a administración.
+              </p>
+            </div>
+            <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-[20px]">bar_chart</span>
+          </div>
+
+          <div className="horizon-income-chart relative flex items-end justify-between gap-1.5 sm:gap-3 overflow-hidden">
+            <div
+              className="w-full h-full absolute inset-0 opacity-15 pointer-events-none"
+              style={{ background: 'linear-gradient(to top, var(--brand-soft) 0%, transparent 100%)' }}
+            />
+            {!dashboardMetrics.totalOrders && (
+              <p role="status" className="absolute inset-0 flex items-center justify-center text-sm text-slate-400 text-center">
+                Sin órdenes creadas en este período
+              </p>
+            )}
+            {trendBars.map((bar, idx) => (
+              <div
+                key={idx}
+                tabIndex={0}
+                aria-label={`${bar.fullLabel}: ${bar.count} órdenes creadas`}
+                className="relative z-10 w-full flex flex-col justify-end items-center h-full group"
+              >
+                <div
+                  style={{ height: `${bar.count / maxPeriodOrderCount * 100}%` }}
+                  title={`${bar.fullLabel}: ${bar.count} órdenes creadas`}
+                  className={`w-full rounded-t-xl transition-all duration-300 ${
+                    bar.count
+                      ? 'bg-gradient-to-t from-cyan-500/40 to-emerald-500/60 group-hover:from-cyan-400 group-hover:to-emerald-400 group-hover:shadow-[0_0_15px_rgba(6,182,212,0.4)]'
+                      : 'bg-slate-800/40'
+                  }`}
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="horizon-line-labels flex justify-between text-[10px] sm:text-[11px] text-slate-400 overflow-x-auto">
+            {trendBars.map((bar, idx) => (
+              <span
+                key={idx}
+                className={`text-center flex-1 ${bar.isHighlight ? 'text-cyan-300 font-bold drop-shadow-[0_0_6px_#22d3ee]' : ''}`}
+              >
+                {bar.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+      )}
       <div className="horizon-dashboard-lower">
         <section className="horizon-dashboard-card horizon-period-orders" aria-label="Órdenes del período">
           <div className="horizon-card-heading">
             <h3>Órdenes del período</h3>
-            <button type="button" onClick={onNavigateTaller} aria-label="Ver todas las órdenes" className="horizon-card-action"><span className="material-symbols-outlined">more_horiz</span></button>
+            <button type="button" onClick={openPeriodOrders} aria-label="Ver todas las órdenes del período" className="horizon-card-action"><span aria-hidden="true" className="material-symbols-outlined">more_horiz</span></button>
           </div>
           <div className="table-responsive-wrapper">
             <table>
@@ -750,7 +947,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </section>
         <section className="horizon-dashboard-card horizon-order-volume" aria-label="Volumen de órdenes">
-          <div className="horizon-card-heading"><h3>Órdenes creadas</h3><span className="material-symbols-outlined horizon-card-symbol">bar_chart</span></div>
+          <div className="horizon-card-heading"><h3>Órdenes creadas</h3><span aria-hidden="true" className="material-symbols-outlined horizon-card-symbol">bar_chart</span></div>
           <p className="horizon-chart-total">{dashboardMetrics.totalOrders}<span> en el período</span></p>
           <div className="horizon-volume-bars">
             {trendBars.map(bar => (
@@ -771,7 +968,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {dashboardMetrics.totalOrders} órdenes registradas en este período
               </p>
             </div>
-            <span className="material-symbols-outlined text-cyan-400 text-[20px]">pie_chart</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-[20px]">pie_chart</span>
           </div>
 
           <div className="horizon-distribution-pie" role="img" aria-label={dashboardMetrics.totalOrders ? dashboardMetrics.distribution.map(item => `${item.label}: ${item.count} (${item.percentage.toFixed(1)}%)`).join(', ') : 'Sin órdenes en el período'} style={{ background: pieBackground }} />
@@ -790,16 +987,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Secondary Section: SLAs & Activity Feed */}
+      {/* Secondary Section: Aging & Activity Feed */}
       <div className="horizon-dashboard-secondary grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5">
-        {/* Monitor de SLAs */}
+        {/* Antigüedad de órdenes activas */}
         <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 shadow-[0_20px_50px_rgba(0,0,0,0.7)] flex flex-col overflow-hidden">
-          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_12px_#22d3ee]" />
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_8px_#22d3ee]" />
 
-          <div className="pb-4 border-b border-cyan-500/15 flex justify-between items-center">
-            <h3 className="text-lg font-black text-white">Monitor de Tiempos SLA</h3>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 font-bold">
-              {slaMetrics.length ? 'DATOS RECIBIDOS' : 'NO DISPONIBLE'}
+          <div className="pb-4 border-b border-cyan-500/15 flex justify-between items-center gap-2">
+            <h3 className="text-lg font-black text-white">Antigüedad en taller</h3>
+            <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border font-bold ${
+              workshopAging.overdue || workshopAging.attention
+                ? 'bg-amber-500/15 border-amber-400/40 text-amber-300'
+                : 'bg-emerald-500/15 border-emerald-400/40 text-emerald-300'
+            }`}>
+              {workshopAging.total} ACTIVAS
             </span>
           </div>
 
@@ -807,54 +1008,46 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <table className="w-full text-left border-collapse min-w-[340px]">
               <thead>
                 <tr className="font-mono text-[10px] text-cyan-400/80 uppercase tracking-wider border-b border-cyan-500/20">
-                  <th className="py-2.5 px-3 font-bold">Métrica</th>
+                  <th className="py-2.5 px-3 font-bold">Antigüedad</th>
                   <th className="py-2.5 px-3 font-bold text-center">Estado</th>
-                  <th className="py-2.5 px-3 font-bold text-right">Valor</th>
+                  <th className="py-2.5 px-3 font-bold text-right">Órdenes</th>
                 </tr>
               </thead>
               <tbody className="text-xs divide-y divide-cyan-500/10">
-                {!slaMetrics.length && <tr><td colSpan={3} className="py-4 text-slate-400">Sin métricas SLA verificadas.</td></tr>}
-                {(slaMetrics || []).map((sla) => {
-                  let badgeStyles =
-                    'bg-emerald-500/15 text-emerald-300 border-emerald-400/40 shadow-[0_0_8px_rgba(16,185,129,0.25)]';
-                  let dotStyles = 'bg-emerald-400 shadow-[0_0_6px_#34d399]';
-
-                  if (sla.status === 'attention') {
-                    badgeStyles =
-                      'bg-amber-500/15 text-amber-300 border-amber-400/40 shadow-[0_0_8px_rgba(245,158,11,0.25)]';
-                    dotStyles = 'bg-amber-400 shadow-[0_0_6px_#fbbf24]';
-                  } else if (sla.status === 'overdue') {
-                    badgeStyles =
-                      'bg-red-500/15 text-red-300 border-red-400/40 shadow-[0_0_8px_rgba(239,68,68,0.25)]';
-                    dotStyles = 'bg-red-400 shadow-[0_0_6px_#f87171]';
-                  }
-
-                  return (
-                    <tr
-                      key={sla.id}
-                      onClick={onNavigateTaller}
-                      className="hover:bg-cyan-500/5 transition cursor-pointer group"
-                    >
-                      <td className="py-3 px-3 text-slate-200 font-medium group-hover:text-cyan-300">
-                        {sla.name}
-                      </td>
-                      <td className="py-3 px-3 text-center">
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold border ${badgeStyles}`}
-                        >
-                          <span className={`w-1.5 h-1.5 rounded-full ${dotStyles}`} />
-                          {sla.statusLabel}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono text-slate-300 font-bold">
-                        {sla.value}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {[
+                  { id: 'healthy', name: '0 a 3 días', status: 'Al día',
+                    badge: 'bg-emerald-500/15 text-emerald-300 border-emerald-400/40', dot: 'bg-emerald-400', count: workshopAging.healthy },
+                  { id: 'attention', name: '4 a 7 días', status: 'Seguimiento',
+                    badge: 'bg-amber-500/15 text-amber-300 border-amber-400/40', dot: 'bg-amber-400', count: workshopAging.attention },
+                  { id: 'overdue', name: 'Más de 7 días', status: 'Prioridad',
+                    badge: 'bg-amber-500/25 text-amber-200 border-amber-400/60', dot: 'bg-amber-300', count: workshopAging.overdue },
+                ].map((row) => (
+                  <tr
+                    key={row.id}
+                    onClick={onNavigateTaller}
+                    className="hover:bg-cyan-500/5 transition cursor-pointer group"
+                  >
+                    <td className="py-3 px-3 text-slate-200 font-medium group-hover:text-cyan-300">
+                      {row.name}
+                    </td>
+                    <td className="py-3 px-3 text-center">
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold border ${row.badge}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${row.dot}`} />
+                        {row.status}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 text-right font-mono text-slate-300 font-bold">
+                      {row.count}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
+            {!workshopAging.total && <p className="py-4 text-slate-400 text-xs">Sin órdenes activas en taller o proceso.</p>}
           </div>
+          <p className="mt-3 text-[10px] font-mono text-slate-400">
+            Umbral operativo: 3 y 7 días desde la creación de la orden. La orden más antigua lleva {workshopAging.oldestDays} {workshopAging.oldestDays === 1 ? 'día' : 'días'}.
+          </p>
         </div>
 
         {/* Actividad Reciente Feed */}
@@ -879,16 +1072,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               return (
                 <div
                   key={item.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${item.title}. ${item.timeAgo}`}
                   onClick={() => {
-                    if (item.id === 'act-1') onSelectOrder('ORD-8924A');
+                    if (item.orderCode) onSelectOrder(item.orderCode);
                     else onNavigateTaller();
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      if (item.orderCode) onSelectOrder(item.orderCode);
+                      else onNavigateTaller();
+                    }
                   }}
                   className="flex items-center gap-3 p-2.5 rounded-2xl bg-[#040814]/70 border border-cyan-500/15 hover:border-cyan-400/50 hover:bg-[#081326] transition-all cursor-pointer group"
                 >
                   <div
                     className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border shadow-[0_0_10px_rgba(6,182,212,0.2)] ${iconBg}`}
                   >
-                    <span className="material-symbols-outlined text-[18px]">{item.icon}</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[18px]">{item.icon}</span>
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs text-slate-200 font-medium group-hover:text-cyan-300 transition leading-snug">

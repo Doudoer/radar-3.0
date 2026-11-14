@@ -110,7 +110,7 @@ export const OrderPaymentFields: React.FC<{
       </div>
       {detail.order.coreReceived ? (
         <div className="flex items-center gap-2 text-sm text-emerald-400 bg-emerald-950/30 border border-emerald-500/30 rounded-lg p-3">
-          <span className="material-symbols-outlined text-base">check_circle</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-base">check_circle</span>
           <div>
             <p className="font-semibold">Core recibido físicamente</p>
             <p className="text-xs text-[var(--text-secondary)]">La pieza usada ya fue verificada y recibida. No hay cargo de core pendiente por liquidar.</p>
@@ -120,7 +120,7 @@ export const OrderPaymentFields: React.FC<{
         <div className="rounded-2xl border border-cyan-500/40 bg-gradient-to-br from-cyan-950/40 to-slate-900/80 p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-cyan-300 font-bold text-sm">
-              <span className="material-symbols-outlined text-lg">swap_horizontal_circle</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-lg">swap_horizontal_circle</span>
               <span>Depósito de Core Cobrado ({money(detail.order.core)})</span>
             </div>
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-mono font-bold">
@@ -139,7 +139,7 @@ export const OrderPaymentFields: React.FC<{
             }}
             className="w-full py-2 px-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-md"
           >
-            <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">open_in_new</span>
             <span>Abrir gestión y devolución del Core en Posventa</span>
           </button>
         </div>
@@ -148,7 +148,7 @@ export const OrderPaymentFields: React.FC<{
           {/* Visual Interactive Cards for Core Decision */}
           <div className="space-y-2">
             <span className="font-semibold text-xs sm:text-sm uppercase tracking-wider text-slate-300 flex items-center gap-2">
-              <span className="material-symbols-outlined text-cyan-400 text-base">swap_horizontal_circle</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-base">swap_horizontal_circle</span>
               Tratamiento del core
             </span>
 
@@ -247,13 +247,13 @@ export const OrderPaymentFields: React.FC<{
                     ? 'bg-cyan-500 text-slate-950 font-bold'
                     : 'bg-slate-800 text-slate-400'
                 }`}>
-                  <span className="material-symbols-outlined text-lg">payments</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-lg">payments</span>
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="font-bold text-xs sm:text-sm">Cliente pagará core</span>
                     {(value.coreAction === 'charge' || (value.coreAction === 'keep' && (detail.order.core > 0 || detail.preparationPlan === 'pay_core'))) && (
-                      <span className="text-cyan-400 material-symbols-outlined text-sm">check_circle</span>
+                      <span aria-hidden="true" className="text-cyan-400 material-symbols-outlined text-sm">check_circle</span>
                     )}
                   </div>
                   <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-2">
@@ -285,13 +285,13 @@ export const OrderPaymentFields: React.FC<{
                 <div className={`p-1.5 rounded-lg shrink-0 ${
                   value.coreAction === 'received' ? 'bg-emerald-500 text-slate-950 font-bold' : 'bg-slate-800 text-slate-400'
                 }`}>
-                  <span className="material-symbols-outlined text-lg">swap_horiz</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-lg">swap_horiz</span>
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="font-bold text-xs sm:text-sm">Recibimos pieza usada</span>
                     {value.coreAction === 'received' && (
-                      <span className="text-emerald-400 material-symbols-outlined text-sm">check_circle</span>
+                      <span aria-hidden="true" className="text-emerald-400 material-symbols-outlined text-sm">check_circle</span>
                     )}
                   </div>
                   <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-2">
@@ -321,13 +321,13 @@ export const OrderPaymentFields: React.FC<{
                 <div className={`p-1.5 rounded-lg shrink-0 ${
                   value.coreAction === 'none' ? 'bg-slate-400 text-slate-950 font-bold' : 'bg-slate-800 text-slate-400'
                 }`}>
-                  <span className="material-symbols-outlined text-lg">do_not_disturb_on</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-lg">do_not_disturb_on</span>
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="font-bold text-xs sm:text-sm">Sin cargo / Exento</span>
                     {value.coreAction === 'none' && (
-                      <span className="text-slate-300 material-symbols-outlined text-sm">check_circle</span>
+                      <span aria-hidden="true" className="text-slate-300 material-symbols-outlined text-sm">check_circle</span>
                     )}
                   </div>
                   <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-2">
@@ -343,7 +343,7 @@ export const OrderPaymentFields: React.FC<{
             <div className="rounded-xl bg-cyan-950/20 p-4 border border-cyan-500/40 space-y-2">
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="flex items-center gap-1.5 font-semibold text-cyan-300">
-                  <span className="material-symbols-outlined text-base">attach_money</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-base">attach_money</span>
                   <span>{detail.order.core === 0 ? 'Monto a cobrar por el core (USD)' : 'Monto del cargo de core (USD)'}</span>
                 </span>
                 <input
@@ -377,12 +377,12 @@ export const OrderPaymentFields: React.FC<{
             <div className="rounded-xl bg-emerald-950/20 p-4 border border-emerald-500/40 space-y-3">
               {detail.order.core > 0 ? (
                 <div className="flex items-center gap-2 text-xs sm:text-sm text-emerald-300 font-medium">
-                  <span className="material-symbols-outlined text-base">check_circle</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-base">check_circle</span>
                   <span>Se aplicará un ajuste de <strong>-{money(detail.order.core)}</strong> al total por recibir la pieza usada física.</span>
                 </div>
               ) : (
                 <div className="flex items-center gap-2 text-xs sm:text-sm text-emerald-300 font-medium">
-                  <span className="material-symbols-outlined text-base">check_circle</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-base">check_circle</span>
                   <span>El cliente entregó la pieza usada acordada. No se genera cargo de core.</span>
                 </div>
               )}
@@ -411,7 +411,7 @@ export const OrderPaymentFields: React.FC<{
                 }`}
               >
                 <div className={`p-1 rounded-md shrink-0 ${value.coreConfirmed ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-500'}`}>
-                  <span className="material-symbols-outlined text-base">
+                  <span aria-hidden="true" className="material-symbols-outlined text-base">
                     {value.coreConfirmed ? 'check' : 'touch_app'}
                   </span>
                 </div>
@@ -445,7 +445,7 @@ export const OrderPaymentFields: React.FC<{
       <div className="space-y-4 pt-2">
         <div className="flex flex-wrap justify-between items-center gap-2">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary-400 text-lg">account_balance_wallet</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-primary-400 text-lg">account_balance_wallet</span>
             <strong className="text-sm sm:text-base text-slate-100">Pagos recibidos ahora</strong>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -462,7 +462,7 @@ export const OrderPaymentFields: React.FC<{
                   }
                 }}
               >
-                <span className="material-symbols-outlined text-sm">bolt</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-sm">bolt</span>
                 Completar saldo ({money(summary.balance)})
               </button>
             )}
@@ -472,7 +472,7 @@ export const OrderPaymentFields: React.FC<{
               disabled={value.payments.length >= 20}
               onClick={() => onChange({ ...value, payments: [...value.payments, { amount: 0, method: 'cash', reference: '', confirmed: true }] })}
             >
-              <span className="material-symbols-outlined text-sm">add</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-sm">add</span>
               Agregar método de pago
             </button>
           </div>
@@ -509,7 +509,7 @@ export const OrderPaymentFields: React.FC<{
                     className="text-xs px-2.5 py-1 rounded-lg text-red-400 hover:text-red-300 hover:bg-red-950/40 border border-red-500/20 transition-all flex items-center gap-1"
                     onClick={() => onChange({ ...value, payments: value.payments.filter((_, i) => i !== index) })}
                   >
-                    <span className="material-symbols-outlined text-xs">delete</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-xs">delete</span>
                     <span>Quitar pago {index + 1}</span>
                   </button>
                 </div>
@@ -545,9 +545,9 @@ export const OrderPaymentFields: React.FC<{
                               : 'bg-slate-950/60 border-slate-700/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
                           }`}
                         >
-                          <span className="material-symbols-outlined text-sm">{icon}</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-sm">{icon}</span>
                           <span>{label}</span>
-                          {isSelected && <span className="material-symbols-outlined text-xs text-primary-400">check</span>}
+                          {isSelected && <span aria-hidden="true" className="material-symbols-outlined text-xs text-primary-400">check</span>}
                         </button>
                       );
                     })}
@@ -559,7 +559,7 @@ export const OrderPaymentFields: React.FC<{
                   {/* Amount Field */}
                   <label className="flex flex-col gap-1.5 text-sm">
                     <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                      <span className="material-symbols-outlined text-sm text-primary-400">attach_money</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-sm text-primary-400">attach_money</span>
                       <span>Importe {index + 1} (USD)</span>
                     </span>
                     <input
@@ -579,7 +579,7 @@ export const OrderPaymentFields: React.FC<{
                     <div className="flex flex-col gap-1.5 text-sm">
                       <label className="flex flex-col gap-1.5 text-sm">
                         <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                          <span className="material-symbols-outlined text-sm text-primary-400">badge</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-sm text-primary-400">badge</span>
                           <span>Persona que recibió el dinero {index + 1}</span>
                         </span>
                         <input
@@ -608,7 +608,7 @@ export const OrderPaymentFields: React.FC<{
                                     : 'bg-slate-950/70 border-slate-700 text-slate-300 hover:border-emerald-500/50 hover:text-emerald-200'
                                 }`}
                               >
-                                <span className="material-symbols-outlined text-[13px]">
+                                <span aria-hidden="true" className="material-symbols-outlined text-[13px]">
                                   {selected ? 'check_circle' : 'person'}
                                 </span>
                                 <span>{emp.name}</span>
@@ -625,7 +625,7 @@ export const OrderPaymentFields: React.FC<{
                       </span>
                       <label className="relative flex items-center justify-between p-2.5 rounded-xl border border-dashed border-slate-700 hover:border-primary-500 bg-slate-950 cursor-pointer transition-all">
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className="material-symbols-outlined text-primary-400 text-lg">cloud_upload</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-primary-400 text-lg">cloud_upload</span>
                           <span className="text-xs text-slate-300 truncate">
                             {payment.receipt ? 'Comprobante adjunto' : 'Subir imagen del voucher'}
                           </span>
@@ -652,7 +652,7 @@ export const OrderPaymentFields: React.FC<{
                           target="_blank"
                           rel="noreferrer"
                         >
-                          <span className="material-symbols-outlined text-xs">visibility</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-xs">visibility</span>
                           Ver comprobante subido
                         </a>
                       )}
@@ -664,7 +664,7 @@ export const OrderPaymentFields: React.FC<{
                 {payment.method !== 'cash' && (
                   <label className="flex flex-col gap-1.5 text-sm pt-1">
                     <span className="flex items-center gap-1.5 text-xs font-medium text-slate-400">
-                      <span className="material-symbols-outlined text-sm text-primary-400">tag</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-sm text-primary-400">tag</span>
                       <span>Referencia {index + 1} (opcional)</span>
                     </span>
                     <input
@@ -683,7 +683,7 @@ export const OrderPaymentFields: React.FC<{
 
         {value.payments.length > 0 && (
           <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-950/30 border border-amber-500/30 text-amber-300 text-xs">
-            <span className="material-symbols-outlined text-base shrink-0">shield</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-base shrink-0">shield</span>
             <span>Registra solo dinero recibido y verificado. Un cheque o transferencia pendiente de confirmar no cuenta como cobrado. No guardes números de tarjeta ni CVV.</span>
           </div>
         )}
@@ -701,7 +701,7 @@ export const OrderPaymentFields: React.FC<{
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
             <span className="w-9 h-9 rounded-xl bg-primary-500/15 border border-primary-500/30 flex items-center justify-center text-primary-400">
-              <span className="material-symbols-outlined text-[20px]">receipt_long</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[20px]">receipt_long</span>
             </span>
             <div>
               <h3 className="font-bold text-base text-[var(--text-primary)] leading-tight">Desglose de venta y cobro</h3>
@@ -709,7 +709,7 @@ export const OrderPaymentFields: React.FC<{
             </div>
           </div>
           <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border ${settled ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-500' : 'bg-amber-500/15 border-amber-500/40 text-amber-500'}`}>
-            <span className="material-symbols-outlined text-[14px]">{settled ? 'check_circle' : 'pending'}</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[14px]">{settled ? 'check_circle' : 'pending'}</span>
             {settled ? 'Liquidado' : 'Saldo pendiente'}
           </span>
         </div>
@@ -785,7 +785,7 @@ export const OrderPaymentFields: React.FC<{
 
         {/* Status banner */}
         <div className={`flex items-start gap-2.5 rounded-xl border p-3 ${settled ? 'bg-emerald-500/10 border-emerald-500/40' : 'bg-amber-500/10 border-amber-500/40'}`}>
-          <span className={`material-symbols-outlined text-[20px] shrink-0 ${settled ? 'text-emerald-500' : 'text-amber-500'}`}>{settled ? 'task_alt' : 'error'}</span>
+          <span aria-hidden="true" className={`material-symbols-outlined text-[20px] shrink-0 ${settled ? 'text-emerald-500' : 'text-amber-500'}`}>{settled ? 'task_alt' : 'error'}</span>
           <div className="space-y-0.5">
             {settled ? (
               <p className="text-sm font-semibold text-emerald-500">✓ Saldo liquidado exactamente. Listo para registrar la entrega.</p>
@@ -798,9 +798,9 @@ export const OrderPaymentFields: React.FC<{
 
         <details className="group text-xs text-[var(--text-secondary)]">
           <summary className="cursor-pointer list-none flex items-center gap-1 font-semibold hover:text-[var(--text-primary)]">
-            <span className="material-symbols-outlined text-[15px]">info</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[15px]">info</span>
             ¿Cómo se calcula?
-            <span className="material-symbols-outlined text-[15px] transition-transform group-open:rotate-180">expand_more</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[15px] transition-transform group-open:rotate-180">expand_more</span>
           </summary>
           <p className="mt-2 pl-5">Downpayment / pagos anteriores incluye el abono y cualquier pago posterior ya registrado; no es un cobro nuevo. Total de venta = pieza + delivery + core. El ajuste de core se descuenta una sola vez.</p>
         </details>
@@ -809,13 +809,13 @@ export const OrderPaymentFields: React.FC<{
     <details className="group rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)]/40 p-4 text-sm space-y-3">
       <summary className="cursor-pointer list-none flex items-center justify-between gap-2 font-bold text-[var(--text-primary)]">
         <span className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-[18px] text-primary-400">history</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-primary-400">history</span>
           <span>Historial de cobros y core</span>
           <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-[var(--bg-card)] border border-[var(--border-color)] text-[var(--text-secondary)]">
             {detail.payments.length}
           </span>
         </span>
-        <span className="material-symbols-outlined text-[18px] text-[var(--text-secondary)] transition-transform group-open:rotate-180">expand_more</span>
+        <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-[var(--text-secondary)] transition-transform group-open:rotate-180">expand_more</span>
       </summary>
       {!detail.payments.length && <p className="text-xs text-[var(--text-secondary)] pt-1">Sin cobros registrados.</p>}
       {detail.payments.map(payment => <article key={payment.id} className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 mt-2 space-y-1">
@@ -825,7 +825,7 @@ export const OrderPaymentFields: React.FC<{
         <p className="text-xs text-[var(--text-secondary)]">{payment.date ? new Date(payment.date).toLocaleString() : 'Fecha histórica no registrada'} · {payment.actor || 'Operador no registrado'}</p>
         {payment.reference && <p className="text-xs break-words text-[var(--text-secondary)]">Referencia: {payment.reference}</p>}
         {payment.receivedBy && <p className="text-xs text-[var(--text-secondary)]">Recibió: {payment.receivedBy}</p>}
-        {payment.receipt && <a className="inline-flex items-center gap-1 text-xs text-primary-400 hover:underline" href={payment.receipt} target="_blank" rel="noreferrer"><span className="material-symbols-outlined text-[14px]">visibility</span>Ver comprobante del cobro</a>}
+        {payment.receipt && <a className="inline-flex items-center gap-1 text-xs text-primary-400 hover:underline" href={payment.receipt} target="_blank" rel="noreferrer"><span aria-hidden="true" className="material-symbols-outlined text-[14px]">visibility</span>Ver comprobante del cobro</a>}
       </article>)}
       {detail.coreReceipt && <p className="text-xs break-words rounded-xl border border-purple-500/30 bg-purple-500/10 p-2.5 text-[var(--text-primary)]">Core recibido: {money(detail.coreReceipt.amount)} · {detail.coreReceipt.reference} · {detail.coreReceipt.actor} · {new Date(detail.coreReceipt.date).toLocaleString()}</p>}
     </details>
@@ -970,7 +970,7 @@ export const OrderPaymentsModal: React.FC<{
               }`}
             >
               <div className={`p-2 rounded-xl shrink-0 ${confirmed ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'bg-slate-800 text-slate-400'}`}>
-                <span className="material-symbols-outlined text-xl">
+                <span aria-hidden="true" className="material-symbols-outlined text-xl">
                   {confirmed ? 'check_circle' : 'handshake'}
                 </span>
               </div>

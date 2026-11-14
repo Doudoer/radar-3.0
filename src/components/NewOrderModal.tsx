@@ -2,6 +2,8 @@ import React, { Component, useState, useEffect, useMemo, useRef, useCallback, us
 import { Order, OrderStatus, PrefillOrderData, Customer } from '../types';
 import { MAKE_MODEL_MAP } from '../data/vehicleData';
 import { apiFetch } from '../services/apiFetch';
+import { useDialogAccessibility } from '../hooks/useDialogAccessibility';
+import { useFeedback } from './FeedbackProvider';
 
 interface NewOrderModalProps {
   isOpen: boolean;
@@ -45,7 +47,7 @@ export class ModalErrorBoundary extends (React.Component as any) {
         <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
           <div className="bg-[#070c18] border border-cyan-500/50 rounded-2xl p-6 max-w-md w-full shadow-2xl text-slate-100 flex flex-col gap-4">
             <div className="flex items-center gap-3 text-cyan-400">
-              <span className="material-symbols-outlined text-[28px]">shield</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[28px]">shield</span>
               <h3 className="font-bold text-base">Sesión de Orden Protegida</h3>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
@@ -108,12 +110,16 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
   currentUser,
   currentUserName,
 }) => {
+  const { confirm } = useFeedback();
   const defaultAdvisor = currentUserName || currentUser?.name || 'Operador';
   const isSuperAdmin = currentUser?.role?.toLowerCase() === 'admin';
   const [deliveredAtDate, setDeliveredAtDate] = useState<string | undefined>(editingOrder?.deliveredAt);
   // Stepper State (1: Vehículo & Pieza, 2: Datos del Cliente, 3: Finanzas & Envío)
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [stepError, setStepError] = useState<string | null>(null);
+  const [touchedFields, setTouchedFields] = useState<Record<string, boolean>>({});
+  const [lastDraftSavedAt, setLastDraftSavedAt] = useState<number | null>(null);
+  const [clockNow, setClockNow] = useState<number>(() => Date.now());
   const [isSaving, setIsSaving] = useState(false);
   const savingRef = useRef(false);
   const idempotencyKeyRef = useRef<string | null>(null);
@@ -355,6 +361,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
       const serialized = JSON.stringify(draft);
       if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(DRAFT_STORAGE_KEY, serialized);
       if (typeof localStorage !== 'undefined') localStorage.setItem(DRAFT_STORAGE_KEY, serialized);
+      setLastDraftSavedAt(Date.now());
     } catch {
       // ignore quota errors
     }
@@ -1031,44 +1038,55 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
     if (stepError) setStepError(null);
   };
 
+  const hasEnteredData = Boolean(
+    customerName.trim() || customerPhone.trim() || customerEmail.trim() || shippingAddress.trim() ||
+    vehicleVIN.trim() || vehicleMileage.trim() || vehicleColor.trim() || stockNumber.trim() ||
+    productSpecs.trim() || notes.trim() || partPrice.trim() || downPayment.trim() ||
+    deliveryFee.trim() || coreFee.trim() || vehicleYear || vehicleMake || vehicleModel || mainPart,
+  );
+  useEffect(() => {
+    if (!isOpen) return;
+    const timer = window.setInterval(() => setClockNow(Date.now()), 15000);
+    return () => window.clearInterval(timer);
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
+  const fieldErrors: Record<string, string> = {};
+  if (!vehicleYear) fieldErrors.vehicleYear = 'Selecciona el año del vehículo.';
+  if (!vehicleMake.trim()) fieldErrors.vehicleMake = 'Selecciona la marca.';
+  if (!vehicleModel.trim()) fieldErrors.vehicleModel = 'Selecciona el modelo.';
+  if (!vehicleMileage.trim() || isNaN(Number(vehicleMileage)) || Number(vehicleMileage) <= 0) fieldErrors.vehicleMileage = 'El millaje debe ser mayor a 0.';
+  if (!mainPart.trim()) fieldErrors.mainPart = 'Selecciona la pieza solicitada.';
+  if (!stockNumber.trim()) fieldErrors.stockNumber = 'Registra el stock de yarda o proveedor.';
+  if (!customerName.trim()) fieldErrors.customerName = 'Ingresa el nombre del cliente.';
+  if (!partPrice.trim()) fieldErrors.partPrice = 'Registra el monto de la pieza.';
+  if (!downPayment.trim()) fieldErrors.downPayment = 'Registra el anticipo (puede ser 0).';
+  if (deliveryType === 'envio_domicilio' && !deliveryFee.trim()) fieldErrors.deliveryFee = 'Registra el costo de flete.';
+  if (!coreFee.trim()) fieldErrors.coreFee = 'Registra el depósito core (puede ser 0).';
+  const fieldError = (name: string) => (touchedFields[name] ? fieldErrors[name] : undefined);
+  const touchField = (name: string) => setTouchedFields((prev) => (prev[name] ? prev : { ...prev, [name]: true }));
+  const focusField = (name: string) => {
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-field="${name}"]`)?.focus({ preventScroll: false });
+    });
+  };
+  const stepFieldOrder: Record<number, string[]> = {
+    1: ['vehicleYear', 'vehicleMake', 'vehicleModel', 'vehicleMileage', 'mainPart', 'stockNumber'],
+    2: ['customerName'],
+    3: ['partPrice', 'downPayment', 'deliveryFee', 'coreFee'],
+  };
   // Validación de paso para avanzar (3 pasos)
   const validateAndNext = () => {
     setStepError(null);
-    if (currentStep === 1) {
-      if (!vehicleYear) {
-        setStepError('Por favor selecciona el año del vehículo.');
-        return;
-      }
-      if (!vehicleMake.trim()) {
-        setStepError('Por favor selecciona la marca del vehículo.');
-        return;
-      }
-      if (!vehicleModel.trim()) {
-        setStepError('Por favor selecciona el modelo del vehículo.');
-        return;
-      }
-      if (!vehicleMileage.trim() || isNaN(Number(vehicleMileage)) || Number(vehicleMileage) <= 0) {
-        setStepError('El millaje reportado debe ser mayor a 0.');
-        return;
-      }
-      if (!mainPart.trim()) {
-        setStepError('Por favor ingresa la pieza o refacción solicitada.');
-        return;
-      }
-      if (!stockNumber.trim()) {
-        setStepError('Por favor ingresa el stock de la yarda o proveedor.');
-        return;
-      }
-      setCurrentStep(2);
-    } else if (currentStep === 2) {
-      if (!customerName.trim()) {
-        setStepError('Por favor ingresa el nombre completo o razón social del cliente.');
-        return;
-      }
-      setCurrentStep(3);
+    const missing = (stepFieldOrder[currentStep] || []).filter((name) => fieldErrors[name]);
+    if (missing.length) {
+      setTouchedFields((prev) => missing.reduce((acc, name) => ({ ...acc, [name]: true }), prev));
+      setStepError(fieldErrors[missing[0]]);
+      focusField(missing[0]);
+      return;
     }
+    if (currentStep < 3) setCurrentStep(currentStep + 1);
   };
 
   const handlePrev = () => {
@@ -1087,6 +1105,16 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
 
   const handleSubmit = async () => {
     if (savingRef.current) return;
+    const orderedFields = [...stepFieldOrder[1], ...stepFieldOrder[2], ...stepFieldOrder[3]];
+    const firstMissing = orderedFields.find((name) => fieldErrors[name]);
+    if (firstMissing) {
+      const targetStep = stepFieldOrder[1].includes(firstMissing) ? 1 : stepFieldOrder[2].includes(firstMissing) ? 2 : 3;
+      setCurrentStep(targetStep);
+      setTouchedFields((prev) => ({ ...prev, [firstMissing]: true }));
+      setStepError(fieldErrors[firstMissing]);
+      focusField(firstMissing);
+      return;
+    }
     if (!vehicleYear) {
       setCurrentStep(1);
       setStepError('El año del vehículo es obligatorio.');
@@ -1259,9 +1287,36 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
     { num: 3, label: 'Finanzas y Envío', icon: 'account_balance_wallet', desc: 'Liquidación, flete y garantía' },
   ];
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const handleRequestClose = useCallback(async () => {
+    const draftHasData = Object.entries(activeFormRef.current || {}).some(([key, value]) =>
+      !['currentStep', 'zipCode', 'warrantyDays', 'status', 'deliveryType', 'advisor', 'savedAt', 'idempotencyKey'].includes(key) &&
+      value !== '' && value !== null && value !== undefined,
+    );
+    if (editingOrder || (!editingOrder && draftHasData)) {
+      const confirmed = await confirm({
+        title: editingOrder ? '¿Cerrar la edición?' : '¿Descartar el borrador?',
+        message: editingOrder ? 'Los cambios no guardados se perderán.' : 'Los datos capturados en esta orden no guardada se perderán.',
+        confirmLabel: editingOrder ? 'Descartar cambios' : 'Descartar borrador',
+        tone: 'danger',
+      });
+      if (!confirmed) return;
+      if (!editingOrder) clearOrderDraft();
+    }
+    onClose();
+  }, [clearOrderDraft, confirm, editingOrder, onClose]);
+  useDialogAccessibility({ open: isOpen, dialogRef, onEscape: handleRequestClose });
+
   return (
     <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-black/85 backdrop-blur-xl animate-fade-in">
-      <div className="horizon-order-dialog bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-3xl max-h-[min(94vh,740px)] shadow-[0_20px_60px_rgba(0,0,0,0.85)] flex flex-col relative overflow-hidden">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-order-title"
+        tabIndex={-1}
+        className="horizon-order-dialog bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/30 rounded-3xl w-full max-w-[1120px] max-h-[min(94vh,860px)] shadow-[0_20px_60px_rgba(0,0,0,0.85)] flex flex-col relative overflow-hidden outline-none"
+      >
         {/* Laser Hairline */}
         <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-30" />
 
@@ -1269,16 +1324,13 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
         <div className="p-3 sm:p-4 border-b border-cyan-500/20 flex justify-between items-center bg-[#0a1022]/90 backdrop-blur-md shrink-0">
           <div className="flex items-center gap-2.5 sm:gap-3">
             <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-cyan-500/15 text-cyan-400 flex items-center justify-center border border-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.25)] shrink-0">
-              <span className="material-symbols-outlined text-[18px] sm:text-[20px]">add_shopping_cart</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px] sm:text-[20px]">add_shopping_cart</span>
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-sm sm:text-base text-slate-100 tracking-tight">
+                <h3 id="new-order-title" className="font-bold text-sm sm:text-base text-slate-100 tracking-tight">
                   {editingOrder ? 'Editar Orden de Trabajo' : 'Crear Nueva Orden de Trabajo'}
                 </h3>
-                <span className="text-[9px] sm:text-[10px] bg-cyan-950/50 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-full font-mono font-bold">
-                  Paso {currentStep} de 3
-                </span>
               </div>
               <p className="text-[11px] text-slate-400 hidden xs:block">
                 Asistente guiado: 1. Vehículo y Pieza → 2. Cliente → 3. Finanzas y Envío
@@ -1287,11 +1339,11 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleRequestClose}
             aria-label="Cerrar nueva orden"
             className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
@@ -1299,7 +1351,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
         {hasRestoredDraft && !editingOrder && (
           <div className="bg-amber-500/10 border-b border-amber-500/25 px-3 py-1.5 sm:px-4 sm:py-2 flex items-center justify-between text-xs text-amber-300 font-mono shrink-0">
             <div className="flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-[16px]">edit_note</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">edit_note</span>
               <span className="text-[11px] sm:text-xs">Borrador en progreso recuperado automáticamente</span>
             </div>
             <button
@@ -1313,7 +1365,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
         )}
 
         {/* STEPPER NAVIGATION BAR */}
-        <div className="horizon-order-steps bg-[#050914]/90 border-b border-cyan-500/20 px-3 py-2 sm:px-5 sm:py-2.5 shrink-0">
+        <div className="horizon-order-steps bg-[#050914]/90 border-b border-cyan-500/20 px-3 py-2 sm:px-5 sm:py-2.5 shrink-0 lg:hidden">
           <div className="grid grid-cols-3 gap-1.5 sm:gap-2 relative">
             {stepsConfig.map((s) => {
               const isCompleted = s.num < currentStep;
@@ -1350,7 +1402,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                     }`}
                   >
                     {isCompleted ? (
-                      <span className="material-symbols-outlined text-[15px]">check</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[15px]">check</span>
                     ) : (
                       <span>{s.num}</span>
                     )}
@@ -1376,10 +1428,63 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
           </div>
         </div>
 
+        <div className="flex min-h-0 flex-1">
+          <aside aria-label="Pasos del asistente" className="hidden w-[240px] shrink-0 flex-col gap-2 border-r border-cyan-500/20 bg-[#050914]/60 p-4 lg:flex">
+            <p className="mb-1 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500">Asistente de orden</p>
+            {stepsConfig.map((s) => {
+              const isCompleted = s.num < currentStep;
+              const isCurrent = s.num === currentStep;
+              return (
+                <button
+                  key={s.num}
+                  type="button"
+                  aria-current={isCurrent ? 'step' : undefined}
+                  aria-disabled={s.num > currentStep}
+                  onClick={() => {
+                    if (s.num <= currentStep) {
+                      setStepError(null);
+                      setCurrentStep(s.num);
+                    }
+                  }}
+                  className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-all ${
+                    isCurrent
+                      ? 'border-cyan-500/60 bg-cyan-950/40'
+                      : isCompleted
+                      ? 'border-emerald-500/30 bg-emerald-950/20 cursor-pointer hover:bg-emerald-950/30'
+                      : 'border-transparent opacity-40 cursor-not-allowed'
+                  }`}
+                >
+                  <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold font-mono ${
+                    isCurrent ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950' : isCompleted ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'
+                  }`}>
+                    {isCompleted ? <span aria-hidden="true" className="material-symbols-outlined text-[15px]">check</span> : s.num}
+                  </span>
+                  <span className="min-w-0">
+                    <span className={`block text-xs font-bold ${isCurrent ? 'text-cyan-300' : isCompleted ? 'text-emerald-300' : 'text-slate-400'}`}>{s.label}</span>
+                    <span className="mt-0.5 block text-[10px] leading-snug text-slate-500">{s.desc}</span>
+                  </span>
+                </button>
+              );
+            })}
+            <div className="mt-auto rounded-xl border border-cyan-500/20 bg-[#070e1c] p-3">
+              <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">save</span>
+                Borrador
+              </p>
+              <p className="mt-1 text-[11px] font-semibold text-slate-200">
+                {lastDraftSavedAt && hasEnteredData
+                  ? `Guardado hace ${Math.max(0, Math.round((clockNow - lastDraftSavedAt) / 1000))} s`
+                  : 'Se guarda automáticamente al escribir'}
+              </p>
+            </div>
+          </aside>
+
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+
         {/* Error Alert if any */}
         {stepError && (
-          <div className="mx-4 mt-3 p-2.5 bg-rose-950/30 border border-rose-500/30 rounded-xl flex items-center gap-2.5 text-xs text-rose-300 animate-shake shrink-0">
-            <span className="material-symbols-outlined text-[18px] text-rose-400">error</span>
+          <div role="alert" className="mx-4 mt-3 p-2.5 bg-amber-500/10 border border-amber-500/35 rounded-xl flex items-center gap-2.5 text-xs text-amber-200 shrink-0">
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-amber-400">warning</span>
             <span>{stepError}</span>
           </div>
         )}
@@ -1387,7 +1492,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
         {/* Car-Part Auto-Import Alert Banner (Si existe prefill) */}
         {initialPrefillData && currentStep === 1 && (
           <div className="mx-4 mt-3 bg-emerald-950/30 border border-emerald-500/30 rounded-xl p-2.5 flex items-start gap-2.5 shadow-lg animate-fade-in shrink-0">
-            <span className="material-symbols-outlined text-emerald-400 text-[18px] shrink-0 mt-0.5">
+            <span aria-hidden="true" className="material-symbols-outlined text-emerald-400 text-[18px] shrink-0 mt-0.5">
               bolt
             </span>
             <div className="flex-1 text-xs">
@@ -1411,16 +1516,15 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
             <div className="flex flex-col gap-5 animate-fade-in">
               <div className="flex items-center justify-between bg-[#080e1c] p-3.5 rounded-2xl border border-cyan-500/20">
                 <div className="flex items-center gap-2.5 text-cyan-400">
-                  <span className="material-symbols-outlined text-[20px]">directions_car</span>
-                  <span className="font-bold text-xs uppercase tracking-wider font-mono">Paso 1: Datos del Vehículo & Pieza Solicitada</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[20px]">directions_car</span>
+                  <span className="font-bold text-xs uppercase tracking-wider font-mono">Datos del Vehículo & Pieza Solicitada</span>
                 </div>
-                <span className="text-[10px] text-cyan-400 font-mono font-bold bg-cyan-950/40 px-2 py-0.5 rounded-full border border-cyan-500/30">1 de 3</span>
               </div>
 
               {/* Ficha Técnica del Vehículo */}
               <div className="horizon-order-fieldset bg-[#050914] p-5 rounded-2xl border border-cyan-500/20 flex flex-col gap-3.5 shadow-sm">
                 <div className="flex items-center gap-2 text-xs font-bold text-slate-100 border-b border-cyan-500/20 pb-2.5">
-                  <span className="material-symbols-outlined text-[17px] text-cyan-400">garage</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[17px] text-cyan-400">garage</span>
                   <span>Ficha Técnica del Vehículo</span>
                 </div>
 
@@ -1428,6 +1532,9 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                   <div>
                     <label className="block mb-1 text-slate-400 font-medium text-[11px]">Año *</label>
                     <select
+                      data-field="vehicleYear"
+                      aria-invalid={Boolean(fieldError('vehicleYear'))}
+                      onBlur={() => touchField('vehicleYear')}
                       value={vehicleYear}
                       onChange={(e) => handleManualYearChange(e.target.value)}
                       className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 cursor-pointer text-xs"
@@ -1437,11 +1544,15 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                         <option key={year} value={year}>{year}</option>
                       ))}
                     </select>
+                    {fieldError('vehicleYear') && <p className="mt-1 text-[11px] font-semibold text-amber-400">{fieldError('vehicleYear')}</p>}
                   </div>
 
                   <div>
                     <label className="block mb-1 text-slate-400 font-medium text-[11px]">Marca *</label>
                     <select
+                      data-field="vehicleMake"
+                      aria-invalid={Boolean(fieldError('vehicleMake'))}
+                      onBlur={() => touchField('vehicleMake')}
                       value={vehicleMake}
                       onChange={(e) => handleManualMakeChange(e.target.value)}
                       disabled={!vehicleYear}
@@ -1455,12 +1566,16 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                         <option key={make} value={make}>{make}</option>
                       ))}
                     </select>
+                    {fieldError('vehicleMake') && <p className="mt-1 text-[11px] font-semibold text-amber-400">{fieldError('vehicleMake')}</p>}
                   </div>
 
                   <div>
                     <label className="block mb-1 text-slate-400 font-medium text-[11px]">Modelo *</label>
                     <select
                       required
+                      data-field="vehicleModel"
+                      aria-invalid={Boolean(fieldError('vehicleModel'))}
+                      onBlur={() => touchField('vehicleModel')}
                       value={vehicleModel}
                       onChange={(e) => {
                         setVehicleModel(e.target.value);
@@ -1478,6 +1593,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                         <option key={model} value={model}>{model}</option>
                       ))}
                     </select>
+                    {fieldError('vehicleModel') && <p className="mt-1 text-[11px] font-semibold text-amber-400">{fieldError('vehicleModel')}</p>}
                   </div>
 
                   <div className="sm:col-span-2">
@@ -1534,6 +1650,9 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       type="text"
                       inputMode="numeric"
                       required
+                      data-field="vehicleMileage"
+                      aria-invalid={Boolean(fieldError('vehicleMileage'))}
+                      onBlur={() => touchField('vehicleMileage')}
                       value={vehicleMileage}
                       onPaste={(e) => {
                         try {
@@ -1559,6 +1678,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       placeholder="0"
                       className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-xs shadow-inner"
                     />
+                    {fieldError('vehicleMileage') && <p className="mt-1 text-[11px] font-semibold text-amber-400">{fieldError('vehicleMileage')}</p>}
                   </div>
                 </div>
               </div>
@@ -1566,7 +1686,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
               {/* Pieza & Refacción Solicitada */}
               <div className="horizon-order-fieldset bg-[#050914] p-5 rounded-2xl border border-cyan-500/20 flex flex-col gap-3.5 shadow-sm">
                 <div className="flex items-center gap-2 text-xs font-bold text-slate-100 border-b border-cyan-500/20 pb-2.5">
-                  <span className="material-symbols-outlined text-[17px] text-amber-400">settings</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[17px] text-amber-400">settings</span>
                   <span>Pieza Solicitada & Datos de Yarda / Stock</span>
                 </div>
 
@@ -1575,6 +1695,9 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                     <label className="block mb-1 text-slate-400 font-medium text-[11px]">Pieza Principal Solicitada *</label>
                     <select
                       required
+                      data-field="mainPart"
+                      aria-invalid={Boolean(fieldError('mainPart'))}
+                      onBlur={() => touchField('mainPart')}
                       value={mainPart}
                       onChange={(e) => {
                         setMainPart(e.target.value);
@@ -1589,6 +1712,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       <option value="Transfer Case">Transfer Case (Caja de Transferencia)</option>
                       <option value="Differential">Differential (Diferencial)</option>
                     </select>
+                    {fieldError('mainPart') && <p className="mt-1 text-[11px] font-semibold text-amber-400">{fieldError('mainPart')}</p>}
                   </div>
 
                   <div>
@@ -1596,6 +1720,9 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                     <input
                       type="text"
                       required
+                      data-field="stockNumber"
+                      aria-invalid={Boolean(fieldError('stockNumber'))}
+                      onBlur={() => touchField('stockNumber')}
                       value={stockNumber}
                       onPaste={(e) => {
                         try {
@@ -1623,6 +1750,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       placeholder="STK-RDZ-4491"
                       className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 font-mono focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 text-xs shadow-inner"
                     />
+                    {fieldError('stockNumber') && <p className="mt-1 text-[11px] font-semibold text-amber-400">{fieldError('stockNumber')}</p>}
                   </div>
 
                   <div className="sm:col-span-3">
@@ -1695,11 +1823,8 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
               {/* Header del Paso 2 */}
               <div className="flex items-center justify-between bg-[#080e1c] p-3.5 rounded-2xl border border-cyan-500/20">
                 <div className="flex items-center gap-2.5 text-emerald-400">
-                  <span className="material-symbols-outlined text-[20px]">person</span>
-                  <span className="font-bold text-xs uppercase tracking-wider font-mono">Paso 2: Datos del Cliente & Despacho</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-emerald-400 font-mono font-bold bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-500/30">2 de 3</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[20px]">person</span>
+                  <span className="font-bold text-xs uppercase tracking-wider font-mono">Datos del Cliente & Despacho</span>
                 </div>
               </div>
 
@@ -1717,7 +1842,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
                   }`}
                 >
-                  <span className="material-symbols-outlined text-[16px]">contacts</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">contacts</span>
                   <span>Seleccionar Cliente Existente (CRM)</span>
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${
                     clientMode === 'search' ? 'bg-black/30 text-slate-950' : 'bg-slate-800 text-slate-400'
@@ -1739,7 +1864,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
                   }`}
                 >
-                  <span className="material-symbols-outlined text-[16px]">person_add</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">person_add</span>
                   <span>Registrar Nuevo Cliente Manual</span>
                 </button>
               </div>
@@ -1761,13 +1886,13 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                                 {selectedCustomerObj.name || `${selectedCustomerObj.first_name || ''} ${selectedCustomerObj.last_name || ''}`.trim() || 'Cliente'}
                               </h4>
                               <span className="text-[10px] bg-emerald-950/50 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-mono font-bold flex items-center gap-1">
-                                <span className="material-symbols-outlined text-[12px] text-emerald-400">verified</span>
+                                <span aria-hidden="true" className="material-symbols-outlined text-[12px] text-emerald-400">verified</span>
                                 Cliente CRM Vinculado
                               </span>
                             </div>
                             {selectedCustomerObj.company && (
                               <p className="text-xs text-slate-400 font-medium flex items-center gap-1 mt-0.5">
-                                <span className="material-symbols-outlined text-[13px] text-amber-400">domain</span>
+                                <span aria-hidden="true" className="material-symbols-outlined text-[13px] text-amber-400">domain</span>
                                 {selectedCustomerObj.company}
                               </p>
                             )}
@@ -1780,7 +1905,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                             onClick={() => setSelectedCustomerId(null)}
                             className="px-2.5 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl border border-slate-700 flex items-center gap-1 cursor-pointer transition-colors font-semibold"
                           >
-                            <span className="material-symbols-outlined text-[14px]">swap_horiz</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[14px]">swap_horiz</span>
                             <span>Cambiar</span>
                           </button>
                           <button
@@ -1789,7 +1914,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                             className="p-1.5 text-xs bg-rose-950/30 hover:bg-rose-950/60 text-rose-400 rounded-xl border border-rose-500/30 cursor-pointer transition-colors"
                             title="Desvincular cliente"
                           >
-                            <span className="material-symbols-outlined text-[16px]">close</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">close</span>
                           </button>
                         </div>
                       </div>
@@ -1797,15 +1922,15 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       {/* Detalles de Contacto Resumidos */}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-[#070e1c] p-3 rounded-xl border border-cyan-500/20 text-xs">
                         <div className="flex items-center gap-2">
-                          <span className="material-symbols-outlined text-[15px] text-emerald-400">call</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-emerald-400">call</span>
                           <span className="font-mono text-slate-200 font-medium">{customerPhone || 'Sin teléfono'}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="material-symbols-outlined text-[15px] text-cyan-400">mail</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-cyan-400">mail</span>
                           <span className="text-slate-300 truncate">{customerEmail || 'Sin email'}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="material-symbols-outlined text-[15px] text-amber-400">badge</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-amber-400">badge</span>
                           <span className="text-slate-200 font-medium">{customerType}</span>
                         </div>
                       </div>
@@ -1814,7 +1939,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       <div className="bg-[#070e1c] p-3.5 rounded-xl border border-cyan-500/20 flex flex-col gap-2">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-1.5 text-xs font-bold text-slate-100">
-                            <span className="material-symbols-outlined text-[15px] text-rose-400">local_shipping</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-rose-400">local_shipping</span>
                             <span>Dirección de Despacho para esta Orden</span>
                           </div>
                           <span className="text-[10px] text-slate-400">(Editable para este pedido)</span>
@@ -1852,11 +1977,11 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       <div className="bg-[#070e1c] p-3.5 rounded-xl border border-cyan-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
                         <div className="flex flex-col">
                           <div className="flex items-center gap-1.5 text-xs font-bold text-slate-100">
-                            <span className="material-symbols-outlined text-[15px] text-cyan-400">translate</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-cyan-400">translate</span>
                             <span>Idioma de Habla del Cliente</span>
                           </div>
                           <span className="text-[10px] text-slate-400">
-                            Define el idioma de los mensajes de texto, WhatsApp y llamadas de seguimiento
+                            Define el idioma de los mensajes de texto y llamadas de seguimiento
                           </span>
                         </div>
 
@@ -1899,7 +2024,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                     <div className="horizon-order-fieldset bg-[#050914] p-5 rounded-2xl border border-cyan-500/20 flex flex-col gap-3.5 shadow-sm">
                       {/* Barra de Búsqueda */}
                       <div className="relative">
-                        <span className="material-symbols-outlined absolute left-3.5 top-3 text-cyan-400 text-[18px]">
+                        <span aria-hidden="true" className="material-symbols-outlined absolute left-3.5 top-3 text-cyan-400 text-[18px]">
                           search
                         </span>
                         <input
@@ -1919,7 +2044,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                             onClick={() => setClientSearchQuery('')}
                             className="absolute right-2.5 top-2.5 text-slate-400 hover:text-white cursor-pointer"
                           >
-                            <span className="material-symbols-outlined text-[16px]">cancel</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">cancel</span>
                           </button>
                         )}
                       </div>
@@ -2034,7 +2159,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                                   }}
                                   className="px-3.5 py-1.5 bg-cyan-500/15 hover:bg-cyan-500 text-cyan-400 hover:text-slate-950 rounded-xl text-xs font-bold border border-cyan-500/40 transition-all shrink-0 cursor-pointer flex items-center gap-1.5"
                                 >
-                                  <span className="material-symbols-outlined text-[15px]">check</span>
+                                  <span aria-hidden="true" className="material-symbols-outlined text-[15px]">check</span>
                                   <span>Seleccionar</span>
                                 </button>
                               </div>
@@ -2042,7 +2167,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                           })
                         ) : (
                           <div className="p-6 text-center text-slate-400 flex flex-col items-center gap-2 bg-[#070e1c]/40 rounded-2xl border border-dashed border-slate-800">
-                            <span className="material-symbols-outlined text-[28px] text-slate-600">person_search</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[28px] text-slate-600">person_search</span>
                             <p className="text-xs">
                               No se encontraron clientes con el criterio &quot;{clientSearchQuery}&quot;.
                             </p>
@@ -2054,7 +2179,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                               }}
                               className="mt-1 px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-slate-950 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-[0_0_12px_rgba(6,182,212,0.35)] active:scale-95"
                             >
-                              <span className="material-symbols-outlined text-[15px]">person_add</span>
+                              <span aria-hidden="true" className="material-symbols-outlined text-[15px]">person_add</span>
                               <span>Registrar &quot;{clientSearchQuery}&quot; como nuevo</span>
                             </button>
                           </div>
@@ -2074,6 +2199,9 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       type="text"
                       required
                       autoFocus
+                      data-field="customerName"
+                      aria-invalid={Boolean(fieldError('customerName'))}
+                      onBlur={() => touchField('customerName')}
                       value={customerName}
                       onChange={(e) => {
                         setCustomerName(e.target.value);
@@ -2083,6 +2211,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       placeholder="Ej. Roberto Sánchez o Taller Hermanos Gómez"
                       className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl p-2.5 text-slate-100 text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                     />
+                    {fieldError('customerName') && <p className="mt-1 text-[11px] font-semibold text-amber-400">{fieldError('customerName')}</p>}
                   </div>
 
                   <div>
@@ -2104,7 +2233,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="block mb-1 text-slate-400 font-medium text-[11px]">Teléfono / WhatsApp de Contacto *</label>
+                    <label className="block mb-1 text-slate-400 font-medium text-[11px]">Teléfono de Contacto *</label>
                     <input
                       type="text"
                       value={customerPhone}
@@ -2164,7 +2293,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                   <div className="sm:col-span-2 bg-[#070e1c] p-3 rounded-xl border border-cyan-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
                     <div>
                       <label className="block text-slate-200 font-bold text-xs flex items-center gap-1.5">
-                        <span className="material-symbols-outlined text-[15px] text-cyan-400">translate</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-cyan-400">translate</span>
                         <span>Idioma de Habla del Cliente *</span>
                       </label>
                       <span className="text-[10px] text-slate-400">
@@ -2218,10 +2347,9 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
             <div className="flex flex-col gap-4 animate-fade-in">
               <div className="flex items-center justify-between bg-[#080e1c] p-3.5 rounded-2xl border border-cyan-500/20">
                 <div className="flex items-center gap-2.5 text-purple-400">
-                  <span className="material-symbols-outlined text-[20px]">account_balance_wallet</span>
-                  <span className="font-bold text-xs uppercase tracking-wider font-mono">Paso 3: Finanzas, Envío & Liquidación</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[20px]">account_balance_wallet</span>
+                  <span className="font-bold text-xs uppercase tracking-wider font-mono">Finanzas, Envío & Liquidación</span>
                 </div>
-                <span className="text-[10px] text-purple-400 font-mono font-bold bg-purple-950/40 px-2 py-0.5 rounded-full border border-purple-500/30">3 de 3</span>
               </div>
 
               {/* Inputs de Desglose */}
@@ -2235,11 +2363,15 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       min={0}
                       step="any"
                       autoFocus
+                      data-field="partPrice"
+                      aria-invalid={Boolean(fieldError('partPrice'))}
+                      onBlur={() => touchField('partPrice')}
                       value={partPrice}
                       onChange={(e) => handlePriceChange(e.target.value)}
                       placeholder="0.00"
                       className="w-full bg-[#070e1c] border border-cyan-500/40 rounded-xl py-2.5 pl-7 pr-2 font-mono text-cyan-300 font-bold text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                     />
+                    {fieldError('partPrice') && <p className="mt-1 text-[11px] font-semibold text-amber-400">{fieldError('partPrice')}</p>}
                   </div>
                 </div>
 
@@ -2251,6 +2383,9 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       type="number"
                       min={0}
                       step="any"
+                      data-field="downPayment"
+                      aria-invalid={Boolean(fieldError('downPayment'))}
+                      onBlur={() => touchField('downPayment')}
                       value={downPayment}
                       readOnly={Boolean(editingOrder)}
                       onChange={(e) => {
@@ -2261,6 +2396,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       placeholder="0.00"
                       className="w-full bg-[#070e1c] border border-amber-500/40 rounded-xl py-2.5 pl-7 pr-2 font-mono text-amber-300 font-bold text-xs focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 shadow-inner"
                     />
+                    {fieldError('downPayment') && <p className="mt-1 text-[11px] font-semibold text-amber-400">{fieldError('downPayment')}</p>}
                   </div>
                   {editingOrder && <p className="text-[11px] mt-1 text-[var(--text-secondary)]">Para registrar dinero recibido, abre la orden y usa Registrar cobro / ver pagos y core.</p>}
                 </div>
@@ -2273,6 +2409,9 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       type="number"
                       min={0}
                       step="any"
+                      data-field="deliveryFee"
+                      aria-invalid={Boolean(fieldError('deliveryFee'))}
+                      onBlur={() => touchField('deliveryFee')}
                       value={deliveryFee}
                       onChange={(e) => {
                         setDeliveryFee(e.target.value);
@@ -2282,6 +2421,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       placeholder="0.00"
                       className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl py-2.5 pl-7 pr-2 font-mono text-slate-100 font-bold text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 disabled:opacity-40 shadow-inner"
                     />
+                    {fieldError('deliveryFee') && <p className="mt-1 text-[11px] font-semibold text-amber-400">{fieldError('deliveryFee')}</p>}
                   </div>
                 </div>
 
@@ -2293,6 +2433,9 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       type="number"
                       min={0}
                       step="any"
+                      data-field="coreFee"
+                      aria-invalid={Boolean(fieldError('coreFee'))}
+                      onBlur={() => touchField('coreFee')}
                       value={coreFee}
                       readOnly={Boolean(editingOrder?.financials.coreReceivedAt)}
                       onChange={(e) => {
@@ -2303,6 +2446,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       placeholder="0.00"
                       className="w-full bg-[#070e1c] border border-cyan-500/30 rounded-xl py-2.5 pl-7 pr-2 font-mono text-slate-100 font-bold text-xs focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 shadow-inner"
                     />
+                    {fieldError('coreFee') && <p className="mt-1 text-[11px] font-semibold text-amber-400">{fieldError('coreFee')}</p>}
                   </div>
                 </div>
               </div>
@@ -2349,7 +2493,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                           : 'bg-[#070e1c] border-slate-800 text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      <span className="material-symbols-outlined text-[17px]">storefront</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[17px]">storefront</span>
                       <span>Retiro en Patio ($0)</span>
                     </button>
 
@@ -2365,7 +2509,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                           : 'bg-[#070e1c] border-slate-800 text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      <span className="material-symbols-outlined text-[17px]">local_shipping</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[17px]">local_shipping</span>
                       <span>Envío a Domicilio</span>
                     </button>
                   </div>
@@ -2484,7 +2628,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                             onChange={(e) => setAuctionActiveToggle(e.target.checked)}
                             className="rounded border-amber-500/50 text-amber-600 focus:ring-0 accent-amber-500 bg-white dark:bg-[#070e1c] cursor-pointer"
                           />
-                          <span className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">gavel</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">gavel</span>
                           <span>Buscar en Subasta (Copart/IAAI)</span>
                         </label>
                       </div>
@@ -2496,7 +2640,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                       Operador / Asesor Registrado
                     </span>
                     <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#070e1c] border border-cyan-500/30 text-emerald-400 font-mono font-bold text-xs shadow-[0_0_10px_rgba(16,185,129,0.15)] mb-2">
-                      <span className="material-symbols-outlined text-[15px] text-cyan-400">badge</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-cyan-400">badge</span>
                       <span>{advisor || defaultAdvisor}</span>
                     </div>
 
@@ -2561,7 +2705,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                             onChange={(e) => setAuctionActiveToggle(e.target.checked)}
                             className="rounded border-amber-500/50 text-amber-600 focus:ring-0 accent-amber-500 bg-white dark:bg-[#070e1c] cursor-pointer"
                           />
-                          <span className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">gavel</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">gavel</span>
                           <span>Buscar en Subasta (Copart/IAAI)</span>
                         </label>
                       </div>
@@ -2575,7 +2719,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                 <div className="bg-[#050914] p-4 rounded-2xl border border-amber-500/30 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-1.5 text-amber-400 font-mono text-[11px] font-bold uppercase tracking-wider mb-1">
-                      <span className="material-symbols-outlined text-[16px]">local_shipping</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px]">local_shipping</span>
                       <span>Fecha de Entrega Física Registrada</span>
                     </div>
                     <div className="text-xs font-mono text-slate-200">
@@ -2595,7 +2739,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
               <div className="bg-[#070e1c] border border-cyan-500/30 rounded-2xl p-4 flex items-center justify-between text-xs shadow-inner">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-xl bg-cyan-500/15 text-cyan-400 flex items-center justify-center border border-cyan-500/30 shrink-0">
-                    <span className="material-symbols-outlined text-[19px]">verified</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[19px]">verified</span>
                   </div>
                   <div>
                     <div className="text-slate-100 font-bold">{customerName || 'Cliente'} — {vehicleMake} {vehicleModel} {vehicleYear}</div>
@@ -2619,13 +2763,13 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                   onClick={handlePrev}
                   className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 border border-slate-700"
                 >
-                  <span className="material-symbols-outlined text-[15px]">arrow_back</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[15px]">arrow_back</span>
                   <span>Anterior</span>
                 </button>
               ) : (
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={handleRequestClose}
                   className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer text-xs font-semibold"
                 >
                   Cancelar
@@ -2645,7 +2789,7 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                   className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black transition-all shadow-[0_0_15px_rgba(6,182,212,0.35)] cursor-pointer active:scale-95 flex items-center gap-1.5 text-xs"
                 >
                   <span>Siguiente Paso</span>
-                  <span className="material-symbols-outlined text-[15px]">arrow_forward</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[15px]">arrow_forward</span>
                 </button>
               ) : (
                 <button
@@ -2654,13 +2798,52 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
                   disabled={isSaving}
                   className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black transition-all shadow-[0_0_20px_rgba(16,185,129,0.4)] cursor-pointer active:scale-95 flex items-center gap-1.5 text-xs"
                 >
-                  <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">check_circle</span>
                   <span>{isSaving ? 'Guardando…' : editingOrder ? 'Guardar Cambios' : 'Guardar y Aperturar'}</span>
                 </button>
               )}
             </div>
           </div>
         </form>
+          </div>
+
+          <aside aria-label="Resumen de la orden" className="hidden w-[320px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-cyan-500/20 bg-[#050914]/60 p-4 xl:flex">
+            <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500">Resumen de la orden</p>
+            <div className="rounded-2xl border border-cyan-500/20 bg-[#070e1c] p-3.5">
+              <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500">Vehículo</p>
+              <p className="mt-1 text-xs font-bold text-slate-100">
+                {vehicleYear || '—'} {vehicleMake || 'Marca'} {vehicleModel || 'Modelo'}
+              </p>
+              <p className="mt-0.5 text-[11px] text-slate-400">{vehicleVIN ? `VIN ${vehicleVIN}` : 'VIN pendiente'}</p>
+            </div>
+            <div className="rounded-2xl border border-cyan-500/20 bg-[#070e1c] p-3.5">
+              <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500">Pieza y cliente</p>
+              <p className="mt-1 text-xs font-bold text-slate-100">{mainPart || 'Pieza pendiente'}</p>
+              <p className="mt-0.5 text-[11px] text-slate-400">{customerName || 'Cliente pendiente'}</p>
+              <p className="text-[11px] text-slate-500">{stockNumber ? `Stock ${stockNumber}` : 'Stock pendiente'}</p>
+            </div>
+            <div className="rounded-2xl border border-cyan-500/20 bg-[#070e1c] p-3.5">
+              <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500">Liquidación</p>
+              <div className="mt-2 space-y-1.5 text-[11px]">
+                <div className="flex justify-between gap-2"><span className="text-slate-400">Subtotal</span><span className="font-mono font-bold text-slate-100">${grossSubtotal.toFixed(2)}</span></div>
+                <div className="flex justify-between gap-2"><span className="text-slate-400">Anticipo</span><span className="font-mono font-bold text-emerald-300">${numDown.toFixed(2)}</span></div>
+                <div className="flex justify-between gap-2 border-t border-cyan-500/15 pt-1.5"><span className="font-bold text-slate-200">Saldo</span><span className="font-mono font-bold text-amber-300">${balanceDue.toFixed(2)}</span></div>
+              </div>
+              <p className="mt-2 text-[10px] text-slate-500">{deliveryType === 'retiro_tienda' ? 'Retiro en patio' : 'Envío a domicilio'} · Garantía {warrantyDays} días</p>
+            </div>
+            <div className="mt-auto rounded-xl border border-cyan-500/20 bg-[#070e1c] p-3">
+              <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">save</span>
+                Borrador
+              </p>
+              <p className="mt-1 text-[11px] font-semibold text-slate-200">
+                {lastDraftSavedAt && hasEnteredData
+                  ? `Guardado hace ${Math.max(0, Math.round((clockNow - lastDraftSavedAt) / 1000))} s`
+                  : 'Se guarda automáticamente al escribir'}
+              </p>
+            </div>
+          </aside>
+        </div>
       </div>
 
     </div>

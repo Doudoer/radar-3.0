@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { WorkflowActionForm, workflowResponse } from './OrderWorkflowPanel';
 import { workflowTaskAssignee, type WorkflowTask } from '../utils/orderWorkflow';
+import { formatYardReadyElapsed, yardReadyAgeMinutes } from '../utils/yardAlerts';
 import { apiFetch } from '../services/apiFetch';
 import type { Order } from '../types';
 
@@ -61,7 +62,7 @@ const FollowupAssignment: React.FC<{
   return (
     <div className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3 space-y-2">
       <div className="flex items-center gap-1.5 text-xs font-bold text-cyan-400">
-        <span className="material-symbols-outlined text-[15px]">manage_accounts</span>
+        <span aria-hidden="true" className="material-symbols-outlined text-[15px]">manage_accounts</span>
         <span>Reasignación Post-Entrega (Supervisión)</span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -89,7 +90,7 @@ const FollowupAssignment: React.FC<{
           className="cyber-btn-secondary px-3 py-1.5 text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
           onClick={() => void save()}
         >
-          <span className="material-symbols-outlined text-[15px]">{busy ? 'sync' : 'check'}</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[15px]">{busy ? 'sync' : 'check'}</span>
           <span>{busy ? 'Asignando…' : 'Guardar'}</span>
         </button>
       </div>
@@ -109,7 +110,7 @@ const buckets = {
 
 const categories = {
   all: { label: 'Todas las tareas', icon: 'dashboard', color: 'cyan' },
-  incident: { label: 'Reclamos e Incidencias', icon: 'report_problem', color: 'rose' },
+  incident: { label: 'Reclamos e Incidencias', icon: 'report_problem', color: 'amber' },
   ready_to_deliver: { label: 'Listas para Entregar', icon: 'event_available', color: 'amber' },
   post_delivery: { label: 'Seguimiento Post-Entrega', icon: 'support_agent', color: 'emerald' },
 } as const;
@@ -233,17 +234,14 @@ export const WorkflowTasksView: React.FC<{
       <div className="horizon-view-header">
         <div className="flex items-center gap-3.5">
           <div className="relative w-12 h-12 rounded-2xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-[26px]">task_alt</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[26px]">task_alt</span>
             <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-400 animate-pulse" />
           </div>
           <div>
-            <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-xl md:text-2xl font-black text-[var(--text-primary)] tracking-tight">Mi trabajo de hoy</h1>
-              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold text-emerald-500">
-                <span className="material-symbols-outlined text-[13px]">verified</span>
-                <span>Flujo Post-Entrega Activo (Día 3 · 7 · 14)</span>
-              </span>
-            </div>
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold text-emerald-500">
+              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">verified</span>
+              <span>Flujo Post-Entrega Activo (Día 3 · 7 · 14)</span>
+            </span>
             <p className="text-xs text-[var(--text-secondary)] mt-1">
               Gestión comercial en días hábiles y seguimiento post-entrega para órdenes entregadas a partir de la activación del nuevo flujo. Las entregas previas quedan finalizadas automáticamente por el sistema.
             </p>
@@ -257,7 +255,7 @@ export const WorkflowTasksView: React.FC<{
             className="cyber-btn-secondary px-3.5 py-2 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
             title="Recargar tareas desde el servidor"
           >
-            <span className="material-symbols-outlined text-[16px]">sync</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">sync</span>
             <span>Actualizar tareas</span>
           </button>
           {onLegacyFollowups && (
@@ -267,7 +265,7 @@ export const WorkflowTasksView: React.FC<{
               className="cyber-btn-secondary px-3.5 py-2 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
               title="Abrir panel de seguimiento histórico"
             >
-              <span className="material-symbols-outlined text-[16px]">history</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">history</span>
               <span>Seguimiento histórico</span>
             </button>
           )}
@@ -276,14 +274,14 @@ export const WorkflowTasksView: React.FC<{
 
       {error && (
         <div role="alert" className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/35 text-rose-400 text-xs font-semibold flex items-center gap-2">
-          <span className="material-symbols-outlined text-base">error</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-base">error</span>
           <span>{error}</span>
         </div>
       )}
 
       {!queue && !error && (
         <div role="status" className="p-8 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] text-center text-[var(--text-secondary)] text-xs font-semibold flex items-center justify-center gap-2">
-          <span className="material-symbols-outlined text-cyan-400 animate-spin">progress_activity</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 animate-spin">progress_activity</span>
           <span>Cargando tareas del servidor…</span>
         </div>
       )}
@@ -297,22 +295,22 @@ export const WorkflowTasksView: React.FC<{
               onClick={() => setCategoryFilter('incident')}
               className={`rounded-2xl border p-4 flex items-center justify-between gap-3 cursor-pointer transition-all ${
                 categoryFilter === 'incident'
-                  ? 'border-rose-500/60 bg-rose-500/15 ring-1 ring-rose-500/30'
-                  : 'border-rose-500/30 bg-rose-500/5 hover:border-rose-500/50'
+                  ? 'border-amber-500/60 bg-amber-500/15 ring-1 ring-amber-500/30'
+                  : 'border-amber-500/30 bg-amber-500/5 hover:border-amber-500/50'
               }`}
             >
               <div>
-                <span className="text-xs font-bold text-rose-400 block uppercase tracking-wider">Reclamos</span>
+                <span className="text-xs font-bold text-amber-400 block uppercase tracking-wider">Reclamos</span>
                 <div className="mt-1 flex items-baseline gap-1.5">
-                  <strong className="text-2xl font-black text-rose-300 tabular-nums">
+                  <strong className="text-2xl font-black text-amber-300 tabular-nums">
                     {queue.tasks.filter((t) => t.task === 'incident').length}
                   </strong>
-                  <span className="text-[11px] font-semibold text-rose-400">en seguimiento</span>
+                  <span className="text-[11px] font-semibold text-amber-400">en seguimiento</span>
                 </div>
                 <p className="text-[10px] text-slate-400 mt-0.5">Operador que registró el caso</p>
               </div>
-              <span className="w-10 h-10 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
-                <span className="material-symbols-outlined text-[20px]">report_problem</span>
+              <span className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">report_problem</span>
               </span>
             </div>
 
@@ -336,7 +334,7 @@ export const WorkflowTasksView: React.FC<{
                 <p className="text-[10px] text-slate-400 mt-0.5">Asesor notifica para Listo Retiro</p>
               </div>
               <span className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-                <span className="material-symbols-outlined text-[20px]">event_available</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">event_available</span>
               </span>
             </div>
 
@@ -360,7 +358,7 @@ export const WorkflowTasksView: React.FC<{
                 <p className="text-[10px] text-slate-400 mt-0.5">Asesor de la venta</p>
               </div>
               <span className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-500 shrink-0">
-                <span className="material-symbols-outlined text-[20px]">support_agent</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">support_agent</span>
               </span>
             </div>
 
@@ -381,7 +379,7 @@ export const WorkflowTasksView: React.FC<{
                 </p>
               </div>
               <span className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0">
-                <span className="material-symbols-outlined text-[20px]">gavel</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">gavel</span>
               </span>
             </div>
           </div>
@@ -408,7 +406,7 @@ export const WorkflowTasksView: React.FC<{
                             : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                         }`}
                       >
-                        <span className="material-symbols-outlined text-[15px]">{meta.icon}</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[15px]">{meta.icon}</span>
                         <span>{meta.label}</span>
                         <span
                           className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold tabular-nums ${
@@ -425,7 +423,7 @@ export const WorkflowTasksView: React.FC<{
 
               {userRole === 'admin' && (
                 <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[var(--text-secondary)] text-[18px]">filter_alt</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[var(--text-secondary)] text-[18px]">filter_alt</span>
                   <select
                     aria-label="Operador de tareas"
                     value={operator}
@@ -482,7 +480,7 @@ export const WorkflowTasksView: React.FC<{
           {/* Empty State */}
           {!tasks.length && (
             <div className="rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] p-10 text-center space-y-2">
-              <span className="material-symbols-outlined text-4xl text-emerald-500/60">task_alt</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-4xl text-emerald-500/60">task_alt</span>
               <p className="text-sm font-bold text-[var(--text-primary)]">No hay tareas pendientes en este filtro</p>
               <p className="text-xs text-[var(--text-secondary)]">
                 Todas las tareas comerciales y de seguimiento post-entrega para el criterio seleccionado están al día.
@@ -509,13 +507,6 @@ export const WorkflowTasksView: React.FC<{
               const vehicleStr = associatedOrder?.vehicle
                 ? `${associatedOrder.vehicle.year ? associatedOrder.vehicle.year + ' ' : ''}${associatedOrder.vehicle.make || ''} ${associatedOrder.vehicle.model || ''}`.trim()
                 : '';
-              const partDesc = associatedOrder?.partDescription || '';
-              const waMessage = encodeURIComponent(
-                `Hola ${customerName}, le contactamos del equipo de RADAR referente a su orden #${task.order.code}${vehicleStr ? ` (${vehicleStr})` : ''}.`
-              );
-              const waUrl = cleanPhone
-                ? `https://wa.me/${cleanPhone.startsWith('1') ? cleanPhone : '1' + cleanPhone}?text=${waMessage}`
-                : null;
 
               const postSteps = [
                 { key: 'post_3', label: 'Día 3 · Recepción', done: Boolean(task.order.post3CompletedAt) },
@@ -543,13 +534,13 @@ export const WorkflowTasksView: React.FC<{
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="px-2.5 py-1 rounded-lg bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 font-bold text-xs flex items-center gap-1.5">
-                          <span className="material-symbols-outlined text-[15px]">receipt_long</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[15px]">receipt_long</span>
                           <span>{task.order.code}</span>
                         </span>
 
                         {task.order.customerName && (
                           <span className="px-2.5 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--text-primary)] text-xs font-semibold flex items-center gap-1 max-w-[200px] truncate">
-                            <span className="material-symbols-outlined text-[14px] text-[var(--text-secondary)]">person</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-[var(--text-secondary)]">person</span>
                             <span className="truncate">{task.order.customerName}</span>
                           </span>
                         )}
@@ -559,14 +550,14 @@ export const WorkflowTasksView: React.FC<{
                             className="px-2.5 py-1 rounded-lg bg-blue-500/10 border border-blue-500/25 text-blue-300 text-xs font-mono flex items-center gap-1 max-w-[220px] truncate"
                             title={vehicleStr}
                           >
-                            <span className="material-symbols-outlined text-[14px]">directions_car</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[14px]">directions_car</span>
                             <span className="truncate">{vehicleStr}</span>
                           </span>
                         )}
 
                         {isPostDelivery && (
                           <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 text-[11px] font-bold flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[13px]">support_agent</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[13px]">support_agent</span>
                             <span>Post-Entrega</span>
                           </span>
                         )}
@@ -592,7 +583,7 @@ export const WorkflowTasksView: React.FC<{
                               : 'bg-[var(--bg-card-subtle)] text-[var(--text-secondary)] border-[var(--border-color)]'
                           }`}
                         >
-                          <span className="material-symbols-outlined text-[14px]">
+                          <span aria-hidden="true" className="material-symbols-outlined text-[14px]">
                             {task.bucket === 'overdue' || isOverdue
                               ? 'warning'
                               : task.bucket === 'today'
@@ -615,11 +606,11 @@ export const WorkflowTasksView: React.FC<{
                           isPostDelivery
                             ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500'
                             : category === 'incident'
-                            ? 'bg-rose-500/15 border-rose-500/35 text-rose-400'
+                            ? 'bg-amber-500/15 border-amber-500/35 text-amber-400'
                             : 'bg-cyan-500/15 border-cyan-500/35 text-cyan-400'
                         }`}
                       >
-                        <span className="material-symbols-outlined text-[20px]">{categoryIcon}</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[20px]">{categoryIcon}</span>
                       </div>
                       <div className="space-y-1 flex-1">
                         <h2 className="text-base font-bold text-[var(--text-primary)] leading-snug">
@@ -638,7 +629,7 @@ export const WorkflowTasksView: React.FC<{
                       <div className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3 space-y-2">
                         <div className="flex items-center justify-between text-[11px]">
                           <span className="font-bold text-[var(--text-secondary)] flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[14px] text-emerald-500">route</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-emerald-500">route</span>
                             <span>Ruta de Seguimiento Post-Entrega</span>
                           </span>
                           {task.order.deliveredAt && (
@@ -661,7 +652,7 @@ export const WorkflowTasksView: React.FC<{
                                     : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-secondary)]'
                                 }`}
                               >
-                                <span className="material-symbols-outlined text-[14px]">
+                                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">
                                   {step.done ? 'check_circle' : active ? 'radio_button_checked' : 'schedule'}
                                 </span>
                                 <span className="truncate">{step.label}</span>
@@ -673,7 +664,7 @@ export const WorkflowTasksView: React.FC<{
                     ) : category === 'ready_to_deliver' ? (
                       <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-2.5 flex items-center justify-between gap-2 text-xs text-amber-300 font-semibold">
                         <div className="flex items-center gap-2">
-                          <span className="material-symbols-outlined text-[16px] text-amber-400">event_available</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-amber-400">event_available</span>
                           <span>Fase: Notificación al comprador y agendamiento</span>
                         </div>
                         <span className="text-[10px] font-mono bg-amber-500/20 px-2 py-0.5 rounded text-amber-300 border border-amber-500/40 font-bold">
@@ -684,20 +675,34 @@ export const WorkflowTasksView: React.FC<{
 
                     {/* Operational Alerts */}
                     {task.task === 'prepare' && (
-                      <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs space-y-1">
-                        <div className="flex items-center gap-1.5 font-bold text-amber-400">
-                          <span className="material-symbols-outlined text-[16px]">notifications_active</span>
-                          <span>Aviso de Administración: Pieza lista en Patio</span>
+                      task.order.yardPieceReady ? (
+                        <div className="rounded-xl bg-emerald-500 text-slate-950 border-2 border-emerald-300 px-3 py-3 font-mono flex items-start gap-2.5 shadow-[0_0_18px_rgba(16,185,129,0.35)]">
+                          <span aria-hidden="true" className="material-symbols-outlined text-[24px] shrink-0 animate-pulse">campaign</span>
+                          <div className="space-y-0.5 min-w-0">
+                            <p className="font-black text-sm sm:text-base leading-tight">
+                              PIEZA LISTA EN YARDA · {formatYardReadyElapsed(yardReadyAgeMinutes(task.order))}
+                            </p>
+                            <p className="text-[11.5px] font-semibold text-slate-900/80 leading-relaxed">
+                              Contacta al cliente, agenda retiro/despacho y pasa la orden a <strong>Listo para Retiro</strong>.
+                            </p>
+                          </div>
                         </div>
-                        <p className="text-[11px] text-amber-200/90 leading-relaxed font-medium">
-                          Como asesor que creó esta venta, debes comunicarte con el cliente para acordar cita/retiro y avanzar la orden al estatus <strong>Listo para Retiro</strong>.
-                        </p>
-                      </div>
+                      ) : (
+                        <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs space-y-1">
+                          <div className="flex items-center gap-1.5 font-bold text-amber-400">
+                            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">notifications_active</span>
+                            <span>Aviso de Administración: Pieza lista en Patio</span>
+                          </div>
+                          <p className="text-[11px] text-amber-200/90 leading-relaxed font-medium">
+                            Como asesor que creó esta venta, debes comunicarte con el cliente para acordar cita/retiro y avanzar la orden al estatus <strong>Listo para Retiro</strong>.
+                          </p>
+                        </div>
+                      )
                     )}
                     {task.task.startsWith('post_') && task.overdue && (
                       <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs font-bold flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                          <span className="material-symbols-outlined text-[16px] text-rose-400 shrink-0">gavel</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-rose-400 shrink-0">gavel</span>
                           <span>
                             Retraso en seguimiento: {task.daysOverdue || 1} día(s) vencido
                           </span>
@@ -708,14 +713,14 @@ export const WorkflowTasksView: React.FC<{
                       </div>
                     )}
                     {task.order.yardPieceReady && task.task !== 'prepare' && (
-                      <div className="px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/35 text-emerald-500 text-xs font-bold flex items-center gap-1.5">
-                        <span className="material-symbols-outlined text-[16px]">check_circle</span>
-                        <span>¡PIEZA LISTA EN YARDA! — Contactar al comprador para acordar entrega</span>
+                      <div className="rounded-xl bg-emerald-500 text-slate-950 border-2 border-emerald-300 px-3 py-2.5 font-black text-xs sm:text-sm flex items-center gap-2 shadow-[0_0_18px_rgba(16,185,129,0.35)]">
+                        <span aria-hidden="true" className="material-symbols-outlined text-[20px] shrink-0">campaign</span>
+                        <span className="flex-1 min-w-0">¡PIEZA LISTA EN YARDA! — Contactar al comprador para acordar entrega</span>
                       </div>
                     )}
                     {task.order.status === 'espera_confirmacion' && (
                       <div className="px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-500/35 text-amber-500 text-xs font-bold flex items-center gap-1.5">
-                        <span className="material-symbols-outlined text-[16px]">hourglass_top</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[16px]">hourglass_top</span>
                         <span>Anticipo Zelle/Cash App pendiente de verificación en banco por Admin</span>
                       </div>
                     )}
@@ -738,7 +743,7 @@ export const WorkflowTasksView: React.FC<{
 
                       {task.order.deliveredAt && task.order.advisor && (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--text-secondary)] text-xs font-medium">
-                          <span className="material-symbols-outlined text-[13px]">storefront</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[13px]">storefront</span>
                           <span>Venta: {task.order.advisor}</span>
                         </span>
                       )}
@@ -747,7 +752,7 @@ export const WorkflowTasksView: React.FC<{
                     {/* Next Action Callout Box */}
                     <div className="rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] p-3 space-y-1">
                       <div className="flex items-center gap-1.5 text-[11px] font-bold text-cyan-400">
-                        <span className="material-symbols-outlined text-[14px]">play_circle</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[14px]">play_circle</span>
                         <span>Próxima Gestión Operativa</span>
                       </div>
                       <p className="text-xs text-[var(--text-primary)] font-medium leading-relaxed">
@@ -758,21 +763,21 @@ export const WorkflowTasksView: React.FC<{
                     {/* Visual Alerts: Escalated / Blocked / Regularization */}
                     {task.escalated && (
                       <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-semibold flex items-center gap-2">
-                        <span className="material-symbols-outlined text-[16px] shrink-0">priority_high</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[16px] shrink-0">priority_high</span>
                         <span>Aviso a supervisión: Al menos un día hábil de retraso.</span>
                       </div>
                     )}
 
                     {task.blockedBy && (
                       <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400 text-xs font-semibold flex items-center gap-2">
-                        <span className="material-symbols-outlined text-[16px] shrink-0">lock</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[16px] shrink-0">lock</span>
                         <span>Bloqueo externo: {task.blockedBy} · Revisión: {task.dueDate}</span>
                       </div>
                     )}
 
                     {task.regularization && (
                       <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-500 text-xs font-semibold flex items-center gap-2">
-                        <span className="material-symbols-outlined text-[16px] shrink-0">history_edu</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[16px] shrink-0">history_edu</span>
                         <span>Regularización de evidencia histórica pendiente.</span>
                       </div>
                     )}
@@ -795,7 +800,7 @@ export const WorkflowTasksView: React.FC<{
                       onClick={() => setSelected(task)}
                       className="cyber-btn-primary px-4 py-2 text-xs font-black flex items-center gap-1.5 flex-1 justify-center cursor-pointer"
                     >
-                      <span className="material-symbols-outlined text-[16px]">tune</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px]">tune</span>
                       <span>
                         {task.task === 'prepare'
                           ? 'Contactar y Pasar a Listo para Retiro'
@@ -807,19 +812,6 @@ export const WorkflowTasksView: React.FC<{
                       </span>
                     </button>
 
-                    {/* 1-Click WhatsApp Direct Chat */}
-                    {waUrl && (
-                      <a
-                        href={waUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 flex items-center justify-center cursor-pointer transition-colors"
-                        title={`Abrir WhatsApp con ${customerName} (${rawPhone})`}
-                      >
-                        <span className="material-symbols-outlined text-[17px]">chat</span>
-                      </a>
-                    )}
-
                     {/* 1-Click Direct Phone Call */}
                     {cleanPhone && (
                       <a
@@ -827,7 +819,7 @@ export const WorkflowTasksView: React.FC<{
                         className="p-2 rounded-xl bg-[var(--bg-card-subtle)] hover:bg-[var(--border-color)] text-[var(--text-primary)] border border-[var(--border-color)] flex items-center justify-center cursor-pointer transition-colors"
                         title={`Llamar a ${customerName} (${rawPhone})`}
                       >
-                        <span className="material-symbols-outlined text-[17px]">call</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[17px]">call</span>
                       </a>
                     )}
 
@@ -837,7 +829,7 @@ export const WorkflowTasksView: React.FC<{
                       className="cyber-btn-secondary px-3.5 py-2 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                       title="Abrir detalle completo de la orden"
                     >
-                      <span className="material-symbols-outlined text-[16px]">visibility</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px]">visibility</span>
                       <span>Ver Orden</span>
                     </button>
 
@@ -850,7 +842,7 @@ export const WorkflowTasksView: React.FC<{
                         className="px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-500 border border-amber-500/35 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
                         title="Gestionar reclamo o devolución"
                       >
-                        <span className="material-symbols-outlined text-[16px]">warning_amber</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[16px]">warning_amber</span>
                         <span>Incidencia</span>
                       </button>
                     )}
@@ -866,7 +858,7 @@ export const WorkflowTasksView: React.FC<{
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[var(--border-color)] pb-3">
                 <div>
                   <h2 className="text-base font-black text-[var(--text-primary)] flex items-center gap-2">
-                    <span className="material-symbols-outlined text-cyan-400 text-[20px]">supervisor_account</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-[20px]">supervisor_account</span>
                     <span>Supervisión y Rendimiento por Operador</span>
                   </h2>
                   <p className="text-xs text-[var(--text-secondary)] mt-1">
@@ -925,7 +917,7 @@ export const WorkflowTasksView: React.FC<{
                           <td className="py-3 px-3 text-center">
                             {(item.penaltyPoints || 0) < 0 ? (
                               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 font-mono">
-                                <span className="material-symbols-outlined text-[13px]">gavel</span>
+                                <span aria-hidden="true" className="material-symbols-outlined text-[13px]">gavel</span>
                                 {item.penaltyPoints} pts
                               </span>
                             ) : (

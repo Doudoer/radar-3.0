@@ -16,6 +16,12 @@ import {
   formatListaReclamosMessage,
 } from './notificationTemplates';
 
+/** Keeps logs free of personal data: channel + masked phone only. */
+const maskPhoneForLog = (phone: string): string => {
+  const digits = phone.replace(/\D/g, '');
+  return `***${digits.slice(-4)}`;
+};
+
 /**
  * Ensures MySQL tables for WhatsApp notification routing exist and seeds default 8 channels.
  */
@@ -680,7 +686,7 @@ export async function dispatchSystemNotification(
     };
   }
 
-  console.log(`[Wasender Dispatch] Transmitiendo notificación para canal [${eventKey}] a ${resolution.recipients.length} destinatario(s):`, resolution.recipients.map((r) => `${r.name} (${r.phone})`));
+  console.log(`[Wasender Dispatch] Transmitiendo notificación para canal [${eventKey}] a ${resolution.recipients.length} destinatario(s):`, resolution.recipients.map((r) => maskPhoneForLog(r.phone)));
 
   const deliveryResults: Array<{ phone: string; name: string; success: boolean; data?: any; error?: string }> = [];
   let dispatchedCount = 0;
@@ -705,7 +711,7 @@ export async function dispatchSystemNotification(
       await pool.execute("UPDATE notification_outbox SET status='sent' WHERE id=?", [queued.insertId]);
 
       dispatchedCount++;
-      console.log(`[Wasender Dispatch] ✅ Notificación enviada exitosamente a ${recipient.name} (${recipient.phone})`);
+      console.log(`[Wasender Dispatch] Notificación enviada. Canal [${eventKey}] destinatario ${maskPhoneForLog(recipient.phone)}`);
       deliveryResults.push({
         phone: recipient.phone,
         name: recipient.name,
@@ -714,7 +720,7 @@ export async function dispatchSystemNotification(
       });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Error desconocido al transmitir vía Wasender';
-      console.error(`[Wasender Dispatch] ❌ Error enviando a ${recipient.name} (${recipient.phone}):`, errMsg);
+      console.error(`[Wasender Dispatch] Error enviando. Canal [${eventKey}] destinatario ${maskPhoneForLog(recipient.phone)}:`, errMsg);
       await pool.execute("UPDATE notification_outbox SET status='retry',last_error=?,available_at=UTC_TIMESTAMP()+INTERVAL 1 MINUTE WHERE id=?", [errMsg, queued.insertId]);
       deliveryResults.push({
         phone: recipient.phone,

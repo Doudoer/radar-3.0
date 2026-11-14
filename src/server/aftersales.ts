@@ -39,6 +39,22 @@ async function setStatus(connection: PoolConnection, row: RowDataPacket, status:
     [row.id, status, description, Number(claims.sub)]);
   row.status = status;
 }
+async function clearClaimPieceReady(connection: PoolConnection, row: RowDataPacket) {
+  if (!row.workflow_data) return;
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = typeof row.workflow_data === 'string' ? JSON.parse(row.workflow_data) : row.workflow_data;
+  } catch {
+    return;
+  }
+  if (!parsed || parsed.claimPieceReady !== true) return;
+  delete parsed.claimPieceReady;
+  delete parsed.claimPieceReadyAt;
+  delete parsed.claimPieceReadyBy;
+  parsed.claimPieceReadyClearedAt = new Date().toISOString();
+  await connection.execute('UPDATE orders SET workflow_data=? WHERE id=?', [JSON.stringify(parsed), row.id]);
+  row.workflow_data = JSON.stringify(parsed);
+}
 async function recordRefund(connection: PoolConnection, row: RowDataPacket, id: number, amount: number, execution: RefundExecution, claims: Claims) {
   const totals = await refundTotals(connection, row.id, id);
   const error = validateRefundBudget(Number(row.down_payment), totals.completed, totals.reserved, amount);
@@ -91,6 +107,7 @@ export async function applyAftersalesAction(connection: PoolConnection, row: Row
       `INSERT INTO claims (order_id,description,status,assigned_user_id,previous_order_status,stage,evidence_files,warranty_snapshot,next_review_date)
        VALUES (?,?,'Pending',?,?,'registered',?,?,?)`,
       [row.id, data.notes, data.assignedUserId || Number(claims.sub), row.status, JSON.stringify(files), JSON.stringify(terms), data.nextDate]);
+    await clearClaimPieceReady(connection, row);
     await setStatus(connection, row, 'Reclamo', claims, 'Reclamo registrado dentro de garantía');
   }
   if (data.action === 'claim_update') {
@@ -129,6 +146,7 @@ export async function applyAftersalesAction(connection: PoolConnection, row: Row
         await connection.execute('UPDATE claims SET previous_order_status=? WHERE id=?', [targetStatus, claim.id]);
       }
       await setStatus(connection, row, targetStatus, claims, `Reclamo ${data.id}: ${data.notes}`);
+      await clearClaimPieceReady(connection, row);
     }
   }
   if (data.action === 'refund_create') {

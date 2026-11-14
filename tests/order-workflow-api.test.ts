@@ -3,6 +3,7 @@ import { Socket } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import mysql, { type Pool, type PoolConnection, type RowDataPacket } from 'mysql2/promise';
 import { enforceWorkflowUpdate, handleWorkflowRequest, recordWorkflowReopening, workflowActionSchema, workflowOrderFromRow } from '../src/server/orderWorkflow';
+import { unlockFinanceVault } from '../src/server/financeVault';
 import { preparationSchema } from '../src/utils/orderPreparation';
 
 vi.mock('../src/server/config', () => ({ pool: {}, maxBodyBytes: 50000, jwtSecret: 'test-only', frontendRoot: '' }));
@@ -13,6 +14,9 @@ const row = {
   created_at: new Date('2026-10-21T16:00:00Z'), status: 'Pagado', delivered_at: null as Date | string | null,
   scheduled_pickup_at: null, price: 100, core_fee: 0, shipping_cost: 0, down_payment: 100,
   workflow_step: 1, customer_id: 1, customer_first_name: 'Test', customer_phone: '555',
+  yard_piece_ready: 0,
+  yard_piece_ready_ack_at: null as Date | string | null,
+  workflow_data: null as string | null,
   confirmation_policy: null as string | null, confirmation_policy_at: null as Date | null,
 };
 const setup = (overrides: Partial<typeof row> = {}, eventRows: Record<string, unknown>[] = []) => {
@@ -41,6 +45,15 @@ const request = (method = 'POST', action: Record<string, unknown> = {}) => {
   return { req, res, end };
 };
 const management = { notes: 'Cliente confirma', evidence: 'Conversation reference', confirmed: true };
+const unlockVault = (req: IncomingMessage, res: ServerResponse, claims: { sub: string; role: string }) => {
+  const token = 'test-session-token';
+  req.headers.authorization = `Bearer ${token}`;
+  unlockFinanceVault(res, claims as any, token);
+  const header = res.getHeader('Set-Cookie');
+  const cookies = Array.isArray(header) ? header : [String(header || '')];
+  const finance = cookies.find(value => value.startsWith('radar_finance='));
+  req.headers.cookie = finance ? finance.split(';')[0] : '';
+};
 const action = { version: 1, task: 'ack', outcome: 'completed', downpayment: [{ method: 'cash', amount: 100, receivedBy: 'Cash receiver', receipt: null }] };
 const preparation = preparationSchema.parse({
   yardNotified: true, channel: 'call', failedCall: false, failedCallNotes: '', customerConfirmed: true,
@@ -471,21 +484,201 @@ describe('workflow API transactional enforcement', () => {
     await expect(handleWorkflowRequest(prepare.req, prepare.res, '/api/orders/901/workflow', { sub: '7', role: 'operator' }, delivered.database, vi.fn())).rejects.toThrow(/etapa/);
     expect(delivered.connection.execute).not.toHaveBeenCalled();
   });
-  it('allows only admin to mark yard piece ready and records audit', async () => {
+  it('allows only admin to mark yard piece ready, notifies advisor and admins and records audit', async () => {
     const { database, connection } = setup();
-    connection.query.mockReset().mockResolvedValueOnce([[{ id: 901, version: 1, order_code: 'ORD-901' }] as RowDataPacket[], []]);
+    connection.query.mockReset()
+      .mockResolvedValueOnce([[{
+        id: 901, version: 1, order_code: 'ORD-901', status: 'Pagado', yard_piece_ready: 0,
+        user_id: 12, product_type: 'Engine', year: 2020, brand: 'Toyota', model: 'Camry',
+        customer_name: 'Test Customer',
+      }] as RowDataPacket[], []])
+      .mockResolvedValueOnce([[{ phone: '+15550001' }, { phone: '+15550002' }, { phone: '+15550001' }] as RowDataPacket[], []]);
     const op = request('POST');
     const opDenied = await handleWorkflowRequest(op.req, op.res, '/api/orders/901/yard-ready', { sub: '7', role: 'operator' }, database, vi.fn());
     expect(opDenied).toBe(true);
     expect(op.res.statusCode).toBe(403);
     expect(connection.execute).not.toHaveBeenCalled();
 
-    const admin = request('POST');
+    const admin = request('POST', { version: 1 });
     const adminAllowed = await handleWorkflowRequest(admin.req, admin.res, '/api/orders/901/yard-ready', { sub: '1', role: 'admin' }, database, vi.fn());
     expect(adminAllowed).toBe(true);
     expect(admin.res.statusCode).toBe(200);
     expect(connection.execute.mock.calls.some(call => String(call[0]).includes('SET yard_piece_ready=1'))).toBe(true);
+    const outbox = connection.execute.mock.calls.filter(call => String(call[0]).includes('notification_outbox'));
+    expect(outbox).toHaveLength(2);
+    expect(outbox.map(call => JSON.parse(String(call[1]?.[0])).phone).sort()).toEqual(['+15550001', '+15550002']);
+    expect(outbox[0][1]?.[0]).toContain('PIEZA LISTA EN YARDA');
+    expect(JSON.parse(String(admin.end.mock.calls[0][0]))).toMatchObject({ yardPieceReady: true, notifiedRecipients: 2 });
     expect(connection.commit).toHaveBeenCalledOnce();
+  });
+  it('clears an active auction search when the piece is found and marked ready', async () => {
+    const { database, connection } = setup();
+    connection.query.mockReset()
+      .mockResolvedValueOnce([[{
+        id: 901, version: 1, order_code: 'ORD-901', status: 'Pagado', yard_piece_ready: 0,
+        user_id: 12, product_type: 'Engine', year: 2020, brand: 'Toyota', model: 'Camry',
+        customer_name: 'Test Customer',
+        workflow_data: JSON.stringify({
+          yardPieceUnavailable: true,
+          yardPieceUnavailableReason: 'No encontrada en patio',
+          yardPieceUnavailableAt: '2026-11-10T10:00:00.000Z',
+        }),
+      }] as RowDataPacket[], []])
+      .mockResolvedValueOnce([[{ phone: '+15550001' }] as RowDataPacket[], []]);
+
+    const admin = request('POST', { version: 1 });
+    const broadcast = vi.fn();
+    await handleWorkflowRequest(admin.req, admin.res, '/api/orders/901/yard-ready', { sub: '1', role: 'admin' }, database, broadcast);
+
+    expect(admin.res.statusCode).toBe(200);
+    const readyUpdate = connection.execute.mock.calls.find(call => String(call[0]).includes('SET yard_piece_ready=1'));
+    expect(String(readyUpdate?.[0])).toContain('auction_search_active=0');
+    const savedWorkflow = JSON.parse(String(readyUpdate?.[1]?.[1]));
+    expect(savedWorkflow).toMatchObject({
+      yardPieceUnavailable: false,
+      yardPieceUnavailableReason: 'No encontrada en patio',
+      yardPieceUnavailableResolvedBy: 1,
+    });
+    expect(connection.execute.mock.calls.some(call =>
+      String(call[0]).includes('status_orders') && String(call[1]?.[2]).includes('Pieza localizada')
+    )).toBe(true);
+    expect(JSON.parse(String(admin.end.mock.calls[0][0]))).toMatchObject({ resolvedUnavailable: true });
+    expect(broadcast).toHaveBeenCalledWith('order:updated', expect.objectContaining({
+      action: 'YARD_PIECE_READY',
+      auctionActive: false,
+      yardPieceUnavailable: false,
+    }));
+  });
+  it('allows only admin to revert a yard-ready piece and records timeline and audit', async () => {
+    const { database, connection } = setup();
+    connection.query.mockReset().mockResolvedValueOnce([[{
+      id: 901,
+      version: 2,
+      order_code: 'ORD-901',
+      status: 'Pagado',
+      yard_piece_ready: 1,
+      yard_piece_ready_at: '2026-11-13T00:00:00.000Z',
+    }] as RowDataPacket[], []]);
+
+    for (const role of ['operator', 'vendedor_yarda']) {
+      const denied = request('POST', { version: 2 });
+      await handleWorkflowRequest(denied.req, denied.res, '/api/orders/901/revert-yard-ready', { sub: '7', role }, database, vi.fn());
+      expect(denied.res.statusCode).toBe(403);
+    }
+    expect(connection.execute).not.toHaveBeenCalled();
+
+    const admin = request('POST', { version: 2 });
+    const broadcast = vi.fn();
+    const allowed = await handleWorkflowRequest(admin.req, admin.res, '/api/orders/901/revert-yard-ready', { sub: '1', role: 'admin' }, database, broadcast);
+    expect(allowed).toBe(true);
+    expect(admin.res.statusCode).toBe(200);
+    expect(JSON.parse(String(admin.end.mock.calls[0][0]))).toEqual({ ok: true, yardPieceReady: false, alreadyPending: false });
+    expect(connection.execute.mock.calls.some(call => String(call[0]).includes('SET yard_piece_ready=0'))).toBe(true);
+    expect(connection.execute.mock.calls.some(call => String(call[0]).includes('status_orders'))).toBe(true);
+    expect(connection.execute.mock.calls.some(call => String(call[0]).includes('YARD_PIECE_READY_REVERTED'))).toBe(true);
+    expect(connection.commit).toHaveBeenCalledOnce();
+    expect(broadcast).toHaveBeenCalledWith('order:updated', expect.objectContaining({
+      orderId: 901,
+      action: 'YARD_PIECE_READY_REVERTED',
+      yardPieceReady: false,
+    }));
+  });
+  it('lets an admin clear a legacy yard-ready piece without moving an order out of preparation', async () => {
+    const { database, connection } = setup();
+    connection.query.mockReset().mockResolvedValueOnce([[{
+      id: 901,
+      version: 2,
+      order_code: 'ORD-901',
+      status: 'En Preparación',
+      yard_piece_ready: 1,
+      yard_piece_ready_at: '2026-11-13T00:00:00.000Z',
+    }] as RowDataPacket[], []]);
+
+    const denied = request('POST', { version: 2 });
+    await handleWorkflowRequest(denied.req, denied.res, '/api/orders/901/revert-yard-ready', { sub: '7', role: 'operator' }, database, vi.fn());
+    expect(denied.res.statusCode).toBe(403);
+    expect(connection.execute).not.toHaveBeenCalled();
+
+    const admin = request('POST', { version: 2 });
+    const broadcast = vi.fn();
+    await handleWorkflowRequest(admin.req, admin.res, '/api/orders/901/revert-yard-ready', { sub: '1', role: 'admin' }, database, broadcast);
+    expect(admin.res.statusCode).toBe(200);
+    expect(JSON.parse(String(admin.end.mock.calls[0][0]))).toEqual({ ok: true, yardPieceReady: false, alreadyPending: false });
+    expect(connection.execute.mock.calls.some(call => String(call[0]).includes('SET yard_piece_ready=0'))).toBe(true);
+    expect(connection.execute.mock.calls.some(call =>
+      String(call[0]).includes('status_orders') && String(call[1]?.[2]).includes('permanece en preparación')
+    )).toBe(true);
+    expect(connection.execute.mock.calls.some(call => String(call[0]).includes('YARD_PIECE_READY_REVERTED'))).toBe(true);
+    expect(connection.commit).toHaveBeenCalledOnce();
+    expect(broadcast).toHaveBeenCalledWith('order:updated', expect.objectContaining({
+      action: 'YARD_PIECE_READY_REVERTED',
+      yardPieceReady: false,
+    }));
+  });
+  it('allows office roles to acknowledge a yard-ready piece and records audit', async () => {
+    const notReady = setup({ status: 'Pagado', yard_piece_ready: 0 });
+    const notReadyReq = request('POST');
+    await expect(handleWorkflowRequest(notReadyReq.req, notReadyReq.res, '/api/orders/901/yard-ready-ack', { sub: '7', role: 'operator' }, notReady.database, vi.fn()))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(notReady.connection.execute).not.toHaveBeenCalled();
+
+    const denied = setup({ status: 'Pagado', yard_piece_ready: 1 });
+    const deniedReq = request('POST');
+    await handleWorkflowRequest(deniedReq.req, deniedReq.res, '/api/orders/901/yard-ready-ack', { sub: '7', role: 'vendedor_yarda' }, denied.database, vi.fn());
+    expect(deniedReq.res.statusCode).toBe(403);
+    expect(denied.connection.beginTransaction).not.toHaveBeenCalled();
+
+    for (const role of ['admin', 'operator']) {
+      const { database, connection } = setup({ status: 'Pagado', yard_piece_ready: 1 });
+      const { req, res, end } = request('POST');
+      const broadcast = vi.fn();
+      await handleWorkflowRequest(req, res, '/api/orders/901/yard-ready-ack', { sub: '7', role }, database, broadcast);
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(String(end.mock.calls[0][0]))).toMatchObject({ ok: true, alreadyAcknowledged: false });
+      expect(connection.execute.mock.calls.some(call =>
+        String(call[0]).includes('yard_piece_ready_ack_at=?') && String(call[0]).includes('yard_piece_ready_ack_by=?')
+      )).toBe(true);
+      expect(connection.execute.mock.calls.some(call => String(call[0]).includes('YARD_PIECE_READY_ACKNOWLEDGED'))).toBe(true);
+      expect(connection.commit).toHaveBeenCalledOnce();
+      expect(broadcast).toHaveBeenCalledWith('order:updated', expect.objectContaining({
+        action: 'YARD_PIECE_READY_ACKNOWLEDGED',
+      }));
+    }
+  });
+  it('returns an existing yard-ready acknowledgement without writing again', async () => {
+    const { database, connection } = setup({
+      status: 'Pagado',
+      yard_piece_ready: 1,
+      yard_piece_ready_ack_at: '2026-11-12T10:00:00Z',
+    });
+    const { req, res, end } = request('POST');
+    const broadcast = vi.fn();
+    await handleWorkflowRequest(req, res, '/api/orders/901/yard-ready-ack', { sub: '7', role: 'operator' }, database, broadcast);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(String(end.mock.calls[0][0]))).toMatchObject({ ok: true, alreadyAcknowledged: true });
+    expect(connection.execute).not.toHaveBeenCalled();
+    expect(broadcast).not.toHaveBeenCalled();
+  });
+  it('rejects stale, out-of-stage or already-pending yard reverts without writing', async () => {
+    const stale = setup({ status: 'Pagado', yard_piece_ready: 1, version: 3 });
+    const staleReq = request('POST', { version: 2 });
+    await expect(handleWorkflowRequest(staleReq.req, staleReq.res, '/api/orders/901/revert-yard-ready', { sub: '1', role: 'admin' }, stale.database, vi.fn()))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(stale.connection.execute).not.toHaveBeenCalled();
+    expect(stale.connection.rollback).toHaveBeenCalledOnce();
+
+    const delivered = setup({ status: 'Entregado', yard_piece_ready: 1 });
+    const deliveredReq = request('POST', { version: 1 });
+    await expect(handleWorkflowRequest(deliveredReq.req, deliveredReq.res, '/api/orders/901/revert-yard-ready', { sub: '1', role: 'admin' }, delivered.database, vi.fn()))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(delivered.connection.execute).not.toHaveBeenCalled();
+
+    const pending = setup({ status: 'Pagado', yard_piece_ready: 0 });
+    const pendingReq = request('POST', { version: 1 });
+    await handleWorkflowRequest(pendingReq.req, pendingReq.res, '/api/orders/901/revert-yard-ready', { sub: '1', role: 'admin' }, pending.database, vi.fn());
+    expect(pendingReq.res.statusCode).toBe(200);
+    expect(JSON.parse(String(pendingReq.end.mock.calls[0][0]))).toMatchObject({ yardPieceReady: false, alreadyPending: true });
+    expect(pending.connection.execute).not.toHaveBeenCalled();
   });
   it('allows vendedor_yarda and admin to mark yard piece unavailable, activates auction search and records timeline and audit', async () => {
     const { database, connection } = setup();
@@ -494,18 +687,17 @@ describe('workflow API transactional enforcement', () => {
       version: 1,
       order_code: 'ORD-901',
       status: 'Pagado',
-      advisor: 'Carlos Mendoza',
       user_id: 12,
       workflow_data: null,
     }] as RowDataPacket[], []]);
 
-    const op = request('POST', { reason: 'No encontrada en anaqueles' });
+    const op = request('POST', { reason: 'No encontrada en anaqueles', version: 1 });
     const opDenied = await handleWorkflowRequest(op.req, op.res, '/api/orders/901/yard-unavailable', { sub: '7', role: 'operator' }, database, vi.fn());
     expect(opDenied).toBe(true);
     expect(op.res.statusCode).toBe(403);
     expect(connection.execute).not.toHaveBeenCalled();
 
-    const yardWorker = request('POST', { reason: 'No encontrada en inventario físico' });
+    const yardWorker = request('POST', { reason: 'No encontrada en inventario físico', version: 1 });
     const broadcastMock = vi.fn();
     const yardAllowed = await handleWorkflowRequest(yardWorker.req, yardWorker.res, '/api/orders/901/yard-unavailable', { sub: '15', role: 'vendedor_yarda' }, database, broadcastMock);
     expect(yardAllowed).toBe(true);
@@ -521,6 +713,158 @@ describe('workflow API transactional enforcement', () => {
       yardPieceUnavailable: true,
     }));
   });
+  it('rejects stale or out-of-stage yard confirmations without writing', async () => {
+    const stale = setup({ status: 'Pagado', yard_piece_ready: 0, version: 2 });
+    const staleReq = request('POST', { version: 1 });
+    await expect(handleWorkflowRequest(staleReq.req, staleReq.res, '/api/orders/901/yard-ready', { sub: '1', role: 'admin' }, stale.database, vi.fn()))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(stale.connection.execute).not.toHaveBeenCalled();
+    expect(stale.connection.rollback).toHaveBeenCalledOnce();
+
+    const delivered = setup({ status: 'Entregado', yard_piece_ready: 0 });
+    const deliveredReq = request('POST', { version: 1 });
+    await expect(handleWorkflowRequest(deliveredReq.req, deliveredReq.res, '/api/orders/901/yard-ready', { sub: '1', role: 'admin' }, delivered.database, vi.fn()))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(delivered.connection.execute).not.toHaveBeenCalled();
+
+    for (const status of ['En Preparación', 'Reclamo']) {
+      const legacy = setup({ status, yard_piece_ready: 0 });
+      const legacyReq = request('POST', { version: 1 });
+      await expect(handleWorkflowRequest(legacyReq.req, legacyReq.res, '/api/orders/901/yard-ready', { sub: '1', role: 'admin' }, legacy.database, vi.fn()))
+        .rejects.toMatchObject({ statusCode: 409 });
+      expect(legacy.connection.execute).not.toHaveBeenCalled();
+    }
+  });
+  it('treats an already-ready piece as an idempotent success and caps the unavailable reason', async () => {
+    const ready = setup({ status: 'Pagado', yard_piece_ready: 1 });
+    const readyReq = request('POST', { version: 1 });
+    await handleWorkflowRequest(readyReq.req, readyReq.res, '/api/orders/901/yard-ready', { sub: '1', role: 'admin' }, ready.database, vi.fn());
+    expect(readyReq.res.statusCode).toBe(200);
+    expect(JSON.parse(String(readyReq.end.mock.calls[0][0]))).toMatchObject({ yardPieceReady: true, alreadyReady: true });
+    expect(ready.connection.execute).not.toHaveBeenCalled();
+
+    const longReason = setup({ status: 'Pagado', yard_piece_ready: 0 });
+    const longReq = request('POST', { version: 1, reason: 'x'.repeat(501) });
+    await expect(handleWorkflowRequest(longReq.req, longReq.res, '/api/orders/901/yard-unavailable', { sub: '15', role: 'vendedor_yarda' }, longReason.database, vi.fn()))
+      .rejects.toMatchObject({ statusCode: 400 });
+    expect(longReason.connection.execute).not.toHaveBeenCalled();
+  });
+  it('notifies active advisors and admins when a claim replacement piece is ready', async () => {
+    const { database, connection } = setup();
+    connection.query.mockReset().mockResolvedValue([[], []])
+      .mockResolvedValueOnce([[{
+        id: 901,
+        version: 1,
+        order_code: 'ORD-901',
+        status: 'Reclamo',
+        user_id: 9,
+        customer_id: 3,
+        product_type: 'Motor',
+        stock_nr: 'TST-01',
+        brand: 'Nissan',
+        model: 'Altima',
+        year: 2012,
+        claim_reason: 'Consumo de aceite',
+        workflow_data: JSON.stringify({}),
+      }] as RowDataPacket[], []])
+      .mockResolvedValueOnce([[{ first_name: 'Ana', last_name: 'Torres' }] as RowDataPacket[], []])
+      .mockResolvedValueOnce([[{ assigned_user_id: 6 }] as RowDataPacket[], []])
+      .mockResolvedValueOnce([[
+        { name: 'Admin Uno', phone: '584100000001' },
+        { name: 'Asesor Uno', phone: '584100000001' },
+        { name: 'Asesor Dos', phone: '584100000003' },
+      ] as RowDataPacket[], []]);
+
+    const { req, res, end } = request('POST', { version: 1 });
+    const broadcast = vi.fn();
+    await handleWorkflowRequest(req, res, '/api/orders/901/claim-ready', { sub: '15', role: 'vendedor_yarda' }, database, broadcast);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(String(end.mock.calls[0][0]))).toMatchObject({ claimPieceReady: true, notifiedRecipients: 2 });
+    expect(connection.execute.mock.calls.some(call => String(call[0]).includes('UPDATE orders SET workflow_data=?, version=version+1'))).toBe(true);
+    expect(connection.execute.mock.calls.some(call => String(call[0]).includes('INSERT INTO status_orders'))).toBe(true);
+    expect(connection.execute.mock.calls.some(call => String(call[0]).includes('CLAIM_REPLACEMENT_READY'))).toBe(true);
+    const outbox = connection.execute.mock.calls.filter(call => String(call[0]).includes('INSERT INTO notification_outbox'));
+    expect(outbox).toHaveLength(2);
+    expect(outbox.map(call => JSON.parse(String((call[1] as unknown[])[0])).phone)).toEqual(['584100000001', '584100000003']);
+    expect(broadcast).toHaveBeenCalledWith('order:updated', expect.objectContaining({ action: 'CLAIM_REPLACEMENT_READY', claimPieceReady: true }));
+    expect(connection.commit).toHaveBeenCalledOnce();
+  });
+  it('rejects claim replacement notifications for non-claims, stale versions and repeats without writing', async () => {
+    const pagado = setup({ status: 'Pagado' });
+    const wrongStatus = request('POST', { version: 1 });
+    await expect(handleWorkflowRequest(wrongStatus.req, wrongStatus.res, '/api/orders/901/claim-ready', { sub: '15', role: 'vendedor_yarda' }, pagado.database, vi.fn()))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(pagado.connection.execute).not.toHaveBeenCalled();
+
+    const stale = setup({ status: 'Reclamo', version: 2 });
+    const staleReq = request('POST', { version: 1 });
+    await expect(handleWorkflowRequest(staleReq.req, staleReq.res, '/api/orders/901/claim-ready', { sub: '15', role: 'vendedor_yarda' }, stale.database, vi.fn()))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(stale.connection.execute).not.toHaveBeenCalled();
+
+    const ready = setup({ status: 'Reclamo', workflow_data: JSON.stringify({ claimPieceReady: true, claimPieceReadyAt: '2026-11-12T10:00:00.000Z' }) });
+    const readyReq = request('POST', { version: 1 });
+    await handleWorkflowRequest(readyReq.req, readyReq.res, '/api/orders/901/claim-ready', { sub: '15', role: 'vendedor_yarda' }, ready.database, vi.fn());
+    expect(readyReq.res.statusCode).toBe(200);
+    expect(JSON.parse(String(readyReq.end.mock.calls[0][0]))).toMatchObject({ alreadyReady: true, claimPieceReadyAt: '2026-11-12T10:00:00.000Z' });
+    expect(ready.connection.execute).not.toHaveBeenCalled();
+  });
+  it('allows only admin to revert a claim replacement notification and records timeline and audit', async () => {
+    const { database, connection } = setup({
+      status: 'Reclamo',
+      workflow_data: JSON.stringify({ claimPieceReady: true, claimPieceReadyAt: '2026-11-12T10:00:00.000Z', claimPieceReadyBy: 15 }),
+    });
+
+    for (const role of ['operator', 'vendedor_yarda']) {
+      const denied = request('POST', { version: 1 });
+      await handleWorkflowRequest(denied.req, denied.res, '/api/orders/901/revert-claim-ready', { sub: '7', role }, database, vi.fn());
+      expect(denied.res.statusCode).toBe(403);
+    }
+    expect(connection.execute).not.toHaveBeenCalled();
+
+    const admin = request('POST', { version: 1 });
+    const broadcast = vi.fn();
+    const allowed = await handleWorkflowRequest(admin.req, admin.res, '/api/orders/901/revert-claim-ready', { sub: '1', role: 'admin' }, database, broadcast);
+    expect(allowed).toBe(true);
+    expect(admin.res.statusCode).toBe(200);
+    expect(JSON.parse(String(admin.end.mock.calls[0][0]))).toEqual({ ok: true, claimPieceReady: false, alreadyPending: false });
+    const savedWorkflowCall = connection.execute.mock.calls.find(call => String(call[0]).includes('UPDATE orders SET workflow_data=?, version=version+1'));
+    expect(savedWorkflowCall).toBeDefined();
+    const savedWorkflow = JSON.parse(String((savedWorkflowCall![1] as unknown[])[0]));
+    expect(savedWorkflow.claimPieceReady).toBeUndefined();
+    expect(savedWorkflow.claimPieceReadyAt).toBeUndefined();
+    expect(savedWorkflow.claimPieceReadyRevertedBy).toBe(1);
+    expect(connection.execute.mock.calls.some(call => String(call[0]).includes('INSERT INTO status_orders'))).toBe(true);
+    expect(connection.execute.mock.calls.some(call => String(call[0]).includes('CLAIM_REPLACEMENT_READY_REVERTED'))).toBe(true);
+    expect(connection.commit).toHaveBeenCalledOnce();
+    expect(broadcast).toHaveBeenCalledWith('order:updated', expect.objectContaining({
+      orderId: 901,
+      action: 'CLAIM_REPLACEMENT_READY_REVERTED',
+      claimPieceReady: false,
+    }));
+  });
+  it('rejects claim replacement reverts for non-claims, stale versions and already-pending claims without writing', async () => {
+    const pagado = setup({ status: 'Pagado', workflow_data: JSON.stringify({ claimPieceReady: true }) });
+    const wrongStatus = request('POST', { version: 1 });
+    await expect(handleWorkflowRequest(wrongStatus.req, wrongStatus.res, '/api/orders/901/revert-claim-ready', { sub: '1', role: 'admin' }, pagado.database, vi.fn()))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(pagado.connection.execute).not.toHaveBeenCalled();
+    expect(pagado.connection.rollback).toHaveBeenCalledOnce();
+
+    const stale = setup({ status: 'Reclamo', version: 2, workflow_data: JSON.stringify({ claimPieceReady: true }) });
+    const staleReq = request('POST', { version: 1 });
+    await expect(handleWorkflowRequest(staleReq.req, staleReq.res, '/api/orders/901/revert-claim-ready', { sub: '1', role: 'admin' }, stale.database, vi.fn()))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(stale.connection.execute).not.toHaveBeenCalled();
+
+    const pending = setup({ status: 'Reclamo', workflow_data: JSON.stringify({}) });
+    const pendingReq = request('POST', { version: 1 });
+    await handleWorkflowRequest(pendingReq.req, pendingReq.res, '/api/orders/901/revert-claim-ready', { sub: '1', role: 'admin' }, pending.database, vi.fn());
+    expect(pendingReq.res.statusCode).toBe(200);
+    expect(JSON.parse(String(pendingReq.end.mock.calls[0][0]))).toMatchObject({ claimPieceReady: false, alreadyPending: true });
+    expect(pending.connection.execute).not.toHaveBeenCalled();
+  });
   it('allows only admin to verify downpayment and transitions order to Pagado', async () => {
     const { database, connection } = setup();
     connection.query.mockReset().mockResolvedValueOnce([[{ id: 901, version: 1, order_code: 'ORD-901', status: 'En Espera Confirmación' }] as RowDataPacket[], []]);
@@ -530,9 +874,18 @@ describe('workflow API transactional enforcement', () => {
     expect(op.res.statusCode).toBe(403);
 
     const admin = request('POST');
-    const adminAllowed = await handleWorkflowRequest(admin.req, admin.res, '/api/orders/901/verify-downpayment', { sub: '1', role: 'admin' }, database, vi.fn());
+    const adminClaims = { sub: '1', role: 'admin' };
+    const adminLocked = await handleWorkflowRequest(admin.req, admin.res, '/api/orders/901/verify-downpayment', adminClaims, database, vi.fn());
+    expect(adminLocked).toBe(true);
+    expect(admin.res.statusCode).toBe(403);
+    expect(JSON.parse(String(admin.end.mock.calls[0][0]))).toMatchObject({ code: 'FINANCE_LOCKED' });
+    expect(connection.execute).not.toHaveBeenCalled();
+
+    const adminUnlocked = request('POST');
+    unlockVault(adminUnlocked.req, adminUnlocked.res, adminClaims);
+    const adminAllowed = await handleWorkflowRequest(adminUnlocked.req, adminUnlocked.res, '/api/orders/901/verify-downpayment', adminClaims, database, vi.fn());
     expect(adminAllowed).toBe(true);
-    expect(admin.res.statusCode).toBe(200);
+    expect(adminUnlocked.res.statusCode).toBe(200);
     expect(connection.execute.mock.calls.some(call => String(call[0]).includes('downpayment_verified=1'))).toBe(true);
     expect(connection.execute.mock.calls.some(call => String(call[0]).includes("status='Pagado'"))).toBe(true);
     expect(connection.commit).toHaveBeenCalledOnce();

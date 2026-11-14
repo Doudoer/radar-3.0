@@ -7,7 +7,7 @@ export const communicationSchema = z.object({
   warrantyWarningGiven: z.boolean(),
   screenshots: deliveryPhotosSchema.optional(),
 }).strict().refine(value => value.channel !== 'call' || !value.screenshots?.length,
-  'Las capturas de conversación solo corresponden a WhatsApp o SMS.');
+  'Las capturas de conversación solo corresponden a SMS.');
 export type FollowupCommunication = z.infer<typeof communicationSchema>;
 export const hasContactResponse = (result?: string | null) => result === 'answered' || result === 'sms_replied';
 export function validateCommunication(communication: FollowupCommunication, result: string | null | undefined, part: string | null | undefined, outcome: string) {

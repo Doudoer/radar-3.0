@@ -44,7 +44,7 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
   initialPromisedDate,
   onSuccess,
 }) => {
-  const [channel, setChannel] = useState<FollowupContactChannel>(initialContactChannel || 'call');
+  const [channel, setChannel] = useState<FollowupContactChannel>(initialContactChannel === 'whatsapp' ? 'sms' : initialContactChannel || 'call');
   const [callResult, setCallResult] = useState<FollowupCallResult>(initialCallResult || 'answered');
   const [partStatus, setPartStatus] = useState<FollowupPartStatus>(initialPartStatus || 'not_installed');
   const [warrantyWarningGiven, setWarrantyWarningGiven] = useState<boolean>(initialWarrantyWarning || false);
@@ -59,7 +59,7 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
 
   useEffect(() => {
     if (isOpen) {
-      const initialChan = initialContactChannel || 'call';
+      const initialChan = initialContactChannel === 'whatsapp' ? 'sms' : initialContactChannel || 'call';
       setChannel(initialChan);
       setCallResult(initialCallResult || (initialChan === 'call' ? 'answered' : 'sms_replied'));
       setPartStatus(initialPartStatus || 'not_installed');
@@ -200,17 +200,6 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
     return `Hola ${cName}, le escribimos de Rodriguez Salvage Yard, sobre su orden ${orderRef}(${specStr}). Queremos consultar cómo va todo con su ${partWord}. Recuerde que cualquier observación o duda puede notificarnos y estamos aqui con gusto para ayudarle en lo que necesite. Saludos.`;
   };
 
-  const getWhatsAppUrl = (phone: any, text: string) => {
-    let digits = phone !== undefined && phone !== null ? String(phone).replace(/\D/g, '') : '';
-    if (!digits) return '';
-    if (digits.length === 10) {
-      digits = `1${digits}`;
-    } else if (digits.length === 11 && digits.startsWith('0')) {
-      digits = `58${digits.slice(1)}`;
-    }
-    return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
-  };
-
   const handleCopyTemplate = () => {
     const tmpl = getSuggestedTemplate(templateStage, templateLanguage);
     if (navigator?.clipboard?.writeText) {
@@ -222,7 +211,7 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
 
   const handleUseTemplateInNotes = () => {
     const tmpl = getSuggestedTemplate(templateStage, templateLanguage);
-    const prefix = channel === 'whatsapp' ? '[WhatsApp Enviado]: ' : '[SMS Enviado]: ';
+    const prefix = '[SMS Enviado]: ';
     setNotes(notes ? `${notes}\n${prefix}${tmpl}` : `${prefix}${tmpl}`);
   };
 
@@ -327,15 +316,13 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
           <div className="flex items-center gap-3 min-w-0">
             <div
               className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm border ${
-                channel === 'whatsapp'
-                  ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-600 dark:text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
-                  : channel === 'sms'
+                channel === 'sms'
                   ? 'bg-sky-500/20 border-sky-500/50 text-sky-600 dark:text-sky-400 shadow-[0_0_12px_rgba(14,165,233,0.3)]'
                   : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.25)]'
               }`}
             >
-              <span className="material-symbols-outlined text-[20px]">
-                {channel === 'whatsapp' ? 'chat' : channel === 'sms' ? 'sms' : 'phone_in_talk'}
+              <span aria-hidden="true" className="material-symbols-outlined text-[20px]">
+                {channel === 'sms' ? 'sms' : 'phone_in_talk'}
               </span>
             </div>
             <div className="min-w-0">
@@ -372,7 +359,7 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
                 className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-600 dark:text-emerald-300 text-xs font-mono font-bold transition-all shadow-sm active:scale-95"
                 title="Llamar directamente al cliente"
               >
-                <span className="material-symbols-outlined text-[15px]">call</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px]">call</span>
                 <span>Llamar</span>
               </a>
             )}
@@ -382,7 +369,7 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
               className="h-8 w-8 rounded-lg border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-cyan-500/10 flex items-center justify-center cursor-pointer transition-colors"
               title="Cerrar ventana"
             >
-              <span className="material-symbols-outlined text-[18px]">close</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">close</span>
             </button>
           </div>
         </div>
@@ -392,7 +379,7 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[var(--text-secondary)]">
             {vehicleStr && (
               <span className="flex items-center gap-1 text-[var(--text-primary)]">
-                <span className="material-symbols-outlined text-[14px] text-amber-500">directions_car</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-amber-500">directions_car</span>
                 <span>{vehicleStr}</span>
               </span>
             )}
@@ -425,7 +412,7 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
               </span>
             )}
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => handleChannelChange('call')}
@@ -435,21 +422,8 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
                   : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-cyan-500/40'
               }`}
             >
-              <span className="material-symbols-outlined text-[16px]">call</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">call</span>
               <span>Llamada</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleChannelChange('whatsapp')}
-              className={`flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl text-xs font-mono font-bold border transition-all cursor-pointer ${
-                channel === 'whatsapp'
-                  ? 'bg-emerald-600/25 border-emerald-500 text-emerald-700 dark:text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.25)]'
-                  : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-cyan-500/40'
-              }`}
-            >
-              <span className="material-symbols-outlined text-[16px]">chat</span>
-              <span>WhatsApp</span>
             </button>
 
             <button
@@ -461,7 +435,7 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
                   : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-cyan-500/40'
               }`}
             >
-              <span className="material-symbols-outlined text-[16px]">sms</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">sms</span>
               <span>SMS (Texto)</span>
             </button>
           </div>
@@ -471,25 +445,25 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 custom-scrollbar">
           {formError && (
             <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-700 dark:text-rose-300 text-xs font-mono flex items-start gap-2 animate-fade-in shadow-sm">
-              <span className="material-symbols-outlined text-[18px] text-rose-500 shrink-0 mt-0.5">error</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-rose-500 shrink-0 mt-0.5">error</span>
               <span className="leading-relaxed">{formError}</span>
             </div>
           )}
 
           {formSuccess && (
             <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-700 dark:text-emerald-300 text-xs font-mono flex items-center gap-2 animate-fade-in shadow-sm">
-              <span className="material-symbols-outlined text-[18px] text-emerald-500 shrink-0">check_circle</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-emerald-500 shrink-0">check_circle</span>
               <span className="font-bold">{formSuccess}</span>
             </div>
           )}
 
-          {/* Quick WhatsApp / SMS Assistant Box */}
+          {/* Quick SMS Assistant Box */}
           {!isCall && (
             <div className="p-3 rounded-xl bg-cyan-500/5 dark:bg-cyan-950/20 border border-cyan-500/30 space-y-2.5 animate-fade-in">
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
                 <span className="font-bold text-cyan-600 dark:text-cyan-300 flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[16px]">quickphrase</span>
-                  <span>Plantilla de Mensaje Sugerida ({channel === 'whatsapp' ? 'WhatsApp' : 'SMS'}):</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">quickphrase</span>
+                  <span>Plantilla de Mensaje Sugerida (SMS):</span>
                 </span>
                 <div className="flex flex-wrap items-center gap-2">
                   {/* Language Selector */}
@@ -564,24 +538,12 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                {channel === 'whatsapp' && cleanPhone && (
-                  <a
-                    href={getWhatsAppUrl(customerPhone, getSuggestedTemplate(templateStage, templateLanguage))}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-mono font-bold shadow-sm transition-all active:scale-95"
-                  >
-                    <span className="material-symbols-outlined text-[15px]">send</span>
-                    <span>Abrir en WhatsApp</span>
-                  </a>
-                )}
-
                 <button
                   type="button"
                   onClick={handleCopyTemplate}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface)] hover:bg-cyan-500/15 border border-cyan-500/30 text-xs font-mono text-[var(--text-primary)] transition-all cursor-pointer"
                 >
-                  <span className="material-symbols-outlined text-[14px]">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[14px]">
                     {copiedTemplate ? 'check' : 'content_copy'}
                   </span>
                   <span>{copiedTemplate ? '¡Copiado!' : 'Copiar Texto'}</span>
@@ -593,7 +555,7 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
                   className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface)] hover:bg-cyan-500/15 border border-cyan-500/30 text-xs font-mono text-cyan-600 dark:text-cyan-300 transition-all cursor-pointer"
                   title="Pegar esta plantilla en el campo de notas"
                 >
-                  <span className="material-symbols-outlined text-[14px]">edit_note</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[14px]">edit_note</span>
                   <span>Insertar en Notas</span>
                 </button>
               </div>
@@ -606,8 +568,6 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
               <span>
                 {isCall
                   ? 'Resultado de la Llamada Telefónica *'
-                  : channel === 'whatsapp'
-                  ? 'Resultado del Seguimiento por WhatsApp *'
                   : 'Resultado del Mensaje de Texto *'}
               </span>
               <span className="text-[10px] text-[var(--text-secondary)] font-normal">Obligatorio</span>
@@ -671,7 +631,7 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
                     />
                     <span className="text-xs font-mono text-amber-950 dark:text-amber-100 font-medium leading-relaxed">
                       <strong className="text-amber-700 dark:text-amber-300 font-bold block mb-0.5 flex items-center gap-1.5">
-                        <span className="material-symbols-outlined text-[17px] text-amber-500">warning</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[17px] text-amber-500">warning</span>
                         Advertencia Verbal de Garantía Obligatoria:
                       </strong>
                       {isCall
@@ -697,7 +657,7 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
           ) : (
             /* Informative Banner when client did not answer, line is busy, wrong number, or SMS is pending response */
             <div className="p-3.5 rounded-xl bg-cyan-500/10 dark:bg-cyan-950/35 border border-cyan-500/30 text-xs font-mono text-[var(--text-secondary)] flex items-start gap-2.5 animate-fade-in shadow-sm">
-              <span className="material-symbols-outlined text-[18px] text-cyan-600 dark:text-cyan-400 shrink-0 mt-0.5">info</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-cyan-600 dark:text-cyan-400 shrink-0 mt-0.5">info</span>
               <div className="leading-relaxed">
                 {isCall ? (
                   <>
@@ -770,7 +730,7 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
             />
             {!isDirectContact && (
               <p className="text-[10.5px] font-mono text-cyan-600 dark:text-cyan-400 mt-1 flex items-center gap-1">
-                <span className="material-symbols-outlined text-[13px]">edit_note</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[13px]">edit_note</span>
                 <span>
                   {isCall
                     ? 'Es obligatorio dejar constancia escrita de la llamada no concretada.'
@@ -796,7 +756,7 @@ export const RegisterFollowupCallModal: React.FC<RegisterFollowupCallModalProps>
               disabled={isSubmitting}
               className="cyber-btn-primary text-xs font-mono font-black cursor-pointer shadow-lg disabled:opacity-50"
             >
-              <span className="material-symbols-outlined text-[16px]">save</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">save</span>
               <span>{isSubmitting ? 'Guardando...' : 'Guardar Registro'}</span>
             </button>
           </div>

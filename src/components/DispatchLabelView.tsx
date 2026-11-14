@@ -42,7 +42,7 @@ export const DispatchLabelView: React.FC<DispatchLabelViewProps> = ({ order, onB
               className="mt-1 rounded-xl p-2.5 bg-[#040814] border border-cyan-500/30 text-cyan-400 hover:text-white hover:bg-cyan-500/20 transition-all shadow-[0_0_12px_rgba(6,182,212,0.2)] cursor-pointer active:scale-95"
               title="Volver al detalle de la orden"
             >
-              <span className="material-symbols-outlined text-[22px]">arrow_back</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[22px]">arrow_back</span>
             </button>
             <div>
               <div className="flex flex-wrap items-center gap-2.5">
@@ -70,7 +70,7 @@ export const DispatchLabelView: React.FC<DispatchLabelViewProps> = ({ order, onB
               onClick={handlePrint}
               className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-xs flex items-center gap-1.5 cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.35)] transition-all active:scale-95"
             >
-              <span className="material-symbols-outlined text-[18px]">print</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">print</span>
               <span>Imprimir Rótulo 4x6</span>
             </button>
             <button
@@ -78,7 +78,7 @@ export const DispatchLabelView: React.FC<DispatchLabelViewProps> = ({ order, onB
               onClick={onBack}
               className="cyber-btn-secondary px-4 py-2 text-xs font-bold flex items-center gap-1.5"
             >
-              <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">arrow_back</span>
               <span>Volver a la Orden</span>
             </button>
           </div>

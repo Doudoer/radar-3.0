@@ -119,7 +119,7 @@ describe('RegisterFollowupCallModal Component', () => {
     expect(html).toContain('Guardar Registro');
   });
 
-  it('renders WhatsApp channel with message template, click-to-send action, and WhatsApp outcome options', () => {
+  it('maps a legacy WhatsApp preference to SMS and no longer offers WhatsApp actions', () => {
     const html = renderToStaticMarkup(
       <RegisterFollowupCallModal
         isOpen={true}
@@ -135,14 +135,14 @@ describe('RegisterFollowupCallModal Component', () => {
       />
     );
 
-    // Channel toggle
+    // Channel toggle keeps call and SMS only
     expect(html).toContain('Canal de Comunicación');
-    expect(html).toContain('WhatsApp');
     expect(html).toContain('SMS (Texto)');
     expect(html).toContain('Llamada');
+    expect(html).not.toContain('WhatsApp');
 
-    // WhatsApp template assistant box with business branding and requested wording
-    expect(html).toContain('Plantilla de Mensaje Sugerida (WhatsApp)');
+    // SMS template assistant box with business branding and requested wording
+    expect(html).toContain('Plantilla de Mensaje Sugerida (SMS)');
     expect(html).toContain('Rodriguez Salvage Yard');
     expect(html).toContain('Queremos consultar cómo va todo con su transmission');
     expect(html).toContain('Recuerde que cualquier observación o duda puede notificarnos');
@@ -150,13 +150,12 @@ describe('RegisterFollowupCallModal Component', () => {
     expect(html).toContain('Estándar');
     expect(html).toContain('Recepción');
     expect(html).toContain('Rodaje');
-    expect(html).toContain('Abrir en WhatsApp');
     expect(html).toContain('Copiar Texto');
     expect(html).toContain('Insertar en Notas');
-    expect(html).toContain('wa.me/19197576858');
+    expect(html).not.toContain('wa.me');
 
-    // Outcome options for WhatsApp
-    expect(html).toContain('Resultado del Seguimiento por WhatsApp');
+    // Legacy WhatsApp preference is treated as SMS
+    expect(html).toContain('Resultado del Mensaje de Texto');
     expect(html).toContain('Cliente respondió el mensaje');
     expect(html).toContain('Mensaje enviado (Esperando respuesta)');
     expect(html).toContain('Mensaje enviado (Sin respuesta del cliente)');

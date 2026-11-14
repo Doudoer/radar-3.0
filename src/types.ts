@@ -126,6 +126,8 @@ export interface Order {
   code: string;
   createdAt: string;
   createdAtIso?: string;
+  paidAtIso?: string;
+  claimLoggedAt?: string;
   advisor: string;
   advisorRole?: string;
   isYardSale?: boolean;
@@ -175,16 +177,20 @@ export interface Order {
   termsAttachment?: string; // Comprobante captura de Términos
   callDetail?: string; // Resumen llamada de voz de acuse
   callConfirmed?: boolean;
-  termsAckAttachment?: string; // Captura comprobante acuse WhatsApp
+  termsAckAttachment?: string; // Captura comprobante acuse
   scheduledPickupAt?: string; // Fecha/hora programada de entrega o retiro
   preparation?: Preparation | null;
   yardPieceReady?: boolean;
   yardPieceReadyAt?: string;
   yardPieceReadyBy?: number;
+  yardPieceReadyAckAt?: string;
+  yardPieceReadyAckBy?: number;
   yardPieceUnavailable?: boolean;
   yardPieceUnavailableAt?: string;
   yardPieceUnavailableBy?: number;
   yardPieceUnavailableReason?: string;
+  claimPieceReady?: boolean;
+  claimPieceReadyAt?: string;
   downpaymentVerified?: boolean;
   downpaymentVerifiedAt?: string;
   downpaymentVerifiedBy?: number;
@@ -236,6 +242,7 @@ export interface ActivityItem {
   timeAgo: string;
   type: 'invoice' | 'workshop' | 'lead' | 'alert' | 'otp' | 'status_change';
   icon: string;
+  orderCode?: string;
 }
 
 export interface PrefillOrderData {

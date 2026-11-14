@@ -9,35 +9,45 @@ import { apiFetch } from '../services/apiFetch';
 import { OrderInventoryAvailability } from './OrderInventoryAvailability';
 import { getClaimWarrantyError, getOrderWarrantyInfo } from '../utils/orderWarranty';
 import { workflowRequired } from '../utils/orderWorkflow';
+import { canRevertYardReady, formatYardReadyElapsed, isYardReadyAlert, isYardReadyUrgent, yardReadyAgeMinutes } from '../utils/yardAlerts';
+import { YARD_ACTION_STATUSES } from '../utils/yardStatuses';
 import { OrderWorkflowPanel } from './OrderWorkflowPanel';
 import { OrderPaymentsModal } from './OrderPayments';
 import { OrderAftersalesPanel } from './OrderAftersales';
 import { CancelOrderModal } from './CancelOrderModal';
+import { VaultUnlockModal } from './VaultUnlockModal';
+import { useFeedback } from './FeedbackProvider';
 
 interface OrderDetailViewProps {
   order: Order;
   onBack: () => void;
-  onOpenSMS: (customerName: string, phone: string, order?: Order) => void;
   onUpdateOrder?: (updatedOrder: Order) => Promise<Order | void>;
   onCreateClaim?: (orderId: string, reason: string) => Promise<void>;
   currentUser?: { id?: number; name?: string; email?: string; role?: string } | null;
   userRole?: 'admin' | 'operador' | 'vendedor_yarda' | string;
   openDeliveryPayment?: boolean;
   onDeliveryPaymentOpened?: () => void;
+  initialTab?: 'resumen' | 'workflow';
+  tabRequestId?: number;
 }
 
 export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   order,
   onBack,
-  onOpenSMS,
   onUpdateOrder,
   onCreateClaim,
   currentUser,
   userRole,
   openDeliveryPayment,
   onDeliveryPaymentOpened,
+  initialTab,
+  tabRequestId,
 }) => {
+  const { toast, confirm } = useFeedback();
   const [activeTab, setActiveTab] = useState<'resumen' | 'workflow' | 'historial' | 'followup'>('resumen');
+  useEffect(() => {
+    setActiveTab(initialTab === 'workflow' ? 'workflow' : 'resumen');
+  }, [order.id, initialTab, tabRequestId]);
   useEffect(() => {
     if (activeTab === 'followup' && order.status !== 'entregado') setActiveTab('resumen');
   }, [activeTab, order.status]);
@@ -75,7 +85,6 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     callerPhone: order.customer.phone || '',
     attendedBy: order.advisor || 'Carlos Mendoza',
     summary: '',
-    sendWhatsApp: true,
     isSubmitting: false,
     error: '',
   });
@@ -293,13 +302,20 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   };
 
   const [verifyingDownpayment, setVerifyingDownpayment] = useState(false);
+  const verifyingDownpaymentRef = useRef(false);
+  const [vaultRetry, setVaultRetry] = useState<null | { title: string; run: () => void }>(null);
   const handleVerifyDownpayment = async () => {
-    if (verifyingDownpayment) return;
+    if (verifyingDownpaymentRef.current) return;
+    verifyingDownpaymentRef.current = true;
     setVerifyingDownpayment(true);
     try {
       const res = await apiFetch(`/orders/${order.id}/verify-downpayment`, { method: 'POST' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (data.code === 'FINANCE_LOCKED') {
+          setVaultRetry({ title: 'Desbloquear bóveda para verificar el anticipo', run: () => { void handleVerifyDownpayment(); } });
+          return;
+        }
         throw new Error(data.message || 'No se pudo verificar el anticipo');
       }
       onUpdateOrder({
@@ -310,8 +326,9 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       handleToast('Anticipo verificado en banco y orden pasada a Pagado.');
       window.dispatchEvent(new Event('radar:data-changed'));
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error verificando anticipo');
+      toast({ title: 'No se pudo verificar el anticipo', message: err instanceof Error ? err.message : undefined, tone: 'error' });
     } finally {
+      verifyingDownpaymentRef.current = false;
       setVerifyingDownpayment(false);
     }
   };
@@ -319,8 +336,10 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   const [showExemptModal, setShowExemptModal] = useState(false);
   const [exemptNotes, setExemptNotes] = useState('');
   const [exemptingDownpayment, setExemptingDownpayment] = useState(false);
+  const exemptingDownpaymentRef = useRef(false);
   const handleExemptDownpayment = async () => {
-    if (exemptingDownpayment) return;
+    if (exemptingDownpaymentRef.current) return;
+    exemptingDownpaymentRef.current = true;
     setExemptingDownpayment(true);
     try {
       const res = await apiFetch(`/orders/${order.id}/exempt-downpayment`, {
@@ -330,6 +349,10 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (data.code === 'FINANCE_LOCKED') {
+          setVaultRetry({ title: 'Desbloquear bóveda para exonerar el anticipo', run: () => { void handleExemptDownpayment(); } });
+          return;
+        }
         throw new Error(data.message || 'No se pudo exonerar el anticipo');
       }
       onUpdateOrder({
@@ -341,34 +364,91 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       setShowExemptModal(false);
       window.dispatchEvent(new Event('radar:data-changed'));
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error exonerando anticipo');
+      toast({ title: 'No se pudo exonerar el anticipo', message: err instanceof Error ? err.message : undefined, tone: 'error' });
     } finally {
+      exemptingDownpaymentRef.current = false;
       setExemptingDownpayment(false);
     }
   };
 
   const [markingYardReady, setMarkingYardReady] = useState(false);
+  const [revertingYardReady, setRevertingYardReady] = useState(false);
   const handleMarkYardReady = async () => {
     if (markingYardReady) return;
     setMarkingYardReady(true);
     try {
-      const res = await apiFetch(`/orders/${order.id}/yard-ready`, { method: 'POST' });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || 'No se pudo marcar la pieza en yarda');
-      }
+      const res = await apiFetch(`/orders/${order.id}/yard-ready`, {
+        method: 'POST',
+        body: JSON.stringify({ version: order.version || 1, idempotencyKey: crypto.randomUUID() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || 'No se pudo marcar la pieza en yarda');
       onUpdateOrder({
         ...order,
+        version: (order.version || 1) + 1,
         yardPieceReady: true,
+        yardPieceReadyAt: new Date().toISOString(),
       });
-      handleToast('Pieza confirmada como lista en yarda.');
+      handleToast(
+        Number(data.notifiedRecipients) > 0
+          ? `Pieza confirmada como lista en yarda. Se encoló aviso para ${data.notifiedRecipients} contacto(s).`
+          : 'Pieza confirmada como lista en yarda. No se encontraron teléfonos de asesores/admin para avisar.'
+      );
       window.dispatchEvent(new Event('radar:data-changed'));
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error marcando pieza en yarda');
+      toast({ title: 'No se pudo marcar la pieza en yarda', message: err instanceof Error ? err.message : undefined, tone: 'error' });
     } finally {
       setMarkingYardReady(false);
     }
   };
+
+  const handleRevertYardReady = async () => {
+    if (revertingYardReady) return;
+    const returnsToYardQueue = order.status === 'pagado';
+    const confirmed = await confirm({
+      title: `¿Revertir la pieza lista de la orden #${order.code}?`,
+      message: returnsToYardQueue ? 'Volverá a pendientes de patio.' : 'La orden permanecerá en preparación.',
+      confirmLabel: 'Revertir',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    setRevertingYardReady(true);
+    try {
+      const res = await apiFetch(`/orders/${order.id}/revert-yard-ready`, {
+        method: 'POST',
+        body: JSON.stringify({ version: order.version || 1, idempotencyKey: crypto.randomUUID() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || 'No se pudo revertir la pieza lista');
+      onUpdateOrder({
+        ...order,
+        version: (order.version || 1) + 1,
+        yardPieceReady: false,
+        yardPieceReadyAt: undefined,
+      });
+      handleToast(returnsToYardQueue
+        ? `↩️ Pieza lista de #${order.code} revertida a pendientes de patio.`
+        : `↩️ Pieza lista de #${order.code} revertida. La orden sigue en preparación.`);
+      window.dispatchEvent(new Event('radar:data-changed'));
+    } catch (err) {
+      toast({ title: 'No se pudo revertir la pieza lista', message: err instanceof Error ? err.message : undefined, tone: 'error' });
+    } finally {
+      setRevertingYardReady(false);
+    }
+  };
+
+  const openYardReadyWorkflow = () => {
+    setActiveTab('workflow');
+    window.requestAnimationFrame(() => {
+      document.getElementById('order-workflow-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
+  const yardReadyMinutes = yardReadyAgeMinutes(order);
+  const yardReadyUrgent = isYardReadyAlert(order) && isYardReadyUrgent(yardReadyMinutes);
+  const showYardReadyAlert = isYardReadyAlert(order);
+  const yardReadyTargetLabel = order.deliveryType === 'envio_domicilio' ? 'Listo para Despacho' : 'Listo para Retiro';
+  const customerPhoneDigits = (order.customer?.phone || order.customer?.whatsapp || '').replace(/\D/g, '');
 
   const vehicleName = `${order.vehicle.make} ${order.vehicle.model}`;
   const vehicleMileageText = order.vehicle.mileage ? `${Number(order.vehicle.mileage).toLocaleString()} mi` : null;
@@ -509,7 +589,6 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
     setCallForm((prev) => ({ ...prev, isSubmitting: true, error: '' }));
     const claimTargetId = associatedClaim.id;
     const newCallNumber = ((associatedClaim?.callCount || associatedClaim?.calls?.length) || 0) + 1;
-    const wasenderMsg = `📢 Reclamo Orden #${order.code} - Llamada #${newCallNumber} | Cliente: ${callForm.callerName || order.customer.name} (${callForm.callerPhone || order.customer.phone}) | Atendió: ${callForm.attendedBy} | Detalle: ${callForm.summary}`;
 
     try {
       const res = await apiFetch(`/claims/${claimTargetId}/calls`, {
@@ -520,8 +599,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
           callerPhone: callForm.callerPhone || order.customer.phone,
           attendedBy: callForm.attendedBy || order.advisor,
           conversationSummary: callForm.summary,
-          whatsappDispatched: callForm.sendWhatsApp,
-          whatsappMessage: wasenderMsg,
+          whatsappDispatched: false,
         }),
       });
 
@@ -591,9 +669,13 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
   const handleDenyClaimFromDetail = async () => {
     if (!isSuperAdmin) return setActionError('Solo un administrador puede denegar garantías.');
-    if (!window.confirm(`¿Confirmas denegar la garantía del reclamo asociado a la orden #${order.code}?`)) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: `¿Denegar la garantía del reclamo de la orden #${order.code}?`,
+      message: 'El reclamo quedará cerrado como denegado y no podrá revertirse desde esta vista.',
+      confirmLabel: 'Denegar garantía',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     const claimTargetId = associatedClaim?.id?.replace('REC-', '');
     try {
       if (claimTargetId) {
@@ -704,7 +786,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       {/* Toast Floating Notification */}
       {copiedNotification && (
         <div className="fixed top-16 right-6 z-50 px-4 py-2 rounded-xl bg-cyan-950/95 border border-cyan-400 text-cyan-200 text-xs font-mono font-bold shadow-[0_0_20px_rgba(6,182,212,0.5)] flex items-center gap-2 animate-fade-in">
-          <span className="material-symbols-outlined text-[16px] text-cyan-400 animate-spin">sync</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-400 animate-spin">sync</span>
           <span>{copiedNotification}</span>
         </div>
       )}
@@ -719,7 +801,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               className="p-1.5 rounded-lg bg-[var(--bg-card-subtle)] border border-cyan-500/30 text-cyan-400 hover:text-cyan-200 hover:bg-cyan-500/20 transition-all cursor-pointer shadow-sm"
               title="Volver a la lista de órdenes"
             >
-              <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">arrow_back</span>
             </button>
 
             <div className="flex items-center gap-1.5">
@@ -743,7 +825,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                   </option>
                 ))}
               </select>
-              <span className="material-symbols-outlined text-cyan-400 text-[16px] absolute right-1.5 pointer-events-none">
+              <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-[16px] absolute right-1.5 pointer-events-none">
                 arrow_drop_down
               </span>
             </div>
@@ -764,7 +846,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
             {/* Asesor & Delivery metadata chips */}
             <div className="hidden md:flex items-center gap-2 text-[11px] font-mono text-[var(--text-secondary)] border-l border-cyan-500/20 pl-2.5">
               <span className="flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[14px] text-cyan-400">person</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-cyan-400">person</span>
                 <strong className="text-[var(--text-primary)] font-semibold">{order.advisor || 'Carlos M.'}</strong>
                 {(order.isYardSale || order.advisorRole === 'vendedor_yarda') && (
                   <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
@@ -778,13 +860,13 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                     className="p-1 rounded hover:bg-cyan-500/20 text-cyan-400 hover:text-cyan-200 transition-colors"
                     title="Modificar asesor de venta (Super Admin)"
                   >
-                    <span className="material-symbols-outlined text-[13px]">edit</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[13px]">edit</span>
                   </button>
                 )}
               </span>
               <span>•</span>
               <span className="flex items-center gap-1">
-                <span className="material-symbols-outlined text-[14px] text-cyan-400">
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-cyan-400">
                   {isHomeDelivery ? 'local_shipping' : 'storefront'}
                 </span>
                 <span>{isHomeDelivery ? 'Envío' : 'Retiro'}</span>
@@ -801,18 +883,6 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
             </div> : canRegisterDelivery && <button
               type="button" className="horizon-primary rounded-xl px-3 py-2 text-xs font-bold"
               onClick={() => setPaymentModal('deliver')}>Registrar entrega</button>}
-            {/* Quick SMS/WhatsApp Button */}
-            <button
-              type="button"
-              onClick={() => onOpenSMS(order.customer?.name || '', order.customer?.phone || '', order)}
-              className="cyber-btn-primary px-2.5 py-1 text-[11px] font-black font-mono shadow-sm flex items-center gap-1"
-              title="Enviar WhatsApp o SMS al cliente"
-            >
-              <span className="material-symbols-outlined text-[15px]">chat</span>
-              <span>WhatsApp / SMS</span>
-            </button>
-
-
 
             {/* Quick Subasta Toggle Button - Solo órdenes pagadas */}
             {order.status === 'pagado' && (
@@ -826,7 +896,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 }`}
                 title="Ver o gestionar búsqueda en subasta"
               >
-                <span className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">gavel</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">gavel</span>
                 <span>Subasta{auctionLinks.length > 0 ? ` (${auctionLinks.length})` : ''}</span>
               </button>
             )}
@@ -840,7 +910,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(16,185,129,0.25)] active:scale-95 animate-pulse"
                 title="Confirmar que el dinero fue recibido en banco y pasar a Pagado"
               >
-                <span className="material-symbols-outlined text-[15px] text-emerald-400">verified</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-emerald-400">verified</span>
                 <span>{verifyingDownpayment ? 'Verificando…' : 'Aprobar Anticipo (Banco)'}</span>
               </button>
             )}
@@ -853,13 +923,13 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(245,158,11,0.25)] active:scale-95"
                 title="Exonerar anticipo ($0 inicial) y pasar a Pagado para preparar en patio (Cobro 100% al entregar)"
               >
-                <span className="material-symbols-outlined text-[15px] text-amber-400">handshake</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-amber-400">handshake</span>
                 <span>Exonerar Anticipo (Contra Entrega)</span>
               </button>
             )}
 
             {/* Super Admin: Marcar Pieza Lista en Yarda */}
-            {isSuperAdmin && !order.yardPieceReady && ['pagado', 'en_preparacion'].includes(order.status) && (
+            {isSuperAdmin && !order.yardPieceReady && YARD_ACTION_STATUSES.has(order.status) && (
               <button
                 type="button"
                 onClick={handleMarkYardReady}
@@ -867,23 +937,29 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(6,182,212,0.25)] active:scale-95"
                 title="Notificar a los asesores que el patio ya desmontó la pieza y está lista"
               >
-                <span className="material-symbols-outlined text-[15px] text-cyan-400">factory</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-cyan-400">factory</span>
                 <span>{markingYardReady ? 'Marcando…' : 'Marcar Pieza Lista en Yarda'}</span>
               </button>
             )}
 
-            {/* Insignia: Pieza Lista en Yarda */}
-            {order.yardPieceReady && (
-              <span className="px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[11px] font-mono font-bold flex items-center gap-1">
-                <span className="material-symbols-outlined text-[14px] text-emerald-400">check_circle</span>
-                <span>Pieza Lista en Yarda</span>
-              </span>
+            {/* Super Admin: Revertir Pieza Lista en Yarda */}
+            {isSuperAdmin && canRevertYardReady(order) && (
+              <button
+                type="button"
+                onClick={handleRevertYardReady}
+                disabled={revertingYardReady}
+                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(245,158,11,0.25)] active:scale-95"
+                title="Revertir la confirmación de pieza lista y devolver la orden a pendientes de patio"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-amber-400">undo</span>
+                <span>{revertingYardReady ? 'Revirtiendo…' : 'Revertir Pieza Lista'}</span>
+              </button>
             )}
 
             {/* Insignia: Pieza No Disponible en Patio */}
             {order.yardPieceUnavailable && (
-              <span className="px-2.5 py-0.5 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[11px] font-mono font-bold flex items-center gap-1 shadow-[0_0_12px_rgba(244,63,94,0.25)] animate-pulse">
-                <span className="material-symbols-outlined text-[14px] text-rose-400">production_quantity_limits</span>
+              <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[11px] font-mono font-bold flex items-center gap-1 shadow-[0_0_12px_rgba(245,158,11,0.25)] animate-pulse">
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-amber-400">production_quantity_limits</span>
                 <span>No Disponible en Patio · En Subasta</span>
               </span>
             )}
@@ -895,7 +971,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               className="cyber-btn-secondary px-2 py-1 text-[11px] font-bold font-mono text-amber-700 dark:text-amber-300 border-amber-400/40 dark:border-amber-500/30 hover:border-amber-500 hover:text-amber-900 dark:hover:text-amber-200"
               title="Solicitar reembolso"
             >
-              <span className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">account_balance_wallet</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">account_balance_wallet</span>
               <span className="hidden sm:inline">Reembolso</span>
             </button>
 
@@ -907,7 +983,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(245,158,11,0.25)] active:scale-95"
                 title="Corregir fecha real de entrega (administrador)"
               >
-                <span className="material-symbols-outlined text-[15px] text-amber-400">edit_calendar</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-amber-400">edit_calendar</span>
                 <span>Modificar Fecha</span>
               </button>
             )}
@@ -920,7 +996,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 className="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-sm active:scale-95"
                 title="Modificar o reasignar el asesor de esta orden (Super Admin)"
               >
-                <span className="material-symbols-outlined text-[15px] text-cyan-400">manage_accounts</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-cyan-400">manage_accounts</span>
                 <span className="hidden sm:inline">Reasignar Asesor</span>
               </button>
             )}
@@ -933,7 +1009,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 className="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(244,63,94,0.2)] active:scale-95"
                 title="Devolver orden a estado Pagado con código de seguridad WhatsApp (Super Admin)"
               >
-                <span className="material-symbols-outlined text-[15px] text-rose-400">history</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-rose-400">history</span>
                 <span>Revertir a Pagado</span>
               </button>
             )}
@@ -946,7 +1022,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 className="px-2.5 py-1 rounded-lg bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-sm active:scale-95"
                 title="Cancelar orden y registrar devolución automática con código OTP (Super Admin)"
               >
-                <span className="material-symbols-outlined text-[15px] text-red-400">block</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-red-400">block</span>
                 <span>Cancelar Orden</span>
               </button>
             )}
@@ -954,23 +1030,78 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
           </div>
         </div>
 
-        {/* ALERTA DE PATIO: PIEZA NO DISPONIBLE EN PATIO Y BÚSQUEDA EN SUBASTA ACTIVADA */}
-        {order.yardPieceUnavailable && (
-          <div className="rounded-2xl border-2 border-rose-500/50 bg-gradient-to-r from-rose-950/60 via-slate-900/95 to-amber-950/40 p-4 shadow-[0_0_25px_rgba(244,63,94,0.25)] flex flex-col md:flex-row items-start md:items-center justify-between gap-4 font-mono animate-in fade-in duration-200 mb-2">
+        {/* ALERTA DE PATIO: PIEZA LISTA EN YARDA */}
+        {showYardReadyAlert && (
+          <div
+            role="alert"
+            aria-live="assertive"
+            className={`rounded-2xl border-2 p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 font-mono mb-2 ${
+              yardReadyUrgent
+                ? 'border-amber-300 bg-amber-400 bg-gradient-to-r from-amber-400 to-orange-400 text-slate-950 shadow-[0_0_28px_rgba(251,191,36,0.35)]'
+                : 'border-emerald-300 bg-emerald-500 bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-[0_0_28px_rgba(16,185,129,0.3)]'
+            }`}
+          >
             <div className="flex items-start gap-3.5 flex-1 min-w-0">
-              <div className="w-11 h-11 rounded-xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(244,63,94,0.3)]">
-                <span className="material-symbols-outlined text-[26px] text-rose-400 animate-pulse">production_quantity_limits</span>
+              <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 bg-slate-950/15 border border-slate-950/30">
+                <span aria-hidden="true" className={`material-symbols-outlined text-[30px] ${yardReadyUrgent ? 'animate-pulse' : ''}`}>campaign</span>
               </div>
               <div className="space-y-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="px-2 py-0.5 rounded-md bg-rose-500 text-slate-950 font-black text-[11px] uppercase tracking-wider">
+                  <span className={`px-2 py-0.5 rounded-md text-[10.5px] font-black uppercase tracking-wider ${
+                    yardReadyUrgent ? 'bg-slate-950 text-amber-300' : 'bg-slate-950 text-emerald-300'
+                  }`}>
+                    {yardReadyUrgent ? 'Atención' : 'Alerta de patio'}
+                  </span>
+                  <span className="font-black text-base sm:text-xl leading-tight tracking-tight">PIEZA LISTA EN YARDA</span>
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                    yardReadyUrgent ? 'bg-slate-950/80 text-amber-200' : 'bg-slate-950/80 text-emerald-200'
+                  }`}>
+                    Pendiente de retiro
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm font-bold">
+                  {order.code} · {order.customer?.name || 'Cliente sin nombre'} · {formatYardReadyElapsed(yardReadyMinutes)}
+                </p>
+                <p className="text-[11.5px] leading-relaxed opacity-90">
+                  Contacta al cliente por llamada o SMS y completa la preparación para pasar la orden a <strong>{yardReadyTargetLabel}</strong>.
+                  La alerta permanece visible hasta ese cambio de estatus.
+                  {!customerPhoneDigits && ' El cliente no tiene teléfono registrado.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0 w-full md:w-auto pt-2 md:pt-0 border-t md:border-t-0 border-slate-950/20">
+              <button
+                type="button"
+                onClick={openYardReadyWorkflow}
+                className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 active:scale-95 cursor-pointer ${
+                  yardReadyUrgent ? 'bg-slate-950 text-amber-300 hover:bg-slate-800' : 'bg-slate-950 text-emerald-300 hover:bg-slate-800'
+                }`}
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[17px]">notifications_active</span>
+                <span>Notificar cliente y pasar a {yardReadyTargetLabel}</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ALERTA DE PATIO: PIEZA NO DISPONIBLE EN PATIO Y BÚSQUEDA EN SUBASTA ACTIVADA */}
+        {order.yardPieceUnavailable && !order.yardPieceReady && (
+          <div className="rounded-2xl border-2 border-amber-500/60 bg-gradient-to-r from-amber-950/60 via-slate-900/95 to-amber-900/30 p-4 shadow-[0_0_25px_rgba(245,158,11,0.25)] flex flex-col md:flex-row items-start md:items-center justify-between gap-4 font-mono animate-in fade-in duration-200 mb-2">
+            <div className="flex items-start gap-3.5 flex-1 min-w-0">
+              <div className="w-11 h-11 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(245,158,11,0.3)]">
+                <span aria-hidden="true" className="material-symbols-outlined text-[26px] text-amber-400 animate-pulse">production_quantity_limits</span>
+              </div>
+              <div className="space-y-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-md bg-amber-500 text-slate-950 font-black text-[11px] uppercase tracking-wider">
                     ⚠️ Alerta de Patio
                   </span>
                   <span className="text-white font-bold text-sm tracking-tight">
                     Pieza no disponible en patio físico · Búsqueda en Subasta Activada
                   </span>
                 </div>
-                <p className="text-xs text-rose-200/90">
+                <p className="text-xs text-amber-100/90">
                   <strong>Motivo reportado:</strong> {order.yardPieceUnavailableReason || 'No encontrada en inventario físico'}
                   {order.yardPieceUnavailableAt && (
                     <span className="text-slate-400 text-[11px] ml-2">
@@ -987,23 +1118,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 shrink-0 w-full md:w-auto pt-2 md:pt-0 border-t md:border-t-0 border-rose-500/20">
-              {/* Botón WhatsApp al Cliente */}
-              {order.customer?.phone && (
-                <a
-                  href={`https://wa.me/${order.customer.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                    `Hola ${order.customer.name}, le saludamos de RADAR Autopartes sobre su orden #${order.orderCode} (${order.partType} para ${order.vehicle?.year || ''} ${order.vehicle?.make || ''} ${order.vehicle?.model || ''}). Le informamos que estamos gestionando la búsqueda de su pieza en subasta y quisiéramos consultar si nos permite una extensión de tiempo o si prefiere la cancelación y reembolso correspondiente.`
-                  )}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-all shadow-[0_0_12px_rgba(16,185,129,0.3)] active:scale-95 cursor-pointer"
-                  title="Abrir chat de WhatsApp con plantilla de notificación al cliente"
-                >
-                  <span className="material-symbols-outlined text-[16px]">chat</span>
-                  <span>Notificar WhatsApp</span>
-                </a>
-              )}
-
+            <div className="flex flex-wrap items-center gap-2 shrink-0 w-full md:w-auto pt-2 md:pt-0 border-t md:border-t-0 border-amber-500/20">
               {/* Botón Ver Subastas */}
               <button
                 type="button"
@@ -1014,7 +1129,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 }}
                 className="px-3 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
               >
-                <span className="material-symbols-outlined text-[16px]">search</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">search</span>
                 <span>Ver Subasta</span>
               </button>
 
@@ -1024,7 +1139,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 onClick={() => setSubView('refund')}
                 className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
               >
-                <span className="material-symbols-outlined text-[16px]">account_balance_wallet</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">account_balance_wallet</span>
                 <span>Reembolso</span>
               </button>
 
@@ -1035,7 +1150,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                   onClick={() => setIsCancelOrderModalOpen(true)}
                   className="px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
                 >
-                  <span className="material-symbols-outlined text-[16px]">block</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">block</span>
                   <span>Cancelar</span>
                 </button>
               )}
@@ -1091,7 +1206,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
 
       {!showVerifiedWorkflow && <div className="horizon-detail-workflow cyber-card px-3 py-1.5 shadow-sm flex items-center justify-between gap-2 overflow-x-auto custom-scrollbar">
         <div className="flex items-center gap-1.5 text-[10.5px] font-mono font-bold text-cyan-400 shrink-0">
-          <span className="material-symbols-outlined text-[15px]">headset_mic</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[15px]">headset_mic</span>
           <span>Seguimiento</span>
         </div>
 
@@ -1149,7 +1264,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
         <div className="p-2.5 sm:p-3 rounded-2xl bg-red-950/40 border border-red-500/40 shadow-[0_0_15px_rgba(239,68,68,0.2)] flex flex-col gap-2 animate-fade-in">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-[20px] text-red-400">warning</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[20px] text-red-400">warning</span>
               <div>
                 <div className="flex items-center gap-2">
                   <strong className="text-xs font-mono font-bold text-red-200">
@@ -1179,7 +1294,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 onClick={() => setIsCallModalOpen(true)}
                 className="px-2.5 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-200 text-xs font-mono font-bold flex items-center gap-1 cursor-pointer"
               >
-                <span className="material-symbols-outlined text-[14px]">phone_in_talk</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">phone_in_talk</span>
                 <span>Registrar Llamada</span>
               </button>
 
@@ -1188,7 +1303,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 onClick={() => setShowCallHistory(!showCallHistory)}
                 className="px-2.5 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-cyan-500/30 text-cyan-300 text-xs font-mono font-bold flex items-center gap-1 cursor-pointer"
               >
-                <span className="material-symbols-outlined text-[14px]">history</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">history</span>
                 <span>Bitácora ({associatedClaim?.calls?.length || associatedClaim?.callCount || 0})</span>
               </button>
 
@@ -1197,7 +1312,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 onClick={() => document.getElementById('order-aftersales')?.scrollIntoView({ behavior: 'smooth' })}
                 className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-xs font-mono font-bold flex items-center gap-1 cursor-pointer"
               >
-                <span className="material-symbols-outlined text-[14px]">check_circle</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">check_circle</span>
                 <span>Resolver</span>
               </button>
 
@@ -1239,7 +1354,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
         <div className="cyber-card p-3 shadow-md flex flex-col gap-2.5 animate-fade-in">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-[18px] text-amber-600 dark:text-amber-400">gavel</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-amber-600 dark:text-amber-400">gavel</span>
               <strong className="text-xs font-mono font-bold text-amber-900 dark:text-amber-300">Búsqueda en Subasta ({auctionLinks.length})</strong>
               <label className="inline-flex items-center gap-1.5 cursor-pointer text-[11px] font-mono font-bold text-amber-900 dark:text-amber-200 bg-amber-100/90 dark:bg-amber-500/15 px-2.5 py-1 rounded-lg border border-amber-400/80 dark:border-amber-500/30 shadow-sm transition-colors hover:bg-amber-200/70 dark:hover:bg-amber-500/25">
                 <input
@@ -1261,7 +1376,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               onClick={() => setShowAuctionPanel(false)}
               className="text-slate-400 hover:text-white p-1 text-xs"
             >
-              <span className="material-symbols-outlined text-[16px]">close</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">close</span>
             </button>
           </div>
 
@@ -1314,10 +1429,10 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <button type="button" onClick={() => handleCopy(link.url, 'Link')} className="p-1 text-slate-400 hover:text-white">
-                      <span className="material-symbols-outlined text-[14px]">content_copy</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[14px]">content_copy</span>
                     </button>
                     <button type="button" onClick={() => handleRemoveAuctionLink(link.id)} className="p-1 text-red-400 hover:text-red-200">
-                      <span className="material-symbols-outlined text-[14px]">delete</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[14px]">delete</span>
                     </button>
                   </div>
                 </div>
@@ -1376,7 +1491,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                         className="text-cyan-400 hover:text-cyan-200 cursor-pointer p-0.5"
                         title="Copiar VIN"
                       >
-                        <span className="material-symbols-outlined text-[13px]">content_copy</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[13px]">content_copy</span>
                       </button>
                     ) : null}
                   </div>
@@ -1416,7 +1531,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                     )}
                   </div>
                   <span className="inline-flex items-center gap-1 font-bold text-[var(--text-heading)] text-[11px] mt-0.5">
-                    <span className="material-symbols-outlined text-[13px] text-cyan-400">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[13px] text-cyan-400">
                       {isHomeDelivery ? 'local_shipping' : 'storefront'}
                     </span>
                     <span>
@@ -1500,7 +1615,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 {/* Phone */}
                 <div className="p-2 rounded-xl bg-[var(--bg-card-subtle)] border border-cyan-500/15 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[16px] text-emerald-400">call</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-emerald-400">call</span>
                     <div>
                       <span className="text-[9.5px] text-[var(--text-secondary)] block">Teléfono de Contacto</span>
                       <strong className="text-cyan-300 text-xs">{order.customer.phone}</strong>
@@ -1512,7 +1627,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                     className="text-slate-400 hover:text-white p-1"
                     title="Copiar teléfono"
                   >
-                    <span className="material-symbols-outlined text-[13px]">content_copy</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[13px]">content_copy</span>
                   </button>
                 </div>
 
@@ -1523,7 +1638,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 </div>}
                 {order.customer.shippingAddress?.trim() ? (
                   <div className="p-2 rounded-xl bg-[var(--bg-card-subtle)] border border-cyan-500/15 flex items-start gap-2">
-                    <span className="material-symbols-outlined text-[16px] text-amber-400 shrink-0 mt-0.5">location_on</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-amber-400 shrink-0 mt-0.5">location_on</span>
                     <div className="min-w-0">
                       <span className="text-[9.5px] text-[var(--text-secondary)] block">Dirección de Envío</span>
                       <span className="text-[var(--text-primary)] text-[11px] leading-tight block line-clamp-2">
@@ -1533,24 +1648,13 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                   </div>
                 ) : (
                   <div className="p-2 rounded-xl bg-[var(--bg-card-subtle)] border border-cyan-500/15 flex items-center gap-2 text-[var(--text-secondary)] text-[11px]">
-                    <span className="material-symbols-outlined text-[16px] text-cyan-400">storefront</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-400">storefront</span>
                     <span>Retiro personal en tienda / almacén</span>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Direct WhatsApp / SMS Action button */}
-            <div className="pt-2 border-t border-cyan-500/15">
-              <button
-                type="button"
-                onClick={() => onOpenSMS(order.customer?.name || '', order.customer?.phone || '', order)}
-                className="cyber-btn-primary w-full py-2 px-3 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <span className="material-symbols-outlined text-[16px]">chat</span>
-                <span>Enviar Mensaje WhatsApp / SMS</span>
-              </button>
-            </div>
           </div>
 
           {/* COLUMN 3: FÓRMULA FINANCIERA & DOCUMENTACIÓN OFICIAL */}
@@ -1632,14 +1736,14 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       {/* ========================================================================= */}
       {/* 6. TAB 2: FLUJO OPERATIVO CALL CENTER                                    */}
       {/* ========================================================================= */}
-      {showVerifiedWorkflow && activeTab === 'workflow' && <OrderWorkflowPanel orderId={order.id} />}
+      {showVerifiedWorkflow && activeTab === 'workflow' && <div id="order-workflow-panel"><OrderWorkflowPanel orderId={order.id} /></div>}
       {activeTab === 'resumen' && <OrderAftersalesPanel order={order} />}
       {activeTab === 'resumen' && showVerifiedWorkflow && <div className="horizon-view-card flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm">Esta orden requiere gestiones con evidencia, responsable y próxima acción.</p>
         <button type="button" className="horizon-primary rounded-xl px-4 py-2" onClick={() => setActiveTab('workflow')}>Gestionar flujo verificable</button>
       </div>}
       {activeTab === 'workflow' && !showVerifiedWorkflow && (
-        <div className="cyber-card p-4 shadow-sm flex flex-col gap-3">
+        <div id="order-workflow-panel" className="cyber-card p-4 shadow-sm flex flex-col gap-3">
           <div className="cyber-laser-bar" />
 
           <div className="flex items-center justify-between pb-2 border-b border-cyan-500/15">
@@ -1673,7 +1777,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                   }`}
                 >
                   <div className="flex items-start gap-2">
-                    <span className="material-symbols-outlined text-[20px] text-cyan-400">{step.icon}</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[20px] text-cyan-400">{step.icon}</span>
                     <div>
                       <strong className="text-xs text-[var(--text-heading)] block">{step.num}. {step.title}</strong>
                       <span className="text-[10.5px] text-[var(--text-secondary)] font-mono">{step.sub}</span>
@@ -1712,7 +1816,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
             <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[var(--border-color)]">
               <div className="flex items-center gap-3">
                 <span className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 flex items-center justify-center shrink-0">
-                  <span className="material-symbols-outlined text-[20px]">verified_user</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[20px]">verified_user</span>
                 </span>
                 <div>
                   <h3 className="text-base font-bold text-[var(--text-primary)] leading-tight">
@@ -1733,7 +1837,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               <div className="p-3.5 rounded-2xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 flex items-center justify-center shrink-0">
-                    <span className="material-symbols-outlined text-[18px]">add_task</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[18px]">add_task</span>
                   </span>
                   <div className="min-w-0">
                     <strong className="text-xs sm:text-sm font-bold text-[var(--text-primary)] block truncate">
@@ -1754,7 +1858,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 <div className="p-3.5 rounded-2xl bg-emerald-500/5 border border-emerald-500/30 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
                     <span className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-500 flex items-center justify-center shrink-0">
-                      <span className="material-symbols-outlined text-[18px]">local_shipping</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[18px]">local_shipping</span>
                     </span>
                     <div className="min-w-0">
                       <strong className="text-xs sm:text-sm font-bold text-[var(--text-primary)] block truncate">
@@ -1776,7 +1880,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                         className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/35 text-amber-500 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
                         title="Corregir fecha real de entrega (administrador)"
                       >
-                        <span className="material-symbols-outlined text-[14px]">edit</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[14px]">edit</span>
                         <span>Modificar fecha</span>
                       </button>
                     )}
@@ -1786,7 +1890,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 <div className="p-3.5 rounded-2xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] flex items-center justify-between gap-3 opacity-80">
                   <div className="flex items-center gap-3 min-w-0">
                     <span className="w-8 h-8 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] text-[var(--text-secondary)] flex items-center justify-center shrink-0">
-                      <span className="material-symbols-outlined text-[18px]">schedule</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[18px]">schedule</span>
                     </span>
                     <div className="min-w-0">
                       <strong className="text-xs sm:text-sm font-bold text-[var(--text-primary)] block truncate">
@@ -1817,7 +1921,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
           <div className="cyber-card w-full max-w-md p-5 border-red-500/50 shadow-[0_0_40px_rgba(239,68,68,0.3)]">
             <div className="flex items-center justify-between border-b border-red-500/20 pb-3 mb-3">
               <div className="flex items-center gap-2 text-red-400 font-mono font-bold text-sm">
-                <span className="material-symbols-outlined text-[20px]">warning</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">warning</span>
                 <span>Aperturar Reclamo - Orden #{order.code}</span>
               </div>
               <button
@@ -1825,7 +1929,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 onClick={() => setClaimModal({ isOpen: false, reason: '', isSaving: false, error: '' })}
                 className="text-slate-400 hover:text-white"
               >
-                <span className="material-symbols-outlined text-[18px]">close</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
 
@@ -1875,7 +1979,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
           <div className="cyber-card w-full max-w-lg p-5 border-cyan-500/50 shadow-[0_0_40px_rgba(6,182,212,0.3)]">
             <div className="flex items-center justify-between border-b border-cyan-500/20 pb-3 mb-3">
               <div className="flex items-center gap-2 text-cyan-400 font-mono font-bold text-sm">
-                <span className="material-symbols-outlined text-[20px]">phone_in_talk</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">phone_in_talk</span>
                 <span>Registrar Interacción Telefónica</span>
               </div>
               <button
@@ -1883,7 +1987,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 onClick={() => setIsCallModalOpen(false)}
                 className="text-slate-400 hover:text-white"
               >
-                <span className="material-symbols-outlined text-[18px]">close</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
 
@@ -1952,7 +2056,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
           <div className="cyber-card w-full max-w-md p-5 border-emerald-500/50 shadow-[0_0_40px_rgba(16,185,129,0.3)]">
             <div className="flex items-center justify-between border-b border-emerald-500/20 pb-3 mb-3">
               <div className="flex items-center gap-2 text-emerald-400 font-mono font-bold text-sm">
-                <span className="material-symbols-outlined text-[20px]">check_circle</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">check_circle</span>
                 <span>Resolver Reclamo - Orden #{order.code}</span>
               </div>
               <button
@@ -1960,7 +2064,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 onClick={() => setIsResolveModalOpen(false)}
                 className="text-slate-400 hover:text-white"
               >
-                <span className="material-symbols-outlined text-[18px]">close</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
 
@@ -2011,7 +2115,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
           <div className="cyber-card w-full max-w-md p-5 border-cyan-500/50 shadow-[0_0_40px_rgba(6,182,212,0.3)]">
             <div className="flex items-center justify-between border-b border-cyan-500/20 pb-3 mb-3">
               <div className="flex items-center gap-2 text-cyan-400 font-mono font-bold text-sm">
-                <span className="material-symbols-outlined text-[20px]">manage_accounts</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">manage_accounts</span>
                 <span>Reasignar Asesor - Orden #{order.code}</span>
               </div>
               <button
@@ -2019,13 +2123,13 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 onClick={() => setIsReassignModalOpen(false)}
                 className="text-slate-400 hover:text-white"
               >
-                <span className="material-symbols-outlined text-[18px]">close</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
 
             {reassignSuccessMsg ? (
               <div className="p-4 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono text-xs text-center flex items-center justify-center gap-2">
-                <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">check_circle</span>
                 <span>{reassignSuccessMsg}</span>
               </div>
             ) : (
@@ -2115,7 +2219,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
           <div className="cyber-card w-full max-w-lg p-6 border-rose-500/50 shadow-[0_0_40px_rgba(244,63,94,0.3)] space-y-4">
             <div className="flex items-center justify-between border-b border-rose-500/20 pb-3">
               <div className="flex items-center gap-2 text-rose-400 font-mono font-bold text-sm">
-                <span className="material-symbols-outlined text-[20px]">history</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">history</span>
                 <span>Revertir Orden a Pagado · #{order.code}</span>
               </div>
               <button
@@ -2124,20 +2228,20 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 disabled={revertLoading}
                 className="text-slate-400 hover:text-white"
               >
-                <span className="material-symbols-outlined text-[18px]">close</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
 
             {revertSuccessMsg ? (
               <div className="p-4 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono text-xs text-center flex items-center justify-center gap-2">
-                <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">check_circle</span>
                 <span>{revertSuccessMsg}</span>
               </div>
             ) : (
               <div className="space-y-4">
                 <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs font-mono space-y-1.5 text-rose-200">
                   <p className="font-bold flex items-center gap-1.5 text-rose-300">
-                    <span className="material-symbols-outlined text-[16px]">security</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[16px]">security</span>
                     Operación protegida con código WhatsApp
                   </p>
                   <p className="text-[11px] text-slate-300">
@@ -2182,7 +2286,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                       onClick={handleRequestRevertOtp}
                       className="px-4 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-mono font-bold flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <span className="material-symbols-outlined text-[16px]">send</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px]">send</span>
                       <span>{revertLoading ? 'Enviando código...' : 'Solicitar código por WhatsApp'}</span>
                     </button>
                   </div>
@@ -2191,7 +2295,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                     <div className="p-3 rounded-xl bg-slate-950 border border-cyan-500/30 space-y-2">
                       <div className="flex items-center justify-between text-xs font-mono">
                         <span className="text-emerald-400 flex items-center gap-1 font-bold">
-                          <span className="material-symbols-outlined text-[16px]">mark_chat_read</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[16px]">mark_chat_read</span>
                           Código enviado a tu WhatsApp
                           {revertTargetPhoneMasked && <span className="text-slate-400">({revertTargetPhoneMasked})</span>}
                         </span>
@@ -2239,7 +2343,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                           disabled={revertLoading || revertCode.length !== 6}
                           className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-mono font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-rose-950 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <span className="material-symbols-outlined text-[16px]">verified_user</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[16px]">verified_user</span>
                           <span>{revertLoading ? 'Verificando...' : 'Confirmar reversión'}</span>
                         </button>
                       </div>
@@ -2274,7 +2378,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
             <div className="flex items-center justify-between border-b border-amber-500/20 pb-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
-                  <span className="material-symbols-outlined text-2xl">handshake</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-2xl">handshake</span>
                 </div>
                 <div>
                   <h3 className="font-bold text-white text-base">Exonerar Anticipo · #{order.code}</h3>
@@ -2287,18 +2391,18 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 onClick={() => setShowExemptModal(false)}
                 className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
               >
-                <span className="material-symbols-outlined text-xl">close</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-xl">close</span>
               </button>
             </div>
 
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-xs text-slate-300 space-y-2">
               <p className="font-bold text-amber-300 flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[16px]">admin_panel_settings</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">admin_panel_settings</span>
                 Regla especial exclusiva de Super Administrador
               </p>
               <ul className="list-disc list-inside space-y-1 text-slate-300">
                 <li>El anticipo se registrará en <strong>$0.00 USD (Exonerado)</strong>.</li>
-                <li>La orden avanza directamente a <strong>Pagado / Facturado</strong>.</li>
+                <li>La orden avanza directamente a <strong>Pagado</strong>.</li>
                 <li>El patio iniciará la <strong>búsqueda y preparación</strong> de la refacción de inmediato.</li>
                 <li>El <strong>100% del total (${totalPayable.toFixed(2)} USD)</strong> será exigido y cobrado al momento de la entrega física.</li>
               </ul>
@@ -2333,13 +2437,25 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 onClick={handleExemptDownpayment}
                 className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-mono font-black flex items-center gap-1.5 transition shadow-[0_0_20px_rgba(245,158,11,0.4)] cursor-pointer disabled:opacity-50"
               >
-                <span className="material-symbols-outlined text-[16px]">verified</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">verified</span>
                 <span>{exemptingDownpayment ? 'Aprobando…' : 'Aprobar a Pagado (Exonerar)'}</span>
               </button>
             </div>
           </div>
         </div>
       )}
+
+      <VaultUnlockModal
+        isOpen={Boolean(vaultRetry)}
+        title={vaultRetry?.title}
+        description="Verificar o exonerar el anticipo modifica el estado financiero de la orden. Desbloquea la bóveda durante 15 minutos para continuar."
+        onClose={() => setVaultRetry(null)}
+        onSuccess={() => {
+          const retry = vaultRetry;
+          setVaultRetry(null);
+          if (retry) setTimeout(() => retry.run(), 100);
+        }}
+      />
     </div>
   );
 };

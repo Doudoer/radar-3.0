@@ -65,7 +65,7 @@ export function FinanceVault({ children, onBack }: { children: React.ReactNode; 
   const digits = method === 'backup' ? 8 : 6;
   return <div className="flex justify-center items-center min-h-[70vh] p-4">
     <section aria-label="Bóveda financiera" className="horizon-vault w-full max-w-lg rounded-3xl border border-cyan-400/40 bg-white dark:bg-slate-950 p-6 md:p-8 shadow-2xl space-y-5 text-center">
-      <span className="material-symbols-outlined text-5xl text-cyan-500">shield_lock</span>
+      <span aria-hidden="true" className="material-symbols-outlined text-5xl text-cyan-500">shield_lock</span>
       <p className="text-xs tracking-widest font-bold text-cyan-500">AUTENTICACIÓN EN DOS PASOS (2FA)</p>
       <h1 className="text-2xl font-black text-slate-900 dark:text-white">Relación Semanal &amp; Finanzas</h1>
       <p className="text-sm text-slate-500">Bóveda financiera protegida de Radar 3.0. Ingresa el código de seguridad para desbloquear el acceso.</p>

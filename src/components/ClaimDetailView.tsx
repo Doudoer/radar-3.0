@@ -25,6 +25,7 @@ interface ClaimDetailViewProps {
   onResolve: () => void;
   onReloadClaims?: () => Promise<void> | void;
   onSelectOrder?: (orderId: string) => void;
+  embedded?: boolean;
 }
 
 interface OrderAftersalesSummary {
@@ -74,32 +75,32 @@ const ACTION_QUICK_NOTES: Record<Exclude<ClaimQuickAction, ''>, string[]> = {
 };
 
 const CALL_QUICK_NOTES = [
-  'Se contactó al cliente; enviará fotos o video de la falla por WhatsApp.',
+  'Se contactó al cliente; enviará fotos o video de la falla.',
   'Cliente informa que el mecánico está revisando la pieza en el taller.',
   'Se explicó diagnóstico técnico y pasos de garantía al cliente.',
-  'Llamada sin respuesta; se dejó mensaje de voz y WhatsApp de seguimiento.',
+  'Llamada sin respuesta; se dejó mensaje de voz y mensaje de texto de seguimiento.',
   'Se acordó con el cliente la solución del reclamo y fecha de seguimiento.',
 ];
 
 const STATUS_BADGE: Record<string, { label: string; cls: string; icon: string }> = {
   Pending: {
     label: 'Pendiente de revisión',
-    cls: 'bg-amber-500/15 border-amber-500/35 text-amber-500',
+    cls: 'bg-[var(--state-urgency-tint)] border-[var(--state-urgency-border)] text-[var(--state-urgency-text)]',
     icon: 'schedule',
   },
   'In Process': {
     label: 'En revisión técnica',
-    cls: 'bg-cyan-500/15 border-cyan-500/35 text-cyan-400',
+    cls: 'bg-[var(--brand-soft)] border-[var(--brand)] text-[var(--brand)]',
     icon: 'build_circle',
   },
   Resolved: {
     label: 'Resuelto',
-    cls: 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500',
+    cls: 'bg-[var(--bg-card-subtle)] border-[var(--positive)] text-[var(--positive)]',
     icon: 'check_circle',
   },
   Denied: {
     label: 'Garantía denegada',
-    cls: 'bg-rose-500/15 border-rose-500/35 text-rose-400',
+    cls: 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)]',
     icon: 'cancel',
   },
 };
@@ -138,6 +139,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
   onResolve,
   onReloadClaims,
   onSelectOrder,
+  embedded = false,
 }) => {
   const [isCallsOpen, setIsCallsOpen] = useState(false);
 
@@ -435,90 +437,110 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
     icon: 'info',
   };
 
-  return (
-    <div className="radar-view horizon-view text-[var(--text-primary)] pb-10 space-y-5">
-      {/* 1. HEADER */}
-      <div className="horizon-view-header">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between w-full">
-          <div className="flex items-start gap-3.5">
-            <button
-              type="button"
-              onClick={onBack}
-              className="mt-0.5 rounded-xl p-2 bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-cyan-400 hover:bg-cyan-500/15 transition-all cursor-pointer"
-              title="Volver a reclamos"
-            >
-              <span className="material-symbols-outlined text-[20px]">arrow_back</span>
-            </button>
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl md:text-2xl font-black text-[var(--text-primary)] tracking-tight">
-                  Detalle de Reclamo
-                </h1>
-                <span className="rounded-lg border border-cyan-500/35 bg-cyan-500/15 px-2.5 py-0.5 font-mono text-xs font-bold text-cyan-400">
-                  {claim.id}
-                </span>
-                <span
-                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold border ${statusMeta.cls}`}
-                >
-                  <span className="material-symbols-outlined text-[14px]">{statusMeta.icon}</span>
-                  <span>{statusMeta.label}</span>
-                </span>
-                <span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-card-subtle)] px-2.5 py-0.5 text-xs font-semibold text-[var(--text-secondary)]">
-                  Prioridad {claim.priority}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-[var(--text-secondary)] flex flex-wrap items-center gap-2">
-                <span>
-                  Orden <strong className="font-mono text-cyan-400">{claim.orderCode}</strong>
-                </span>
-                <span>•</span>
-                <strong className="text-[var(--text-primary)]">{claim.customerName}</strong>
-                <span>•</span>
-                <span>
-                  {claim.vehicle} ({claim.mainPart})
-                </span>
-              </p>
-            </div>
-          </div>
+  const headerActions = (
+    <>
+      {onSelectOrder && order && (
+        <button
+          type="button"
+          onClick={() => onSelectOrder(order.id)}
+          className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] text-[var(--text-primary)] px-3.5 py-2 text-xs font-bold flex items-center gap-1.5 cursor-pointer hover:border-[var(--brand)] hover:text-[var(--brand)] transition-colors"
+        >
+          <span aria-hidden="true" className="material-symbols-outlined text-[16px]">visibility</span>
+          <span>Ver Orden</span>
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => setIsCallsOpen(true)}
+        className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] text-[var(--text-primary)] px-3.5 py-2 text-xs font-bold flex items-center gap-1.5 cursor-pointer hover:border-[var(--brand)] hover:text-[var(--brand)] transition-colors"
+      >
+        <span aria-hidden="true" className="material-symbols-outlined text-[16px]">phone_in_talk</span>
+        <span>Ver Bitácora ({calls.length})</span>
+      </button>
+      <button
+        type="button"
+        onClick={onResolve}
+        className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] text-[var(--text-primary)] px-3.5 py-2 text-xs font-bold flex items-center gap-1.5 cursor-pointer hover:border-[var(--brand)] hover:text-[var(--brand)] transition-colors"
+        title="Abrir vista completa de garantías, core e invoice de la orden"
+      >
+        <span aria-hidden="true" className="material-symbols-outlined text-[16px]">shield_with_heart</span>
+        <span>Post-venta de la orden</span>
+      </button>
+    </>
+  );
 
-          <div className="flex flex-wrap gap-2 pl-11 sm:pl-0">
-            {onSelectOrder && order && (
+  const statusPill = (
+    <span
+      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold border ${statusMeta.cls}`}
+    >
+      <span aria-hidden="true" className="material-symbols-outlined text-[14px]">{statusMeta.icon}</span>
+      <span>{statusMeta.label}</span>
+    </span>
+  );
+
+  return (
+    <div className={embedded ? 'text-[var(--text-primary)] space-y-5' : 'radar-view horizon-view text-[var(--text-primary)] pb-10 space-y-5'}>
+      {/* 1. HEADER */}
+      {embedded ? (
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {statusPill}
+            <span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-card-subtle)] px-2.5 py-0.5 text-xs font-semibold text-[var(--text-secondary)]">
+              Prioridad {claim.priority}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">{headerActions}</div>
+        </div>
+      ) : (
+        <div className="horizon-view-header">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between w-full">
+            <div className="flex items-start gap-3.5">
               <button
                 type="button"
-                onClick={() => onSelectOrder(order.id)}
-                className="cyber-btn-secondary px-3.5 py-2 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                onClick={onBack}
+                className="mt-0.5 rounded-xl p-2 bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--brand)] hover:bg-[var(--brand-soft)] transition-all cursor-pointer"
+                title="Volver a reclamos"
               >
-                <span className="material-symbols-outlined text-[16px]">visibility</span>
-                <span>Ver Orden</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">arrow_back</span>
               </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setIsCallsOpen(true)}
-              className="cyber-btn-secondary px-3.5 py-2 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-            >
-              <span className="material-symbols-outlined text-[16px]">phone_in_talk</span>
-              <span>Ver Bitácora ({calls.length})</span>
-            </button>
-            <button
-              type="button"
-              onClick={onResolve}
-              className="cyber-btn-secondary px-3.5 py-2 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-              title="Abrir vista completa de garantías, core e invoice de la orden"
-            >
-              <span className="material-symbols-outlined text-[16px]">shield_with_heart</span>
-              <span>Post-venta de la orden</span>
-            </button>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-xl md:text-2xl font-black text-[var(--text-primary)] tracking-tight">
+                    Detalle de Reclamo
+                  </h1>
+                  <span className="rounded-lg border border-[var(--brand)] bg-[var(--brand-soft)] px-2.5 py-0.5 font-mono text-xs font-bold text-[var(--brand)]">
+                    {claim.id}
+                  </span>
+                  {statusPill}
+                  <span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-card-subtle)] px-2.5 py-0.5 text-xs font-semibold text-[var(--text-secondary)]">
+                    Prioridad {claim.priority}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-[var(--text-secondary)] flex flex-wrap items-center gap-2">
+                  <span>
+                    Orden <strong className="font-mono text-[var(--brand)]">{claim.orderCode}</strong>
+                  </span>
+                  <span>•</span>
+                  <strong className="text-[var(--text-primary)]">{claim.customerName}</strong>
+                  <span>•</span>
+                  <span>
+                    {claim.vehicle} ({claim.mainPart})
+                  </span>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 pl-11 sm:pl-0">{headerActions}</div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* 2. RUTA VISUAL DE 3 ETAPAS + GESTIÓN DIRECTA DEL RECLAMO */}
       <section className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4 sm:p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
-            <span className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/35 text-amber-500 flex items-center justify-center shrink-0">
-              <span className="material-symbols-outlined text-[20px]">route</span>
+            <span className="w-9 h-9 rounded-xl bg-[var(--state-urgency-tint)] border border-[var(--state-urgency-border)] text-[var(--state-urgency-text)] flex items-center justify-center shrink-0">
+              <span aria-hidden="true" className="material-symbols-outlined text-[20px]">route</span>
             </span>
             <div>
               <h2 className="text-sm sm:text-base font-bold text-[var(--text-primary)]">
@@ -530,7 +552,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                   <>
                     {' '}
                     · Próxima revisión:{' '}
-                    <strong className="text-cyan-400 tabular-nums">{liveNextReview}</strong>
+                    <strong className="text-[var(--brand)] tabular-nums">{liveNextReview}</strong>
                   </>
                 )}
               </p>
@@ -541,11 +563,11 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
             <span
               className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold ${
                 liveStatus === 'Resolved'
-                  ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500'
-                  : 'bg-rose-500/15 border-rose-500/35 text-rose-400'
+                  ? 'bg-[var(--bg-card-subtle)] border-[var(--positive)] text-[var(--positive)]'
+                  : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)]'
               }`}
             >
-              <span className="material-symbols-outlined text-[15px]">
+              <span aria-hidden="true" className="material-symbols-outlined text-[15px]">
                 {liveStatus === 'Resolved' ? 'verified' : 'block'}
               </span>
               <span>
@@ -589,9 +611,9 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                 key={step.num}
                 className={`rounded-xl border p-3.5 space-y-1 transition-all ${
                   done
-                    ? 'bg-emerald-500/10 border-emerald-500/35'
+                    ? 'bg-[var(--bg-card-subtle)] border-[var(--positive)]'
                     : active
-                    ? 'bg-cyan-500/10 border-cyan-500/45'
+                    ? 'bg-[var(--brand-soft)] border-[var(--brand)]'
                     : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] opacity-75'
                 }`}
               >
@@ -599,18 +621,18 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                   <strong
                     className={`font-bold flex items-center gap-1.5 ${
                       done
-                        ? 'text-emerald-500'
+                        ? 'text-[var(--positive)]'
                         : active
-                        ? 'text-cyan-400'
+                        ? 'text-[var(--brand)]'
                         : 'text-[var(--text-primary)]'
                     }`}
                   >
-                    <span className="material-symbols-outlined text-[16px]">{step.icon}</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[16px]">{step.icon}</span>
                     <span>{step.title}</span>
                   </strong>
-                  <span
+                  <span aria-hidden="true"
                     className={`material-symbols-outlined text-[16px] ${
-                      done ? 'text-emerald-500' : active ? 'text-cyan-400' : 'text-[var(--text-secondary)]'
+                      done ? 'text-[var(--positive)]' : active ? 'text-[var(--brand)]' : 'text-[var(--text-secondary)]'
                     }`}
                   >
                     {done ? 'check_circle' : active ? 'radio_button_checked' : 'schedule'}
@@ -625,9 +647,9 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
         {actionSuccess && (
           <div
             role="status"
-            className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs font-bold text-emerald-500 flex items-center gap-2"
+            className="rounded-xl border border-[var(--positive)] bg-[var(--bg-card-subtle)] p-3 text-xs font-bold text-[var(--positive)] flex items-center gap-2"
           >
-            <span className="material-symbols-outlined text-[18px]">check_circle</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">check_circle</span>
             <span>{actionSuccess}</span>
           </div>
         )}
@@ -637,7 +659,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
           <div className="space-y-3 pt-1 border-t border-[var(--border-color)]">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[16px] text-cyan-400">bolt</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-[var(--brand)]">bolt</span>
                 <span>Gestionar o resolver este reclamo ahora (1 clic):</span>
               </span>
               {actionMode && (
@@ -657,42 +679,42 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                   id: 'claim_review' as const,
                   label: '1. Registrar revisión / diagnóstico',
                   icon: 'biotech',
-                  cls: 'border-cyan-500/35 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20',
+                  cls: 'border-[var(--border-color)] bg-[var(--bg-card-subtle)] text-[var(--text-primary)] hover:border-[var(--brand)] hover:text-[var(--brand)]',
                   show: true,
                 },
                 {
                   id: 'claim_resolution' as const,
                   label: '2. Preparar resolución',
                   icon: 'handyman',
-                  cls: 'border-cyan-500/35 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20',
+                  cls: 'border-[var(--border-color)] bg-[var(--bg-card-subtle)] text-[var(--text-primary)] hover:border-[var(--brand)] hover:text-[var(--brand)]',
                   show: true,
                 },
                 {
                   id: 'claim_resolved' as const,
                   label: '3. Resolver sin reemplazo',
                   icon: 'check_circle',
-                  cls: 'border-emerald-500/40 bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25',
+                  cls: 'border-[var(--border-color)] bg-[var(--bg-card-subtle)] text-[var(--text-primary)] hover:border-[var(--brand)] hover:text-[var(--brand)]',
                   show: true,
                 },
                 {
                   id: 'claim_replacement' as const,
                   label: '3. Entregar reemplazo',
                   icon: 'published_with_changes',
-                  cls: 'border-emerald-500/40 bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25',
+                  cls: 'border-[var(--border-color)] bg-[var(--bg-card-subtle)] text-[var(--text-primary)] hover:border-[var(--brand)] hover:text-[var(--brand)]',
                   show: canAdmin,
                 },
                 {
                   id: 'refund_create' as const,
                   label: 'Solicitar reembolso',
                   icon: 'currency_exchange',
-                  cls: 'border-amber-500/40 bg-amber-500/15 text-amber-500 hover:bg-amber-500/25',
+                  cls: 'border-[var(--state-urgency-border)] bg-[var(--bg-card-subtle)] text-[var(--state-urgency-text)] hover:bg-[var(--state-urgency-tint)]',
                   show: true,
                 },
                 {
                   id: 'claim_denied' as const,
                   label: 'Denegar garantía',
                   icon: 'cancel',
-                  cls: 'border-rose-500/40 bg-rose-500/15 text-rose-400 hover:bg-rose-500/25',
+                  cls: 'border-[var(--state-destructive)] bg-[var(--bg-card-subtle)] text-[var(--state-destructive)] hover:opacity-80',
                   show: canAdmin,
                 },
               ]
@@ -706,11 +728,11 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                       onClick={() => selectAction(selected ? '' : btn.id)}
                       className={`inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-bold transition-all cursor-pointer ${
                         selected
-                          ? 'ring-2 ring-cyan-400 bg-cyan-500/25 border-cyan-400 text-[var(--text-primary)]'
+                          ? 'ring-2 ring-[var(--brand)] bg-[var(--brand-soft)] border-[var(--brand)] text-[var(--text-primary)]'
                           : btn.cls
                       }`}
                     >
-                      <span className="material-symbols-outlined text-[16px]">{btn.icon}</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px]">{btn.icon}</span>
                       <span>{btn.label}</span>
                     </button>
                   );
@@ -721,11 +743,11 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
             {actionMode && (
               <form
                 onSubmit={handleSaveClaimAction}
-                className="rounded-2xl border border-cyan-500/35 bg-[var(--bg-card-subtle)] p-4 space-y-4"
+                className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] p-4 space-y-4"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[var(--border-color)]">
                   <strong className="text-xs sm:text-sm font-bold text-[var(--text-primary)] flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-[18px] text-cyan-400">edit_note</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-[var(--brand)]">edit_note</span>
                     <span>
                       {actionMode === 'claim_review' && 'Registrar revisión técnica / diagnóstico'}
                       {actionMode === 'claim_resolution' && 'Preparar resolución del reclamo'}
@@ -751,7 +773,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                         key={chip}
                         type="button"
                         onClick={() => setNotes((prev) => (prev.trim() ? `${prev.trim()} ${chip}` : chip))}
-                        className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2.5 py-1 text-xs font-medium text-[var(--text-secondary)] hover:border-cyan-400/50 hover:text-[var(--text-primary)] cursor-pointer transition-colors text-left"
+                        className="inline-flex min-h-8 items-center rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:border-[var(--brand)] hover:text-[var(--text-primary)] cursor-pointer transition-colors text-left"
                       >
                         + {chip}
                       </button>
@@ -770,7 +792,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                         min={workflowDate(new Date())}
                         value={nextDate}
                         onChange={(e) => setNextDate(e.target.value)}
-                        className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                        className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
                       />
                     </label>
                     <div className="flex flex-wrap gap-1.5 pb-0.5">
@@ -789,7 +811,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                             onClick={() => setNextDate(iso)}
                             className={`rounded-lg border px-2.5 py-1.5 text-xs font-bold cursor-pointer transition-all ${
                               nextDate === iso
-                                ? 'bg-cyan-500/20 border-cyan-400 text-cyan-400'
+                                ? 'bg-[var(--brand-soft)] border-[var(--brand)] text-[var(--brand)]'
                                 : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                             }`}
                           >
@@ -812,7 +834,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                         placeholder="Ej. STK-4920 / VIN donante"
                         value={replacementStock}
                         onChange={(e) => setReplacementStock(e.target.value)}
-                        className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                        className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
                       />
                     </label>
                     <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] pt-4 cursor-pointer">
@@ -841,7 +863,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                           required
                           value={refundAmount}
                           onChange={(e) => setRefundAmount(e.target.value)}
-                          className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-xs font-mono font-bold text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                          className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 text-xs font-mono font-bold text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
                         />
                       </label>
                       {availableToRefund > 0 && (
@@ -849,7 +871,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                           <button
                             type="button"
                             onClick={() => setRefundAmount(availableToRefund.toFixed(2))}
-                            className="rounded-lg border border-cyan-500/35 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-bold text-cyan-400 cursor-pointer"
+                            className="rounded-lg border border-[var(--brand)] bg-[var(--brand-soft)] px-2.5 py-1 text-[11px] font-bold text-[var(--brand)] cursor-pointer"
                           >
                             100% Disponible (${availableToRefund.toFixed(2)})
                           </button>
@@ -885,7 +907,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     placeholder="Describe el diagnóstico técnico, acuerdo con el cliente o motivo de resolución..."
-                    className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                    className="mt-1 w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
                   />
                 </label>
 
@@ -906,7 +928,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                 <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 space-y-2">
                   <label className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-[var(--text-secondary)]">
                     <span className="flex items-center gap-1.5">
-                      <span className="material-symbols-outlined text-[16px] text-cyan-400">attach_file</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-[var(--brand)]">attach_file</span>
                       <span>Adjuntar foto o PDF de evidencia (opcional)</span>
                     </span>
                     <input
@@ -918,24 +940,24 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                         e.currentTarget.value = '';
                         if (f) void handleUploadEvidence(f);
                       }}
-                      className="text-xs file:mr-2 file:rounded-lg file:border-0 file:bg-cyan-500/15 file:px-2.5 file:py-1 file:text-xs file:font-bold file:text-cyan-400 cursor-pointer"
+                      className="text-xs file:mr-2 file:rounded-lg file:border-0 file:bg-[var(--brand-soft)] file:px-2.5 file:py-1 file:text-xs file:font-bold file:text-[var(--brand)] cursor-pointer"
                     />
                   </label>
-                  {uploading && <p className="text-xs text-cyan-400 font-semibold">Subiendo evidencia…</p>}
+                  {uploading && <p className="text-xs text-[var(--brand)] font-semibold">Subiendo evidencia…</p>}
                   {files.length > 0 && (
                     <div className="flex flex-wrap gap-2">
                       {files.map((url, idx) => (
                         <span
                           key={url}
-                          className="inline-flex items-center gap-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-xs"
+                          className="inline-flex items-center gap-2 rounded-lg border border-[var(--brand)] bg-[var(--brand-soft)] px-2.5 py-1 text-xs"
                         >
-                          <a href={safeFileUrl(url)} target="_blank" rel="noopener noreferrer" className="font-bold text-cyan-400 hover:underline">
+                          <a href={safeFileUrl(url)} target="_blank" rel="noopener noreferrer" className="font-bold text-[var(--brand)] hover:underline">
                             Evidencia {idx + 1}
                           </a>
                           <button
                             type="button"
                             onClick={() => setFiles((prev) => prev.filter((item) => item !== url))}
-                            className="text-rose-400 font-bold cursor-pointer"
+                            className="text-[var(--state-destructive)] font-bold cursor-pointer"
                           >
                             ×
                           </button>
@@ -946,7 +968,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                 </div>
 
                 {actionError && (
-                  <p role="alert" className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-2.5 text-xs font-bold text-rose-400">
+                  <p role="alert" className="rounded-xl border border-[var(--danger)] bg-[var(--bg-card-subtle)] p-2.5 text-xs font-bold text-[var(--danger)]">
                     {actionError}
                   </p>
                 )}
@@ -956,7 +978,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                     type="button"
                     disabled={busyAction}
                     onClick={() => selectAction('')}
-                    className="cyber-btn-secondary px-4 py-2 text-xs font-bold cursor-pointer"
+                    className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] text-[var(--text-primary)] px-4 py-2 text-xs font-bold cursor-pointer hover:border-[var(--brand)] hover:text-[var(--brand)] transition-colors"
                   >
                     Cancelar
                   </button>
@@ -965,7 +987,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                     disabled={busyAction || uploading}
                     className="horizon-primary rounded-xl px-5 py-2 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                   >
-                    <span className="material-symbols-outlined text-[16px]">save</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[16px]">save</span>
                     <span>{busyAction ? 'Guardando…' : 'Confirmar y guardar'}</span>
                   </button>
                 </div>
@@ -982,12 +1004,12 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
           {/* Motivo Reportado & Diagnóstico */}
           <section className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-5 space-y-4">
             <h2 className="flex items-center gap-2 text-sm font-bold text-[var(--text-primary)]">
-              <span className="material-symbols-outlined text-rose-400 text-[20px]">report_problem</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[var(--warning)] text-[20px]">report_problem</span>
               <span>Seguimiento del Reclamo & Diagnóstico</span>
             </h2>
 
-            <div className="rounded-xl border border-rose-500/35 bg-rose-500/10 p-3.5 text-xs space-y-1">
-              <span className="font-bold text-rose-400 block uppercase text-[11px]">
+            <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] p-3.5 text-xs space-y-1">
+              <span className="font-bold text-[var(--warning)] block uppercase text-[11px]">
                 Motivo reportado por el cliente:
               </span>
               <p className="text-[var(--text-primary)] text-xs sm:text-sm font-medium leading-relaxed">
@@ -996,8 +1018,8 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
             </div>
 
             {liveResolutionNotes && (
-              <div className="rounded-xl border border-cyan-500/35 bg-cyan-500/10 p-3.5 text-xs space-y-1">
-                <span className="font-bold text-cyan-400 block uppercase text-[11px]">
+              <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] p-3.5 text-xs space-y-1">
+                <span className="font-bold text-[var(--brand)] block uppercase text-[11px]">
                   Último diagnóstico / acuerdo registrado:
                 </span>
                 <p className="text-[var(--text-primary)] text-xs sm:text-sm font-medium leading-relaxed">
@@ -1018,9 +1040,9 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                       href={safeFileUrl(url)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-cyan-500/35 bg-cyan-500/10 px-3 py-1.5 text-xs font-bold text-cyan-400 hover:underline"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--brand)] bg-[var(--brand-soft)] px-3 py-1.5 text-xs font-bold text-[var(--brand)] hover:underline"
                     >
-                      <span className="material-symbols-outlined text-[15px]">attachment</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[15px]">attachment</span>
                       <span>Ver evidencia {idx + 1}</span>
                     </a>
                   ))}
@@ -1031,11 +1053,11 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
             <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-3">
               <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] p-3">
                 <span className="block text-[11px] font-medium text-[var(--text-secondary)]">Prioridad</span>
-                <strong className="text-amber-500 font-bold text-sm">{claim.priority}</strong>
+                <strong className="text-[var(--warning)] font-bold text-sm">{claim.priority}</strong>
               </div>
               <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] p-3">
                 <span className="block text-[11px] font-medium text-[var(--text-secondary)]">Llamadas Registradas</span>
-                <strong className="text-cyan-400 font-bold text-sm">{calls.length} llamadas</strong>
+                <strong className="text-[var(--brand)] font-bold text-sm">{calls.length} llamadas</strong>
               </div>
               <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] p-3">
                 <span className="block text-[11px] font-medium text-[var(--text-secondary)]">Fecha de Apertura</span>
@@ -1049,18 +1071,18 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
           {/* Detalles de la Orden y Datos del Cliente */}
           <section className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-5 space-y-4">
             <h2 className="flex items-center gap-2 text-sm font-bold text-[var(--text-primary)]">
-              <span className="material-symbols-outlined text-cyan-400 text-[20px]">inventory_2</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[var(--brand)] text-[20px]">inventory_2</span>
               <span>Detalles de la Orden y Datos del Cliente</span>
             </h2>
 
             <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
               <div className="p-3 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
                 <span className="text-[var(--text-secondary)] block text-[11px]">Código Orden:</span>
-                <strong className="font-mono text-cyan-400 text-sm">{claim.orderCode}</strong>
+                <strong className="font-mono text-[var(--brand)] text-sm">{claim.orderCode}</strong>
               </div>
               <div className="p-3 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
                 <span className="text-[var(--text-secondary)] block text-[11px]">Estatus anterior:</span>
-                <strong className="text-emerald-500 text-xs font-bold">{claim.previousOrderStatus || 'N/A'}</strong>
+                <strong className="text-[var(--text-primary)] text-xs font-bold">{claim.previousOrderStatus || 'N/A'}</strong>
               </div>
               <div className="p-3 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
                 <span className="text-[var(--text-secondary)] block text-[11px]">Vehículo:</span>
@@ -1074,11 +1096,11 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
               </div>
               <div className="p-3 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
                 <span className="text-[var(--text-secondary)] block text-[11px]">Pieza / Repuesto:</span>
-                <strong className="text-cyan-400 text-xs font-bold">{claim.mainPart}</strong>
+                <strong className="text-[var(--brand)] text-xs font-bold">{claim.mainPart}</strong>
               </div>
               <div className="p-3 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
                 <span className="text-[var(--text-secondary)] block text-[11px]">Stock:</span>
-                <strong className="font-mono text-emerald-500 text-xs">{claim.stockNumber || '-'}</strong>
+                <strong className="font-mono text-[var(--text-primary)] text-xs">{claim.stockNumber || '-'}</strong>
               </div>
               <div className="p-3 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
                 <span className="text-[var(--text-secondary)] block text-[11px]">Total Facturado:</span>
@@ -1086,14 +1108,14 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
               </div>
               <div className="p-3 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
                 <span className="text-[var(--text-secondary)] block text-[11px]">Balance Pendiente:</span>
-                <strong className="text-rose-400 font-mono text-xs">${orderBalance.toFixed(2)} USD</strong>
+                <strong className="text-[var(--text-primary)] font-mono text-xs">${orderBalance.toFixed(2)} USD</strong>
               </div>
             </div>
 
             {/* Datos del Cliente integrados */}
             <div className="pt-3 border-t border-[var(--border-color)]">
               <h3 className="flex items-center gap-1.5 text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-3">
-                <span className="material-symbols-outlined text-cyan-400 text-[16px]">person</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[var(--brand)] text-[16px]">person</span>
                 <span>Datos del Cliente</span>
               </h3>
               <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-3">
@@ -1103,11 +1125,11 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                 </div>
                 <div className="p-3 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
                   <span className="text-[var(--text-secondary)] block text-[11px]">Teléfono de Contacto:</span>
-                  <strong className="font-mono text-cyan-400 text-xs">{claim.customerPhone}</strong>
+                  <strong className="font-mono text-[var(--brand)] text-xs">{claim.customerPhone}</strong>
                 </div>
                 <div className="p-3 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
                   <span className="text-[var(--text-secondary)] block text-[11px]">Asesor Asignado:</span>
-                  <strong className="text-emerald-500 text-xs font-bold">{claim.advisor}</strong>
+                  <strong className="text-[var(--text-primary)] text-xs font-bold">{claim.advisor}</strong>
                 </div>
               </div>
             </div>
@@ -1118,8 +1140,8 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
         <section className="lg:col-span-5 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[var(--border-color)]">
             <div className="flex items-center gap-2">
-              <span className="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 flex items-center justify-center shrink-0">
-                <span className="material-symbols-outlined text-[20px]">phone_in_talk</span>
+              <span className="w-9 h-9 rounded-xl bg-[var(--brand-soft)] border border-[var(--brand)] text-[var(--brand)] flex items-center justify-center shrink-0">
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">phone_in_talk</span>
               </span>
               <div>
                 <h2 className="text-sm font-bold text-[var(--text-primary)]">Bitácora de Llamadas en Vivo</h2>
@@ -1128,14 +1150,14 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                 </p>
               </div>
             </div>
-            <span className="rounded-full bg-cyan-500/15 border border-cyan-500/30 px-2.5 py-0.5 text-xs font-bold text-cyan-400 tabular-nums">
+            <span className="rounded-full bg-[var(--brand-soft)] border border-[var(--brand)] px-2.5 py-0.5 text-xs font-bold text-[var(--brand)] tabular-nums">
               {calls.length} {calls.length === 1 ? 'llamada' : 'llamadas'}
             </span>
           </div>
 
           {calls.length >= 3 && !isClosed && (
-            <div className="flex gap-2.5 rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-400">
-              <span className="material-symbols-outlined text-[18px] shrink-0">warning</span>
+            <div className="flex gap-2.5 rounded-xl border border-[var(--state-urgency-border)] bg-[var(--state-urgency-tint)] p-3 text-xs text-[var(--state-urgency-text)]">
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px] shrink-0">warning</span>
               <div>
                 <strong className="block font-bold">Seguimiento prioritario ({calls.length} llamadas)</strong>
                 <span>Este reclamo sigue abierto y requiere definir su resolución.</span>
@@ -1149,14 +1171,14 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
             className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] p-3.5 space-y-3"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs font-bold text-cyan-400 flex items-center gap-1">
-                <span className="material-symbols-outlined text-[16px]">add_call</span>
-                <span>Nueva nota de llamada / WhatsApp</span>
+              <span className="text-xs font-bold text-[var(--brand)] flex items-center gap-1">
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">add_call</span>
+                <span>Nueva nota de llamada / mensaje</span>
               </span>
               <button
                 type="button"
                 onClick={() => setShowContactEdit((prev) => !prev)}
-                className="text-[11px] font-semibold text-[var(--text-secondary)] hover:text-cyan-400 cursor-pointer"
+                className="inline-flex min-h-6 items-center text-[11px] font-semibold text-[var(--text-secondary)] hover:text-[var(--brand)] cursor-pointer"
               >
                 {showContactEdit ? 'Ocultar contacto' : `${callerName} · ${callerPhone} (Editar)`}
               </button>
@@ -1169,21 +1191,21 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                   value={callerName}
                   onChange={(e) => setCallerName(e.target.value)}
                   placeholder="Contacto"
-                  className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                  className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
                 />
                 <input
                   required
                   value={callerPhone}
                   onChange={(e) => setCallerPhone(e.target.value)}
                   placeholder="Teléfono"
-                  className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                  className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
                 />
                 <input
                   required
                   value={attendedBy}
                   onChange={(e) => setAttendedBy(e.target.value)}
                   placeholder="Atendió"
-                  className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                  className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
                 />
               </div>
             )}
@@ -1201,7 +1223,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                     onClick={() =>
                       setCallSummary((prev) => (prev.trim() ? `${prev.trim()} ${chip}` : chip))
                     }
-                    className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-secondary)] hover:border-cyan-400/50 hover:text-[var(--text-primary)] cursor-pointer transition-colors text-left"
+                    className="inline-flex min-h-8 items-center rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--text-secondary)] hover:border-[var(--brand)] hover:text-[var(--text-primary)] cursor-pointer transition-colors text-left"
                   >
                     + {chip}
                   </button>
@@ -1215,16 +1237,16 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
               value={callSummary}
               onChange={(e) => setCallSummary(e.target.value)}
               placeholder="Escribe el resumen de la llamada, qué indicó el cliente y el próximo acuerdo..."
-              className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+              className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
             />
 
             {callError && (
-              <p role="alert" className="text-xs font-semibold text-rose-400">
+              <p role="alert" className="text-xs font-semibold text-[var(--danger)]">
                 {callError}
               </p>
             )}
             {callSuccess && (
-              <p role="status" className="text-xs font-semibold text-emerald-500">
+              <p role="status" className="text-xs font-semibold text-[var(--positive)]">
                 {callSuccess}
               </p>
             )}
@@ -1235,7 +1257,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                 disabled={savingCall}
                 className="horizon-primary rounded-xl px-4 py-2 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
-                <span className="material-symbols-outlined text-[16px]">save</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">save</span>
                 <span>{savingCall ? 'Guardando…' : 'Registrar llamada'}</span>
               </button>
             </div>
@@ -1255,7 +1277,7 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <span className="rounded-md bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 font-mono text-[11px] font-bold text-cyan-400">
+                      <span className="rounded-md bg-[var(--brand-soft)] border border-[var(--brand)] px-2 py-0.5 font-mono text-[11px] font-bold text-[var(--brand)]">
                         Llamada #{call.callNumber || calls.length - index}
                       </span>
                       <strong className="text-[var(--text-primary)]">{call.callerName}</strong>
@@ -1267,11 +1289,11 @@ export const ClaimDetailView: React.FC<ClaimDetailViewProps> = ({
                       })}
                     </time>
                   </div>
-                  <p className="border-l-2 border-cyan-400 pl-2.5 text-[var(--text-primary)] leading-relaxed">
+                  <p className="border-l-2 border-[var(--brand)] pl-2.5 text-[var(--text-primary)] leading-relaxed">
                     {call.conversationSummary}
                   </p>
                   <p className="text-[11px] text-[var(--text-secondary)]">
-                    Atendido por <strong className="text-emerald-500">{call.attendedBy}</strong>
+                    Atendido por <strong className="text-[var(--text-primary)]">{call.attendedBy}</strong>
                   </p>
                 </article>
               ))

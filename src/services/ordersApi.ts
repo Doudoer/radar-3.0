@@ -31,6 +31,7 @@ export const ordersApi = {
     return orders;
   },
   get: (orderId: string | number) => request<Order>(`/orders/${orderId}`),
+  search: (q: string, limit = 30) => request<Order[]>(`/orders?q=${encodeURIComponent(q)}&limit=${limit}`),
   linkInventory: (orderId: string, inventoryPartId: number, version: number) =>
     request<Order>(`/orders/${orderId}/inventory`, {
       method: 'POST', body: JSON.stringify({ inventoryPartId, version, confirmedCompatibility: true }),

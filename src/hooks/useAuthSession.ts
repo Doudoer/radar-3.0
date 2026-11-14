@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../services/apiFetch';
+import { useFeedback } from '../components/FeedbackProvider';
 
 export interface AuthUser {
   id?: number;
@@ -13,6 +14,7 @@ export interface AuthUser {
 }
 
 export const useAuthSession = () => {
+  const { toast } = useFeedback();
   const [authenticated, setAuthenticated] = useState(() => sessionStorage.getItem('radar_authenticated') === 'true');
   const [user, setUser] = useState<AuthUser | null>(null);
   const [checking, setChecking] = useState(true);
@@ -70,9 +72,13 @@ export const useAuthSession = () => {
       if (!response.ok && response.status !== 401) throw new Error('El servidor no pudo revocar la sesion');
       handleUnauthorized();
     } catch (error) {
-      window.alert(error instanceof Error ? `No se pudo cerrar la sesion: ${error.message}` : 'No se pudo cerrar la sesion. Intenta de nuevo.');
+      toast({
+        title: 'No se pudo cerrar la sesion',
+        message: error instanceof Error ? error.message : 'Intenta de nuevo.',
+        tone: 'error',
+      });
     }
-  }, [handleUnauthorized]);
+  }, [handleUnauthorized, toast]);
 
   return {
     authenticated,

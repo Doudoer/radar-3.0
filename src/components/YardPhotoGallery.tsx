@@ -3,13 +3,17 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 interface YardPhotoGalleryProps {
   images: string[];
   maxThumbnails?: number;
+  lightboxIndex: number | null;
+  onLightboxIndexChange: (index: number | null) => void;
 }
 
 export const YardPhotoGallery: React.FC<YardPhotoGalleryProps> = ({
   images,
   maxThumbnails = 4,
+  lightboxIndex,
+  onLightboxIndexChange,
 }) => {
-  const [activeLightboxIndex, setActiveLightboxIndex] = useState<number | null>(null);
+  const activeLightboxIndex = lightboxIndex;
   const [scale, setScale] = useState<number>(1);
   const [position, setPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [swipeDismissY, setSwipeDismissY] = useState<number>(0);
@@ -45,37 +49,35 @@ export const YardPhotoGallery: React.FC<YardPhotoGalleryProps> = ({
   }, []);
 
   const handleOpenLightbox = (index: number) => {
-    setActiveLightboxIndex(index);
+    onLightboxIndexChange(index);
     resetZoomAndPosition();
   };
 
   const handleCloseLightbox = useCallback(() => {
-    setActiveLightboxIndex(null);
+    onLightboxIndexChange(null);
     resetZoomAndPosition();
-  }, [resetZoomAndPosition]);
+  }, [onLightboxIndexChange, resetZoomAndPosition]);
 
   const handlePrev = useCallback(() => {
-    if (activeLightboxIndex !== null) {
-      setActiveLightboxIndex((prev) => ((prev ?? 0) - 1 + total) % total);
+    if (lightboxIndex !== null) {
+      onLightboxIndexChange((lightboxIndex - 1 + total) % total);
       resetZoomAndPosition();
     }
-  }, [activeLightboxIndex, total, resetZoomAndPosition]);
+  }, [lightboxIndex, total, onLightboxIndexChange, resetZoomAndPosition]);
 
   const handleNext = useCallback(() => {
-    if (activeLightboxIndex !== null) {
-      setActiveLightboxIndex((prev) => ((prev ?? 0) + 1) % total);
+    if (lightboxIndex !== null) {
+      onLightboxIndexChange((lightboxIndex + 1) % total);
       resetZoomAndPosition();
     }
-  }, [activeLightboxIndex, total, resetZoomAndPosition]);
+  }, [lightboxIndex, total, onLightboxIndexChange, resetZoomAndPosition]);
 
-  // Keyboard navigation (Arrow keys + Esc)
+  // Keyboard navigation (Arrow keys). Escape lo gestiona la pila de overlays del portal.
   useEffect(() => {
     if (activeLightboxIndex === null) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        handleCloseLightbox();
-      } else if (e.key === 'ArrowLeft') {
+      if (e.key === 'ArrowLeft') {
         handlePrev();
       } else if (e.key === 'ArrowRight') {
         handleNext();
@@ -84,7 +86,7 @@ export const YardPhotoGallery: React.FC<YardPhotoGalleryProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeLightboxIndex, handleCloseLightbox, handlePrev, handleNext]);
+  }, [activeLightboxIndex, handlePrev, handleNext]);
 
   // Prevent background scroll while lightbox is open
   useEffect(() => {
@@ -283,14 +285,18 @@ export const YardPhotoGallery: React.FC<YardPhotoGalleryProps> = ({
           const isLastAndOverflowing = idx === maxThumbnails - 1 && remainingCount > 0;
 
           return (
-            <div
+            <button
               key={idx}
+              type="button"
               onClick={() => handleOpenLightbox(idx)}
+              aria-label={`Ver foto de referencia ${idx + 1} de ${total}`}
+              aria-haspopup="dialog"
               className="relative aspect-square bg-slate-950 rounded-xl overflow-hidden cursor-pointer group border border-slate-800 hover:border-amber-500/50 transition-all shadow-sm"
             >
               <img
                 src={url}
-                alt={`Foto referencia ${idx + 1}`}
+                alt=""
+                aria-hidden="true"
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                 loading="lazy"
               />
@@ -302,7 +308,7 @@ export const YardPhotoGallery: React.FC<YardPhotoGalleryProps> = ({
                   +{remainingCount + 1}
                 </div>
               )}
-            </div>
+            </button>
           );
         })}
       </div>
@@ -312,10 +318,12 @@ export const YardPhotoGallery: React.FC<YardPhotoGalleryProps> = ({
         <div
           role="dialog"
           aria-modal="true"
-          className="horizon-modal fixed inset-0 z-50 flex flex-col justify-between bg-black text-white select-none transition-opacity duration-150"
+          aria-label="Fotos de referencia"
+          tabIndex={-1}
+          className="yard-lightbox fixed inset-0 z-[120] flex flex-col justify-between bg-black text-white select-none transition-opacity duration-150"
           style={{
-            backgroundColor: `rgba(0, 0, 0, ${Math.max(0.7, 1 - swipeDismissY / 300)})`,
-          }}
+            '--lightbox-fade': Math.max(0.7, 1 - swipeDismissY / 300),
+          } as React.CSSProperties}
         >
           {/* Top Bar - WhatsApp Style (Back/Close, Counter, Reset zoom) */}
           <div className="relative z-30 flex items-center justify-between px-3 py-3 bg-gradient-to-b from-black/80 to-transparent">
@@ -324,10 +332,10 @@ export const YardPhotoGallery: React.FC<YardPhotoGalleryProps> = ({
               <button
                 type="button"
                 onClick={handleCloseLightbox}
-                className="p-2 -ml-1 rounded-full text-white/90 hover:text-white hover:bg-white/10 active:bg-white/20 transition-colors cursor-pointer"
+                className="w-11 h-11 -ml-1 flex items-center justify-center rounded-full text-white/90 hover:text-white hover:bg-white/10 active:bg-white/20 transition-colors cursor-pointer"
                 aria-label="Cerrar visor"
               >
-                <span className="material-symbols-outlined text-[24px]">arrow_back</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[24px]">arrow_back</span>
               </button>
               <div className="flex flex-col">
                 <span className="text-sm font-semibold tracking-wide text-white">
@@ -353,10 +361,10 @@ export const YardPhotoGallery: React.FC<YardPhotoGalleryProps> = ({
               <button
                 type="button"
                 onClick={handleCloseLightbox}
-                className="p-2 rounded-full text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                className="w-11 h-11 flex items-center justify-center rounded-full text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
                 aria-label="Cerrar"
               >
-                <span className="material-symbols-outlined text-[22px]">close</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[22px]">close</span>
               </button>
             </div>
           </div>
@@ -385,7 +393,7 @@ export const YardPhotoGallery: React.FC<YardPhotoGalleryProps> = ({
                 className="absolute left-2 sm:left-4 z-20 p-2.5 sm:p-3 rounded-full bg-black/40 hover:bg-black/70 text-white/90 hover:text-white backdrop-blur-sm transition-all border border-white/10 cursor-pointer hidden sm:flex items-center justify-center"
                 aria-label="Foto anterior"
               >
-                <span className="material-symbols-outlined text-[24px]">chevron_left</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[24px]">chevron_left</span>
               </button>
             )}
 
@@ -417,7 +425,7 @@ export const YardPhotoGallery: React.FC<YardPhotoGalleryProps> = ({
                 className="absolute right-2 sm:right-4 z-20 p-2.5 sm:p-3 rounded-full bg-black/40 hover:bg-black/70 text-white/90 hover:text-white backdrop-blur-sm transition-all border border-white/10 cursor-pointer hidden sm:flex items-center justify-center"
                 aria-label="Foto siguiente"
               >
-                <span className="material-symbols-outlined text-[24px]">chevron_right</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[24px]">chevron_right</span>
               </button>
             )}
           </div>
@@ -431,8 +439,7 @@ export const YardPhotoGallery: React.FC<YardPhotoGalleryProps> = ({
                     key={idx}
                     type="button"
                     onClick={() => {
-                      setActiveLightboxIndex(idx);
-                      resetZoomAndPosition();
+                      handleOpenLightbox(idx);
                     }}
                     className={`relative w-11 h-11 sm:w-13 sm:h-13 rounded-lg overflow-hidden flex-shrink-0 transition-all cursor-pointer ${
                       activeLightboxIndex === idx

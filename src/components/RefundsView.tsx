@@ -3,6 +3,7 @@ import { Order, RefundRequest } from '../types';
 import { apiFetch } from '../services/apiFetch';
 import { RefundRequestView } from './RefundRequestView';
 import { OrderAftersalesPanel } from './OrderAftersales';
+import { FlowDialog } from './FlowDialog';
 
 interface RefundsViewProps {
   orders: Order[];
@@ -11,18 +12,18 @@ interface RefundsViewProps {
 }
 
 const fieldClass =
-  'rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3.5 py-2 text-xs sm:text-sm text-[var(--text-primary)] focus:outline-none focus:border-cyan-400 transition-colors';
+  'rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] px-3.5 py-2 text-xs sm:text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--brand)] transition-colors';
 const buttonClass =
   'cyber-btn-secondary rounded-xl px-3.5 py-2 text-xs font-bold disabled:opacity-50 cursor-pointer transition-all';
 
 const STAGE_BADGES: Record<string, { label: string; cls: string }> = {
-  requested: { label: '1. Solicitado', cls: 'bg-amber-500/15 border-amber-500/35 text-amber-500' },
-  pending: { label: 'Pendiente de revisión', cls: 'bg-amber-500/15 border-amber-500/35 text-amber-500' },
-  review: { label: '2. En revisión', cls: 'bg-cyan-500/15 border-cyan-500/35 text-cyan-400' },
-  approved: { label: '3. Aprobado · Listo para devolver', cls: 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500' },
-  completed: { label: '4. Dinero devuelto', cls: 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500' },
-  rejected: { label: 'Rechazado', cls: 'bg-rose-500/15 border-rose-500/35 text-rose-400' },
-  cancelled: { label: 'Cancelado', cls: 'bg-rose-500/15 border-rose-500/35 text-rose-400' },
+  requested: { label: '1. Solicitado', cls: 'bg-[var(--state-urgency-tint)] border-[var(--state-urgency-border)] text-[var(--state-urgency-text)]' },
+  pending: { label: 'Pendiente de revisión', cls: 'bg-[var(--state-urgency-tint)] border-[var(--state-urgency-border)] text-[var(--state-urgency-text)]' },
+  review: { label: '2. En revisión', cls: 'bg-[var(--brand-soft)] border-[var(--brand)] text-[var(--brand)]' },
+  approved: { label: '3. Aprobado · Listo para devolver', cls: 'bg-[var(--bg-card-subtle)] border-[var(--positive)] text-[var(--positive)]' },
+  completed: { label: '4. Dinero devuelto', cls: 'bg-[var(--bg-card-subtle)] border-[var(--positive)] text-[var(--positive)]' },
+  rejected: { label: 'Rechazado', cls: 'bg-[var(--bg-card-subtle)] border-[var(--state-destructive)] text-[var(--state-destructive)]' },
+  cancelled: { label: 'Cancelado', cls: 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)]' },
 };
 
 export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'operador', onSelectOrder }) => {
@@ -117,53 +118,26 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
   );
 
   const selectedOrder = orders.find((order) => String(order.id) === selectedOrderId);
-
-  if (creating && selectedOrder) {
-    return (
-      <RefundRequestView
-        key={selectedOrder.id}
-        order={selectedOrder}
-        onBack={() => {
-          setCreating(false);
-          setSelectedOrderId('');
-        }}
-        onSuccess={(message) => {
-          setMessage(message);
-          setCreating(false);
-          setSelectedOrderId('');
-        }}
-      />
-    );
-  }
-
   const managingOrder = orders.find((order) => String(order.id) === managingId);
+
   if (managingOrder) {
     return (
-      <div className="radar-view horizon-view space-y-4 pb-10">
-        <div className="horizon-view-card flex flex-wrap items-center justify-between gap-3 p-4">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className="p-2 rounded-xl bg-[var(--bg-card-subtle)] border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/20 transition-all cursor-pointer"
-              onClick={() => setManagingId('')}
-            >
-              <span className="material-symbols-outlined text-[18px]">arrow_back</span>
-            </button>
-            <div>
-              <h1 className="text-lg sm:text-xl font-black text-[var(--text-primary)]">
-                Gestión de reembolso · <span className="font-mono text-cyan-400">#{managingOrder.code}</span>
-              </h1>
-              <p className="text-xs text-[var(--text-secondary)]">
-                {managingOrder.customer?.name} · {managingOrder.vehicle?.make} {managingOrder.vehicle?.model}
-              </p>
-            </div>
-          </div>
-          <button type="button" className={buttonClass} onClick={() => setManagingId('')}>
-            Volver a reembolsos
-          </button>
-        </div>
+      <FlowDialog
+        open
+        onClose={() => setManagingId('')}
+        labelledBy="refund-manage-title"
+        icon="currency_exchange"
+        title="Gestión de reembolso"
+        badge={
+          <span className="rounded-lg border border-[var(--brand)] bg-[var(--brand-soft)] px-2.5 py-0.5 font-mono text-xs font-bold text-[var(--brand)]">
+            #{managingOrder.code}
+          </span>
+        }
+        subtitle={`${managingOrder.customer?.name || ''} · ${managingOrder.vehicle?.make || ''} ${managingOrder.vehicle?.model || ''}`.trim()}
+        isBlocked={() => Boolean(document.querySelector('[role="dialog"][aria-modal="true"]:not([data-flow-dialog])'))}
+      >
         <OrderAftersalesPanel order={managingOrder} />
-      </div>
+      </FlowDialog>
     );
   }
 
@@ -172,8 +146,8 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
       {/* Header */}
       <header className="horizon-view-header flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <span className="w-11 h-11 rounded-2xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-[24px]">currency_exchange</span>
+          <span className="w-11 h-11 rounded-2xl bg-[var(--brand-soft)] border border-[var(--border-color)] text-[var(--brand)] flex items-center justify-center shrink-0">
+            <span aria-hidden="true" className="material-symbols-outlined text-[24px]">currency_exchange</span>
           </span>
           <div>
             <h1 className="text-xl sm:text-2xl font-black text-[var(--text-primary)]">Reembolsos</h1>
@@ -187,54 +161,20 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
           className="horizon-primary rounded-xl px-4 py-2 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
           onClick={() => setCreating(true)}
         >
-          <span className="material-symbols-outlined text-[16px]">add_circle</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[16px]">add_circle</span>
           <span>Nueva solicitud</span>
         </button>
       </header>
 
       {error && (
-        <p role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-xs sm:text-sm font-semibold text-red-500">
+        <p role="alert" className="rounded-xl border border-[var(--danger)] bg-[var(--bg-card-subtle)] p-3 text-xs sm:text-sm font-semibold text-[var(--danger)]">
           {error}
         </p>
       )}
       {message && (
-        <p role="status" className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-xs sm:text-sm font-semibold text-emerald-500">
+        <p role="status" className="rounded-xl border border-[var(--positive)] bg-[var(--bg-card-subtle)] p-3 text-xs sm:text-sm font-semibold text-[var(--positive)]">
           {message}
         </p>
-      )}
-
-      {/* New Refund Order Selector Card */}
-      {creating && (
-        <section className="horizon-view-card rounded-2xl border-2 border-cyan-500/40 p-4 sm:p-5 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <h2 className="text-sm sm:text-base font-bold text-[var(--text-primary)]">
-                Selecciona la orden para solicitar un reembolso
-              </h2>
-              <p className="text-xs text-[var(--text-secondary)]">
-                Al elegir la orden se abrirá su panel de posventa con su saldo cobrado disponible.
-              </p>
-            </div>
-            <button type="button" className={buttonClass} onClick={() => setCreating(false)}>
-              Volver
-            </button>
-          </div>
-          <select
-            className={`${fieldClass} w-full`}
-            aria-label="Orden a reembolsar"
-            value={selectedOrderId}
-            onChange={(event) => setSelectedOrderId(event.target.value)}
-          >
-            <option value="">Selecciona una orden</option>
-            {orders
-              .filter((order) => !['reembolsado', 'solicitud_reembolso'].includes(order.status))
-              .map((order) => (
-                <option key={order.id} value={order.id}>
-                  {order.code} · {order.customer.name}
-                </option>
-              ))}
-          </select>
-        </section>
       )}
 
       {/* KPI Summary Cards */}
@@ -242,24 +182,24 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
         <div className="horizon-view-card p-4 flex items-center justify-between gap-3">
           <div>
             <span className="text-xs text-[var(--text-secondary)] block">Solicitudes pendientes</span>
-            <strong className="text-xl sm:text-2xl font-black text-amber-500 tabular-nums">
+            <strong className="text-xl sm:text-2xl font-black text-[var(--state-urgency-text)] tabular-nums">
               {stats.pendingCount} · ${stats.pendingAmount.toFixed(2)}
             </strong>
           </div>
-          <span className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-500 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[20px]">hourglass_top</span>
+          <span className="w-10 h-10 rounded-xl bg-[var(--state-urgency-tint)] border border-[var(--state-urgency-border)] text-[var(--state-urgency-text)] flex items-center justify-center">
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">hourglass_top</span>
           </span>
         </div>
 
         <div className="horizon-view-card p-4 flex items-center justify-between gap-3">
           <div>
             <span className="text-xs text-[var(--text-secondary)] block">Reembolsos completados</span>
-            <strong className="text-xl sm:text-2xl font-black text-emerald-500 tabular-nums">
+            <strong className="text-xl sm:text-2xl font-black text-[var(--positive)] tabular-nums">
               {stats.completedCount} · ${stats.completedAmount.toFixed(2)}
             </strong>
           </div>
-          <span className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[20px]">paid</span>
+          <span className="w-10 h-10 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--positive)] text-[var(--positive)] flex items-center justify-center">
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">paid</span>
           </span>
         </div>
 
@@ -270,8 +210,8 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
               {stats.totalCount}
             </strong>
           </div>
-          <span className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[20px]">receipt_long</span>
+          <span className="w-10 h-10 rounded-xl bg-[var(--brand-soft)] border border-[var(--border-color)] text-[var(--brand)] flex items-center justify-center">
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">receipt_long</span>
           </span>
         </div>
       </div>
@@ -314,7 +254,7 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
                 onClick={() => setStatus(pill.id)}
                 className={`rounded-lg border px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${
                   status === pill.id
-                    ? 'bg-cyan-500/20 border-cyan-400 text-cyan-400 shadow-sm'
+                    ? 'bg-[var(--brand-soft)] border-[var(--brand)] text-[var(--brand)] shadow-sm'
                     : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
@@ -337,7 +277,7 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
                 onClick={() => setScopeFilter(sc.id)}
                 className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition-all cursor-pointer ${
                   scopeFilter === sc.id
-                    ? 'bg-emerald-500/20 border-emerald-400 text-emerald-400'
+                    ? 'bg-[var(--bg-card-subtle)] border-[var(--positive)] text-[var(--positive)]'
                     : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
@@ -366,14 +306,14 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
               {/* Card Header */}
               <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[var(--border-color)]">
                 <div className="flex flex-wrap items-center gap-2">
-                  <strong className="font-mono text-sm font-black text-cyan-400">
+                  <strong className="font-mono text-sm font-black text-[var(--brand)]">
                     {refund.id} · {refund.orderCode} · {isCore ? 'Core' : 'Compra'}
                   </strong>
                   <span
                     className={`rounded-full border px-2.5 py-0.5 text-xs font-bold ${
                       isCore
                         ? 'bg-purple-500/15 border-purple-500/35 text-purple-400'
-                        : 'bg-cyan-500/15 border-cyan-500/35 text-cyan-400'
+                        : 'bg-[var(--brand-soft)] border-[var(--brand)] text-[var(--brand)]'
                     }`}
                   >
                     {isCore ? '⚙️ Depósito de Core' : '🛒 Reembolso de Compra'}
@@ -397,7 +337,7 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
                   <strong className="font-bold text-[var(--text-primary)] block">
                     {refund.customerName}
                   </strong>
-                  <p className="text-cyan-400 font-semibold">
+                  <p className="text-[var(--brand)] font-semibold">
                     {refund.vehicle} · {refund.part}
                   </p>
                 </div>
@@ -455,10 +395,10 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
 
       {/* Legacy Informative Accordion */}
       {hasLoaded && (status === 'all' || status === 'completed') && legacyOrders.length > 0 && (
-        <section className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-4 space-y-2.5">
+        <section className="rounded-2xl border border-[var(--state-urgency-border)] bg-[var(--state-urgency-tint)] p-4 space-y-2.5">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[18px] text-amber-500">inventory</span>
-            <h2 className="font-bold text-sm text-amber-500">Histórico legado — solo informativo</h2>
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-[var(--state-urgency-text)]">inventory</span>
+            <h2 className="font-bold text-sm text-[var(--state-urgency-text)]">Histórico legado — solo informativo</h2>
           </div>
           <p className="text-xs text-[var(--text-secondary)]">
             Órdenes reembolsadas sin solicitud registrada. No representan solicitudes ni permiten acciones de pago.
@@ -477,6 +417,80 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
           </div>
         </section>
       )}
+
+      <FlowDialog
+        open={creating}
+        onClose={() => {
+          setCreating(false);
+          setSelectedOrderId('');
+        }}
+        labelledBy="refund-request-title"
+        icon={selectedOrder ? 'currency_exchange' : 'add_card'}
+        title={selectedOrder ? 'Solicitud de reembolso' : 'Nueva solicitud de reembolso'}
+        badge={
+          selectedOrder ? (
+            <span className="rounded-lg border border-[var(--brand)] bg-[var(--brand-soft)] px-2.5 py-0.5 font-mono text-xs font-bold text-[var(--brand)]">
+              #{selectedOrder.code}
+            </span>
+          ) : null
+        }
+        subtitle={
+          selectedOrder
+            ? `${selectedOrder.customer?.name || ''} · ${selectedOrder.vehicle?.make || ''} ${selectedOrder.vehicle?.model || ''}`.trim()
+            : 'Elige la orden y se abrirá su panel de posventa con el saldo cobrado disponible.'
+        }
+        isBlocked={() => Boolean(document.querySelector('[role="dialog"][aria-modal="true"]:not([data-flow-dialog])'))}
+        headerActions={
+          selectedOrder ? (
+            <button
+              type="button"
+              onClick={() => setSelectedOrderId('')}
+              className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)] cursor-pointer"
+            >
+              Cambiar orden
+            </button>
+          ) : null
+        }
+      >
+        {selectedOrder ? (
+          <RefundRequestView
+            key={selectedOrder.id}
+            embedded
+            order={selectedOrder}
+            onBack={() => setSelectedOrderId('')}
+            onSuccess={(message) => {
+              setMessage(message);
+              setCreating(false);
+              setSelectedOrderId('');
+            }}
+          />
+        ) : (
+          <div className="space-y-3">
+            <label className="block text-xs font-semibold text-[var(--text-secondary)]">
+              Orden a reembolsar
+              <select
+                className={`${fieldClass} mt-1 w-full`}
+                aria-label="Orden a reembolsar"
+                value={selectedOrderId}
+                onChange={(event) => setSelectedOrderId(event.target.value)}
+              >
+                <option value="">Selecciona una orden</option>
+                {orders
+                  .filter((order) => !['reembolsado', 'solicitud_reembolso'].includes(order.status))
+                  .map((order) => (
+                    <option key={order.id} value={order.id}>
+                      {order.code} · {order.customer.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <p className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] p-3 text-xs text-[var(--text-secondary)]">
+              Al elegir la orden se habilita el panel de posventa con su saldo cobrado disponible para
+              devolución.
+            </p>
+          </div>
+        )}
+      </FlowDialog>
     </div>
   );
 };

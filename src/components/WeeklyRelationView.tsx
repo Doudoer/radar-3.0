@@ -1,7 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Order } from '../types';
 import { useFinanceState, useFinanceMovements } from '../hooks/useFinanceState';
 import { FinanceVault } from './FinanceVault';
+import { useFeedback } from './FeedbackProvider';
+import { useDialogAccessibility } from '../hooks/useDialogAccessibility';
 import {
   getFinanceWeekRange, parseFinanceDate, isInFinancePeriod, financeDateKey,
   FINANCE_TIME_ZONE, commissionBase, commissionAmount, movementIncome, movementsInPeriod, sumMoney,
@@ -12,7 +14,7 @@ import {
   generateGeneralRelationPdf,
   downloadPdfBytes,
 } from '../utils/weeklyRelationPdf';
-import { orderSaleTotal } from '../utils/orderAnalytics';
+import { orderSaleTotal, ordersForMovements } from '../utils/orderAnalytics';
 
 export interface OfficeEmployee {
   id: string;
@@ -172,8 +174,8 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   orders = [],
   onBackToDashboard,
 }) => {
-  const [toastMessage, setToastMessage] = useState<{ text: string } | null>(null);
-  const showToast = (text: string) => setToastMessage({ text });
+  const { confirm, toast } = useFeedback();
+  const showToast = (title: string) => toast({ title });
 
   // =========================================================================
   // 2. OFFICE EMPLOYEES & PAYROLL MANAGEMENT (PERSISTENT)
@@ -201,7 +203,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
     e.preventDefault();
     const salary = parseFloat(employeeForm.weeklySalary);
     if (!employeeForm.name.trim() || isNaN(salary) || salary <= 0) {
-      alert('Por favor ingrese el nombre del empleado y un salario semanal válido.');
+      toast({ title: 'Datos incompletos', message: 'Ingresa el nombre del empleado y un salario semanal válido.', tone: 'error' });
       return;
     }
 
@@ -244,14 +246,19 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   };
 
   const handleDeleteEmployee = async (id: string, name: string) => {
-    if (confirm(`¿Eliminar al empleado "${name}" de la nómina semanal?`)) {
-      if (!await finance.save({ employees: employees.filter((emp) => emp.id !== id) })) return;
-      if (editingEmployeeId === id) {
-        setEditingEmployeeId(null);
-        setEmployeeForm({ name: '', weeklySalary: '', role: '' });
-      }
-      showToast(`Empleado "${name}" eliminado de la nómina.`);
+    const confirmed = await confirm({
+      title: `¿Eliminar al empleado "${name}"?`,
+      message: 'Saldrá de la nómina semanal de forma permanente.',
+      confirmLabel: 'Eliminar',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    if (!await finance.save({ employees: employees.filter((emp) => emp.id !== id) })) return;
+    if (editingEmployeeId === id) {
+      setEditingEmployeeId(null);
+      setEmployeeForm({ name: '', weeklySalary: '', role: '' });
     }
+    showToast(`Empleado "${name}" eliminado de la nómina.`);
   };
 
   // Sorted employees list (from highest weekly salary to lowest: de mayor a menor)
@@ -295,7 +302,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
     e.preventDefault();
     const amount = parseFloat(recurringForm.amount);
     if (!recurringForm.name.trim() || isNaN(amount) || amount <= 0) {
-      alert('Por favor ingrese el concepto y un monto válido en USD.');
+      toast({ title: 'Datos incompletos', message: 'Ingresa el concepto y un monto válido en USD.', tone: 'error' });
       return;
     }
 
@@ -366,13 +373,18 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   };
 
   const handleDeleteRecurring = async (id: string, name: string) => {
-    if (confirm(`¿Eliminar la regla de gasto recurrente "${name}"?`)) {
-      if (!await finance.save({ recurringExpenses: recurringExpenses.filter((r) => r.id !== id) })) return;
-      if (editingRecurringId === id) {
-        setEditingRecurringId(null);
-      }
-      showToast(`Gasto recurrente "${name}" eliminado.`);
+    const confirmed = await confirm({
+      title: `¿Eliminar la regla "${name}"?`,
+      message: 'El gasto recurrente dejará de proyectarse en la relación semanal.',
+      confirmLabel: 'Eliminar',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    if (!await finance.save({ recurringExpenses: recurringExpenses.filter((r) => r.id !== id) })) return;
+    if (editingRecurringId === id) {
+      setEditingRecurringId(null);
     }
+    showToast(`Gasto recurrente "${name}" eliminado.`);
   };
 
   const handleToggleRecurringActive = async (id: string) => {
@@ -395,6 +407,13 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
     const startStr = start.toLocaleDateString('es-ES', { timeZone: FINANCE_TIME_ZONE, day: '2-digit', month: 'short' });
     const endStr = end.toLocaleDateString('es-ES', { timeZone: FINANCE_TIME_ZONE, day: '2-digit', month: 'short', year: 'numeric' });
     return `Semana ${weekOffset === 0 ? 'Actual' : 'Seleccionada'} (${startStr} - ${endStr})`;
+  }, [currentWeekRange]);
+
+  const weekRangeDates = useMemo(() => {
+    const { start, end } = currentWeekRange;
+    const startStr = start.toLocaleDateString('es-ES', { timeZone: FINANCE_TIME_ZONE, day: '2-digit', month: 'short' });
+    const endStr = end.toLocaleDateString('es-ES', { timeZone: FINANCE_TIME_ZONE, day: '2-digit', month: 'short', year: 'numeric' });
+    return `${startStr} – ${endStr}`;
   }, [currentWeekRange]);
 
   // Recurring expenses due in the current running week (e.g. Alquiler de Local)
@@ -427,16 +446,42 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
     receiptNr: '',
   });
 
+  const employeesModalRef = useRef<HTMLDivElement>(null);
+  const recurringModalRef = useRef<HTMLDivElement>(null);
+  const expenseModalRef = useRef<HTMLDivElement>(null);
+
+  useDialogAccessibility({
+    open: isEmployeesModalOpen,
+    dialogRef: employeesModalRef,
+    onEscape: () => {
+      setIsEmployeesModalOpen(false);
+      setEditingEmployeeId(null);
+      setEmployeeForm({ name: '', weeklySalary: '', role: '' });
+    },
+  });
+  useDialogAccessibility({
+    open: isRecurringModalOpen,
+    dialogRef: recurringModalRef,
+    onEscape: () => {
+      setIsRecurringModalOpen(false);
+      setEditingRecurringId(null);
+    },
+  });
+  useDialogAccessibility({
+    open: isNewExpenseModalOpen,
+    dialogRef: expenseModalRef,
+    onEscape: () => setIsNewExpenseModalOpen(false),
+  });
+
   // =========================================================================
   // 4. WEEKLY ORDERS FILTERING (PAID SALES & DELIVERIES OF CURRENT WEEK)
   // =========================================================================
 
   // Paid Sales of the current running week:
-  const weeklySalesOrders = useMemo(() => {
-    const orderIds = new Set(movementsInPeriod(income.movements, currentWeekRange)
-      .map((movement) => movement.orderId));
-    return orders.filter((order) => orderIds.has(order.id));
-  }, [orders, income.movements, currentWeekRange]);
+  const weeklySalesOrders = useMemo(
+    () => ordersForMovements(orders, income.movements, currentWeekRange),
+    [orders, income.movements, currentWeekRange],
+  );
 
   // Delivered Parts of the current running week:
   const weeklyDeliveriesOrders = useMemo(() => {
@@ -564,7 +609,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
     e.preventDefault();
     const parsedAmount = parseFloat(newExpenseForm.amount);
     if (!newExpenseForm.description.trim() || isNaN(parsedAmount) || parsedAmount <= 0) {
-      alert('Por favor complete la descripción y un monto válido en USD.');
+      toast({ title: 'Datos incompletos', message: 'Completa la descripción y un monto válido en USD.', tone: 'error' });
       return;
     }
 
@@ -592,17 +637,22 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   };
 
   const handleDeleteOtherExpense = async (id: string) => {
-    if (confirm('¿Está seguro de eliminar este registro de gasto operativo?')) {
-      if (!await finance.save({ otherExpenses: otherExpenses.filter((e) => e.id !== id) })) return;
-      showToast('Registro de gasto eliminado.');
-    }
+    const confirmed = await confirm({
+      title: '¿Eliminar este gasto operativo?',
+      message: 'El registro se quitará de la relación de la semana en curso.',
+      confirmLabel: 'Eliminar',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    if (!await finance.save({ otherExpenses: otherExpenses.filter((e) => e.id !== id) })) return;
+    showToast('Registro de gasto eliminado.');
   };
 
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   const handleExportPdf = async () => {
     if (!finance.state || (['sales', 'general'].includes(activeTab) && !income.loaded)) {
-      showToast('No se puede exportar: faltan datos financieros del servidor.');
+      toast({ title: 'No se puede exportar', message: 'Faltan datos financieros del servidor. Recarga e intenta de nuevo.', tone: 'error' });
       return;
     }
     setIsGeneratingPdf(true);
@@ -618,7 +668,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
           weekLabel: `${weekRangeLabel} · Movimientos netos, no valor de venta`,
         });
         downloadPdfBytes(bytes, `ventas_semana_${dateStr}.pdf`);
-        showToast('📄 PDF de Ventas descargado con éxito.');
+        showToast('PDF de ventas descargado.');
       } else if (activeTab === 'general') {
         const bytes = await generateGeneralRelationPdf({
           income: totalSalesVolume,
@@ -635,7 +685,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
           weekLabel: `${weekRangeLabel} · Proyección con reglas vigentes, no cierre histórico`,
         });
         downloadPdfBytes(bytes, `relacion_general_semanal_${dateStr}.pdf`);
-        showToast('📄 PDF de Relación General descargado con éxito.');
+        showToast('PDF de relación general descargado.');
       } else {
         // 'official' or 'deliveries'
         const bytes = await generateOfficialDeliveriesPdf({
@@ -656,11 +706,11 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
           weekLabel: `${weekRangeLabel} · Solo precio de pieza, no comprobante de cobro`,
         });
         downloadPdfBytes(bytes, `formato_oficial_entregas_${dateStr}.pdf`);
-        showToast('📄 Formato Oficial PDF descargado con éxito.');
+        showToast('Formato oficial descargado.');
       }
     } catch (err) {
       console.error('Error al generar PDF:', err);
-      showToast('❌ Error al generar el archivo PDF.');
+      toast({ title: 'No se pudo generar el PDF', message: 'Revisa los datos financieros de la semana e intenta de nuevo.', tone: 'error' });
     } finally {
       setIsGeneratingPdf(false);
     }
@@ -677,7 +727,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
       <div className="p-4 sm:p-5 bg-[#111827] border-b border-[#1e293b] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h3 className="font-bold text-sm sm:text-base text-white flex items-center gap-2">
-            <span className="material-symbols-outlined text-amber-400 text-lg">receipt_long</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-amber-400 text-lg">receipt_long</span>
             <span>{title}</span>
           </h3>
           <p className="text-xs text-[#94a3b8] mt-0.5">{subtitle}</p>
@@ -704,7 +754,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 {financeDateKey(currentWeekRange.start)}
               </td>
               <td className="py-3.5 px-4 font-semibold text-[#f59e0b] flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[16px]">percent</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">percent</span>
                 <span>Comisiones y Bonificaciones</span>
               </td>
               <td className="py-3.5 px-4 font-bold text-white">
@@ -715,7 +765,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                   Cálculo Automático (2%)
                 </span>
               </td>
-              <td className="py-3.5 px-4 text-right font-mono font-bold text-[#ef4444]">
+              <td className="py-3.5 px-4 text-right font-mono font-bold text-[var(--text-heading)]">
                 -${managerCommission.toFixed(2)}
               </td>
               <td className="py-3.5 px-4 text-center text-[#64748b] text-[11px] font-mono italic">
@@ -731,7 +781,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                   {item.isEmployee ? (
                     <div className="flex items-center gap-1.5">
                       <span className="text-[#38bdf8] flex items-center gap-1">
-                        <span className="material-symbols-outlined text-[15px]">person</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[15px]">person</span>
                         <span>Nómina / Personal</span>
                       </span>
                       <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-[#388bfd]/15 text-[#38bdf8] border border-[#388bfd]/30 font-bold">
@@ -741,7 +791,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                   ) : item.isRecurring ? (
                     <div className="flex items-center gap-1.5">
                       <span className="text-[#fbbf24] flex items-center gap-1">
-                        <span className="material-symbols-outlined text-[15px]">event_repeat</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[15px]">event_repeat</span>
                         <span>{item.category}</span>
                       </span>
                       <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-[#f59e0b]/15 text-[#fbbf24] border border-[#f59e0b]/30 font-bold">
@@ -751,7 +801,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                   ) : (
                     <div className="flex items-center gap-1.5">
                       <span className="text-amber-300 flex items-center gap-1">
-                        <span className="material-symbols-outlined text-[15px]">bolt</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[15px]">bolt</span>
                         <span>{item.category}</span>
                       </span>
                       <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold">
@@ -768,7 +818,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                     {item.paymentMethod}
                   </span>
                 </td>
-                <td className="py-3.5 px-4 text-right font-mono font-bold text-[#ef4444]">
+                <td className="py-3.5 px-4 text-right font-mono font-bold text-[var(--text-heading)]">
                   -${item.amount.toFixed(2)}
                 </td>
                 <td className="py-3.5 px-4 text-center print:hidden">
@@ -783,7 +833,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                       className="p-1 text-[#38bdf8] hover:bg-[#38bdf8]/15 rounded transition-colors cursor-pointer"
                       title="Editar salario o cargo"
                     >
-                      <span className="material-symbols-outlined text-[16px]">edit</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px]">edit</span>
                     </button>
                   ) : item.isRecurring ? (
                     <button
@@ -796,15 +846,15 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                       className="p-1 text-[#fbbf24] hover:bg-[#f59e0b]/15 rounded transition-colors cursor-pointer"
                       title="Editar regla de gasto recurrente"
                     >
-                      <span className="material-symbols-outlined text-[16px]">edit</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px]">edit</span>
                     </button>
                   ) : (
                     <button
                       onClick={() => handleDeleteOtherExpense(item.id)}
-                      className="p-1 text-[#ef4444] hover:bg-[#ef4444]/15 rounded transition-colors cursor-pointer"
+                      className="p-1 text-[var(--state-urgency-text)] hover:bg-[var(--state-urgency-tint)] rounded transition-colors cursor-pointer"
                       title="Eliminar gasto"
                     >
-                      <span className="material-symbols-outlined text-[16px]">delete</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px]">delete</span>
                     </button>
                   )}
                 </td>
@@ -819,7 +869,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
         <span className="text-[#94a3b8] uppercase tracking-wider">
           TOTAL GASTOS Y DEDUCCIONES:
         </span>
-        <span className="font-mono text-base sm:text-lg text-[#ef4444]">
+        <span className="font-mono text-base sm:text-lg text-[var(--text-heading)]">
           -${totalExpensesWithCommission.toFixed(2)} USD
         </span>
       </div>
@@ -827,102 +877,148 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   );
 
   if (!finance.state) {
-    return <div className="radar-view horizon-view space-y-4 p-6 text-slate-200">
-      {finance.error
-        ? <p>La autorización y disponibilidad del estado financiero se verifican en el servidor.</p>
-        : <p>Validando acceso administrativo con el servidor…</p>}
-      <p role={finance.error ? 'alert' : 'status'}>{finance.error || 'Cargando estado financiero del servidor…'}</p>
-      <p>No se crearán datos ni se guardarán listas vacías durante la carga.</p>
-      <button type="button" onClick={() => void finance.reload()}>Volver a cargar</button>
-    </div>;
-  }
-  return (
-    <div className="radar-view horizon-view space-y-6 pb-16">
-      <div className="horizon-view-toolbar text-sm text-slate-200 space-y-2 print:hidden">
-        {finance.error && <p role="alert" className="text-red-300">{finance.error}</p>}
-        {income.error && <p role="alert" className="text-red-300">Ingresos no disponibles: {income.error}</p>}
-        {finance.saving && <p role="status">Guardando en servidor…</p>}
-        <div className="flex flex-wrap gap-3">
-          <button type="button" disabled={finance.saving} onClick={() => void finance.reload()}>Recargar estado</button>
-          <button type="button" onClick={() => void income.refresh()}>Recargar ingresos</button>
-          {finance.state && !employees.length && !recurringExpenses.length && !otherExpenses.length && (
-            <button type="button" disabled={finance.saving} onClick={() => void finance.importLegacy()}>
-              Importar datos locales anteriores…
-            </button>
-          )}
-          <button type="button" onClick={() => setWeekOffset((offset) => offset - 1)}>← Semana anterior</button>
-          <button type="button" disabled={weekOffset === 0} onClick={() => setWeekOffset((offset) => Math.min(0, offset + 1))}>Semana siguiente →</button>
-          <button type="button" onClick={() => setWeekOffset(0)}>Semana actual</button>
+    return (
+      <div className="radar-view horizon-view space-y-4 pb-16">
+        <div className={`rounded-2xl border p-5 ${finance.error
+          ? 'border-[var(--state-urgency-border)] bg-[var(--state-urgency-tint)]'
+          : 'border-[var(--border-subtle)] bg-[var(--bg-card)]'}`}>
+          <div className="flex items-start gap-3">
+            <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border ${finance.error
+              ? 'border-[var(--state-urgency-border)] text-[var(--state-urgency-text)]'
+              : 'border-[var(--border-subtle)] text-[var(--brand)]'}`}>
+              <span aria-hidden="true" className="material-symbols-outlined text-[22px]">{finance.error ? 'error' : 'progress_activity'}</span>
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-base font-bold text-[var(--text-heading)]">{finance.error ? 'No se pudo abrir la relación semanal' : 'Cargando estado financiero'}</h2>
+              <p role={finance.error ? 'alert' : 'status'} className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">
+                {finance.error || 'Validando acceso administrativo y datos del servidor…'}
+              </p>
+              {finance.error && (
+                <button
+                  type="button"
+                  onClick={() => void finance.reload()}
+                  className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-xl bg-[var(--brand-solid)] px-3.5 text-xs font-bold text-white transition hover:bg-[var(--brand-hover)] cursor-pointer"
+                >
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">refresh</span>
+                  Reintentar
+                </button>
+              )}
+            </div>
+          </div>
         </div>
+        {!finance.error && (
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" aria-hidden="true">
+            {[0, 1, 2, 3].map((slot) => (
+              <div key={slot} className="h-[74px] rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card-subtle)]" />
+            ))}
+          </div>
+        )}
       </div>
-      {/* Toast Feedback */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#10b981] text-[#042f2e] font-bold text-xs py-3 px-5 rounded-xl shadow-[0_10px_25px_rgba(16,185,129,0.4)] flex items-center gap-2.5 animate-bounce print:hidden">
-          <span className="material-symbols-outlined text-[20px]">task_alt</span>
-          <span>{toastMessage.text}</span>
+    );
+  }
+  const weekTabs: Array<{ id: typeof activeTab; label: string; icon: string; count?: number }> = [
+    { id: 'official', label: 'Formato oficial', icon: 'print', count: weeklyDeliveriesOrders.length },
+    { id: 'sales', label: 'Ventas', icon: 'inbox', count: weeklySalesOrders.length },
+    { id: 'deliveries', label: 'Entregas', icon: 'inventory_2', count: weeklyDeliveriesOrders.length },
+    { id: 'general', label: 'Relación general', icon: 'description' },
+  ];
+
+  return (
+    <div className="radar-view horizon-view space-y-4 pb-16">
+      {(finance.error || income.error || finance.saving) && (
+        <div className="space-y-2 print:hidden">
+          {finance.error && (
+            <div role="alert" className="flex flex-col gap-2 rounded-2xl border border-[var(--state-urgency-border)] bg-[var(--state-urgency-tint)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs font-semibold text-[var(--state-urgency-text)]">Estado financiero: {finance.error}</p>
+              <button
+                type="button"
+                onClick={() => void finance.reload()}
+                className="inline-flex h-8 items-center gap-1.5 self-start rounded-lg border border-[var(--state-urgency-border)] px-2.5 text-[11px] font-bold text-[var(--state-urgency-text)] transition hover:brightness-110 sm:self-auto cursor-pointer"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">refresh</span>
+                Reintentar
+              </button>
+            </div>
+          )}
+          {income.error && (
+            <div role="alert" className="flex flex-col gap-2 rounded-2xl border border-[var(--state-urgency-border)] bg-[var(--state-urgency-tint)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs font-semibold text-[var(--state-urgency-text)]">Ingresos no disponibles: {income.error}</p>
+              <button
+                type="button"
+                onClick={() => void income.refresh()}
+                className="inline-flex h-8 items-center gap-1.5 self-start rounded-lg border border-[var(--state-urgency-border)] px-2.5 text-[11px] font-bold text-[var(--state-urgency-text)] transition hover:brightness-110 sm:self-auto cursor-pointer"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">refresh</span>
+                Reintentar
+              </button>
+            </div>
+          )}
+          {finance.saving && <p role="status" className="text-[11px] font-semibold text-[var(--text-secondary)]">Guardando en servidor…</p>}
         </div>
       )}
 
       {/* Header Container */}
       <div className="horizon-view-header print:hidden">
-        <div>
-          {/* Breadcrumb Navigation */}
-          {onBackToDashboard && (
-            <button
-              onClick={onBackToDashboard}
-              className="inline-flex items-center gap-1.5 text-xs text-[#94a3b8] hover:text-[#388bfd] transition-colors mb-2 cursor-pointer"
-            >
-              <span className="material-symbols-outlined text-[15px]">arrow_back</span>
-              <span>Dashboard</span>
-              <span className="text-[#475569]">/</span>
-              <span className="text-[#388bfd] font-semibold">Relación Semanal</span>
-            </button>
-          )}
-
+        <div className="min-w-0">
           <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#0284c7]/20 to-[#388bfd]/30 border border-[#388bfd]/40 flex items-center justify-center text-[#388bfd] shadow-[0_0_20px_rgba(56,139,253,0.2)] shrink-0">
-              <span className="material-symbols-outlined text-[28px]">domain</span>
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[var(--brand)]/30 bg-[var(--brand-soft)] text-[var(--brand)]">
+              <span aria-hidden="true" className="material-symbols-outlined text-[26px]">domain</span>
             </div>
-            <div>
-              <h1 className="text-xl md:text-2xl font-black text-white tracking-tight flex items-center gap-2">
-                <span>Relación Semanal · Costos Operativos de Oficina</span>
-              </h1>
-              <p className="text-xs text-[#94a3b8] mt-0.5 max-w-2xl">
-                Panel administrativo exclusivo: Control de ventas, entregas semanales, comisiones del 2% y nómina operativa.
+            <div className="min-w-0">
+              <h1 className="text-xl font-black tracking-tight text-[var(--text-heading)] md:text-2xl">Relación Semanal</h1>
+              <p className="mt-0.5 max-w-2xl text-xs text-[var(--text-secondary)]">
+                Costos operativos de oficina: ventas, entregas, comisiones del 2% y nómina.
               </p>
             </div>
           </div>
         </div>
 
-        {/* Global Action Controls */}
-        <div className="flex items-center gap-2.5 flex-wrap self-start md:self-auto">
-          {/* Week Mode Indicator */}
-          <div className="bg-[#0b1329] border border-[#1e293b] rounded-xl px-3 py-1.5 text-xs text-[#cbd5e1] font-medium flex items-center gap-2">
-            <span className="material-symbols-outlined text-[16px] text-[#388bfd]">calendar_month</span>
-            <span className="font-mono text-[11px] font-bold">{weekRangeLabel}</span>
-          </div>
-
-          {/* Manage Employees / Payroll Button */}
+        {/* Acciones de la semana */}
+        <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
           <button
             onClick={() => setIsEmployeesModalOpen(true)}
             disabled={!finance.state || finance.saving}
-            className="bg-[#0b1329] hover:bg-[#1e293b] text-[#38bdf8] font-bold text-xs py-2 px-3.5 rounded-xl border border-[#0284c7]/40 transition-all cursor-pointer shadow-sm flex items-center gap-1.5"
+            title="Gestionar nómina y empleados"
+            className="flex h-10 items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] px-3 text-xs font-bold text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:opacity-50 cursor-pointer"
           >
-            <span className="material-symbols-outlined text-[18px]">group</span>
-            <span>Nómina Empleados ({employees.length})</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">group</span>
+            <span>Nómina</span>
+            <span className="rounded-full bg-[var(--bg-card-subtle)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--text-secondary)]">{employees.length}</span>
           </button>
 
-          {/* Manage Recurring Expenses Button */}
           <button
             onClick={() => setIsRecurringModalOpen(true)}
             disabled={!finance.state || finance.saving}
-            className="bg-[#0b1329] hover:bg-[#1e293b] text-[#fbbf24] font-bold text-xs py-2 px-3.5 rounded-xl border border-[#f59e0b]/40 transition-all cursor-pointer shadow-sm flex items-center gap-1.5"
+            title="Gastos recurrentes de la semana"
+            className="flex h-10 items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] px-3 text-xs font-bold text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:opacity-50 cursor-pointer"
           >
-            <span className="material-symbols-outlined text-[18px]">event_repeat</span>
-            <span>Gastos Recurrentes ({recurringExpenses.filter((r) => r.active).length})</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">event_repeat</span>
+            <span>Recurrentes</span>
+            <span className="rounded-full bg-[var(--bg-card-subtle)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--text-secondary)]">{recurringExpenses.filter((r) => r.active).length}</span>
           </button>
 
-          {/* Quick Add Ad-Hoc / Imprevisto Expense Button */}
+          <button
+            onClick={() => { void finance.reload(); void income.refresh(); }}
+            disabled={finance.saving}
+            aria-label="Recargar datos de la semana"
+            title="Recargar estado e ingresos"
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:opacity-50 cursor-pointer"
+          >
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">refresh</span>
+          </button>
+
+          <button
+            onClick={handleExportPdf}
+            disabled={isGeneratingPdf || !finance.state || finance.saving}
+            title="Descargar PDF de la pestaña activa"
+            className="flex h-10 items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] px-3 text-xs font-bold text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:opacity-50 cursor-pointer"
+          >
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">
+              {isGeneratingPdf ? 'hourglass_top' : 'picture_as_pdf'}
+            </span>
+            <span>{isGeneratingPdf ? 'Generando…' : 'PDF'}</span>
+          </button>
+
           <button
             onClick={() => {
               setNewExpenseForm({
@@ -936,26 +1032,13 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
               setIsNewExpenseModalOpen(true);
             }}
             disabled={!finance.state || finance.saving}
-            className="bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-slate-950 font-black text-xs py-2 px-3.5 rounded-xl transition-all cursor-pointer shadow-md flex items-center gap-1.5"
-            title="Registrar gasto imprevisto de la semana para sumar a la nómina (Ej: Servicio de Aires Acondicionados)"
+            className="flex h-10 items-center gap-1.5 rounded-xl bg-[var(--state-urgency)] px-3.5 text-xs font-black text-[var(--state-urgency-ink)] transition hover:brightness-105 disabled:opacity-50 cursor-pointer"
+            title="Registrar gasto imprevisto de la semana para sumar a la nómina"
           >
-            <span className="material-symbols-outlined text-[18px]">bolt</span>
-            <span>+ Imprevisto a Nómina</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">bolt</span>
+            <span>Imprevisto</span>
           </button>
 
-          {/* Print PDF Button */}
-          <button
-            onClick={handleExportPdf}
-            disabled={isGeneratingPdf || !finance.state || finance.saving}
-            className="bg-[#1e293b] hover:bg-[#334155] text-white font-bold text-xs py-2 px-3.5 rounded-xl border border-[#334155] transition-all cursor-pointer shadow-sm flex items-center gap-1.5 disabled:opacity-50"
-          >
-            <span className="material-symbols-outlined text-[18px]">
-              {isGeneratingPdf ? 'hourglass_top' : 'picture_as_pdf'}
-            </span>
-            <span>{isGeneratingPdf ? 'Generando...' : 'Descargar PDF'}</span>
-          </button>
-
-          {/* New Expense Button */}
           {activeTab === 'general' && (
             <button
               onClick={() => {
@@ -973,88 +1056,118 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 });
                 setIsNewExpenseModalOpen(true);
               }}
-              className="bg-gradient-to-r from-[#2563eb] to-[#1d4ed8] hover:from-[#1d4ed8] hover:to-[#1e40af] text-white font-bold text-xs py-2 px-3.5 rounded-xl transition-all cursor-pointer shadow-[0_0_15px_rgba(37,99,235,0.35)] flex items-center gap-1.5"
+              className="flex h-10 items-center gap-1.5 rounded-xl bg-[var(--brand-solid)] px-3.5 text-xs font-bold text-white transition hover:bg-[var(--brand-hover)] cursor-pointer"
             >
-              <span className="material-symbols-outlined text-[18px]">add</span>
-              <span>Nuevo Gasto</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">add</span>
+              <span>Nuevo gasto</span>
             </button>
           )}
 
+          {finance.state && !employees.length && !recurringExpenses.length && !otherExpenses.length && (
+            <button
+              type="button"
+              disabled={finance.saving}
+              onClick={() => void finance.importLegacy()}
+              className="text-[11px] font-bold text-[var(--text-secondary)] underline decoration-dotted transition-colors hover:text-[var(--text-primary)] disabled:opacity-50 cursor-pointer"
+            >
+              Importar datos locales anteriores
+            </button>
+          )}
         </div>
       </div>
 
-      {/* 4 Navigation Sub-Tabs Bar */}
-      <div className="horizon-view-tabs flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar print:hidden">
-        {/* Tab 1: Formato Oficial Entregas */}
-        <button
-          onClick={() => setActiveTab('official')}
-          aria-pressed={activeTab === 'official'}
-          className={`py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
-            activeTab === 'official'
-              ? 'bg-[#0284c7]/20 border-2 border-[#0284c7] text-[#38bdf8] shadow-[0_0_15px_rgba(2,132,199,0.25)]'
-              : 'bg-[#0f172a]/80 border border-[#1e293b] text-[#94a3b8] hover:text-white hover:bg-[#1e293b]/60'
-          }`}
-        >
-          <span className="material-symbols-outlined text-[18px]">print</span>
-          <span>Formato Oficial Entregas</span>
-          <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full ${
-            activeTab === 'official' ? 'bg-[#0284c7]/30 text-white' : 'bg-[#1e293b] text-[#94a3b8]'
-          }`}>
-            {weeklyDeliveriesOrders.length}
-          </span>
-        </button>
+      {/* Resumen fijo de la semana */}
+      <div className="sticky top-0 z-20 -mx-1 px-1 py-1 print:hidden">
+        <div className="grid grid-cols-2 gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-2 shadow-[var(--card-shadow)] md:grid-cols-[minmax(190px,auto)_repeat(4,minmax(0,1fr))]">
+          <div className="col-span-2 flex items-center gap-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card-subtle)] px-1 py-1 md:col-span-1">
+            <button
+              type="button"
+              aria-label="Semana anterior"
+              title="Semana anterior"
+              onClick={() => setWeekOffset((offset) => offset - 1)}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-card)] hover:text-[var(--text-primary)] cursor-pointer"
+            >
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">chevron_left</span>
+            </button>
+            <div className="min-w-0 flex-1 text-center">
+              <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">{weekOffset === 0 ? 'Semana actual' : 'Semana seleccionada'}</p>
+              <p className="truncate font-mono text-[11px] font-bold text-[var(--text-heading)]" title={weekRangeLabel}>{weekRangeDates}</p>
+              {weekOffset !== 0 && (
+                <button
+                  type="button"
+                  onClick={() => setWeekOffset(0)}
+                  className="mt-0.5 text-[9px] font-bold uppercase tracking-wider text-[var(--brand)] hover:underline cursor-pointer"
+                >
+                  Volver a la actual
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              aria-label="Semana siguiente"
+              title="Semana siguiente"
+              disabled={weekOffset === 0}
+              onClick={() => setWeekOffset((offset) => Math.min(0, offset + 1))}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-card)] hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-35 cursor-pointer"
+            >
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">chevron_right</span>
+            </button>
+          </div>
 
-        {/* Tab 2: Ventas de la Semana */}
-        <button
-          onClick={() => setActiveTab('sales')}
-          aria-pressed={activeTab === 'sales'}
-          className={`py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
-            activeTab === 'sales'
-              ? 'bg-[#10b981]/20 border-2 border-[#10b981] text-[#34d399] shadow-[0_0_15px_rgba(16,185,129,0.25)]'
-              : 'bg-[#0f172a]/80 border border-[#1e293b] text-[#94a3b8] hover:text-white hover:bg-[#1e293b]/60'
-          }`}
-        >
-          <span className="material-symbols-outlined text-[18px]">inbox</span>
-          <span>Ventas de la Semana</span>
-          <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full ${
-            activeTab === 'sales' ? 'bg-[#10b981]/30 text-white' : 'bg-[#1e293b] text-[#94a3b8]'
-          }`}>
-            {weeklySalesOrders.length}
-          </span>
-        </button>
+          <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card-subtle)] px-3 py-2">
+            <p className="truncate text-[9px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Ventas cobradas</p>
+            <p className="mt-0.5 truncate font-mono text-base font-black text-[var(--text-heading)]">${totalSalesVolume.toFixed(2)}</p>
+            <p className="truncate text-[10px] text-[var(--text-secondary)]">{weeklySalesOrders.length} pagos</p>
+          </div>
 
-        {/* Tab 3: Entregas de la Semana */}
-        <button
-          onClick={() => setActiveTab('deliveries')}
-          aria-pressed={activeTab === 'deliveries'}
-          className={`py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
-            activeTab === 'deliveries'
-              ? 'bg-[#3b82f6]/20 border-2 border-[#3b82f6] text-[#60a5fa] shadow-[0_0_15px_rgba(59,130,246,0.25)]'
-              : 'bg-[#0f172a]/80 border border-[#1e293b] text-[#94a3b8] hover:text-white hover:bg-[#1e293b]/60'
-          }`}
-        >
-          <span className="material-symbols-outlined text-[18px]">inventory_2</span>
-          <span>Entregas de la Semana</span>
-          <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full ${
-            activeTab === 'deliveries' ? 'bg-[#3b82f6]/30 text-white' : 'bg-[#1e293b] text-[#94a3b8]'
-          }`}>
-            {weeklyDeliveriesOrders.length}
-          </span>
-        </button>
+          <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card-subtle)] px-3 py-2">
+            <p className="truncate text-[9px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Entregas</p>
+            <p className="mt-0.5 truncate font-mono text-base font-black text-[var(--text-heading)]">${totalDeliveredCollected.toFixed(2)}</p>
+            <p className="truncate text-[10px] text-[var(--text-secondary)]">{weeklyDeliveriesOrders.length} órdenes</p>
+          </div>
 
-        {/* Tab 4: Relación General de Entregas y Gastos */}
-        <button
-          onClick={() => setActiveTab('general')}
-          aria-pressed={activeTab === 'general'}
-          className={`py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
-            activeTab === 'general'
-              ? 'bg-[#f59e0b]/20 border-2 border-[#f59e0b] text-[#fbbf24] shadow-[0_0_15px_rgba(245,158,11,0.25)]'
-              : 'bg-[#0f172a]/80 border border-[#1e293b] text-[#94a3b8] hover:text-white hover:bg-[#1e293b]/60'
-          }`}
-        >
-          <span className="material-symbols-outlined text-[18px]">description</span>
-          <span>Relación General de Entregas y Gastos</span>
-        </button>
+          <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card-subtle)] px-3 py-2">
+            <p className="truncate text-[9px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Egresos semana</p>
+            <p className="mt-0.5 truncate font-mono text-base font-black text-[var(--text-heading)]">-${totalExpensesWithCommission.toFixed(2)}</p>
+            <p className="truncate text-[10px] text-[var(--text-secondary)]">Nómina + comisión + gastos</p>
+          </div>
+
+          <div className={`rounded-xl border px-3 py-2 ${netWeeklyBalance >= 0 ? 'border-[var(--border-subtle)] bg-[var(--bg-card-subtle)]' : 'border-[var(--state-urgency-border)] bg-[var(--state-urgency-tint)]'}`}>
+            <p className="truncate text-[9px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">Balance neto</p>
+            <p className={`mt-0.5 truncate font-mono text-base font-black ${netWeeklyBalance >= 0 ? 'text-[var(--state-success)]' : 'text-[var(--state-urgency-text)]'}`}>${netWeeklyBalance.toFixed(2)}</p>
+            <p className="truncate text-[10px] text-[var(--text-secondary)]">{netWeeklyBalance >= 0 ? 'A favor de la oficina' : 'Por cubrir con entregas'}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Navegación por pestañas */}
+      <div className="horizon-view-tabs flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar print:hidden">
+        {weekTabs.map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              aria-pressed={isActive}
+              className={`flex shrink-0 cursor-pointer items-center gap-2 rounded-xl border px-3.5 py-2.5 text-xs font-bold transition-colors ${
+                isActive
+                  ? 'border-[var(--border-color)] bg-[var(--brand-soft)] text-[var(--brand)]'
+                  : 'border-[var(--border-subtle)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">{tab.icon}</span>
+              <span>{tab.label}</span>
+              {tab.count !== undefined && (
+                <span className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] ${
+                  isActive ? 'bg-[var(--brand-solid)] text-white' : 'bg-[var(--bg-card-subtle)] text-[var(--text-secondary)]'
+                }`}>
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* ===================================================================== */}
@@ -1064,22 +1177,22 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
         <div className="space-y-4">
           {/* Recurring Expense Notice Alert (if active this week) */}
           {dueRecurringExpensesThisWeek.length > 0 && (
-            <div className="bg-[#0284c7]/15 border border-[#0284c7]/40 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#38bdf8] shadow-lg print:border-black print:text-black">
+            <div className="flex flex-col justify-between gap-3 rounded-2xl border border-[color:var(--state-info)]/35 bg-[color:var(--state-info)]/10 p-4 text-xs shadow-sm sm:flex-row sm:items-center print:border-black print:text-black print:shadow-none">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-[#0284c7]/20 border border-[#0284c7]/40 flex items-center justify-center text-[#38bdf8] shrink-0">
-                  <span className="material-symbols-outlined text-[20px]">event_repeat</span>
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[color:var(--state-info)]/35 text-[color:var(--state-info)]">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[20px]">event_repeat</span>
                 </div>
                 <div>
-                  <span className="font-mono text-[10px] uppercase font-bold text-[#38bdf8] block tracking-wider">
-                    🔄 GASTOS RECURRENTES IMPUTADOS ESTA SEMANA
+                  <span className="block font-mono text-[10px] font-bold uppercase tracking-wider text-[color:var(--state-info)]">
+                    Gastos recurrentes imputados esta semana
                   </span>
-                  <div className="text-white text-xs mt-0.5">
+                  <div className="mt-0.5 text-xs text-[var(--text-primary)]">
                     Esta semana incluye el cobro automático de:{' '}
                     <strong>{dueRecurringExpensesThisWeek.map((r) => `${r.name} ($${r.amount.toFixed(2)})`).join(', ')}</strong>.
                   </div>
                 </div>
               </div>
-              <span className="font-mono text-xs font-bold bg-[#0284c7]/30 px-3 py-1 rounded-xl text-white border border-[#0284c7]/40 self-start sm:self-auto shrink-0">
+              <span className="shrink-0 self-start rounded-xl border border-[color:var(--state-info)]/35 px-3 py-1 font-mono text-xs font-bold text-[var(--text-heading)] sm:self-auto">
                 +${totalDueRecurringExpenses.toFixed(2)} USD
               </span>
             </div>
@@ -1087,56 +1200,30 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
 
           {/* Ad-Hoc / Imprevistos Expenses Notice Alert (if active this week) */}
           {weeklyOtherExpenses.length > 0 && (
-            <div className="bg-amber-500/15 border border-amber-500/40 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-300 shadow-lg print:border-black print:text-black">
+            <div className="flex flex-col justify-between gap-3 rounded-2xl border border-[var(--state-urgency-border)] bg-[var(--state-urgency-tint)] p-4 text-xs shadow-sm sm:flex-row sm:items-center print:border-black print:text-black print:shadow-none">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 shrink-0">
-                  <span className="material-symbols-outlined text-[20px]">bolt</span>
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--state-urgency-border)] text-[var(--state-urgency-text)]">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[20px]">bolt</span>
                 </div>
                 <div>
-                  <span className="font-mono text-[10px] uppercase font-bold text-amber-300 block tracking-wider">
-                    ⚡ GASTOS IMPREVISTOS SUMADOS A LA NÓMINA DE ESTA SEMANA
+                  <span className="block font-mono text-[10px] font-bold uppercase tracking-wider text-[var(--state-urgency-text)]">
+                    Gastos imprevistos sumados a la nómina de esta semana
                   </span>
-                  <div className="text-white text-xs mt-0.5">
+                  <div className="mt-0.5 text-xs text-[var(--text-primary)]">
                     Incluye los gastos eventuales:{' '}
                     <strong>{weeklyOtherExpenses.map((r) => `${r.description} ($${r.amount.toFixed(2)})`).join(', ')}</strong>.
                   </div>
                 </div>
               </div>
-              <span className="font-mono text-xs font-bold bg-amber-500/30 px-3 py-1 rounded-xl text-white border border-amber-500/40 self-start sm:self-auto shrink-0">
+              <span className="shrink-0 self-start rounded-xl border border-[var(--state-urgency-border)] px-3 py-1 font-mono text-xs font-bold text-[var(--text-heading)] sm:self-auto">
                 +${totalOtherExpenses.toFixed(2)} USD
               </span>
             </div>
           )}
 
-          {/* Subheader & Actions */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#94a3b8] print:hidden">
+          {/* Subheader */}
+          <div className="text-xs text-[var(--text-secondary)] print:hidden">
             <p>Formato de hoja de liquidación semanal para nómina, gastos fijos y pagos administrativos.</p>
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <button
-                onClick={() => setIsEmployeesModalOpen(true)}
-                className="bg-[#0b1329] hover:bg-[#1e293b] text-[#38bdf8] font-bold text-xs py-2 px-3 rounded-xl border border-[#0284c7]/40 transition-all cursor-pointer flex items-center gap-1.5"
-              >
-                <span className="material-symbols-outlined text-[16px]">manage_accounts</span>
-                <span>Configurar Empleados</span>
-              </button>
-              <button
-                onClick={() => setIsRecurringModalOpen(true)}
-                className="bg-[#0b1329] hover:bg-[#1e293b] text-[#fbbf24] font-bold text-xs py-2 px-3 rounded-xl border border-[#f59e0b]/40 transition-all cursor-pointer flex items-center gap-1.5"
-              >
-                <span className="material-symbols-outlined text-[16px]">event_repeat</span>
-                <span>Gastos Recurrentes</span>
-              </button>
-              <button
-                onClick={handleExportPdf}
-                disabled={isGeneratingPdf}
-                className="bg-gradient-to-r from-[#2563eb] to-[#1d4ed8] hover:from-[#1d4ed8] hover:to-[#1e40af] text-white font-bold text-xs py-2 px-3.5 rounded-xl transition-all cursor-pointer shadow-[0_0_15px_rgba(37,99,235,0.3)] flex items-center gap-1.5 disabled:opacity-50"
-              >
-                <span className="material-symbols-outlined text-[17px]">
-                  {isGeneratingPdf ? 'hourglass_top' : 'picture_as_pdf'}
-                </span>
-                <span>{isGeneratingPdf ? 'Generando PDF...' : 'Descargar Formato (PDF)'}</span>
-              </button>
-            </div>
           </div>
 
           {/* Official Document Card (Pure Print & PDF Match) */}
@@ -1178,7 +1265,8 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                               <span>{order.customer.name}</span>
                               {isYard && (
                                 <span className="inline-flex items-center gap-1 text-[9.5px] font-mono px-2 py-0.5 rounded-full bg-amber-950/70 border border-amber-500/40 text-amber-300 print:text-amber-800 print:border-amber-700" title="Venta de Yarda - Exenta de comisión de oficina">
-                                  🚜 Yarda ({order.advisor})
+                                  <span aria-hidden="true" className="material-symbols-outlined text-[12px]">agriculture</span>
+                                  Yarda ({order.advisor})
                                 </span>
                               )}
                             </div>
@@ -1251,7 +1339,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 {dueRecurringExpensesThisWeek.map((rec) => (
                   <div key={rec.id} className="flex justify-between items-center py-0.5 text-[#38bdf8] print:text-black">
                     <span className="truncate pr-2 font-medium flex items-center gap-1 print:text-black">
-                      <span className="material-symbols-outlined text-[14px] print:hidden">event_repeat</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[14px] print:hidden">event_repeat</span>
                       <span>{rec.name}</span>
                     </span>
                     <span className="font-mono font-bold text-[#38bdf8] print:text-black">
@@ -1264,15 +1352,15 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 {weeklyOtherExpenses.map((adHoc) => (
                   <div key={adHoc.id} className="flex justify-between items-center py-0.5 text-amber-300 print:text-black group">
                     <span className="truncate pr-2 font-medium flex items-center gap-1 print:text-black">
-                      <span className="material-symbols-outlined text-[14px] text-amber-400 print:hidden">bolt</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-amber-400 print:hidden">bolt</span>
                       <span>{adHoc.description}</span>
                       <button
                         type="button"
                         onClick={() => handleDeleteOtherExpense(adHoc.id)}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 text-red-400 hover:text-red-300 transition-opacity print:hidden cursor-pointer"
+                        className="opacity-0 group-hover:opacity-100 p-0.5 text-[var(--state-urgency-text)] hover:brightness-110 transition-opacity print:hidden cursor-pointer"
                         title="Eliminar este gasto imprevisto"
                       >
-                        <span className="material-symbols-outlined text-[13px]">delete</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[13px]">delete</span>
                       </button>
                     </span>
                     <span className="font-mono font-bold text-amber-300 print:text-black">
@@ -1299,28 +1387,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
           <div className="print:hidden space-y-3 mt-6">
             {renderExpensesBreakdownTable(
               'Gastos Operativos y Deducciones de la Semana',
-              'Consolidado de comisión del gerente (2%), nómina de empleados, gastos recurrentes e imprevistos sumados a esta entrega.',
-              <button
-                onClick={() => {
-                  const today = new Date();
-                  const defaultDate = isDateInWeek(financeDateKey(today), currentWeekRange)
-                    ? financeDateKey(today)
-                    : financeDateKey(currentWeekRange.start);
-                  setNewExpenseForm({
-                    description: '',
-                    category: 'Mantenimiento y Limpieza',
-                    amount: '',
-                    date: defaultDate,
-                    paymentMethod: 'Transferencia',
-                    receiptNr: '',
-                  });
-                  setIsNewExpenseModalOpen(true);
-                }}
-                className="bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-slate-950 font-black text-xs py-2 px-3.5 rounded-xl transition-all cursor-pointer shadow-md flex items-center gap-1.5 shrink-0"
-              >
-                <span className="material-symbols-outlined text-[17px]">bolt</span>
-                <span>+ Imprevisto a Nómina</span>
-              </button>
+              'Consolidado de comisión del gerente (2%), nómina de empleados, gastos recurrentes e imprevistos sumados a esta entrega.'
             )}
           </div>
         </div>
@@ -1351,7 +1418,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 </div>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-[#10b981]/15 border border-[#10b981]/30 flex items-center justify-center text-[#10b981] shrink-0">
-                <span className="material-symbols-outlined text-[24px]">inbox</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[24px]">inbox</span>
               </div>
             </div>
 
@@ -1369,7 +1436,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 </p>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-[#388bfd]/15 border border-[#388bfd]/30 flex items-center justify-center text-[#388bfd] shrink-0">
-                <span className="material-symbols-outlined text-[24px]">trending_up</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[24px]">trending_up</span>
               </div>
             </div>
 
@@ -1387,7 +1454,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 </p>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-[#f59e0b]/15 border border-[#f59e0b]/30 flex items-center justify-center text-[#f59e0b] shrink-0">
-                <span className="material-symbols-outlined text-[24px]">attach_money</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[24px]">attach_money</span>
               </div>
             </div>
           </div>
@@ -1406,7 +1473,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 disabled={isGeneratingPdf}
                 className="bg-[#10b981]/15 hover:bg-[#10b981]/25 text-[#34d399] border border-[#10b981]/35 font-bold text-xs py-2 px-3.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shadow-sm disabled:opacity-50"
               >
-                <span className="material-symbols-outlined text-[17px]">
+                <span aria-hidden="true" className="material-symbols-outlined text-[17px]">
                   {isGeneratingPdf ? 'hourglass_top' : 'picture_as_pdf'}
                 </span>
                 <span>{isGeneratingPdf ? 'Generando PDF...' : 'Descargar PDF Ventas'}</span>
@@ -1444,7 +1511,8 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                               <span>{order.customer.name}</span>
                               {isYard && (
                                 <span className="inline-flex items-center gap-1 text-[9.5px] font-mono px-2 py-0.5 rounded-full bg-amber-950/70 border border-amber-500/40 text-amber-300" title="Venta de Yarda - Exenta de comisión de oficina">
-                                  🚜 Yarda ({order.advisor})
+                                  <span aria-hidden="true" className="material-symbols-outlined text-[12px]">agriculture</span>
+                                  Yarda ({order.advisor})
                                 </span>
                               )}
                             </div>
@@ -1507,7 +1575,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 </p>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-[#388bfd]/15 border border-[#388bfd]/30 flex items-center justify-center text-[#388bfd] shrink-0">
-                <span className="material-symbols-outlined text-[24px]">inventory_2</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[24px]">inventory_2</span>
               </div>
             </div>
 
@@ -1525,7 +1593,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 </p>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-[#10b981]/15 border border-[#10b981]/30 flex items-center justify-center text-[#10b981] shrink-0">
-                <span className="material-symbols-outlined text-[24px]">check_circle</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[24px]">check_circle</span>
               </div>
             </div>
 
@@ -1543,7 +1611,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 </p>
               </div>
               <div className="w-12 h-12 rounded-2xl bg-[#f59e0b]/15 border border-[#f59e0b]/30 flex items-center justify-center text-[#f59e0b] shrink-0">
-                <span className="material-symbols-outlined text-[24px]">attach_money</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[24px]">attach_money</span>
               </div>
             </div>
           </div>
@@ -1596,7 +1664,8 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                               <span>{order.customer.name}</span>
                               {Boolean(order.isYardSale || order.advisorRole === 'vendedor_yarda') && (
                                 <span className="inline-flex items-center gap-1 text-[9.5px] font-mono px-2 py-0.5 rounded-full bg-amber-950/70 border border-amber-500/40 text-amber-300" title="Venta de Yarda - Exenta de comisión de oficina">
-                                  🚜 Yarda ({order.advisor})
+                                  <span aria-hidden="true" className="material-symbols-outlined text-[12px]">agriculture</span>
+                                  Yarda ({order.advisor})
                                 </span>
                               )}
                             </div>
@@ -1635,12 +1704,12 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
             <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 text-xs shadow-md">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-300">
-                  <span className="material-symbols-outlined text-[22px]">payments</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[22px]">payments</span>
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-[#94a3b8] tracking-wider block">Balance de Entregas vs Gastos</span>
                   <div className="text-sm font-bold text-white mt-0.5">
-                    Entregas: <span className="font-mono text-[#38bdf8]">${totalDeliveredCollected.toFixed(2)}</span> · Gastos y Deducciones: <span className="font-mono text-[#ef4444]">-${totalExpensesWithCommission.toFixed(2)}</span>
+                    Entregas: <span className="font-mono text-[var(--brand)]">${totalDeliveredCollected.toFixed(2)}</span> · Gastos y Deducciones: <span className="font-mono text-[var(--text-heading)]">-${totalExpensesWithCommission.toFixed(2)}</span>
                   </div>
                 </div>
               </div>
@@ -1648,8 +1717,8 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 <span className="text-xs text-[#94a3b8]">Margen Neto:</span>
                 <span className={`font-mono text-base font-black px-3 py-1 rounded-xl border ${
                   (totalDeliveredCollected - totalExpensesWithCommission) >= 0
-                    ? 'bg-emerald-500/15 border-emerald-500/30 text-[#34d399]'
-                    : 'bg-rose-500/15 border-rose-500/30 text-[#f87171]'
+                    ? 'border-[var(--border-subtle)] bg-[var(--bg-card-subtle)] text-[var(--state-success)]'
+                    : 'border-[var(--state-urgency-border)] bg-[var(--state-urgency-tint)] text-[var(--state-urgency-text)]'
                 }`}>
                   ${(totalDeliveredCollected - totalExpensesWithCommission).toFixed(2)} USD
                 </span>
@@ -1669,67 +1738,6 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
       {/* ===================================================================== */}
       {activeTab === 'general' && (
         <div className="space-y-6">
-          {/* 3 Executive KPI Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Ingresos por Entregas (Green) */}
-            <div className="bg-[#0f172a] border border-[#10b981]/30 rounded-2xl p-5 flex items-center justify-between shadow-lg relative overflow-hidden">
-              <div className="space-y-1">
-                <span className="text-[10px] font-bold text-[#94a3b8] uppercase tracking-wider block">
-                  INGRESOS NETOS REGISTRADOS
-                </span>
-                <div className="text-3xl font-black font-mono text-[#10b981]">
-                  {income.loaded ? `$${totalSalesVolume.toFixed(2)}` : 'No disponible'}
-                </div>
-                <p className="text-[11px] text-[#64748b]">Semana en curso</p>
-              </div>
-              <div className="w-12 h-12 rounded-2xl bg-[#10b981]/15 border border-[#10b981]/30 flex items-center justify-center text-[#10b981] shrink-0">
-                <span className="material-symbols-outlined text-[24px]">trending_up</span>
-              </div>
-            </div>
-
-            {/* Gastos Operativos + Comisiones (Red) */}
-            <div className="bg-[#0f172a] border border-[#ef4444]/30 rounded-2xl p-5 flex items-center justify-between shadow-lg relative overflow-hidden">
-              <div className="space-y-1">
-                <span className="text-[10px] font-bold text-[#94a3b8] uppercase tracking-wider block">
-                  GASTOS OPERATIVOS + COMISIONES
-                </span>
-                <div className="text-3xl font-black font-mono text-[#ef4444]">
-                  ${totalExpensesWithCommission.toFixed(2)}
-                </div>
-                <p className="text-[11px] text-[#64748b]">
-                  Incluye 2% comisión gerente (${managerCommission.toFixed(2)}) + {allGeneralConcepts.length} egresos
-                </p>
-              </div>
-              <div className="w-12 h-12 rounded-2xl bg-[#ef4444]/15 border border-[#ef4444]/30 flex items-center justify-center text-[#ef4444] shrink-0">
-                <span className="material-symbols-outlined text-[24px]">trending_down</span>
-              </div>
-            </div>
-
-            {/* Balance Neto Semanal (Red / Green) */}
-            <div className={`bg-[#0f172a] border ${
-              netWeeklyBalance >= 0 ? 'border-[#10b981]/40' : 'border-[#ef4444]/40'
-            } rounded-2xl p-5 flex items-center justify-between shadow-lg relative overflow-hidden`}>
-              <div className="space-y-1">
-                <span className="text-[10px] font-bold text-[#94a3b8] uppercase tracking-wider block">
-                  BALANCE NETO SEMANAL
-                </span>
-                <div className={`text-3xl font-black font-mono ${
-                  netWeeklyBalance >= 0 ? 'text-[#10b981]' : 'text-[#ef4444]'
-                }`}>
-                  {income.loaded ? (netWeeklyBalance >= 0 ? `$${netWeeklyBalance.toFixed(2)}` : `-$${Math.abs(netWeeklyBalance).toFixed(2)}`) : 'No disponible'}
-                </div>
-                <p className="text-[11px] text-[#64748b]">
-                  {income.loaded ? 'Proyección: ingresos menos costos configurados' : 'Faltan datos de ingresos'}
-                </p>
-              </div>
-              <div className={`w-12 h-12 rounded-2xl ${
-                netWeeklyBalance >= 0 ? 'bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/30' : 'bg-[#ef4444]/15 text-[#ef4444] border border-[#ef4444]/30'
-              } flex items-center justify-center shrink-0`}>
-                <span className="material-symbols-outlined text-[24px]">attach_money</span>
-              </div>
-            </div>
-          </div>
-
           {/* Desglose General de Gastos Operativos y Comisiones Table Card */}
           {renderExpensesBreakdownTable(
             'Desglose General de Gastos Operativos y Comisiones',
@@ -1739,7 +1747,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
               disabled={isGeneratingPdf}
               className="bg-[#f59e0b]/15 hover:bg-[#f59e0b]/25 text-[#fbbf24] border border-[#f59e0b]/35 font-bold text-xs py-2 px-3.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shadow-sm disabled:opacity-50 shrink-0"
             >
-              <span className="material-symbols-outlined text-[17px]">
+              <span aria-hidden="true" className="material-symbols-outlined text-[17px]">
                 {isGeneratingPdf ? 'hourglass_top' : 'picture_as_pdf'}
               </span>
               <span>{isGeneratingPdf ? 'Generando PDF...' : 'Descargar PDF Relación'}</span>
@@ -1755,11 +1763,11 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
       {/* ===================================================================== */}
       {isEmployeesModalOpen && (
         <div className="horizon-modal fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
-          <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl w-full max-w-2xl max-h-[min(94vh,700px)] shadow-2xl overflow-hidden flex flex-col">
+          <div ref={employeesModalRef} role="dialog" aria-modal="true" aria-label="Nómina y empleados de oficina" tabIndex={-1} className="bg-[#0f172a] border border-[#1e293b] rounded-2xl w-full max-w-2xl max-h-[min(94vh,700px)] shadow-2xl overflow-hidden flex flex-col outline-none">
             {/* Modal Header */}
             <div className="bg-[#111827] border-b border-[#1e293b] p-4 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
-                <span className="material-symbols-outlined text-[#38bdf8] text-[24px]">group</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[#38bdf8] text-[24px]">group</span>
                 <div>
                   <h3 className="font-bold text-sm sm:text-base text-white">Nómina y Empleados de Oficina</h3>
                   <p className="text-[11px] text-[#94a3b8]">Gestión de personal y salarios semanales fijos</p>
@@ -1773,7 +1781,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 }}
                 className="text-[#94a3b8] hover:text-white p-1 cursor-pointer"
               >
-                <span className="material-symbols-outlined text-[20px]">close</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
 
@@ -1783,7 +1791,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
               <form onSubmit={handleSaveEmployee} className="bg-[#0b1329] border border-[#1e293b] p-4 rounded-xl space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="font-bold text-xs text-white uppercase tracking-wider flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-[#388bfd] text-[16px]">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[#388bfd] text-[16px]">
                       {editingEmployeeId ? 'edit' : 'person_add'}
                     </span>
                     <span>{editingEmployeeId ? 'Editar Empleado' : 'Registrar Nuevo Empleado'}</span>
@@ -1805,7 +1813,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block font-bold text-[#cbd5e1] mb-1">
-                      Nombre del Empleado <span className="text-[#ef4444]">*</span>
+                      Nombre del Empleado <span className="text-[var(--state-urgency-text)]">*</span>
                     </label>
                     <input
                       type="text"
@@ -1819,7 +1827,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
 
                   <div>
                     <label className="block font-bold text-[#cbd5e1] mb-1">
-                      Salario Semanal ($ USD) <span className="text-[#ef4444]">*</span>
+                      Salario Semanal ($ USD) <span className="text-[var(--state-urgency-text)]">*</span>
                     </label>
                     <input
                       type="number"
@@ -1849,7 +1857,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                     type="submit"
                     className="py-2 px-4 rounded-xl bg-gradient-to-r from-[#0284c7] to-[#2563eb] hover:from-[#0369a1] hover:to-[#1d4ed8] text-white font-bold text-xs cursor-pointer transition-all shadow-[0_0_12px_rgba(2,132,199,0.3)] flex items-center gap-1.5"
                   >
-                    <span className="material-symbols-outlined text-[16px]">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[16px]">
                       {editingEmployeeId ? 'save' : 'add'}
                     </span>
                     <span>{editingEmployeeId ? 'Actualizar Empleado' : 'Agregar a la Nómina'}</span>
@@ -1905,15 +1913,15 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                               className="p-1.5 rounded-lg bg-[#1e293b] hover:bg-[#334155] text-[#38bdf8] transition-colors cursor-pointer"
                               title="Editar"
                             >
-                              <span className="material-symbols-outlined text-[16px]">edit</span>
+                              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">edit</span>
                             </button>
                             <button
                               type="button"
                               onClick={() => handleDeleteEmployee(emp.id, emp.name)}
-                              className="p-1.5 rounded-lg bg-[#ef4444]/10 hover:bg-[#ef4444]/20 text-[#f87171] transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg bg-[var(--state-urgency-tint)] hover:brightness-110 text-[var(--state-urgency-text)] transition-colors cursor-pointer"
                               title="Eliminar"
                             >
-                              <span className="material-symbols-outlined text-[16px]">delete</span>
+                              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">delete</span>
                             </button>
                           </div>
                         </div>
@@ -1950,24 +1958,24 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
       {/* ===================================================================== */}
       {isNewExpenseModalOpen && (
         <div className="horizon-modal fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
-          <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl w-full max-w-lg max-h-[min(94vh,650px)] shadow-2xl overflow-hidden flex flex-col">
+          <div ref={expenseModalRef} role="dialog" aria-modal="true" aria-label="Registrar nuevo gasto operativo" tabIndex={-1} className="bg-[#0f172a] border border-[#1e293b] rounded-2xl w-full max-w-lg max-h-[min(94vh,650px)] shadow-2xl overflow-hidden flex flex-col outline-none">
             <div className="bg-[#111827] border-b border-[#1e293b] p-4 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
-                <span className="material-symbols-outlined text-[#2563eb] text-[22px]">add_circle</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[#2563eb] text-[22px]">add_circle</span>
                 <h3 className="font-bold text-sm text-white">Registrar Gasto Operativo</h3>
               </div>
               <button
                 onClick={() => setIsNewExpenseModalOpen(false)}
                 className="text-[#94a3b8] hover:text-white p-1 cursor-pointer"
               >
-                <span className="material-symbols-outlined text-[18px]">close</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
 
             <form onSubmit={handleAddExpenseSubmit} className="p-5 space-y-4 text-xs flex-1 min-h-0 overflow-y-auto custom-scrollbar">
               {/* Informative notice about impact on payroll */}
               <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-start gap-2.5 text-amber-300">
-                <span className="material-symbols-outlined text-[18px] text-amber-400 shrink-0 mt-0.5">bolt</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-amber-400 shrink-0 mt-0.5">bolt</span>
                 <div className="text-[11px] leading-relaxed">
                   <strong className="text-white block font-semibold mb-0.5">Anexo al Recibo de Nómina Semanal:</strong>
                   Cualquier gasto registrado con fecha de la semana ({weekRangeLabel}) se sumará automáticamente a la liquidación de nómina de la semana actual y al total a pagar en el PDF oficial.
@@ -1976,7 +1984,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
 
               <div>
                 <label className="block font-bold text-[#cbd5e1] mb-1">
-                  Descripción del Egreso / Concepto <span className="text-[#ef4444]">*</span>
+                  Descripción del Egreso / Concepto <span className="text-[var(--state-urgency-text)]">*</span>
                 </label>
                 <input
                   type="text"
@@ -2014,7 +2022,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
 
                 <div>
                   <label className="block font-bold text-[#cbd5e1] mb-1">
-                    Monto en USD ($) <span className="text-[#ef4444]">*</span>
+                    Monto en USD ($) <span className="text-[var(--state-urgency-text)]">*</span>
                   </label>
                   <input
                     type="number"
@@ -2089,7 +2097,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                   type="submit"
                   className="py-2 px-4 rounded-xl bg-gradient-to-r from-[#2563eb] to-[#1d4ed8] hover:from-[#1d4ed8] hover:to-[#1e40af] text-white font-bold cursor-pointer transition-colors shadow-[0_0_10px_rgba(37,99,235,0.3)] flex items-center gap-1.5"
                 >
-                  <span className="material-symbols-outlined text-[16px]">save</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">save</span>
                   <span>Guardar Gasto</span>
                 </button>
               </div>
@@ -2103,12 +2111,12 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
       {/* ===================================================================== */}
       {isRecurringModalOpen && (
         <div className="horizon-modal fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
-          <div className="bg-[#0f172a] border border-[#1e293b] rounded-2xl w-full max-w-2xl max-h-[min(94vh,740px)] shadow-2xl overflow-hidden flex flex-col">
+          <div ref={recurringModalRef} role="dialog" aria-modal="true" aria-label="Gastos recurrentes" tabIndex={-1} className="bg-[#0f172a] border border-[#1e293b] rounded-2xl w-full max-w-2xl max-h-[min(94vh,740px)] shadow-2xl overflow-hidden flex flex-col outline-none">
             {/* Modal Header */}
             <div className="bg-[#111827] border-b border-[#1e293b] p-4 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-xl bg-[#f59e0b]/15 border border-[#f59e0b]/30 flex items-center justify-center text-[#fbbf24]">
-                  <span className="material-symbols-outlined text-[20px]">event_repeat</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[20px]">event_repeat</span>
                 </div>
                 <div>
                   <h3 className="font-bold text-sm sm:text-base text-white">Gastos y Cobros Recurrentes</h3>
@@ -2135,7 +2143,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 }}
                 className="text-[#94a3b8] hover:text-white p-1 cursor-pointer"
               >
-                <span className="material-symbols-outlined text-[20px]">close</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
 
@@ -2145,7 +2153,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
               <div className="bg-[#051326] border border-[#388bfd]/35 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-[0_0_20px_rgba(56,139,253,0.15)]">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-xl bg-[#388bfd]/20 border border-[#388bfd]/40 flex items-center justify-center text-[#38bdf8] shrink-0">
-                    <span className="material-symbols-outlined text-[22px]">group</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[22px]">group</span>
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
@@ -2172,7 +2180,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                     }}
                     className="py-1.5 px-3 rounded-xl bg-[#388bfd]/20 hover:bg-[#388bfd]/30 text-[#38bdf8] font-bold text-xs border border-[#388bfd]/40 transition-colors cursor-pointer flex items-center gap-1"
                   >
-                    <span className="material-symbols-outlined text-[15px]">manage_accounts</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[15px]">manage_accounts</span>
                     <span>Gestionar Nómina</span>
                   </button>
                 </div>
@@ -2180,10 +2188,10 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
 
               {/* Informative Rule Box */}
               <div className="bg-[#040c1c] border border-cyan-500/25 rounded-xl p-3.5 flex items-start gap-3 text-cyan-300 shadow-[inset_0_0_15px_rgba(6,182,212,0.1)]">
-                <span className="material-symbols-outlined text-[20px] text-cyan-400 shrink-0 mt-0.5">info</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px] text-cyan-400 shrink-0 mt-0.5">info</span>
                 <div className="space-y-1 text-[11.5px] leading-relaxed">
                   <strong className="text-white block font-mono uppercase tracking-wider text-[10.5px]">
-                    ⚡ REGLAS FINANCIERAS AUTOMÁTICAS
+                    REGLAS FINANCIERAS AUTOMÁTICAS
                   </strong>
                   <p>
                     • <strong>Nómina de Empleados:</strong> Se anexa cada semana automáticamente como pago recurrente.<br />
@@ -2196,7 +2204,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
               <form onSubmit={handleSaveRecurring} className="bg-[#0b1329] border border-[#1e293b] p-4 rounded-xl space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="font-bold text-xs text-white uppercase tracking-wider flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-[#fbbf24] text-[16px]">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[#fbbf24] text-[16px]">
                       {editingRecurringId ? 'edit' : 'add_circle'}
                     </span>
                     <span>{editingRecurringId ? 'Editar Gasto Recurrente' : 'Nuevo Gasto Recurrente'}</span>
@@ -2228,7 +2236,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block font-bold text-[#cbd5e1] mb-1">
-                      Concepto / Nombre del Gasto <span className="text-[#ef4444]">*</span>
+                      Concepto / Nombre del Gasto <span className="text-[var(--state-urgency-text)]">*</span>
                     </label>
                     <input
                       type="text"
@@ -2266,7 +2274,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block font-bold text-[#cbd5e1] mb-1">
-                      Monto ($ USD) <span className="text-[#ef4444]">*</span>
+                      Monto ($ USD) <span className="text-[var(--state-urgency-text)]">*</span>
                     </label>
                     <input
                       type="number"
@@ -2354,7 +2362,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                     type="submit"
                     className="py-2 px-4 rounded-xl bg-gradient-to-r from-[#d97706] to-[#f59e0b] hover:from-[#b45309] hover:to-[#d97706] text-slate-950 font-bold text-xs cursor-pointer transition-all shadow-[0_0_12px_rgba(245,158,11,0.3)] flex items-center gap-1.5"
                   >
-                    <span className="material-symbols-outlined text-[16px]">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[16px]">
                       {editingRecurringId ? 'save' : 'add'}
                     </span>
                     <span>{editingRecurringId ? 'Actualizar Regla' : 'Registrar Gasto Recurrente'}</span>
@@ -2404,7 +2412,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                                 ? 'bg-[#f59e0b]/20 border border-[#f59e0b]/40 text-[#fbbf24]'
                                 : 'bg-[#1e293b] border border-[#334155] text-[#64748b]'
                             }`}>
-                              <span className="material-symbols-outlined text-[18px]">
+                              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">
                                 {rec.category === 'Alquiler de Oficina / Patio' ? 'home_work' : 'event_repeat'}
                               </span>
                             </div>
@@ -2414,7 +2422,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                                   {rec.name}
                                 </span>
                                 {isDueNow && (
-                                  <span className="px-2 py-0.5 rounded-full bg-[#10b981]/20 border border-[#10b981]/40 text-[#34d399] text-[9.5px] font-mono font-bold animate-pulse">
+                                  <span className="px-2 py-0.5 rounded-full bg-[#10b981]/20 border border-[#10b981]/40 text-[#34d399] text-[9.5px] font-mono font-bold">
                                     ● APLICA ESTA SEMANA
                                   </span>
                                 )}
@@ -2458,15 +2466,15 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                                 className="p-1.5 rounded-lg bg-[#1e293b] hover:bg-[#334155] text-[#38bdf8] transition-colors cursor-pointer"
                                 title="Editar"
                               >
-                                <span className="material-symbols-outlined text-[16px]">edit</span>
+                                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">edit</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleDeleteRecurring(rec.id, rec.name)}
-                                className="p-1.5 rounded-lg bg-[#ef4444]/10 hover:bg-[#ef4444]/20 text-[#f87171] transition-colors cursor-pointer"
+                                className="p-1.5 rounded-lg bg-[var(--state-urgency-tint)] hover:brightness-110 text-[var(--state-urgency-text)] transition-colors cursor-pointer"
                                 title="Eliminar"
                               >
-                                <span className="material-symbols-outlined text-[16px]">delete</span>
+                                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">delete</span>
                               </button>
                             </div>
                           </div>

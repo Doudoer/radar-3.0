@@ -99,6 +99,24 @@ describe('verified aftersales API', () => {
     await apply({ action: 'claim_update', id: 8, stage, notes: 'Client notified of resolution', notified: true, files: [] });
     expect(row.status).toBe('Entregado');
   });
+  it('clears the claim piece-ready flag when a new claim opens or the current claim closes', async () => {
+    const workflowUpdate = (connection: ReturnType<typeof setup>['connection']) => {
+      const call = connection.execute.mock.calls.find(item => String(item[0]).includes('UPDATE orders SET workflow_data=?'));
+      return call ? JSON.parse(String((call[1] as unknown[])[0])) as Record<string, unknown> : null;
+    };
+    const created = setup({ status: 'Pagado', delivered_at: new Date(), workflow_data: JSON.stringify({ claimPieceReady: true, claimPieceReadyAt: '2026-11-12T10:00:00.000Z', claimPieceReadyBy: 7 }) });
+    await created.apply({ action: 'claim_create', notes: 'New issue', files: [], nextDate: today });
+    const createData = workflowUpdate(created.connection);
+    expect(createData?.claimPieceReady).toBeUndefined();
+    expect(createData?.claimPieceReadyAt).toBeUndefined();
+    expect(typeof createData?.claimPieceReadyClearedAt).toBe('string');
+
+    const closed = setup({ status: 'Reclamo', delivered_at: new Date(), workflow_data: JSON.stringify({ claimPieceReady: true }) });
+    await closed.apply({ action: 'claim_update', id: 8, stage: 'resolved', notes: 'Resolved', notified: true, files: [] });
+    const closeData = workflowUpdate(closed.connection);
+    expect(closeData?.claimPieceReady).toBeUndefined();
+    expect(typeof closeData?.claimPieceReadyClearedAt).toBe('string');
+  });
   it.each([
     ['missing-delivery', /entrega/], ['expired', /expiró/], ['incident', /incidencia/], ['past-review', /pasado/],
     ['duplicate', /abierto/], ['assignee', /responsable/],

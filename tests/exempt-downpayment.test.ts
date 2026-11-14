@@ -3,6 +3,7 @@ import { Socket } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import mysql, { type Pool, type RowDataPacket } from 'mysql2/promise';
 import { handleWorkflowRequest, workflowEventFromRow } from '../src/server/orderWorkflow';
+import { unlockFinanceVault } from '../src/server/financeVault';
 import { validateWorkflowAction } from '../src/utils/orderWorkflow';
 
 vi.mock('../src/server/config', () => ({
@@ -26,8 +27,18 @@ const createMockRequest = (method = 'POST', body: Record<string, unknown> = {}) 
   req.push(Buffer.from(JSON.stringify(body)));
   req.push(null);
   const res = new ServerResponse(req);
-  vi.spyOn(res, 'end').mockReturnValue(res);
-  return { req, res };
+  const end = vi.spyOn(res, 'end').mockReturnValue(res);
+  return { req, res, end };
+};
+
+const unlockVault = (req: IncomingMessage, res: ServerResponse, claims: { sub: string; role: string }) => {
+  const token = 'test-session-token';
+  req.headers.authorization = `Bearer ${token}`;
+  unlockFinanceVault(res, claims as any, token);
+  const header = res.getHeader('Set-Cookie');
+  const cookies = Array.isArray(header) ? header : [String(header || '')];
+  const finance = cookies.find(value => value.startsWith('radar_finance='));
+  req.headers.cookie = finance ? finance.split(';')[0] : '';
 };
 
 describe('Exempt Downpayment Admin Feature', () => {
@@ -75,6 +86,7 @@ describe('Exempt Downpayment Admin Feature', () => {
     });
 
     const claims = { sub: '1', role: 'admin', username: 'admin' };
+    unlockVault(req, res, claims);
     const broadcast = vi.fn();
     const handled = await handleWorkflowRequest(
       req,
@@ -130,6 +142,76 @@ describe('Exempt Downpayment Admin Feature', () => {
 
     expect(handled).toBe(true);
     expect(res.statusCode).toBe(403);
+  });
+
+  it('requires the finance vault before an admin can exempt a downpayment', async () => {
+    const database = mysql.createPool({ host: '127.0.0.1', port: 1, user: 'test', connectTimeout: 1 });
+    pools.push(database);
+    const getConnection = vi.spyOn(database, 'getConnection');
+
+    const { req, res, end } = createMockRequest('POST', { notes: 'Sin bóveda' });
+    const claims = { sub: '1', role: 'admin', username: 'admin' };
+    const handled = await handleWorkflowRequest(
+      req, res, '/api/orders/555/exempt-downpayment', claims as any, database, vi.fn()
+    );
+
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(String(end.mock.calls[0][0]))).toMatchObject({ code: 'FINANCE_LOCKED' });
+    expect(getConnection).not.toHaveBeenCalled();
+  });
+
+  it('requires the finance vault before an admin can verify a downpayment', async () => {
+    const database = mysql.createPool({ host: '127.0.0.1', port: 1, user: 'test', connectTimeout: 1 });
+    pools.push(database);
+    const getConnection = vi.spyOn(database, 'getConnection');
+
+    const { req, res, end } = createMockRequest('POST');
+    const claims = { sub: '1', role: 'admin', username: 'admin' };
+    const handled = await handleWorkflowRequest(
+      req, res, '/api/orders/555/verify-downpayment', claims as any, database, vi.fn()
+    );
+
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(String(end.mock.calls[0][0]))).toMatchObject({ code: 'FINANCE_LOCKED' });
+    expect(getConnection).not.toHaveBeenCalled();
+  });
+
+  it('requires the finance vault for workflow actions that exempt the downpayment', async () => {
+    const database = mysql.createPool({ host: '127.0.0.1', port: 1, user: 'test', connectTimeout: 1 });
+    pools.push(database);
+    const getConnection = vi.spyOn(database, 'getConnection');
+
+    const { req, res, end } = createMockRequest('POST', {
+      version: 1, task: 'ack', outcome: 'completed', exemptDownpayment: true,
+    });
+    const claims = { sub: '1', role: 'admin', username: 'admin' };
+    const handled = await handleWorkflowRequest(
+      req, res, '/api/orders/555/workflow', claims as any, database, vi.fn()
+    );
+
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(String(end.mock.calls[0][0]))).toMatchObject({ code: 'FINANCE_LOCKED' });
+    expect(getConnection).not.toHaveBeenCalled();
+  });
+
+  it('does not honor a vault grant issued to another admin session', async () => {
+    const database = mysql.createPool({ host: '127.0.0.1', port: 1, user: 'test', connectTimeout: 1 });
+    pools.push(database);
+    const getConnection = vi.spyOn(database, 'getConnection');
+
+    const { req, res, end } = createMockRequest('POST', { notes: 'Sesión distinta' });
+    unlockVault(req, res, { sub: '1', role: 'admin' });
+    const handled = await handleWorkflowRequest(
+      req, res, '/api/orders/555/exempt-downpayment', { sub: '2', role: 'admin' } as any, database, vi.fn()
+    );
+
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(String(end.mock.calls[0][0]))).toMatchObject({ code: 'FINANCE_LOCKED' });
+    expect(getConnection).not.toHaveBeenCalled();
   });
 
   it('validates WorkflowAction with exemptDownpayment: true allows $0 paid in ack stage', () => {

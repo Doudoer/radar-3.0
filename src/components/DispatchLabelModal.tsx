@@ -29,7 +29,7 @@ export const DispatchLabelModal: React.FC<DispatchLabelModalProps> = ({
         <div className="flex items-center justify-between px-6 py-4 border-b border-cyan-500/20 bg-[#0a1022]/80 backdrop-blur-md">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
-              <span className="material-symbols-outlined text-[18px]">qr_code_2</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">qr_code_2</span>
             </div>
             <div>
               <h3 className="font-bold text-sm sm:text-base text-slate-100">Etiqueta Térmica de Despacho</h3>
@@ -41,14 +41,14 @@ export const DispatchLabelModal: React.FC<DispatchLabelModalProps> = ({
               onClick={handlePrint}
               className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-[0_0_12px_rgba(6,182,212,0.35)] transition-all active:scale-95"
             >
-              <span className="material-symbols-outlined text-[16px]">print</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">print</span>
               <span>Imprimir 4x6</span>
             </button>
             <button
               onClick={onClose}
               className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 cursor-pointer transition-colors"
             >
-              <span className="material-symbols-outlined text-[20px]">close</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
             </button>
           </div>
         </div>

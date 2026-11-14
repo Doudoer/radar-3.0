@@ -3,14 +3,20 @@ import type { InventoryAvailability, Order } from '../types';
 import { inventoryAvailabilityLabel } from '../utils/inventoryMatching';
 import { ordersApi } from '../services/ordersApi';
 
-export function InventoryAvailabilityBadge({ availability }: { availability?: InventoryAvailability }) {
+export function InventoryAvailabilityBadge({ availability, compact = false }: { availability?: InventoryAvailability; compact?: boolean }) {
   if (!availability) return null;
   const color = availability.state === 'available' || availability.state === 'linked' ? 'var(--positive)'
     : availability.state === 'possible' || availability.state === 'reserved' ? 'var(--warning)' : 'var(--text-secondary)';
+  const label = inventoryAvailabilityLabel(availability);
+  if (compact) {
+    return <span className="inline-flex shrink-0 items-center" style={{ color }} title={label} aria-label={label}>
+      <span aria-hidden="true" className="material-symbols-outlined text-[15px]">inventory_2</span>
+    </span>;
+  }
   return <span className="inline-flex items-center gap-1 text-[11px] font-semibold mt-1" style={{ color }}
-    title={inventoryAvailabilityLabel(availability)}>
-    <span className="material-symbols-outlined text-[15px]">inventory_2</span>
-    {inventoryAvailabilityLabel(availability)}
+    title={label}>
+    <span aria-hidden="true" className="material-symbols-outlined text-[15px]">inventory_2</span>
+    {label}
   </span>;
 }
 

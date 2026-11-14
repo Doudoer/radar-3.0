@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ExpenseItem, OfficeEmployee, RecurringExpense } from '../components/WeeklyRelationView';
 import { apiFetch } from '../services/apiFetch';
 import type { FinanceMovement } from '../utils/finance';
+import { useFeedback } from '../components/FeedbackProvider';
 
 export interface FinanceState {
   version: number;
@@ -37,6 +38,14 @@ export const persistFinanceState = async (previous: FinanceState, patch: Partial
   return { ...next, version: data.version };
 };
 
+export const LEGACY_FINANCE_KEYS = [
+  'radar_office_employees_v1',
+  'radar_recurring_expenses_v1',
+  'radar_other_expenses_v1',
+] as const;
+
+export const LEGACY_FINANCE_MIGRATED_KEY = 'radar_finance_legacy_migrated_v1';
+
 export const readLegacyFinanceState = (storage: Pick<Storage, 'getItem'>): Omit<FinanceState, 'version'> => {
   const read = (key: string) => {
     const value = JSON.parse(storage.getItem(key) || '[]');
@@ -50,7 +59,13 @@ export const readLegacyFinanceState = (storage: Pick<Storage, 'getItem'>): Omit<
   };
 };
 
+export const clearLegacyFinanceState = (storage: Pick<Storage, 'removeItem' | 'setItem'>) => {
+  LEGACY_FINANCE_KEYS.forEach((key) => storage.removeItem(key));
+  storage.setItem(LEGACY_FINANCE_MIGRATED_KEY, new Date().toISOString());
+};
+
 export const useFinanceState = (enabled: boolean) => {
+  const { confirm } = useFeedback();
   const [state, setState] = useState<FinanceState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -112,13 +127,27 @@ export const useFinanceState = (enabled: boolean) => {
     try {
       const legacy = readLegacyFinanceState(localStorage);
       if (!Object.values(legacy).some((items) => items.length)) throw new Error('No hay datos locales anteriores para importar.');
-      if (!window.confirm('¿Importar los datos financieros de este navegador al servidor? Se conservará intacto el original local.')) return false;
-      return await save(legacy);
+      const confirmed = await confirm({
+        title: '¿Importar los datos financieros locales?',
+        message: 'Se enviarán al servidor los datos guardados en este navegador. Después podrás borrar la copia local.',
+        confirmLabel: 'Importar',
+      });
+      if (!confirmed) return false;
+      const imported = await save(legacy);
+      if (!imported) return false;
+      const removeLocal = await confirm({
+        title: 'Datos importados',
+        message: 'El servidor ya tiene estos datos financieros. ¿Borrar la copia local de este navegador?',
+        confirmLabel: 'Borrar copia local',
+      });
+      if (removeLocal) clearLegacyFinanceState(localStorage);
+      else localStorage.setItem(LEGACY_FINANCE_MIGRATED_KEY, new Date().toISOString());
+      return true;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'No se pudieron importar los datos locales.');
       return false;
     }
-  }, [save]);
+  }, [save, confirm]);
 
   return { state, error, saving, reload, save, importLegacy };
 };
@@ -146,8 +175,13 @@ export const useFinanceMovements = (enabled = true, source: 'vault' | 'dashboard
   useEffect(() => {
     if (!enabled) return;
     void refresh();
-    window.addEventListener('radar:finance-updated', refresh);
-    return () => window.removeEventListener('radar:finance-updated', refresh);
+    const refreshOnChange = () => { void refresh(); };
+    window.addEventListener('radar:finance-updated', refreshOnChange);
+    window.addEventListener('radar:data-changed', refreshOnChange);
+    return () => {
+      window.removeEventListener('radar:finance-updated', refreshOnChange);
+      window.removeEventListener('radar:data-changed', refreshOnChange);
+    };
   }, [enabled, refresh]);
   return { movements, error, loaded, refresh };
 };

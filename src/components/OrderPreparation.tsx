@@ -39,7 +39,7 @@ export const PreparationFields: React.FC<{
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-start gap-3.5">
               <div className={`p-2.5 rounded-xl ${value.yardNotified ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                <span className="material-symbols-outlined text-2xl">
+                <span aria-hidden="true" className="material-symbols-outlined text-2xl">
                   {value.yardNotified ? 'check_circle' : 'hourglass_top'}
                 </span>
               </div>
@@ -73,7 +73,7 @@ export const PreparationFields: React.FC<{
                   : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border-amber-500/40'
               }`}
             >
-              <span className="material-symbols-outlined text-lg">
+              <span aria-hidden="true" className="material-symbols-outlined text-lg">
                 {value.yardNotified ? 'task_alt' : 'touch_app'}
               </span>
               {value.yardNotified ? 'Yarda Notificada ✓' : 'Marcar Yarda Notificada'}
@@ -95,7 +95,7 @@ export const PreparationFields: React.FC<{
 
       {value.channel === 'in_person' && (
         <div className="rounded-xl p-4 bg-blue-950/40 border border-blue-500/40 text-blue-200 flex items-center gap-3">
-          <span className="material-symbols-outlined text-2xl text-blue-400">storefront</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-2xl text-blue-400">storefront</span>
           <div>
             <h5 className="font-bold text-sm">Cliente presente en patio</h5>
             <p className="text-sm text-blue-300/90">
@@ -118,7 +118,7 @@ export const PreparationFields: React.FC<{
         {/* 2. Communication Channel Selector (Interactive Cards) */}
         <div className="space-y-2.5">
           <label className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary-400 text-base">support_agent</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-primary-400 text-base">support_agent</span>
             Tipo de comunicación con el cliente
           </label>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -140,12 +140,12 @@ export const PreparationFields: React.FC<{
               }`}
             >
               <div className={`p-2 rounded-lg shrink-0 ${value.channel === 'call' ? 'bg-primary-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
-                <span className="material-symbols-outlined text-xl">phone_in_talk</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-xl">phone_in_talk</span>
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-sm">Llamada contestada</span>
-                  {value.channel === 'call' && <span className="text-primary-400 material-symbols-outlined text-base">check_circle</span>}
+                  {value.channel === 'call' && <span aria-hidden="true" className="text-primary-400 material-symbols-outlined text-base">check_circle</span>}
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">
                   Conversación telefónica directa con el comprador para coordinar la entrega.
@@ -159,7 +159,7 @@ export const PreparationFields: React.FC<{
                 update({
                   channel: 'sms',
                   failedCall: true,
-                  failedCallNotes: 'Llamada no contestada, se envió mensaje de texto/WhatsApp',
+                  failedCallNotes: 'Llamada no contestada, se envió mensaje de texto',
                   customerConfirmed: false,
                 });
               }}
@@ -170,12 +170,12 @@ export const PreparationFields: React.FC<{
               }`}
             >
               <div className={`p-2 rounded-lg shrink-0 ${value.channel === 'sms' ? 'bg-primary-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
-                <span className="material-symbols-outlined text-xl">chat</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-xl">chat</span>
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-sm">Mensaje de texto / Chat</span>
-                  {value.channel === 'sms' && <span className="text-primary-400 material-symbols-outlined text-base">check_circle</span>}
+                  {value.channel === 'sms' && <span aria-hidden="true" className="text-primary-400 material-symbols-outlined text-base">check_circle</span>}
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">
                   Mensaje de texto después de llamada sin respuesta (requiere capturas).
@@ -207,12 +207,12 @@ export const PreparationFields: React.FC<{
                 }`}
               >
                 <div className={`p-2 rounded-lg shrink-0 ${value.channel === 'in_person' ? 'bg-blue-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
-                  <span className="material-symbols-outlined text-xl">storefront</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-xl">storefront</span>
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-sm">Cliente en yarda</span>
-                    {value.channel === 'in_person' && <span className="text-blue-400 material-symbols-outlined text-base">check_circle</span>}
+                    {value.channel === 'in_person' && <span aria-hidden="true" className="text-blue-400 material-symbols-outlined text-base">check_circle</span>}
                   </div>
                   <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">
                     Cliente presente · entrega inmediata en yarda
@@ -228,7 +228,7 @@ export const PreparationFields: React.FC<{
           <div className="p-4 rounded-2xl bg-slate-900/70 border border-slate-700/80 space-y-2">
             <label className="flex items-center justify-between text-xs sm:text-sm font-semibold text-slate-200">
               <span className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-indigo-400 text-lg">forum</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-indigo-400 text-lg">forum</span>
                 ¿Qué respondió el cliente? (Detalle de la conversación)
               </span>
               <span className="text-[11px] font-normal text-slate-400">
@@ -252,7 +252,7 @@ export const PreparationFields: React.FC<{
         {value.channel === 'sms' && (
           <div className="p-4 sm:p-5 rounded-2xl bg-amber-950/20 border border-amber-500/30 space-y-4">
             <div className="flex items-center gap-2 text-amber-300 font-semibold text-sm">
-              <span className="material-symbols-outlined text-lg">warning</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-lg">warning</span>
               Evidencia de intento de llamada y mensaje
             </div>
 
@@ -305,7 +305,7 @@ export const PreparationFields: React.FC<{
             {/* 5. Delivery Mode (Retiro en Yarda vs Delivery) */}
             <div className="space-y-2.5">
               <label className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                <span className="material-symbols-outlined text-cyan-400 text-base">local_shipping</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-base">local_shipping</span>
                 Modalidad acordada
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -319,12 +319,12 @@ export const PreparationFields: React.FC<{
                   }`}
                 >
                   <div className={`p-2 rounded-lg shrink-0 ${value.deliveryType === 'retiro_tienda' ? 'bg-cyan-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
-                    <span className="material-symbols-outlined text-xl">store</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-xl">store</span>
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-sm">Recogida en yarda</span>
-                      {value.deliveryType === 'retiro_tienda' && <span className="text-cyan-400 material-symbols-outlined text-base">check_circle</span>}
+                      {value.deliveryType === 'retiro_tienda' && <span aria-hidden="true" className="text-cyan-400 material-symbols-outlined text-base">check_circle</span>}
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5">
                       El cliente retirará la pieza directamente en la yarda.
@@ -342,12 +342,12 @@ export const PreparationFields: React.FC<{
                   }`}
                 >
                   <div className={`p-2 rounded-lg shrink-0 ${value.deliveryType === 'envio_domicilio' ? 'bg-cyan-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
-                    <span className="material-symbols-outlined text-xl">local_shipping</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-xl">local_shipping</span>
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-sm">Delivery / envío</span>
-                      {value.deliveryType === 'envio_domicilio' && <span className="text-cyan-400 material-symbols-outlined text-base">check_circle</span>}
+                      {value.deliveryType === 'envio_domicilio' && <span aria-hidden="true" className="text-cyan-400 material-symbols-outlined text-base">check_circle</span>}
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5">
                       Despacho por transporte o flete a dirección acordada.
@@ -359,7 +359,7 @@ export const PreparationFields: React.FC<{
               {value.deliveryType === 'envio_domicilio' && (
                 <div className="p-4 rounded-xl bg-slate-900/80 border border-cyan-500/30 space-y-2 mt-2">
                   <label className="text-xs sm:text-sm font-semibold text-slate-200 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-cyan-400 text-base">location_on</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-base">location_on</span>
                     Dirección de entrega
                   </label>
                   <textarea
@@ -379,7 +379,7 @@ export const PreparationFields: React.FC<{
             {/* 6. Core Plan Decision (Interactive Decision Cards) */}
             <div className="space-y-2.5">
               <label className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                <span className="material-symbols-outlined text-violet-400 text-base">swap_horizontal_circle</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-violet-400 text-base">swap_horizontal_circle</span>
                 Acuerdo del core (casco viejo)
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -393,12 +393,12 @@ export const PreparationFields: React.FC<{
                   }`}
                 >
                   <div className={`p-2 rounded-lg shrink-0 ${value.corePlan === 'return_core' ? 'bg-violet-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
-                    <span className="material-symbols-outlined text-xl">swap_horiz</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-xl">swap_horiz</span>
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-sm">El cliente llevará el core a la yarda</span>
-                      {value.corePlan === 'return_core' && <span className="text-violet-400 material-symbols-outlined text-base">check_circle</span>}
+                      {value.corePlan === 'return_core' && <span aria-hidden="true" className="text-violet-400 material-symbols-outlined text-base">check_circle</span>}
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5">
                       Traerá el casco viejo al momento del retiro (no paga depósito).
@@ -416,12 +416,12 @@ export const PreparationFields: React.FC<{
                   }`}
                 >
                   <div className={`p-2 rounded-lg shrink-0 ${value.corePlan === 'pay_core' ? 'bg-violet-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
-                    <span className="material-symbols-outlined text-xl">payments</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-xl">payments</span>
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-sm">El cliente pagará el valor del core</span>
-                      {value.corePlan === 'pay_core' && <span className="text-violet-400 material-symbols-outlined text-base">check_circle</span>}
+                      {value.corePlan === 'pay_core' && <span aria-hidden="true" className="text-violet-400 material-symbols-outlined text-base">check_circle</span>}
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5">
                       No entregará pieza vieja; abonará el valor del core en el saldo.
@@ -448,7 +448,7 @@ export const PreparationFields: React.FC<{
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <label className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-slate-200 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-amber-400 text-base">event</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-amber-400 text-base">event</span>
                     Fecha de Cita Acordada con el Cliente
                   </label>
                   <p className="text-xs text-slate-400 mt-0.5">
@@ -513,7 +513,7 @@ export const PreparationFields: React.FC<{
         {/* 8. Interactive Checklist (Cards with instant visual active state) */}
         <div className="space-y-2.5">
           <label className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-            <span className="material-symbols-outlined text-emerald-400 text-base">checklist</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-emerald-400 text-base">checklist</span>
             Verificación y Acuerdos con el Cliente
           </label>
 
@@ -529,7 +529,7 @@ export const PreparationFields: React.FC<{
               }`}
             >
               <div className={`p-1.5 rounded-lg shrink-0 ${value.balanceNotified ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-500'}`}>
-                <span className="material-symbols-outlined text-lg">
+                <span aria-hidden="true" className="material-symbols-outlined text-lg">
                   {value.balanceNotified ? 'check' : 'attach_money'}
                 </span>
               </div>
@@ -554,7 +554,7 @@ export const PreparationFields: React.FC<{
               }`}
             >
               <div className={`p-1.5 rounded-lg shrink-0 ${value.paymentMethodsNotified ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-500'}`}>
-                <span className="material-symbols-outlined text-lg">
+                <span aria-hidden="true" className="material-symbols-outlined text-lg">
                   {value.paymentMethodsNotified ? 'check' : 'payments'}
                 </span>
               </div>
@@ -579,7 +579,7 @@ export const PreparationFields: React.FC<{
               }`}
             >
               <div className={`p-1.5 rounded-lg shrink-0 ${value.coreNotified !== false ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-500'}`}>
-                <span className="material-symbols-outlined text-lg">
+                <span aria-hidden="true" className="material-symbols-outlined text-lg">
                   {value.coreNotified !== false ? 'check' : 'history_toggle_off'}
                 </span>
               </div>
@@ -604,7 +604,7 @@ export const PreparationFields: React.FC<{
               }`}
             >
               <div className={`p-1.5 rounded-lg shrink-0 ${value.customerConfirmed ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-500'}`}>
-                <span className="material-symbols-outlined text-lg">
+                <span aria-hidden="true" className="material-symbols-outlined text-lg">
                   {value.customerConfirmed ? 'check' : 'handshake'}
                 </span>
               </div>

@@ -151,6 +151,41 @@ describe('database order mapping', () => {
     expect(deliveredOrder.auctionActive).toBe(false);
   });
 
+  it('survives malformed JSON columns without dropping the order', () => {
+    const malformed = mapOrder({
+      id: 15,
+      order_code: 'ORD-15',
+      created_at: new Date('2026-09-18T12:00:00Z'),
+      status: 'Pagado',
+      product_type: 'Motor',
+      workflow_data: '[not valid JSON',
+      preparation_details: '{oops',
+      warranty_terms: 'nope',
+      yard_compatibility: '{bad',
+    } as never);
+
+    expect(malformed.status).toBe('pagado');
+    expect(malformed.preparation).toBeNull();
+    expect(malformed.warrantyTerms).toBeNull();
+    expect(malformed.yardCompatibility).toBeUndefined();
+  });
+
+  it('projects valid workflow data and ignores payloads that fail its schema', () => {
+    const order = mapOrder({
+      id: 16,
+      order_code: 'ORD-16',
+      created_at: new Date('2026-09-18T12:00:00Z'),
+      status: 'Reclamo',
+      product_type: 'Motor',
+      workflow_data: JSON.stringify({ claimPieceReady: true, claimPieceReadyAt: '2026-11-11T09:00:00.000Z' }),
+      preparation_details: JSON.stringify({ bogus: true }),
+    } as never);
+
+    expect(order.claimPieceReady).toBe(true);
+    expect(order.claimPieceReadyAt).toBe('2026-11-11T09:00:00.000Z');
+    expect(order.preparation).toBeNull();
+  });
+
   it('returns null for empty or invalid SQL dates', () => {
     expect(toMysqlDateTime()).toBeNull();
     expect(toMysqlDateTime('not-a-date')).toBeNull();

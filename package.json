@@ -8,10 +8,14 @@
     "api": "tsx --env-file=.env server.ts",
     "db:up": "docker compose -f compose.local.yml up -d --wait",
     "db:down": "docker compose -f compose.local.yml down",
+    "local:wasender": "docker compose --env-file .env.wasender.local -f compose.desktop.yml -f compose.wasender.local.yml up -d app",
+    "local:wasender:off": "docker compose -f compose.desktop.yml up -d app",
     "db:migrate": "tsx --env-file=.env scripts/migrate.ts",
     "db:seed": "tsx --env-file=.env scripts/seed.ts",
     "db:setup": "npm run db:migrate && npm run db:seed",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "vitest run --config vitest.e2e.config.mjs",
     "test:watch": "vitest",
     "test:ui:horizon": "tsx scripts/test-horizon-ui.ts",
     "build:api": "esbuild server.ts --bundle --platform=node --format=esm --outfile=dist/server.js --packages=external && esbuild scripts/migrate.ts --bundle --platform=node --format=esm --outfile=dist/migrate.js --packages=external",
@@ -19,9 +23,13 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "ci": "npm run lint && npm run test:coverage && npm run build",
     "security:check": "tsx scripts/security-check.ts",
     "backup:now": "tsx --env-file=.env scripts/run-backup.ts manual",
     "backup:verify": "tsx --env-file=.env scripts/verify-backup-integrity.ts"
+  },
+  "engines": {
+    "node": ">=22 <23"
   },
   "dependencies": {
     "@fontsource-variable/dm-sans": "^5.3.0",

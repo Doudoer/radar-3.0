@@ -1,6 +1,8 @@
-import React, { useState, useMemo, useDeferredValue } from 'react';
+import React, { useState, useMemo, useDeferredValue, useEffect, useRef } from 'react';
 import { Order, OrderStatus, OrderSegmentView } from '../types';
 import { InventoryAvailabilityBadge } from './OrderInventoryAvailability';
+import { formatYardReadyElapsed, isYardReadyAlert, yardReadyAgeMinutes } from '../utils/yardAlerts';
+import { useFeedback } from './FeedbackProvider';
 
 interface OrdersTableViewProps {
   orders: Order[];
@@ -14,6 +16,8 @@ interface OrdersTableViewProps {
   isRefreshing?: boolean;
   lastSyncedAt?: Date | null;
   initialSearchQuery?: string;
+  initialFromDate?: string;
+  initialToDate?: string;
 }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 30, 50, 100] as const;
@@ -57,7 +61,10 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
   isRefreshing = false,
   lastSyncedAt,
   initialSearchQuery = '',
+  initialFromDate = '',
+  initialToDate = '',
 }) => {
+  const { confirm } = useFeedback();
   const [segmentView, setSegmentView] = useState<OrderSegmentView>('active');
   const [isArchivedView, setIsArchivedView] = useState(false);
   const [showFilters, setShowFilters] = useState<boolean>(() => {
@@ -78,12 +85,24 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
       return next;
     });
   };
+
+  const handleArchiveOrder = async (order: Order) => {
+    if (!onUpdateStatus) return;
+    const confirmed = await confirm({
+      title: `¿Archivar la orden ${order.code}?`,
+      message: 'Dejará de aparecer en las vistas activas. Podrás recuperarla desde "Ver archivadas".',
+      confirmLabel: 'Archivar',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    onUpdateStatus(order.id, 'archivado');
+  };
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [operatorFilter, setOperatorFilter] = useState<string>('all');
   const [makeFilter, setMakeFilter] = useState<string>('all');
   const [partTypeFilter, setPartTypeFilter] = useState<string>('all');
-  const [fromDate, setFromDate] = useState<string>('');
-  const [toDate, setToDate] = useState<string>('');
+  const [fromDate, setFromDate] = useState<string>(initialFromDate);
+  const [toDate, setToDate] = useState<string>(initialToDate);
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const [quickFilter, setQuickFilter] = useState<QuickFilterType>('all');
@@ -95,13 +114,25 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
         return saved;
       }
       if (window.innerWidth < 768) return 'cards';
+      return 'table';
     }
-    return 'cards';
+    return 'table';
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(10);
   const [activeActionMenu, setActiveActionMenu] = useState<string | null>(null);
   const [copiedVinId, setCopiedVinId] = useState<string | null>(null);
+  const segmentNavRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const nav = segmentNavRef.current;
+    if (!nav) return;
+    nav.querySelector<HTMLElement>('[aria-pressed="true"]')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'nearest',
+      inline: 'center',
+    });
+  }, [segmentView, isArchivedView]);
 
   const handleViewModeChange = (mode: 'cards' | 'table') => {
     setViewMode(mode);
@@ -575,7 +606,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
         return (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold bg-blue-500/15 border border-blue-400/40 text-blue-300 shadow-[0_0_10px_rgba(59,130,246,0.3)]">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-            Pagado / Facturado
+            Pagado
           </span>
         );
       case 'en_preparacion':
@@ -595,8 +626,8 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
         );
       case 'reclamo':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold bg-red-500/15 border border-red-400/40 text-red-300 shadow-[0_0_10px_rgba(239,68,68,0.3)] animate-pulse">
-            <span className="material-symbols-outlined text-[13px]">warning</span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold bg-[var(--state-urgency-tint)] border border-[var(--state-urgency-border)] text-[var(--state-urgency-text)]">
+            <span aria-hidden="true" className="material-symbols-outlined text-[13px]">warning</span>
             Reclamo
           </span>
         );
@@ -610,14 +641,14 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
       case 'reembolsado':
         return (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold bg-amber-500/15 border border-amber-400/40 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.3)]">
-            <span className="material-symbols-outlined text-[13px]">paid</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[13px]">paid</span>
             Reembolso
           </span>
         );
       case 'archivado':
         return (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold bg-slate-800/80 border border-slate-700 text-slate-400">
-            <span className="material-symbols-outlined text-[13px]">archive</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[13px]">archive</span>
             Archivado
           </span>
         );
@@ -628,6 +659,30 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
           </span>
         );
     }
+  };
+
+  const renderStatusInline = (status: OrderStatus) => {
+    const meta: Record<string, { label: string; dot: string; text: string }> = {
+      entregado: { label: 'Entregado', dot: 'bg-emerald-400', text: 'text-emerald-300' },
+      en_camino: { label: 'En camino', dot: 'bg-cyan-400', text: 'text-cyan-300' },
+      listo_despacho: { label: 'Listo despacho', dot: 'bg-fuchsia-400', text: 'text-fuchsia-300' },
+      listo_retiro: { label: 'Listo retiro', dot: 'bg-fuchsia-400', text: 'text-fuchsia-300' },
+      pagado: { label: 'Pagado', dot: 'bg-blue-400', text: 'text-blue-300' },
+      facturado: { label: 'Pagado', dot: 'bg-blue-400', text: 'text-blue-300' },
+      en_preparacion: { label: 'En preparación', dot: 'bg-cyan-400', text: 'text-cyan-300' },
+      cotizacion: { label: 'Cotización', dot: 'bg-amber-400', text: 'text-amber-300' },
+      espera_confirmacion: { label: 'Por confirmar', dot: 'bg-amber-400', text: 'text-amber-300' },
+      reclamo: { label: 'Reclamo', dot: 'bg-amber-400', text: 'text-amber-300' },
+      cancelado: { label: 'Cancelado', dot: 'bg-slate-500', text: 'text-slate-400' },
+      archivado: { label: 'Archivado', dot: 'bg-slate-500', text: 'text-slate-400' },
+    };
+    const item = meta[status] || { label: status, dot: 'bg-slate-500', text: 'text-slate-300' };
+    return (
+      <span className="inline-flex min-w-0 max-w-full items-center gap-2" title={item.label}>
+        <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${item.dot}`} />
+        <span className={`truncate font-mono text-[11px] font-semibold ${item.text}`}>{item.label}</span>
+      </span>
+    );
   };
 
   const renderDismissChip = (label: string, onDismiss: () => void, tone: string) => (
@@ -642,7 +697,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
         aria-label={`Quitar filtro ${label}`}
         className="w-4 h-4 rounded-md flex items-center justify-center hover:bg-white/10 hover:text-white cursor-pointer"
       >
-        <span className="material-symbols-outlined text-[12px]">close</span>
+        <span aria-hidden="true" className="material-symbols-outlined text-[12px]">close</span>
       </button>
     </span>
   );
@@ -703,7 +758,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
             </span>
             {searchQuery.trim() && (
               <span className="inline-flex items-center gap-1.5 justify-center bg-cyan-500/15 border border-cyan-400/40 rounded-full px-3 py-0.5 font-mono text-cyan-300 text-xs font-bold shadow-[0_0_10px_rgba(6,182,212,0.25)]">
-                <span className="material-symbols-outlined text-[13px]">search</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[13px]">search</span>
                 <span>{filteredOrders.length} {filteredOrders.length === 1 ? 'coincidencia' : 'coincidencias'} (todos los estatus)</span>
               </span>
             )}
@@ -730,7 +785,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
               title="Sincronizar y actualizar lista de órdenes ahora"
               className="px-3 py-2 rounded-2xl bg-[#060e1d]/90 border border-cyan-500/30 text-xs font-mono font-bold text-slate-200 hover:border-cyan-400 hover:bg-[#09152b] transition-all flex items-center gap-1.5 cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.15)] disabled:opacity-50 active:scale-95"
             >
-              <span className={`material-symbols-outlined text-[16px] text-cyan-400 ${isRefreshing ? 'animate-spin' : ''}`}>
+              <span aria-hidden="true" className={`material-symbols-outlined text-[16px] text-cyan-400 ${isRefreshing ? 'animate-spin' : ''}`}>
                 refresh
               </span>
               <span className="hidden sm:inline">Actualizar</span>
@@ -741,7 +796,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
             onClick={onExport}
             className="px-3.5 py-2 rounded-2xl bg-[#060e1d]/90 border border-cyan-500/30 text-xs font-mono font-bold text-slate-200 hover:border-cyan-400 hover:bg-[#09152b] transition-all flex items-center gap-1.5 cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.15)]"
           >
-            <span className="material-symbols-outlined text-[16px] text-cyan-400">download</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-400">download</span>
             <span>Exportar CSV</span>
           </button>
 
@@ -750,7 +805,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
             onClick={onStatusRequest}
             className="px-3.5 py-2 rounded-2xl bg-[#060e1d]/90 border border-cyan-500/30 text-xs font-mono font-bold text-cyan-300 hover:border-cyan-400 hover:bg-[#09152b] transition-all flex items-center gap-1.5 cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.15)]"
           >
-            <span className="material-symbols-outlined text-[16px]">assignment</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">assignment</span>
             <span>Solicitar status</span>
           </button>
 
@@ -758,14 +813,14 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
             onClick={onOpenNewOrder}
             className="px-4 py-2 rounded-2xl bg-gradient-to-r from-cyan-400 via-blue-500 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-slate-950 text-xs font-black tracking-wider uppercase transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] flex items-center gap-1.5 cursor-pointer active:scale-95"
           >
-            <span className="material-symbols-outlined text-[18px]">add_circle</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">add_circle</span>
             <span>Crear Orden</span>
           </button>
         </div>
       </div>
 
       {/* Segmented Quick Tabs */}
-      <nav aria-label="Estatus de órdenes" className="horizon-order-segments flex items-center gap-2 overflow-x-auto flex-nowrap scrollbar-none py-1 -mx-2 px-2 sm:mx-0 sm:px-0 touch-pan-x">
+      <nav ref={segmentNavRef} aria-label="Estatus de órdenes" className="horizon-order-segments h-scroll-fade flex items-center gap-2 overflow-x-auto flex-nowrap scrollbar-none py-1 -mx-2 px-2 sm:mx-0 sm:px-0 touch-pan-x">
         {/* Activas */}
         <button
           onClick={() => handleSegmentChange('active')}
@@ -776,7 +831,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
           }`}
         >
-          <span className="material-symbols-outlined text-[18px]">inventory_2</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[18px]">inventory_2</span>
           <span>Órdenes Activas</span>
           <span className="text-[10px] bg-[#02050c] px-2 py-0.5 rounded-md border border-cyan-500/25 text-white">
             {counts.active}
@@ -794,7 +849,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
           }`}
           title="Ver solo órdenes marcadas para búsqueda en subasta"
         >
-          <span className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">gavel</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">gavel</span>
           <span>Búsqueda Subasta</span>
           <span className="text-[10px] bg-amber-50 dark:bg-[#02050c] px-2 py-0.5 rounded-md border border-amber-300 dark:border-amber-500/30 text-amber-900 dark:text-amber-300 font-bold">
             {counts.auction}
@@ -811,7 +866,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
           }`}
         >
-          <span className="material-symbols-outlined text-[18px]">storefront</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[18px]">storefront</span>
           <span>Listo para Retiro</span>
           <span className="text-[10px] bg-[#02050c] px-2 py-0.5 rounded-md border border-cyan-500/25 text-white">
             {counts.readyPickup}
@@ -828,7 +883,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
           }`}
         >
-          <span className="material-symbols-outlined text-[18px]">hourglass_empty</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[18px]">hourglass_empty</span>
           <span>Garantías Vencidas</span>
           <span className="text-[10px] bg-[#02050c] px-2 py-0.5 rounded-md border border-cyan-500/25 text-white">
             {counts.expiredWarranty}
@@ -841,11 +896,11 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
           aria-pressed={segmentView === 'cancelled' && !isArchivedView}
           className={`shrink-0 text-xs py-1.5 px-3.5 rounded-xl transition-all font-mono font-bold flex items-center gap-2 cursor-pointer ${
             segmentView === 'cancelled' && !isArchivedView
-              ? 'bg-red-500/20 border-2 border-red-400 text-red-300 shadow-[0_0_15px_rgba(239,68,68,0.35)]'
+              ? 'bg-[var(--brand-soft)] border-2 border-[var(--brand)]/40 text-[var(--brand)]'
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
           }`}
         >
-          <span className="material-symbols-outlined text-[18px]">cancel</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[18px]">cancel</span>
           <span>Canceladas</span>
           <span className="text-[10px] bg-[#02050c] px-2 py-0.5 rounded-md border border-cyan-500/25 text-white">
             {counts.cancelled}
@@ -862,7 +917,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
           }`}
         >
-          <span className="material-symbols-outlined text-[18px]">currency_exchange</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[18px]">currency_exchange</span>
           <span>Reembolsos</span>
           <span className="text-[10px] bg-[#02050c] px-2 py-0.5 rounded-md border border-cyan-500/25 text-white">
             {counts.refunds}
@@ -879,7 +934,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
               : 'bg-[#040814] border border-cyan-500/20 text-slate-300 hover:border-cyan-400/50 hover:text-white'
           }`}
         >
-          <span className="material-symbols-outlined text-[18px]">archive</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[18px]">archive</span>
           <span>Archivadas</span>
           <span className="text-[10px] bg-[#02050c] px-2 py-0.5 rounded-md border border-cyan-500/25 text-white">
             {counts.archived}
@@ -888,7 +943,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
       </nav>
 
       {/* Main Search & Filters Card */}
-      <div className="horizon-order-filters relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-4 shadow-[0_15px_35px_rgba(0,0,0,0.6)] flex flex-col gap-3.5 overflow-hidden">
+      <div className="horizon-order-filters relative rounded-3xl bg-[#070c18]/95 backdrop-blur-2xl border border-cyan-500/25 p-4 shadow-[0_15px_35px_rgba(0,0,0,0.6)] flex flex-col gap-3.5 md:sticky md:top-0 md:z-30">
         <div className="absolute top-0 inset-x-0 h-[1.5px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_10px_#22d3ee]" />
 
         {/* Row 1: Search Bar & Quick Controls (Mobile App-first responsive flow) */}
@@ -896,7 +951,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
           {/* Top Full-width Mobile Search Bar */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
             <div className="relative flex-1 group">
-              <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400 text-[18px] group-focus-within:text-cyan-300 pointer-events-none transition-colors">
+              <span aria-hidden="true" className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400 text-[18px] group-focus-within:text-cyan-300 pointer-events-none transition-colors">
                 search
               </span>
               <input
@@ -913,13 +968,13 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 rounded-full hover:bg-slate-800 transition cursor-pointer"
                   title="Limpiar búsqueda"
                 >
-                  <span className="material-symbols-outlined text-[16px]">close</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">close</span>
                 </button>
               )}
             </div>
 
             {/* Controls Bar: Ver Archivadas, Filtros Toggle, View Mode Switcher */}
-            <div className="flex items-center justify-between sm:justify-end gap-2 overflow-x-auto scrollbar-none py-0.5">
+            <div className="h-scroll-fade flex items-center justify-between sm:justify-end gap-2 overflow-x-auto scrollbar-none py-0.5">
               <div className="flex items-center gap-2 shrink-0">
                 {/* Ver Archivadas Button */}
                 <button
@@ -931,7 +986,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                       : 'bg-[#060e1d]/90 border-slate-700/80 text-slate-200 hover:border-cyan-400/60 hover:text-white hover:bg-[#09152b]'
                   }`}
                 >
-                  <span className="material-symbols-outlined text-[16px]">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">
                     {isArchivedView ? 'visibility' : 'inventory_2'}
                   </span>
                   <span>{isArchivedView ? 'Ver Activas' : 'Ver Archivadas'}</span>
@@ -953,7 +1008,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                       : 'bg-[#060e1d]/90 border-slate-700/80 text-slate-200 hover:border-cyan-400/60 hover:text-white hover:bg-[#09152b]'
                   }`}
                 >
-                  <span className="material-symbols-outlined text-[16px]">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">
                     {showFilters ? 'tune' : 'filter_alt'}
                   </span>
                   <span>Filtros</span>
@@ -962,7 +1017,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                       {activeFiltersCount}
                     </span>
                   )}
-                  <span className={`material-symbols-outlined text-[15px] transition-transform duration-300 ${showFilters ? 'rotate-180' : ''}`}>
+                  <span aria-hidden="true" className={`material-symbols-outlined text-[15px] transition-transform duration-300 ${showFilters ? 'rotate-180' : ''}`}>
                     expand_more
                   </span>
                 </button>
@@ -980,7 +1035,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                   }`}
                   title="Vista de Cuadrícula de Tarjetas"
                 >
-                  <span className="material-symbols-outlined text-[16px]">grid_view</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">grid_view</span>
                   <span className="text-[11px]">Tarjetas</span>
                 </button>
                 <button
@@ -993,7 +1048,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                   }`}
                   title="Vista en Tabla Compacta"
                 >
-                  <span className="material-symbols-outlined text-[16px]">table_rows</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">table_rows</span>
                   <span className="text-[11px]">Tabla</span>
                 </button>
               </div>
@@ -1002,9 +1057,9 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
         </div>
 
         {/* Row 2: Quick Filter Pills (1-click Swipeable Strip) with Live Counters */}
-        <div className="flex items-center gap-2 overflow-x-auto flex-nowrap scrollbar-none py-1 -mx-2 px-2 touch-pan-x" role="group" aria-label="Filtros rápidos">
+        <div className="h-scroll-fade flex items-center gap-2 overflow-x-auto flex-nowrap scrollbar-none py-1 -mx-2 px-2 touch-pan-x" role="group" aria-label="Filtros rápidos">
           <span className="text-[10px] font-mono font-bold uppercase text-slate-400 mr-1 flex items-center gap-1 shrink-0">
-            <span className="material-symbols-outlined text-[14px] text-cyan-400">bolt</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-cyan-400">bolt</span>
             Filtros rápidos:
           </span>
 
@@ -1022,7 +1077,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                 : 'bg-[#040814] border-slate-700/80 text-slate-300 hover:text-white hover:border-cyan-400/50'
             }`}
           >
-            <span className="material-symbols-outlined text-[14px] text-cyan-400">format_list_bulleted</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-cyan-400">format_list_bulleted</span>
             <span>Todos</span>
             <span
               className={`ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black ${
@@ -1050,7 +1105,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                     : `bg-[#040814] border-slate-700/80 text-slate-300 hover:text-white ${qf.idle}`
                 }`}
               >
-                <span className={`material-symbols-outlined text-[14px] ${qf.iconColor}`}>{qf.icon}</span>
+                <span aria-hidden="true" className={`material-symbols-outlined text-[14px] ${qf.iconColor}`}>{qf.icon}</span>
                 <span>{QUICK_FILTER_LABELS[qf.id]}</span>
                 <span
                   className={`ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black ${
@@ -1061,7 +1116,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                 >
                   {count}
                 </span>
-                {isActive && <span className="material-symbols-outlined text-[13px] ml-0.5">close</span>}
+                {isActive && <span aria-hidden="true" className="material-symbols-outlined text-[13px] ml-0.5">close</span>}
               </button>
             );
           })}
@@ -1079,7 +1134,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
               className="flex items-center gap-2 text-xs font-mono font-bold text-slate-300 hover:text-cyan-300 transition-colors py-1 cursor-pointer group select-none"
             >
               <div className="w-5 h-5 rounded-md bg-slate-800/80 border border-slate-700/80 group-hover:border-cyan-400/50 flex items-center justify-center transition">
-                <span className={`material-symbols-outlined text-[15px] text-cyan-400 transition-transform duration-300 ${showFilters ? 'rotate-180' : ''}`}>
+                <span aria-hidden="true" className={`material-symbols-outlined text-[15px] text-cyan-400 transition-transform duration-300 ${showFilters ? 'rotate-180' : ''}`}>
                   expand_more
                 </span>
               </div>
@@ -1098,7 +1153,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                 className="text-[11px] font-mono text-amber-400 hover:text-amber-300 flex items-center gap-1 transition-colors cursor-pointer py-1"
                 title="Restablecer todos los filtros"
               >
-                <span className="material-symbols-outlined text-[14px]">filter_alt_off</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">filter_alt_off</span>
                 <span>Limpiar filtros</span>
               </button>
             )}
@@ -1115,7 +1170,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
               {/* 1. ESTADO */}
               <div>
                 <label className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
-                  <span className="material-symbols-outlined text-[13px] text-cyan-400">flag</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[13px] text-cyan-400">flag</span>
                   ESTADO
                 </label>
                 <div className="relative">
@@ -1136,13 +1191,13 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                     <option value="listo_retiro" className="bg-[#060c18] text-purple-300">Listo para retiro</option>
                     <option value="en_camino" className="bg-[#060c18] text-cyan-300">En camino</option>
                     <option value="entregado" className="bg-[#060c18] text-emerald-300">Entregado</option>
-                    <option value="reclamo" className="bg-[#060c18] text-red-300">Reclamo</option>
+                    <option value="reclamo" className="bg-[#060c18] text-amber-300">Reclamo</option>
                     <option value="cancelado" className="bg-[#060c18] text-slate-400">Cancelado</option>
                     <option value="solicitud_reembolso" className="bg-[#060c18] text-amber-300">Solicitud de reembolso</option>
                     <option value="reembolsado" className="bg-[#060c18] text-amber-300">Reembolsado</option>
                     <option value="archivado" className="bg-[#060c18] text-slate-400">Archivado</option>
                   </select>
-                  <span className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px] pointer-events-none">
+                  <span aria-hidden="true" className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px] pointer-events-none">
                     expand_more
                   </span>
                 </div>
@@ -1151,7 +1206,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
               {/* 2. OPERADOR */}
               <div>
                 <label className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
-                  <span className="material-symbols-outlined text-[13px] text-cyan-400">person</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[13px] text-cyan-400">person</span>
                   OPERADOR
                 </label>
                 <div className="relative">
@@ -1170,7 +1225,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                       </option>
                     ))}
                   </select>
-                  <span className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px] pointer-events-none">
+                  <span aria-hidden="true" className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px] pointer-events-none">
                     expand_more
                   </span>
                 </div>
@@ -1179,7 +1234,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
               {/* 3. MARCA */}
               <div>
                 <label className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
-                  <span className="material-symbols-outlined text-[13px] text-cyan-400">directions_car</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[13px] text-cyan-400">directions_car</span>
                   MARCA
                 </label>
                 <div className="relative">
@@ -1198,7 +1253,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                       </option>
                     ))}
                   </select>
-                  <span className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px] pointer-events-none">
+                  <span aria-hidden="true" className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px] pointer-events-none">
                     expand_more
                   </span>
                 </div>
@@ -1207,7 +1262,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
               {/* 4. TIPO DE PIEZA */}
               <div>
                 <label className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
-                  <span className="material-symbols-outlined text-[13px] text-cyan-400">settings</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[13px] text-cyan-400">settings</span>
                   TIPO DE PIEZA
                 </label>
                 <div className="relative">
@@ -1226,7 +1281,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                       </option>
                     ))}
                   </select>
-                  <span className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px] pointer-events-none">
+                  <span aria-hidden="true" className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px] pointer-events-none">
                     expand_more
                   </span>
                 </div>
@@ -1235,7 +1290,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
               {/* 5. DESDE */}
               <div>
                 <label className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
-                  <span className="material-symbols-outlined text-[13px] text-cyan-400">event</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[13px] text-cyan-400">event</span>
                   DESDE
                 </label>
                 <input
@@ -1252,7 +1307,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
               {/* 6. HASTA */}
               <div>
                 <label className="flex items-center gap-1 text-[10px] font-mono font-bold uppercase text-slate-400 tracking-wider mb-1.5">
-                  <span className="material-symbols-outlined text-[13px] text-cyan-400">event</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[13px] text-cyan-400">event</span>
                   HASTA
                 </label>
                 <input
@@ -1305,9 +1360,9 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
             <button
               type="button"
               onClick={handleClearFilters}
-              className="px-2.5 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-300 text-[11px] font-mono font-bold flex items-center gap-1 transition cursor-pointer shrink-0"
+              className="px-2.5 py-1 rounded-lg bg-[var(--state-urgency-tint)] hover:brightness-95 border border-[var(--state-urgency-border)] text-[var(--state-urgency-text)] text-[11px] font-mono font-bold flex items-center gap-1 transition cursor-pointer shrink-0"
             >
-              <span className="material-symbols-outlined text-[14px]">restart_alt</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[14px]">restart_alt</span>
               <span>Limpiar filtros</span>
             </button>
           </div>
@@ -1327,44 +1382,56 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                   const { downPayment, coreFee, totalPayable, paidPercentage } = getOrderFinancials(order);
                   const pipeline = getOrderPipeline(order);
                   const coreCommitted = hasCoreCommitment(order);
-                  const waDigits = (order.customer?.whatsapp || order.customer?.phone || '').replace(/\D/g, '');
 
                   return (
                     <div
                       key={order.id}
                       onClick={() => onSelectOrder(order.id)}
-                      className="group relative rounded-2xl bg-[#040814]/90 border border-slate-800/90 hover:border-cyan-400/60 transition-all duration-300 hover:shadow-[0_10px_30px_rgba(6,182,212,0.15)] flex flex-col justify-between p-4 cursor-pointer overflow-hidden active:scale-[0.99] touch-manipulation"
+                      className="group relative rounded-2xl bg-[var(--bg-card-subtle)] border border-[var(--border-subtle)] hover:border-[var(--brand)] transition-colors duration-300 flex flex-col justify-between p-4 cursor-pointer overflow-hidden active:scale-[0.99] touch-manipulation"
                     >
-                      {/* Top cyber accent line on hover */}
-                      <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400/0 to-transparent group-hover:via-cyan-400 transition-all duration-300" />
+                      {/* Top brand accent line on hover */}
+                      <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-[var(--brand)]/0 to-transparent group-hover:via-[var(--brand)] transition-all duration-300" />
+
+                      {/* Yard-Ready Alert Strip */}
+                      {isYardReadyAlert(order) && (
+                        <div className="-mx-4 -mt-4 mb-3 px-4 py-2 flex items-center gap-2 font-mono font-black text-xs sm:text-sm text-slate-950 bg-amber-400">
+                          <span aria-hidden="true" className="material-symbols-outlined text-[18px]">campaign</span>
+                          <span className="truncate">
+                            PIEZA LISTA EN YARDA · {formatYardReadyElapsed(yardReadyAgeMinutes(order))}
+                          </span>
+                          <span className="ml-auto shrink-0 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider bg-slate-950 text-amber-300">
+                            Pendiente de retiro
+                          </span>
+                        </div>
+                      )}
 
                       {/* Header: Code, Delivery Type, Status, Auction */}
                       <div className="flex items-start justify-between gap-2 mb-3">
                         <div className="flex flex-col gap-1 min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-mono text-xs font-black text-cyan-300 bg-cyan-500/10 border border-cyan-400/30 px-2.5 py-0.5 rounded-lg group-hover:text-cyan-200 group-hover:border-cyan-400/70 transition shadow-[0_0_8px_rgba(6,182,212,0.15)]">
+                          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                            <span className="font-mono text-xs font-black text-[var(--brand)] bg-[var(--brand-soft)] border border-[var(--brand)] px-2.5 py-0.5 rounded-lg transition">
                               {order.code}
                             </span>
                             <div className="flex items-center gap-1 text-[11px] font-mono text-slate-400">
-                              <span className={`material-symbols-outlined text-[14px] ${order.deliveryType === 'envio_domicilio' ? 'text-cyan-400' : 'text-emerald-400'}`}>
+                              <span aria-hidden="true" className={`material-symbols-outlined text-[14px] ${order.deliveryType === 'envio_domicilio' ? 'text-[var(--brand)]' : 'text-[var(--positive)]'}`}>
                                 {order.deliveryType === 'envio_domicilio' ? 'local_shipping' : 'storefront'}
                               </span>
                               <span className="hidden sm:inline">{order.deliveryType === 'envio_domicilio' ? 'Envío' : 'Retiro'}</span>
                             </div>
                           </div>
                           <span className="text-[10.5px] font-mono text-slate-400 flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[12px] text-slate-500">calendar_today</span>
-                            {order.createdAt}
+                            <span aria-hidden="true" className="material-symbols-outlined text-[12px] text-slate-500">calendar_today</span>
+                            <span title={order.createdAt}>{order.createdAt.split(',')[0]}</span>
                           </span>
                         </div>
                         <div className="shrink-0 flex flex-col items-end gap-1">
                           {renderStatusBadge(order.status)}
                           {order.yardPieceUnavailable && (
                             <span
-                              className="text-rose-900 dark:text-rose-300 font-mono text-[9.5px] font-bold inline-flex items-center gap-0.5 bg-rose-100/90 dark:bg-rose-500/15 px-1.5 py-0.5 rounded border border-rose-400/70 dark:border-rose-500/30 shrink-0"
+                              className="text-[var(--state-urgency-text)] font-mono text-[9.5px] font-bold inline-flex items-center gap-0.5 bg-[var(--state-urgency-tint)] px-1.5 py-0.5 rounded border border-[var(--state-urgency-border)] shrink-0"
                               title="Reportada NO disponible en patio físico · Búsqueda en subasta"
                             >
-                              <span className="material-symbols-outlined text-[11px] text-rose-600 dark:text-rose-400">production_quantity_limits</span>
+                              <span aria-hidden="true" className="material-symbols-outlined text-[11px] text-[var(--state-urgency)]">production_quantity_limits</span>
                               <span>No en Patio</span>
                             </span>
                           )}
@@ -1373,7 +1440,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                               className="text-amber-900 dark:text-amber-400 font-mono text-[9.5px] font-bold inline-flex items-center gap-0.5 bg-amber-100/90 dark:bg-amber-500/15 px-1.5 py-0.5 rounded border border-amber-400/70 dark:border-amber-500/30 shrink-0"
                               title="Requiere búsqueda en subasta (Copart/IAAI)"
                             >
-                              <span className="material-symbols-outlined text-[11px] text-amber-600 dark:text-amber-400">gavel</span>
+                              <span aria-hidden="true" className="material-symbols-outlined text-[11px] text-amber-600 dark:text-amber-400">gavel</span>
                               <span>Subasta</span>
                             </span>
                           )}
@@ -1383,11 +1450,11 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                       {/* Customer Row */}
                       <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80 mb-3">
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-500/25 to-blue-600/25 flex items-center justify-center text-cyan-300 font-bold text-xs border border-cyan-400/30 shrink-0 shadow-[0_0_8px_rgba(6,182,212,0.2)]">
+                          <div className="w-8 h-8 rounded-xl bg-[var(--brand-soft)] flex items-center justify-center text-[var(--brand)] font-bold text-xs border border-[var(--brand)] shrink-0">
                             {order.customer?.initials || 'CL'}
                           </div>
                           <div className="flex flex-col min-w-0">
-                            <span className="text-white font-bold text-xs truncate group-hover:text-cyan-200 transition">
+                            <span className="text-white font-bold text-xs truncate group-hover:text-[var(--brand)] transition">
                               {order.customer?.name || 'Cliente sin nombre'}
                             </span>
                             <span className="text-slate-400 text-[10.5px] font-mono truncate">
@@ -1396,28 +1463,16 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                           </div>
                         </div>
 
-                        {/* Direct Mobile Quick Actions: WhatsApp & Call */}
+                        {/* Direct Mobile Quick Action: Call */}
                         <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                          {waDigits && (
-                            <a
-                              href={`https://wa.me/${waDigits.startsWith('1') ? waDigits : '1' + waDigits}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="w-8 h-8 rounded-xl flex items-center justify-center text-emerald-400 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 hover:border-emerald-400 transition active:scale-95"
-                              title="WhatsApp directo con el cliente"
-                              aria-label={`WhatsApp a ${order.customer?.name}`}
-                            >
-                              <span className="material-symbols-outlined text-[17px]">chat</span>
-                            </a>
-                          )}
                           {order.customer?.phone && (
                             <a
                               href={`tel:${order.customer.phone.replace(/\D/g, '')}`}
-                              className="w-8 h-8 rounded-xl flex items-center justify-center text-cyan-400 bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 hover:border-cyan-400 transition active:scale-95"
+                              className="w-8 h-8 rounded-xl flex items-center justify-center text-[var(--brand)] bg-[var(--brand-soft)] border border-[var(--brand)] transition active:scale-95"
                               title="Llamar directamente"
                               aria-label={`Llamar a ${order.customer?.name}`}
                             >
-                              <span className="material-symbols-outlined text-[17px]">call</span>
+                              <span aria-hidden="true" className="material-symbols-outlined text-[17px]">call</span>
                             </a>
                           )}
                         </div>
@@ -1427,7 +1482,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                       <div className="space-y-2 mb-3 bg-[#02050e]/60 p-2.5 rounded-xl border border-slate-800/60">
                         {/* Vehicle + VIN */}
                         <div className="flex items-start gap-1.5">
-                          <span className="material-symbols-outlined text-[16px] text-cyan-400 shrink-0 mt-0.5">directions_car</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-[var(--brand)] shrink-0 mt-0.5">directions_car</span>
                           <div className="flex flex-col min-w-0 flex-1">
                             <span className="text-slate-200 text-xs font-semibold leading-tight truncate">
                               {order.vehicle?.year} {order.vehicle?.make} {order.vehicle?.model}
@@ -1443,11 +1498,11 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                                   className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center gap-0.5 transition cursor-pointer ${
                                     copiedVinId === order.id
                                       ? 'text-emerald-300 bg-emerald-500/20 border border-emerald-400/40'
-                                      : 'text-slate-400 hover:text-cyan-300 bg-slate-800/80 hover:bg-cyan-500/10 border border-slate-700/50'
+                                      : 'text-slate-400 hover:text-[var(--brand)] bg-slate-800/80 hover:bg-[var(--brand-soft)] border border-slate-700/50'
                                   }`}
                                   title={copiedVinId === order.id ? 'VIN copiado al portapapeles' : 'Copiar VIN'}
                                 >
-                                  <span className="material-symbols-outlined text-[11px]">
+                                  <span aria-hidden="true" className="material-symbols-outlined text-[11px]">
                                     {copiedVinId === order.id ? 'check' : 'content_copy'}
                                   </span>
                                   <span>{copiedVinId === order.id ? 'Copiado' : 'Copiar'}</span>
@@ -1461,7 +1516,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
 
                         {/* Part + Stock */}
                         <div className="flex items-start gap-1.5 pt-1.5 border-t border-slate-800/60">
-                          <span className="material-symbols-outlined text-[16px] text-emerald-400 shrink-0 mt-0.5">build</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-emerald-400 shrink-0 mt-0.5">build</span>
                           <div className="flex flex-col min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="text-white text-xs font-semibold">{order.mainPart}</span>
@@ -1490,7 +1545,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                               : isDone
                               ? 'bg-emerald-500 text-slate-950 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
                               : isCurrent
-                              ? 'bg-cyan-400 text-slate-950 ring-2 ring-cyan-400/40 shadow-[0_0_8px_rgba(6,182,212,0.6)]'
+                              ? 'bg-[var(--brand-solid)] text-white ring-2 ring-[var(--brand)]'
                               : 'bg-slate-800 text-slate-500 border border-slate-700';
                             return (
                               <div key={name} className="flex items-center">
@@ -1513,18 +1568,18 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                             );
                           })}
                         </div>
-                        <span className={`text-[10px] font-mono font-bold truncate ${pipeline.isHalted ? 'text-slate-500' : pipeline.isDone ? 'text-emerald-300' : 'text-cyan-300'}`}>
+                        <span className={`text-[10px] font-mono font-bold truncate ${pipeline.isHalted ? 'text-slate-500' : pipeline.isDone ? 'text-[var(--positive)]' : 'text-[var(--brand)]'}`}>
                           {pipeline.label}
                         </span>
                       </div>
 
                       {/* Financial Progress Box */}
-                      <div className="p-2.5 rounded-xl bg-gradient-to-br from-[#060c18] to-[#040814] border border-cyan-500/20 mb-3 space-y-1.5">
+                      <div className="p-2.5 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)] mb-3 space-y-1.5">
                         <div className="flex items-center justify-between text-xs">
                           <span className="text-[11px] font-mono text-slate-400">Balance</span>
                           {totalPayable <= 0 ? (
                             <span className="inline-flex items-center gap-1 font-mono text-[11px] font-black text-emerald-300 bg-emerald-500/15 border border-emerald-400/40 px-2 py-0.5 rounded-lg">
-                              <span className="material-symbols-outlined text-[13px]">check_circle</span>
+                              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">check_circle</span>
                               Liquidado
                             </span>
                           ) : (
@@ -1544,8 +1599,8 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                               paidPercentage >= 100
                                 ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]'
                                 : paidPercentage > 0
-                                ? 'bg-gradient-to-r from-emerald-400 to-cyan-400'
-                                : 'bg-red-400/60'
+                                ? 'bg-gradient-to-r from-[var(--positive)] to-[var(--brand)]'
+                                : 'bg-[var(--state-urgency)]/60'
                             }`}
                             style={{ width: `${Math.max(paidPercentage, 4)}%` }}
                           />
@@ -1557,7 +1612,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                           </span>
                           {coreCommitted ? (
                             <span className="text-purple-300 font-bold flex items-center gap-0.5">
-                              <span className="material-symbols-outlined text-[11px]">autorenew</span>
+                              <span aria-hidden="true" className="material-symbols-outlined text-[11px]">autorenew</span>
                               {coreFee > 0 ? `Core $${coreFee.toFixed(2)}` : 'Core pactado'}
                             </span>
                           ) : (
@@ -1571,7 +1626,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                       {/* Card Footer: Advisor + Action buttons */}
                       <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs relative">
                         <div className="flex items-center gap-1 text-slate-400 font-mono text-[10.5px]">
-                          <span className="material-symbols-outlined text-[13px] text-slate-500">badge</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[13px] text-slate-500">badge</span>
                           <span className="truncate max-w-[120px]" title={`Asesor: ${order.advisor || 'Sin asignar'}`}>
                             {order.advisor || 'Sin asesor'}
                           </span>
@@ -1580,38 +1635,38 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                           <button
                             type="button"
                             onClick={() => setActiveActionMenu(activeActionMenu === order.id ? null : order.id)}
-                            className="text-slate-400 hover:text-cyan-300 p-1.5 rounded-xl hover:bg-slate-800 transition cursor-pointer"
+                            className="text-slate-400 hover:text-[var(--brand)] p-1.5 rounded-xl hover:bg-[var(--brand-soft)] transition cursor-pointer"
                             title="Opciones"
                             aria-haspopup="menu"
                             aria-expanded={activeActionMenu === order.id}
                           >
-                            <span className="material-symbols-outlined text-[18px]">more_vert</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">more_vert</span>
                           </button>
                         </div>
 
                         {/* Dropdown Menu in Card */}
                         {activeActionMenu === order.id && (
-                          <div className="absolute right-0 bottom-11 w-48 bg-[#060c18] border border-cyan-500/30 rounded-2xl shadow-[0_15px_40px_rgba(0,0,0,0.85)] z-30 py-2 text-left text-xs overflow-hidden backdrop-blur-2xl" onClick={(e) => e.stopPropagation()}>
+                          <div className="absolute right-0 bottom-11 w-48 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl shadow-[0_15px_40px_rgba(0,0,0,0.85)] z-30 py-2 text-left text-xs overflow-hidden backdrop-blur-2xl" onClick={(e) => e.stopPropagation()}>
                             <button
                               onClick={() => {
                                 if (onEditOrder) onEditOrder(order);
                                 else onSelectOrder(order.id);
                                 setActiveActionMenu(null);
                               }}
-                              className="w-full px-4 py-2 hover:bg-cyan-500/15 text-white flex items-center gap-2.5 cursor-pointer font-medium transition"
+                              className="w-full px-4 py-2 hover:bg-[var(--brand-soft)] text-white flex items-center gap-2.5 cursor-pointer font-medium transition"
                             >
-                              <span className="material-symbols-outlined text-[16px] text-cyan-400">edit</span>
+                              <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-[var(--brand)]">edit</span>
                               <span>Editar Orden</span>
                             </button>
                             <button
                               disabled={order.status === 'archivado' || !onUpdateStatus}
                               onClick={() => {
-                                if (onUpdateStatus) onUpdateStatus(order.id, 'archivado');
                                 setActiveActionMenu(null);
+                                handleArchiveOrder(order);
                               }}
-                              className="w-full px-4 py-2 hover:bg-amber-500/15 text-amber-300 flex items-center gap-2.5 cursor-pointer font-bold border-t border-cyan-500/15 disabled:cursor-not-allowed disabled:opacity-40 transition"
+                              className="w-full px-4 py-2 hover:bg-amber-500/15 text-amber-300 flex items-center gap-2.5 cursor-pointer font-bold border-t border-[var(--border-subtle)] disabled:cursor-not-allowed disabled:opacity-40 transition"
                             >
-                              <span className="material-symbols-outlined text-[16px]">archive</span>
+                              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">archive</span>
                               <span>Archivar</span>
                             </button>
                           </div>
@@ -1623,7 +1678,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
               </div>
             ) : (
               <div className="py-14 text-center text-slate-400 flex flex-col items-center justify-center gap-2">
-                <span className="material-symbols-outlined text-5xl text-cyan-400/50">search_off</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-5xl text-[var(--brand)]/50">search_off</span>
                 <p className="font-bold text-white text-sm">
                   {searchQuery.trim()
                     ? `No se encontraron órdenes con el término "${searchQuery}".`
@@ -1638,9 +1693,9 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                   <button
                     type="button"
                     onClick={handleClearFilters}
-                    className="mt-2 px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-[11px] font-mono font-bold flex items-center gap-1 transition cursor-pointer"
+                    className="mt-2 px-3 py-1.5 rounded-xl bg-[var(--brand-soft)] hover:bg-[var(--brand-soft)] border border-[var(--brand)] text-[var(--brand)] text-[11px] font-mono font-bold flex items-center gap-1 transition cursor-pointer"
                   >
-                    <span className="material-symbols-outlined text-[14px]">restart_alt</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">restart_alt</span>
                     Limpiar filtros y búsqueda
                   </button>
                 )}
@@ -1652,18 +1707,29 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
         {/* View Mode: Table Compact */}
         {viewMode === 'table' && (
         <div className="table-responsive-wrapper custom-scrollbar">
-          <table className="w-full text-left whitespace-nowrap border-collapse min-w-[980px] lg:min-w-full">
+          <table className="w-full table-fixed text-left border-collapse min-w-[920px]">
+            <colgroup>
+              <col className="w-[13%] 2xl:w-[11%]" />
+              <col className="w-[14%] 2xl:w-[13%]" />
+              <col className="w-[16%] 2xl:w-[15%]" />
+              <col className="w-[14%] 2xl:w-[13%]" />
+              <col className="w-[10%]" />
+              <col className="hidden w-[8%] 2xl:table-column" />
+              <col className="w-[14%]" />
+              <col className="w-[12%] 2xl:w-[10%]" />
+              <col className="w-[7%] 2xl:w-[6%]" />
+            </colgroup>
             <thead className="bg-[#040814]/95 border-b border-cyan-500/20 sticky top-0 z-10">
               <tr className="font-mono text-[10px] sm:text-[10.5px] text-cyan-400/80 uppercase tracking-wider">
-                <th className="px-3.5 py-3 font-bold">Código & Fecha</th>
-                <th className="px-3.5 py-3 font-bold">Cliente</th>
-                <th className="px-3.5 py-3 font-bold">Vehículo & VIN</th>
-                <th className="px-3.5 py-3 font-bold">Refacción Solicitada</th>
-                <th className="px-2.5 py-3 font-bold text-center">Flujo</th>
-                <th className="px-2.5 py-3 font-bold">Tipo Entrega</th>
-                <th className="px-3 py-3 font-bold">Estatus</th>
-                <th className="px-3.5 py-3 font-bold text-right">Balance Financiero</th>
-                <th className="px-2 py-3 font-bold text-center w-16 sticky right-0 z-20 bg-[#040814] border-l border-cyan-500/20 shadow-[-8px_0_12px_rgba(0,0,0,0.5)]">Acciones</th>
+                <th className="sticky left-0 z-20 whitespace-nowrap border-r border-cyan-500/20 bg-[#040814] px-4 py-3 font-bold shadow-[8px_0_12px_rgba(0,0,0,0.35)]">Código</th>
+                <th className="whitespace-nowrap px-4 py-3 font-bold">Cliente</th>
+                <th className="whitespace-nowrap px-4 py-3 font-bold">Vehículo & VIN</th>
+                <th className="whitespace-nowrap px-4 py-3 font-bold">Refacción</th>
+                <th className="whitespace-nowrap px-4 py-3 text-center font-bold">Flujo</th>
+                <th className="hidden whitespace-nowrap px-4 py-3 text-center font-bold 2xl:table-cell">Entrega</th>
+                <th className="whitespace-nowrap px-4 py-3 font-bold">Estatus</th>
+                <th className="whitespace-nowrap px-4 py-3 text-right font-bold">Balance</th>
+                <th className="sticky right-0 z-20 whitespace-nowrap border-l border-cyan-500/20 bg-[#040814] px-2 py-3 text-center font-bold shadow-[-8px_0_12px_rgba(0,0,0,0.5)]">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-cyan-500/10 text-xs">
@@ -1671,69 +1737,59 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                 const { downPayment, coreFee, totalPayable, paidPercentage } = getOrderFinancials(order);
                 const pipeline = getOrderPipeline(order);
                 const coreCommitted = hasCoreCommitment(order);
-                const waDigits = (order.customer.whatsapp || order.customer.phone || '').replace(/\D/g, '');
 
                 return (
                   <tr
                     key={order.id}
-                    className="hover:bg-cyan-500/5 transition-all group cursor-pointer"
+                    className={`hover:bg-cyan-500/5 transition-all group cursor-pointer ${
+                      isYardReadyAlert(order) ? 'bg-emerald-500/10 ring-1 ring-inset ring-emerald-400/40' : ''
+                    }`}
+                    tabIndex={0}
+                    aria-label={`Orden ${order.code} de ${order.customer.name}. Enter abre la ficha completa.`}
                     onClick={() => onSelectOrder(order.id)}
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        onSelectOrder(order.id);
+                      }
+                    }}
                   >
                     {/* Código & Fecha */}
-                    <td className="px-4 py-3 sm:px-5 sm:py-3.5">
-                      <div className="flex flex-col gap-1">
-                        <span className="inline-flex w-fit items-center font-mono text-[11.5px] font-black text-cyan-300 bg-cyan-500/10 border border-cyan-400/30 px-2 py-0.5 rounded-lg group-hover:text-cyan-200 group-hover:border-cyan-400/60 transition">
+                    <td className="sticky left-0 z-10 border-r border-cyan-500/20 bg-[#060c18] px-4 py-3 align-middle transition-colors group-hover:bg-[#0b1426]">
+                      <div className="flex min-w-0 flex-col gap-1">
+                        <span className="truncate font-mono text-[11.5px] font-black text-cyan-300 transition group-hover:text-cyan-200" title={order.code}>
                           {order.code}
                         </span>
-                        <span className="text-slate-400 text-[10.5px] font-mono flex items-center gap-1">
-                          <span className="material-symbols-outlined text-[12px] text-slate-500">calendar_today</span>
-                          {order.createdAt}
+                        <span className="flex min-w-0 items-center gap-1.5 font-mono text-[10.5px] text-slate-400" title={order.createdAt}>
+                          <span aria-hidden="true" className="material-symbols-outlined shrink-0 text-[12px] text-slate-500">calendar_today</span>
+                          <span className="truncate">{order.createdAt.split(',')[0]}</span>
                         </span>
                         {order.advisor && (
-                          <span className="text-slate-400 text-[10px] font-mono flex items-center gap-1" title={`Asesor: ${order.advisor}`}>
-                            <span className="material-symbols-outlined text-[12px] text-slate-500">person</span>
-                            <span className="truncate max-w-[120px]">{order.advisor}</span>
+                          <span className="flex min-w-0 items-center gap-1.5 font-mono text-[10.5px] text-slate-400" title={`Asesor: ${order.advisor}`}>
+                            <span aria-hidden="true" className="material-symbols-outlined shrink-0 text-[12px] text-slate-500">person</span>
+                            <span className="truncate">{order.advisor}</span>
                           </span>
                         )}
                       </div>
                     </td>
 
                     {/* Cliente */}
-                    <td className="px-4 py-3 sm:px-5 sm:py-3.5">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-gradient-to-br from-cyan-500/25 to-blue-600/25 flex items-center justify-center text-cyan-300 font-bold text-[11px] sm:text-xs border border-cyan-400/30 shrink-0 shadow-[0_0_8px_rgba(6,182,212,0.2)]">
-                          {order.customer.initials}
-                        </div>
-                        <div className="flex flex-col min-w-0">
-                          <span className="text-white font-bold leading-tight group-hover:text-cyan-200 truncate max-w-[160px]">
-                            {order.customer.name}
-                          </span>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-slate-400 text-[10.5px] font-mono truncate">
-                              {order.customer.phone}
-                            </span>
-                            {waDigits && (
-                              <a
-                                href={`https://wa.me/${waDigits}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="w-5 h-5 rounded-md flex items-center justify-center text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/15 transition"
-                                title="Abrir WhatsApp del cliente"
-                                aria-label={`WhatsApp a ${order.customer.name}`}
-                              >
-                                <span className="material-symbols-outlined text-[14px]">chat</span>
-                              </a>
-                            )}
-                          </div>
-                        </div>
+                    <td className="min-w-0 overflow-hidden px-4 py-3 align-middle">
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <span className="truncate font-semibold leading-tight text-white group-hover:text-cyan-200" title={order.customer.name}>
+                          {order.customer.name}
+                        </span>
+                        <span className="truncate font-mono text-[10.5px] text-slate-400" title={order.customer.phone}>
+                          {order.customer.phone}
+                        </span>
                       </div>
                     </td>
 
                     {/* Vehículo & VIN */}
-                    <td className="px-4 py-3 sm:px-5 sm:py-3.5">
+                    <td className="min-w-0 overflow-hidden px-4 py-3 align-middle">
                       <div className="flex flex-col gap-0.5">
-                        <span className="text-slate-200 font-medium leading-tight">
+                        <span className="block truncate text-slate-200 font-medium leading-tight" title={`${order.vehicle.year} ${order.vehicle.make} ${order.vehicle.model}`}>
                           {order.vehicle.year} {order.vehicle.make} {order.vehicle.model}
                         </span>
                         {order.vehicle.vin ? (
@@ -1752,7 +1808,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                               title={copiedVinId === order.id ? 'VIN copiado' : 'Copiar VIN'}
                               aria-label="Copiar VIN"
                             >
-                              <span className="material-symbols-outlined text-[13px]">
+                              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">
                                 {copiedVinId === order.id ? 'check' : 'content_copy'}
                               </span>
                             </button>
@@ -1764,17 +1820,17 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                     </td>
 
                     {/* Refacción */}
-                    <td className="px-4 py-3 sm:px-5 sm:py-3.5">
+                    <td className="min-w-0 overflow-hidden px-4 py-3 align-middle">
                       <div className="flex flex-col">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-slate-100 font-semibold">{order.mainPart}</span>
-                          <InventoryAvailabilityBadge availability={order.inventoryAvailability} />
+                          <span className="truncate text-slate-100 font-semibold" title={order.mainPart}>{order.mainPart}</span>
+                          <InventoryAvailabilityBadge availability={order.inventoryAvailability} compact />
                           {order.yardPieceUnavailable && (
                             <span
-                              className="text-rose-900 dark:text-rose-300 font-mono text-[9.5px] font-bold inline-flex items-center gap-0.5 bg-rose-100/90 dark:bg-rose-500/15 px-1.5 py-0.5 rounded border border-rose-400/70 dark:border-rose-500/30 shrink-0"
+                              className="text-[var(--state-urgency-text)] font-mono text-[9.5px] font-bold inline-flex items-center gap-0.5 bg-[var(--state-urgency-tint)] px-1.5 py-0.5 rounded border border-[var(--state-urgency-border)] shrink-0"
                               title="Reportada NO disponible en patio físico · Búsqueda en subasta"
                             >
-                              <span className="material-symbols-outlined text-[11px] text-rose-600 dark:text-rose-400">production_quantity_limits</span>
+                              <span aria-hidden="true" className="material-symbols-outlined text-[11px] text-[var(--state-urgency)]">production_quantity_limits</span>
                               <span>No en Patio</span>
                             </span>
                           )}
@@ -1783,7 +1839,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                               className="text-amber-900 dark:text-amber-400 font-mono text-[9.5px] font-bold inline-flex items-center gap-0.5 bg-amber-100/90 dark:bg-amber-500/15 px-1.5 py-0.5 rounded border border-amber-400/70 dark:border-amber-500/30 shrink-0"
                               title="Requiere búsqueda en subasta (Copart/IAAI)"
                             >
-                              <span className="material-symbols-outlined text-[11px] text-amber-600 dark:text-amber-400">gavel</span>
+                              <span aria-hidden="true" className="material-symbols-outlined text-[11px] text-amber-600 dark:text-amber-400">gavel</span>
                               <span>Subasta</span>
                             </span>
                           )}
@@ -1797,7 +1853,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                     </td>
 
                     {/* Flujo (pipeline stepper) */}
-                    <td className="px-4 py-3 sm:px-5 sm:py-3.5">
+                    <td className="whitespace-nowrap px-4 py-3 align-middle">
                       <div className="flex flex-col items-center gap-1" title={`Etapa: ${pipeline.label}`}>
                         <div className="flex items-center">
                           {PIPELINE_STEP_NAMES.map((name, idx) => {
@@ -1811,7 +1867,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                               : isDone
                               ? 'bg-emerald-500 text-slate-950 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
                               : isCurrent
-                              ? 'bg-cyan-400 text-slate-950 ring-2 ring-cyan-400/40 shadow-[0_0_8px_rgba(6,182,212,0.6)]'
+                              ? 'bg-[var(--brand-solid)] text-white ring-2 ring-[var(--brand)]'
                               : 'bg-slate-800 text-slate-500 border border-slate-700';
                             return (
                               <div key={name} className="flex items-center">
@@ -1834,35 +1890,35 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                             );
                           })}
                         </div>
-                        <span className={`text-[10px] font-mono font-medium ${pipeline.isHalted ? 'text-slate-500' : pipeline.isDone ? 'text-emerald-300' : 'text-cyan-300'}`}>
+                        <span className={`block w-full truncate text-center text-[10px] font-mono font-medium ${pipeline.isHalted ? 'text-slate-500' : pipeline.isDone ? 'text-[var(--positive)]' : 'text-[var(--brand)]'}`} title={pipeline.label}>
                           {pipeline.label}
                         </span>
                       </div>
                     </td>
 
                     {/* Tipo Entrega */}
-                    <td className="px-4 py-3 sm:px-5 sm:py-3.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`material-symbols-outlined text-[15px] ${order.deliveryType === 'envio_domicilio' ? 'text-cyan-400' : 'text-emerald-400'}`}>
+                    <td className="hidden px-4 py-3 align-middle 2xl:table-cell">
+                      <div className="flex items-center justify-center gap-1.5" title={order.deliveryType === 'envio_domicilio' ? 'Envío a domicilio' : 'Retiro en tienda'}>
+                        <span aria-hidden="true" className={`material-symbols-outlined text-[15px] ${order.deliveryType === 'envio_domicilio' ? 'text-[var(--brand)]' : 'text-[var(--positive)]'}`}>
                           {order.deliveryType === 'envio_domicilio' ? 'local_shipping' : 'storefront'}
                         </span>
-                        <span className="text-[11.5px] font-mono text-slate-300">
-                          {order.deliveryType === 'envio_domicilio' ? 'Envío Domicilio' : 'Retiro Tienda'}
+                        <span className="truncate font-mono text-[11px] text-slate-300">
+                          {order.deliveryType === 'envio_domicilio' ? 'Envío' : 'Retiro'}
                         </span>
                       </div>
                     </td>
 
                     {/* Estatus */}
-                    <td className="px-4 py-3 sm:px-5 sm:py-3.5">
-                      {renderStatusBadge(order.status)}
+                    <td className="min-w-0 overflow-hidden px-4 py-3 align-middle">
+                      {renderStatusInline(order.status)}
                     </td>
 
                     {/* Finanzas */}
-                    <td className="px-4 py-3 sm:px-5 sm:py-3.5 text-right">
+                    <td className="whitespace-nowrap px-4 py-3 text-right align-middle">
                       <div className="flex flex-col items-end gap-1">
                         {totalPayable <= 0 ? (
                           <span className="inline-flex items-center gap-1 font-mono text-xs font-black text-emerald-300 bg-emerald-500/15 border border-emerald-400/40 px-2 py-0.5 rounded-lg">
-                            <span className="material-symbols-outlined text-[13px]">check_circle</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[13px]">check_circle</span>
                             Liquidado
                           </span>
                         ) : (
@@ -1870,26 +1926,20 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                             ${totalPayable.toFixed(2)}
                           </span>
                         )}
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-14 h-1.5 bg-slate-800 rounded-full overflow-hidden" title={`${paidPercentage}% cubierto`}>
+                        <div className="flex items-center gap-1.5 whitespace-nowrap" title={`${paidPercentage}% cubierto · Anticipo $${downPayment.toFixed(2)}`}>
+                          <div className="w-10 h-1.5 shrink-0 bg-slate-800 rounded-full overflow-hidden">
                             <div
-                              className={`h-full rounded-full ${paidPercentage >= 100 ? 'bg-emerald-400' : paidPercentage > 0 ? 'bg-gradient-to-r from-emerald-400 to-cyan-400' : 'bg-red-400/60'}`}
+                              className={`h-full rounded-full ${paidPercentage >= 100 ? 'bg-emerald-400' : paidPercentage > 0 ? 'bg-gradient-to-r from-emerald-400 to-cyan-400' : 'bg-amber-400/70'}`}
                               style={{ width: `${Math.max(paidPercentage, 4)}%` }}
                             />
                           </div>
-                          {downPayment > 0 ? (
-                            <span className="font-mono text-[10.5px] text-emerald-400 font-semibold">
-                              Abono: ${downPayment.toFixed(2)}
-                            </span>
-                          ) : (
-                            <span className="font-mono text-[10.5px] text-red-400">
-                              Sin Abono ($0.00)
-                            </span>
-                          )}
+                          <span className={`font-mono text-[10px] font-semibold ${paidPercentage >= 100 ? 'text-emerald-400' : 'text-slate-400'}`}>
+                            {paidPercentage}%
+                          </span>
                         </div>
                         {coreCommitted && (
                           <span className="inline-flex items-center gap-0.5 text-[9.5px] font-mono font-bold text-purple-300 bg-purple-500/15 border border-purple-400/30 px-1.5 py-0.5 rounded">
-                            <span className="material-symbols-outlined text-[11px]">autorenew</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[11px]">autorenew</span>
                             {coreFee > 0 ? `Core: $${coreFee.toFixed(2)}` : 'Core pactado'}
                           </span>
                         )}
@@ -1898,7 +1948,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
 
                     {/* Acciones (Sticky Right para que siempre sea visible en cualquier pantalla) */}
                     <td
-                      className="px-2 py-2 sm:px-2.5 text-center sticky right-0 z-10 bg-[#060c18] group-hover:bg-[#0b1426] border-l border-cyan-500/20 shadow-[-8px_0_12px_rgba(0,0,0,0.5)] transition-colors"
+                      className="sticky right-0 z-10 border-l border-cyan-500/20 bg-[#060c18] px-2 py-2 text-center align-middle shadow-[-8px_0_12px_rgba(0,0,0,0.5)] transition-colors group-hover:bg-[#0b1426]"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="flex items-center justify-center">
@@ -1910,7 +1960,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                           aria-haspopup="menu"
                           aria-expanded={activeActionMenu === order.id}
                         >
-                          <span className="material-symbols-outlined text-[18px]">more_vert</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[18px]">more_vert</span>
                         </button>
                       </div>
 
@@ -1921,7 +1971,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                             rowIdx >= paginatedOrders.length - 2 && paginatedOrders.length > 2
                               ? 'bottom-11'
                               : 'top-11'
-                          } w-52 bg-[#060c18] border border-cyan-500/30 rounded-2xl shadow-[0_15px_40px_rgba(0,0,0,0.85)] z-40 py-2 text-left text-xs overflow-hidden backdrop-blur-2xl`}
+                          } w-52 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-2xl shadow-[0_15px_40px_rgba(0,0,0,0.85)] z-40 py-2 text-left text-xs overflow-hidden backdrop-blur-2xl`}
                         >
                           <button
                             onClick={() => {
@@ -1931,18 +1981,18 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                             }}
                             className="w-full px-4 py-2 hover:bg-cyan-500/15 text-white flex items-center gap-2.5 cursor-pointer font-medium transition"
                           >
-                            <span className="material-symbols-outlined text-[16px] text-cyan-400">edit</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-400">edit</span>
                             <span>Editar Orden</span>
                           </button>
                           <button
                             disabled={order.status === 'archivado' || !onUpdateStatus}
                             onClick={() => {
-                              if (onUpdateStatus) onUpdateStatus(order.id, 'archivado');
                               setActiveActionMenu(null);
+                              void handleArchiveOrder(order);
                             }}
-                            className="w-full px-4 py-2 hover:bg-amber-500/15 text-amber-300 flex items-center gap-2.5 cursor-pointer font-bold border-t border-cyan-500/15 disabled:cursor-not-allowed disabled:opacity-40 transition"
+                            className="w-full px-4 py-2 hover:bg-amber-500/15 text-amber-300 flex items-center gap-2.5 cursor-pointer font-bold border-t border-[var(--border-subtle)] disabled:cursor-not-allowed disabled:opacity-40 transition"
                           >
-                            <span className="material-symbols-outlined text-[16px]">archive</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">archive</span>
                             <span>Archivar</span>
                           </button>
                         </div>
@@ -1956,7 +2006,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                 <tr>
                   <td colSpan={9} className="px-5 py-14 text-center text-slate-400">
                     <div className="flex flex-col items-center justify-center gap-2">
-                      <span className="material-symbols-outlined text-5xl text-cyan-400/50">search_off</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-5xl text-[var(--brand)]/50">search_off</span>
                       <p className="font-bold text-white text-sm">
                         {searchQuery.trim()
                           ? `No se encontraron órdenes con el término "${searchQuery}".`
@@ -1971,9 +2021,9 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                         <button
                           type="button"
                           onClick={handleClearFilters}
-                          className="mt-2 px-3 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-[11px] font-mono font-bold flex items-center gap-1 transition cursor-pointer"
+                          className="mt-2 px-3 py-1.5 rounded-xl bg-[var(--brand-soft)] hover:bg-[var(--brand-soft)] border border-[var(--brand)] text-[var(--brand)] text-[11px] font-mono font-bold flex items-center gap-1 transition cursor-pointer"
                         >
-                          <span className="material-symbols-outlined text-[14px]">restart_alt</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[14px]">restart_alt</span>
                           Limpiar filtros y búsqueda
                         </button>
                       )}
@@ -2034,7 +2084,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                 className="p-1.5 rounded-xl hover:bg-cyan-500/10 text-slate-400 hover:text-cyan-300 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-400 transition cursor-pointer disabled:cursor-not-allowed"
                 title="Primera página"
               >
-                <span className="material-symbols-outlined text-[16px]">first_page</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">first_page</span>
               </button>
 
               {/* Previous Page */}
@@ -2044,7 +2094,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                 className="p-1.5 rounded-xl hover:bg-cyan-500/10 text-slate-400 hover:text-cyan-300 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-400 transition cursor-pointer disabled:cursor-not-allowed"
                 title="Página anterior"
               >
-                <span className="material-symbols-outlined text-[16px]">chevron_left</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">chevron_left</span>
               </button>
 
               {/* Page Number Buttons */}
@@ -2086,7 +2136,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                 className="p-1.5 rounded-xl hover:bg-cyan-500/10 text-slate-400 hover:text-cyan-300 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-400 transition cursor-pointer disabled:cursor-not-allowed"
                 title="Página siguiente"
               >
-                <span className="material-symbols-outlined text-[16px]">chevron_right</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">chevron_right</span>
               </button>
 
               {/* Last Page */}
@@ -2096,7 +2146,7 @@ export const OrdersTableView: React.FC<OrdersTableViewProps> = React.memo(({
                 className="p-1.5 rounded-xl hover:bg-cyan-500/10 text-slate-400 hover:text-cyan-300 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-400 transition cursor-pointer disabled:cursor-not-allowed"
                 title="Última página"
               >
-                <span className="material-symbols-outlined text-[16px]">last_page</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">last_page</span>
               </button>
             </div>
           </div>

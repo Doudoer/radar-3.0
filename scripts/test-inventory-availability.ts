@@ -20,6 +20,8 @@ async function createUser(role: string) {
 try {
   const admin = await createUser('admin');
   const operator = await createUser('operator');
+  const yard = await createUser('vendedor_yarda');
+  const intruder = await createUser('invitado');
   const request = async (path: string, method = 'GET', body?: unknown, token = admin.token) => {
     const response = await fetch(`${base}/api${path}`, {
       method, headers: { Authorization: `Bearer ${token}`,
@@ -53,6 +55,13 @@ try {
   assert.equal('cost' in first.data.inventoryAvailability.candidates[0].part, false);
   const before = await request(`/inventory/${piece.data.id}`);
   assert.equal(before.data.status, 'disponible', 'Consultar/crear no debe reservar');
+  assert.equal((await fetch(`${base}/api/inventory/${piece.data.id}`)).status, 401);
+  assert.equal((await request(`/inventory/${piece.data.id}`, 'GET', undefined, intruder.token)).status, 403);
+  assert.equal((await request('/inventory', 'GET', undefined, intruder.token)).status, 403);
+  const yardDetail = await request(`/inventory/${piece.data.id}`, 'GET', undefined, yard.token);
+  assert.equal(yardDetail.status, 200);
+  assert.equal('cost' in yardDetail.data, false);
+  assert.equal((await request('/inventory', 'GET', undefined, yard.token)).status, 200);
   const link = { inventoryPartId: Number(piece.data.id), version: first.data.version, confirmedCompatibility: true };
   assert.equal((await request(`/orders/${first.data.id}/inventory`, 'POST', { ...link, confirmedCompatibility: false })).status, 400);
   assert.equal((await request(`/orders/${first.data.id}/inventory`, 'POST', { ...link, version: 999 })).status, 409);

@@ -22,6 +22,11 @@ export const mapInventoryPartRow = (row: RowDataPacket): InventoryPart => ({
   cost: Number(row.cost || 0),
 });
 
+export const INVENTORY_READ_ROLES = ['admin', 'operator', 'vendedor_yarda'] as const;
+
+export const canReadInventory = (role?: string | null) =>
+  Boolean(role && (INVENTORY_READ_ROLES as readonly string[]).includes(role.toLowerCase()));
+
 export function inventoryForRole(row: RowDataPacket, role?: string): InventoryPart {
   const part = mapInventoryPartRow(row);
   if (role !== 'admin') delete part.cost;

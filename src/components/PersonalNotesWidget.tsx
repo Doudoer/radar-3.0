@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../services/apiFetch';
+import { Icon } from './Icon';
 
 const WIDGET_WIDTH = 390;
 const WIDGET_HEIGHT = 520;
@@ -28,143 +29,24 @@ export const PersonalNotesWidget: React.FC = () => {
   const [messageContent, setMessageContent] = useState('');
   const [messageStatus, setMessageStatus] = useState<'idle' | 'sent' | 'error'>('idle');
   
-  // Dragging state & coordinates
-  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const dragStartRef = useRef<{ mouseX: number; mouseY: number; startX: number; startY: number } | null>(null);
+  // Rail / floating launcher state
+  const [fabHidden, setFabHidden] = useState(false);
   const widgetRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Calculate default bottom-right position
-  const getDefaultPosition = useCallback(() => {
-    if (typeof window === 'undefined') return { x: 24, y: 24 };
-    const effectiveWidth = Math.min(WIDGET_WIDTH, window.innerWidth - 32);
-    const effectiveHeight = Math.min(WIDGET_HEIGHT, window.innerHeight - 80);
-    const x = Math.max(16, window.innerWidth - effectiveWidth - 24);
-    const y = Math.max(16, window.innerHeight - effectiveHeight - 24);
-    return { x, y };
+  // Hide the floating launcher while scrolling down on screens without the rail
+  useEffect(() => {
+    let lastY = 0;
+    const handleScroll = (event: Event) => {
+      const target = event.target;
+      const y = target instanceof HTMLElement ? target.scrollTop : window.scrollY;
+      if (y > lastY && y > 160) setFabHidden(true);
+      else if (y < lastY) setFabHidden(false);
+      lastY = y;
+    };
+    document.addEventListener('scroll', handleScroll, true);
+    return () => document.removeEventListener('scroll', handleScroll, true);
   }, []);
-
-  // Initialize or reset position on open
-  useEffect(() => {
-    if (open && position === null) {
-      setPosition(getDefaultPosition());
-    }
-  }, [open, position, getDefaultPosition]);
-
-  // Adjust position when viewport resizes to prevent going off-screen
-  useEffect(() => {
-    const handleResize = () => {
-      setPosition((prev) => {
-        if (!prev) return prev;
-        const effectiveWidth = Math.min(WIDGET_WIDTH, window.innerWidth - 32);
-        const effectiveHeight = isMinimized ? 56 : Math.min(WIDGET_HEIGHT, window.innerHeight - 40);
-        const clampedX = Math.max(12, Math.min(window.innerWidth - effectiveWidth - 12, prev.x));
-        const clampedY = Math.max(12, Math.min(window.innerHeight - effectiveHeight - 12, prev.y));
-        return { x: clampedX, y: clampedY };
-      });
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [isMinimized]);
-
-  // Drag listeners
-  useEffect(() => {
-    if (!isDragging) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!dragStartRef.current) return;
-      const deltaX = e.clientX - dragStartRef.current.mouseX;
-      const deltaY = e.clientY - dragStartRef.current.mouseY;
-      const effectiveWidth = Math.min(WIDGET_WIDTH, window.innerWidth - 32);
-      const effectiveHeight = isMinimized ? 56 : Math.min(WIDGET_HEIGHT, window.innerHeight - 40);
-      
-      const newX = dragStartRef.current.startX + deltaX;
-      const newY = dragStartRef.current.startY + deltaY;
-      
-      const clampedX = Math.max(8, Math.min(window.innerWidth - effectiveWidth - 8, newX));
-      const clampedY = Math.max(8, Math.min(window.innerHeight - effectiveHeight - 8, newY));
-      
-      setPosition({ x: clampedX, y: clampedY });
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-      dragStartRef.current = null;
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (!dragStartRef.current || !e.touches[0]) return;
-      const touch = e.touches[0];
-      const deltaX = touch.clientX - dragStartRef.current.mouseX;
-      const deltaY = touch.clientY - dragStartRef.current.mouseY;
-      const effectiveWidth = Math.min(WIDGET_WIDTH, window.innerWidth - 32);
-      const effectiveHeight = isMinimized ? 56 : Math.min(WIDGET_HEIGHT, window.innerHeight - 40);
-      
-      const newX = dragStartRef.current.startX + deltaX;
-      const newY = dragStartRef.current.startY + deltaY;
-      
-      const clampedX = Math.max(8, Math.min(window.innerWidth - effectiveWidth - 8, newX));
-      const clampedY = Math.max(8, Math.min(window.innerHeight - effectiveHeight - 8, newY));
-      
-      setPosition({ x: clampedX, y: clampedY });
-    };
-
-    const handleTouchEnd = () => {
-      setIsDragging(false);
-      dragStartRef.current = null;
-    };
-
-    window.addEventListener('mousemove', handleMouseMove, { passive: true });
-    window.addEventListener('mouseup', handleMouseUp);
-    window.addEventListener('touchmove', handleTouchMove, { passive: true });
-    window.addEventListener('touchend', handleTouchEnd);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-      window.removeEventListener('touchmove', handleTouchMove);
-      window.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [isDragging, isMinimized]);
-
-  // Start dragging on header mousedown
-  const handleDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
-    // Only initiate drag if left mouse button and not clicking interactive controls
-    if (e.button !== 0) return;
-    const target = e.target as HTMLElement;
-    if (target.closest('button') || target.closest('input') || target.closest('textarea') || target.closest('select')) {
-      return;
-    }
-
-    const currentPos = position || getDefaultPosition();
-    dragStartRef.current = {
-      mouseX: e.clientX,
-      mouseY: e.clientY,
-      startX: currentPos.x,
-      startY: currentPos.y,
-    };
-    setIsDragging(true);
-  };
-
-  // Touch drag start
-  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
-    if (target.closest('button') || target.closest('input') || target.closest('textarea') || target.closest('select')) {
-      return;
-    }
-    if (!e.touches[0]) return;
-    const touch = e.touches[0];
-    const currentPos = position || getDefaultPosition();
-    dragStartRef.current = {
-      mouseX: touch.clientX,
-      mouseY: touch.clientY,
-      startX: currentPos.x,
-      startY: currentPos.y,
-    };
-    setIsDragging(true);
-  };
 
   // Fetch notes on open
   useEffect(() => {
@@ -236,10 +118,34 @@ export const PersonalNotesWidget: React.FC = () => {
     setOpen(false);
   };
 
-  const resetToDefaultPosition = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setPosition(getDefaultPosition());
+  const openPanel = () => {
+    setStatus('idle');
+    setLoaded(false);
+    setMessagesLoaded(false);
+    setIsMinimized(false);
+    setOpen(true);
   };
+
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  const openRef = useRef(open);
+  openRef.current = open;
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.altKey && event.shiftKey && event.key.toLowerCase() === 'n') {
+        event.preventDefault();
+        if (openRef.current) void closeRef.current();
+        else openPanel();
+        return;
+      }
+      if (event.key === 'Escape' && openRef.current && !document.querySelector('[role="dialog"][aria-modal="true"]')) {
+        void closeRef.current();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const sendMessage = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -260,101 +166,90 @@ export const PersonalNotesWidget: React.FC = () => {
     }
   };
 
-  const currentPos = position || getDefaultPosition();
-
   return (
     <>
-      {/* Floating launcher trigger button */}
+      {/* Desktop rail: reserves layout space so notes never cover table controls */}
+      <aside
+        aria-label="Accesos personales"
+        className="hidden xl:flex w-[52px] shrink-0 flex-col items-center gap-3 border-l border-[var(--border-subtle)] bg-[var(--bg-surface)] pt-6 pb-4 z-10"
+      >
+        <button
+          type="button"
+          onClick={() => (open ? void close() : openPanel())}
+          aria-expanded={open}
+          title="Bloc de notas (Alt+Shift+N)"
+          aria-label="Abrir bloc de notas personal"
+          className={`flex h-11 w-11 items-center justify-center rounded-xl border transition-all cursor-pointer active:scale-95 ${
+            open
+              ? 'border-cyan-400 bg-cyan-500/15 text-cyan-300'
+              : 'border-transparent text-[var(--text-secondary)] hover:border-cyan-500/40 hover:bg-cyan-500/10 hover:text-cyan-300'
+          }`}
+        >
+          <Icon name="edit_note" size={21} />
+        </button>
+        <span className="select-none text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--text-secondary)] [writing-mode:vertical-rl]">
+          Notas
+        </span>
+      </aside>
+
+      {/* Floating launcher for smaller desktops; hides while scrolling down */}
       {!open && (
         <button
           type="button"
-          onClick={() => {
-            setStatus('idle');
-            setLoaded(false);
-            setMessagesLoaded(false);
-            setIsMinimized(false);
-            setOpen(true);
-          }}
-          title="Abrir bloc de notas personal (Arrastrable)"
+          onClick={openPanel}
+          title="Bloc de notas (Alt+Shift+N)"
           aria-label="Abrir bloc de notas personal"
-          className="fixed bottom-5 right-5 z-[80] hidden md:flex h-11 items-center gap-2 rounded-full border border-cyan-500/40 bg-[#070c18]/90 backdrop-blur-xl px-4 text-cyan-300 shadow-[0_8px_30px_rgba(0,0,0,0.7)] transition-all hover:border-cyan-400 hover:bg-[#09152b] hover:text-white hover:shadow-[0_0_20px_rgba(6,182,212,0.35)] active:scale-95 cursor-pointer font-mono select-none"
+          className={`fixed bottom-5 right-5 z-[80] hidden md:flex xl:hidden h-11 items-center gap-2 rounded-full border border-cyan-500/40 bg-[#070c18]/90 backdrop-blur-xl px-4 text-cyan-300 shadow-[0_8px_30px_rgba(0,0,0,0.7)] transition-all duration-200 hover:border-cyan-400 hover:bg-[#09152b] hover:text-white hover:shadow-[0_0_20px_rgba(6,182,212,0.35)] active:scale-95 cursor-pointer font-mono select-none ${
+            fabHidden ? 'translate-y-24 opacity-0 pointer-events-none' : ''
+          }`}
         >
-          <span className="material-symbols-outlined text-[19px] text-cyan-400">edit_note</span>
+          <Icon name="edit_note" size={19} className="text-cyan-400" />
           <span className="hidden sm:inline text-xs font-bold">Bloc de notas</span>
         </button>
       )}
 
-      {/* Floating draggable window */}
+      {/* Floating panel anchored to the rail */}
       {open && (
         <div
           ref={widgetRef}
+          role="dialog"
+          aria-label="Bloc de notas personal"
           style={{
-            transform: `translate3d(${currentPos.x}px, ${currentPos.y}px, 0)`,
             width: `min(${WIDGET_WIDTH}px, calc(100vw - 24px))`,
-            height: isMinimized ? 'auto' : `min(${WIDGET_HEIGHT}px, calc(100vh - 40px))`,
-            transition: isDragging ? 'none' : 'box-shadow 0.2s ease, border-color 0.2s ease',
+            height: isMinimized ? 'auto' : `min(${WIDGET_HEIGHT}px, calc(100vh - 120px))`,
           }}
-          className={`horizon-notes-panel fixed top-0 left-0 z-[85] hidden md:flex flex-col overflow-hidden rounded-3xl border ${
-            isDragging
-              ? 'border-cyan-400 shadow-[0_25px_70px_rgba(0,0,0,0.9),0_0_35px_rgba(6,182,212,0.4)] scale-[1.01]'
-              : 'border-cyan-500/35 shadow-[0_20px_60px_rgba(0,0,0,0.85),0_0_20px_rgba(6,182,212,0.15)]'
-          } bg-[#070c18]/96 backdrop-blur-2xl will-change-transform select-none`}
+          className="horizon-notes-panel fixed right-3 bottom-3 z-[85] flex flex-col overflow-hidden rounded-3xl border border-cyan-500/35 shadow-[0_20px_60px_rgba(0,0,0,0.55)] bg-[#070c18]/96 backdrop-blur-2xl select-none xl:right-[68px] xl:bottom-auto xl:top-[92px]"
         >
           {/* Top Laser Line */}
           <div className="cyber-laser-bar absolute top-0 left-0 right-0 z-20" />
 
-          {/* Draggable Header Bar */}
-          <div
-            onMouseDown={handleDragStart}
-            onTouchStart={handleTouchStart}
-            onDoubleClick={() => setIsMinimized(!isMinimized)}
-            title="Arrastra para mover el bloc de notas a cualquier lugar"
-            className={`flex items-center justify-between border-b border-cyan-500/20 bg-[#0a1022]/90 backdrop-blur-md px-3.5 py-2.5 shrink-0 ${
-              isDragging ? 'cursor-grabbing' : 'cursor-grab'
-            } transition-colors hover:bg-[#0e1730]`}
-          >
+          {/* Header Bar */}
+          <div className="flex items-center justify-between border-b border-cyan-500/20 bg-[#0a1022]/90 backdrop-blur-md px-3.5 py-2.5 shrink-0">
             <div className="flex items-center gap-2 min-w-0">
-              {/* Drag Grip Icon */}
-              <div className="flex items-center justify-center text-cyan-400/70 hover:text-cyan-300">
-                <span className="material-symbols-outlined text-[20px]">drag_indicator</span>
-              </div>
               <div className="w-7 h-7 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
-                <span className="material-symbols-outlined text-[17px]">edit_note</span>
+                <Icon name="edit_note" size={17} />
               </div>
               <div className="truncate">
                 <h2 className="text-xs font-bold text-white font-mono uppercase tracking-wider truncate">
                   Bloc de notas
                 </h2>
                 {!isMinimized && (
-                  <p className="text-[10px] text-slate-400 truncate">Arrastra para reubicar</p>
+                  <p className="text-[10px] text-slate-400 truncate">Alt+Shift+N para abrir o cerrar</p>
                 )}
               </div>
             </div>
 
             {/* Window Action Controls */}
             <div className="flex items-center gap-1 shrink-0 ml-2">
-              {/* Snap back to bottom-right button */}
-              <button
-                type="button"
-                onClick={resetToDefaultPosition}
-                title="Restablecer posición a la esquina inferior derecha"
-                aria-label="Restablecer posición"
-                className="rounded-lg p-1 text-slate-400 hover:bg-cyan-500/15 hover:text-cyan-300 transition-colors cursor-pointer flex items-center justify-center"
-              >
-                <span className="material-symbols-outlined text-[17px]">south_east</span>
-              </button>
-
               {/* Minimize / Expand Toggle Button */}
               <button
                 type="button"
                 onClick={() => setIsMinimized(!isMinimized)}
                 title={isMinimized ? 'Expandir bloc de notas' : 'Minimizar bloc de notas'}
                 aria-label={isMinimized ? 'Expandir' : 'Minimizar'}
-                className="rounded-lg p-1 text-slate-400 hover:bg-cyan-500/15 hover:text-cyan-300 transition-colors cursor-pointer flex items-center justify-center"
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-cyan-500/15 hover:text-cyan-300 transition-colors cursor-pointer flex items-center justify-center"
               >
-                <span className="material-symbols-outlined text-[17px]">
-                  {isMinimized ? 'expand_more' : 'expand_less'}
-                </span>
+                <Icon name={isMinimized ? 'expand_more' : 'expand_less'} size={18} />
               </button>
 
               {/* Close Button */}
@@ -363,9 +258,9 @@ export const PersonalNotesWidget: React.FC = () => {
                 onClick={() => void close()}
                 aria-label="Cerrar bloc de notas"
                 title="Cerrar"
-                className="rounded-lg p-1 text-slate-400 hover:bg-red-500/20 hover:text-red-300 transition-colors cursor-pointer flex items-center justify-center"
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-[var(--state-urgency-tint)] hover:text-[var(--state-urgency-text)] transition-colors cursor-pointer flex items-center justify-center"
               >
-                <span className="material-symbols-outlined text-[17px]">close</span>
+                <Icon name="close" size={18} />
               </button>
             </div>
           </div>

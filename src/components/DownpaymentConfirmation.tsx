@@ -73,7 +73,7 @@ export const DownpaymentFields: React.FC<{
                           : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-primary)] hover:border-emerald-500/50'
                       }`}
                     >
-                      <span className="material-symbols-outlined text-[13px]">
+                      <span aria-hidden="true" className="material-symbols-outlined text-[13px]">
                         {selected ? 'check_circle' : 'person'}
                       </span>
                       <span>{emp.name}</span>
@@ -106,7 +106,7 @@ export const DownpaymentFields: React.FC<{
               {line.receipt && <a href={line.receipt} target="_blank" rel="noreferrer" className="underline text-cyan-400 text-xs">Ver captura subida</a>}
             </label>
             <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 space-y-1">
-              <p className="font-bold flex items-center gap-1.5"><span className="material-symbols-outlined text-[15px]">notifications_active</span> Alerta automática por WhatsApp:</p>
+              <p className="font-bold flex items-center gap-1.5"><span aria-hidden="true" className="material-symbols-outlined text-[15px]">notifications_active</span> Alerta automática por WhatsApp:</p>
               <p>Al guardar, el sistema enviará de inmediato un mensaje al Administrador con la captura y nombre del titular para su confirmación bancaria.</p>
             </div>
           </div>

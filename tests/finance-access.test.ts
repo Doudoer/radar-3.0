@@ -33,8 +33,9 @@ describe('finance content after the vault grants access', () => {
     expect(html).not.toContain('Acceso administrativo validado por servidor');
     expect(html).not.toMatch(/Zona contable|America\/New_York|Nueva York|saldos legacy|no un cierre histórico/);
     expect(html).toContain('Semana anterior');
-    expect(html).toContain('Recargar ingresos');
-    expect(html).toContain('Nómina Empleados');
+    expect(html).toContain('Recargar datos de la semana');
+    expect(html).toContain('Nómina');
+    expect(html).toContain('Gastos Operativos y Deducciones de la Semana');
     expect(html).not.toMatch(/OTP|2FA|Authenticator|Bóveda|Bloquear/);
     expect(stateMock.mock.results[0].value.save).not.toHaveBeenCalled();
   });
@@ -42,8 +43,8 @@ describe('finance content after the vault grants access', () => {
   it('shows loading without claiming verified access or asking for OTP', () => {
     stateMock.mockReturnValue({ ...stateResult(), state: null });
     const html = renderToStaticMarkup(React.createElement(WeeklyRelationView));
-    expect(html).toContain('Validando acceso administrativo con el servidor');
-    expect(html).toContain('Cargando estado financiero del servidor');
+    expect(html).toContain('Cargando estado financiero');
+    expect(html).toContain('Validando acceso administrativo y datos del servidor');
     expect(html).not.toContain('Acceso administrativo validado por servidor');
     expect(html).not.toMatch(/OTP|2FA|Bloquear/);
   });

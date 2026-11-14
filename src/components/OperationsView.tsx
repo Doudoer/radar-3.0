@@ -551,7 +551,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed top-20 right-6 z-50 bg-[#10b981] text-[#064e3b] font-bold text-xs py-2.5 px-4 rounded-xl shadow-[0_0_25px_rgba(16,185,129,0.4)] flex items-center gap-2 animate-bounce border border-[#34d399]">
-          <span className="material-symbols-outlined text-[18px]">verified</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[18px]">verified</span>
           <span>{toastMessage}</span>
         </div>
       )}
@@ -604,7 +604,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
           {/* Super Admin Operator Switcher Dropdown */}
           {isSuperAdmin && (
             <div className="flex items-center gap-2 bg-[#040814]/95 border border-cyan-500/40 rounded-2xl px-3.5 py-2 shadow-[0_0_15px_rgba(6,182,212,0.2)]">
-              <span className="material-symbols-outlined text-cyan-400 text-[20px]">
+              <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-[20px]">
                 manage_accounts
               </span>
               <div className="flex flex-col">
@@ -638,7 +638,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
             }}
             className="bg-[#060e1d] hover:bg-[#0a1730] text-cyan-300 hover:text-white border border-cyan-500/30 px-3.5 py-2.5 rounded-2xl text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.15)] active:scale-95"
           >
-            <span className="material-symbols-outlined text-[18px]">swap_horiz</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">swap_horiz</span>
             <span>Traspaso de Venta</span>
           </button>}
 
@@ -648,7 +648,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
             onClick={() => setIsPrintModalOpen(true)}
             className="bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-slate-950 font-black text-xs py-2.5 px-4 rounded-2xl flex items-center gap-2 transition-all cursor-pointer shadow-[0_0_20px_rgba(6,182,212,0.35)] active:scale-95"
           >
-            <span className="material-symbols-outlined text-[18px]">print</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">print</span>
             <span>Imprimir Reporte</span>
           </button>
         </div>
@@ -670,7 +670,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                 : 'bg-[#040814] text-slate-400 hover:text-white border border-cyan-500/20'
             }`}
           >
-            <span className="material-symbols-outlined text-[18px]">calendar_view_week</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">calendar_view_week</span>
             <span>1. Filtro por Semana (Lun - Dom)</span>
             {periodType === 'semana' && (
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -689,7 +689,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                 : 'bg-[#040814] text-slate-400 hover:text-white border border-cyan-500/20'
             }`}
           >
-            <span className="material-symbols-outlined text-[18px]">calendar_month</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">calendar_month</span>
             <span>2. Filtro por Mes</span>
             {periodType === 'mes' && (
               <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
@@ -705,7 +705,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                 : 'bg-[#040814] text-slate-400 hover:text-white border border-cyan-500/20'
             }`}
           >
-            <span className="material-symbols-outlined text-[18px]">analytics</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">analytics</span>
             <span>3. Todo el Histórico</span>
           </button>
         </div>
@@ -722,7 +722,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
               title="Período Anterior"
               className="p-1.5 rounded-xl hover:bg-cyan-500/20 text-cyan-400 hover:text-white transition-all cursor-pointer active:scale-95"
             >
-              <span className="material-symbols-outlined text-[20px]">chevron_left</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[20px]">chevron_left</span>
             </button>
 
             <div className="px-3 text-center">
@@ -743,7 +743,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
               title="Período Siguiente"
               className="p-1.5 rounded-xl hover:bg-cyan-500/20 text-cyan-400 hover:text-white transition-all cursor-pointer active:scale-95"
             >
-              <span className="material-symbols-outlined text-[20px]">chevron_right</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[20px]">chevron_right</span>
             </button>
 
             {!periodLabel.isCurrent && (
@@ -764,7 +764,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
         {/* Indicador de Ventas de la Semana */}
         <div className="hidden sm:flex items-center gap-2.5 bg-[#040814] border border-emerald-500/40 rounded-2xl px-3.5 py-2 shadow-[0_0_15px_rgba(16,185,129,0.15)] shrink-0">
           <div className="w-7 h-7 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
-            <span className="material-symbols-outlined text-[16px]">calendar_view_week</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">calendar_view_week</span>
           </div>
           <div className="text-left font-mono">
             <span className="text-[9.5px] uppercase font-bold text-emerald-400 block leading-tight">
@@ -788,7 +788,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
               Valor de ventas
             </span>
             <div className="w-7 h-7 rounded-xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-400/30">
-              <span className="material-symbols-outlined text-[16px]">payments</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">payments</span>
             </div>
           </div>
           <div className="mt-2">
@@ -809,7 +809,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
               Ticket Promedio
             </span>
             <div className="w-7 h-7 rounded-xl bg-cyan-500/15 text-cyan-400 flex items-center justify-center border border-cyan-400/30">
-              <span className="material-symbols-outlined text-[16px]">shopping_bag</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">shopping_bag</span>
             </div>
           </div>
           <div className="mt-2">
@@ -830,7 +830,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
               Abonos acumulados
             </span>
             <div className="w-7 h-7 rounded-xl bg-teal-500/15 text-teal-400 flex items-center justify-center border border-teal-400/30">
-              <span className="material-symbols-outlined text-[16px]">savings</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">savings</span>
             </div>
           </div>
           <div className="mt-2">
@@ -851,7 +851,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
               Saldo por Cobrar
             </span>
             <div className="w-7 h-7 rounded-xl bg-amber-500/15 text-amber-400 flex items-center justify-center border border-amber-400/30">
-              <span className="material-symbols-outlined text-[16px]">pending_actions</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">pending_actions</span>
             </div>
           </div>
           <div className="mt-2">
@@ -872,7 +872,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
               Cotizaciones
             </span>
             <div className="w-7 h-7 rounded-xl bg-blue-500/15 text-blue-400 flex items-center justify-center border border-blue-400/30">
-              <span className="material-symbols-outlined text-[16px]">request_quote</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">request_quote</span>
             </div>
           </div>
           <div className="mt-2">
@@ -893,7 +893,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
               Órdenes Activas
             </span>
             <div className="w-7 h-7 rounded-xl bg-purple-500/15 text-purple-400 flex items-center justify-center border border-purple-400/30">
-              <span className="material-symbols-outlined text-[16px]">inventory_2</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">inventory_2</span>
             </div>
           </div>
           <div className="mt-2">
@@ -914,7 +914,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
           <div>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-cyan-400 text-[20px]">bar_chart</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-[20px]">bar_chart</span>
                 <h3 className="text-sm font-bold text-white font-mono tracking-tight">
                   {periodType === 'semana'
                     ? 'Distribución Diaria de Ventas (Lunes a Domingo)'
@@ -1004,7 +1004,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
         <div className="rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 shadow-[0_15px_40px_rgba(0,0,0,0.6)] flex flex-col justify-between">
           <div>
             <div className="flex items-center gap-2 mb-3">
-              <span className="material-symbols-outlined text-cyan-400 text-[20px]">local_shipping</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-[20px]">local_shipping</span>
               <h3 className="text-sm font-bold text-white font-mono tracking-tight">
                 Canal de Entrega & Logística
               </h3>
@@ -1019,7 +1019,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
             <div>
               <div className="flex items-center justify-between text-xs font-mono mb-1.5">
                 <span className="text-slate-300 font-bold flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[16px] text-cyan-400">store</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-400">store</span>
                   <span>Retiro en Mostrador / Patio</span>
                 </span>
                 <span className="text-cyan-300 font-bold">
@@ -1041,7 +1041,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
             <div>
               <div className="flex items-center justify-between text-xs font-mono mb-1.5">
                 <span className="text-slate-300 font-bold flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[16px] text-emerald-400">local_shipping</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-emerald-400">local_shipping</span>
                   <span>Envío a Domicilio / Flete</span>
                 </span>
                 <span className="text-emerald-300 font-bold">
@@ -1084,7 +1084,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                   : 'bg-[#040814] text-slate-400 hover:text-white border border-cyan-500/20'
               }`}
             >
-              <span className="material-symbols-outlined text-[16px]">shopping_bag</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">shopping_bag</span>
               <span>1. Ventas del Período ({periodType === 'semana' ? 'Semanal' : periodType === 'mes' ? 'Mensual' : 'Total'})</span>
               <span className="text-[10px] px-2 py-0.5 rounded-md font-mono font-bold bg-[#02050c] text-white border border-cyan-500/25">
                 {periodSales.length}
@@ -1100,7 +1100,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                   : 'bg-[#040814] text-slate-400 hover:text-white border border-cyan-500/20'
               }`}
             >
-              <span className="material-symbols-outlined text-[16px]">inventory_2</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">inventory_2</span>
               <span>2. Órdenes Activas en Curso</span>
               <span className="text-[10px] px-2 py-0.5 rounded-md font-mono font-bold bg-[#02050c] text-white border border-cyan-500/25">
                 {activeOrders.length}
@@ -1116,7 +1116,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                   : 'bg-[#040814] text-slate-400 hover:text-white border border-cyan-500/20'
               }`}
             >
-              <span className="material-symbols-outlined text-[16px]">request_quote</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">request_quote</span>
               <span>3. Cotizaciones del Período</span>
               <span className="text-[10px] px-2 py-0.5 rounded-md font-mono font-bold bg-[#02050c] text-white border border-cyan-500/25">
                 {periodQuotes.length}
@@ -1132,7 +1132,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                   : 'bg-[#040814] text-slate-400 hover:text-white border border-cyan-500/20'
               }`}
             >
-              <span className="material-symbols-outlined text-[16px]">warning</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">warning</span>
               <span>4. Reclamos</span>
               <span className="text-[10px] px-2 py-0.5 rounded-md font-mono font-bold bg-[#02050c] text-white border border-cyan-500/25">
                 {operatorClaims.length}
@@ -1147,7 +1147,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                   : 'bg-[#040814] text-slate-400 hover:text-white border border-cyan-500/20'
               }`}
             >
-              <span className="material-symbols-outlined text-[16px]">currency_exchange</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">currency_exchange</span>
               <span>5. Reembolsos</span>
               <span className="text-[10px] px-2 py-0.5 rounded-md font-mono font-bold bg-[#02050c] text-white border border-cyan-500/25">
                 {operatorRefunds.length}
@@ -1163,7 +1163,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                   : 'bg-[#040814] text-slate-400 hover:text-white border border-cyan-500/20'
               }`}
             >
-              <span className="material-symbols-outlined text-[16px] text-amber-400">military_tech</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-amber-400">military_tech</span>
               <span>6. Ranking de Asesores</span>
               <span className="text-[10px] px-2 py-0.5 rounded-md font-mono font-bold bg-[#02050c] text-amber-300 border border-amber-500/30">
                 {advisorLeaderboard.length}
@@ -1173,7 +1173,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
 
           {/* Search Box in Active Tab */}
           <div className="relative w-64">
-            <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px]">
+            <span aria-hidden="true" className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px]">
               search
             </span>
             <input
@@ -1313,7 +1313,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
               </div>
 
               <div className="bg-emerald-500/15 border border-emerald-500/40 rounded-xl px-4 py-2 flex items-center gap-3">
-                <span className="material-symbols-outlined text-emerald-400 text-[20px]">verified</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-emerald-400 text-[20px]">verified</span>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-emerald-300 block">
                     Resumen del Período
@@ -1386,7 +1386,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                           className="px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow"
                         >
                           <span>Gestionar</span>
-                          <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[14px]">arrow_forward</span>
                         </button>
                       </div>
                     </div>
@@ -1469,7 +1469,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
             {activeTab === 'reclamos' && <div>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold text-xs uppercase tracking-wider text-[#f87171] flex items-center gap-1.5 font-mono">
-                  <span className="material-symbols-outlined text-[18px]">verified_user</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[18px]">verified_user</span>
                   <span>Reclamaciones Técnicas & Garantías ({operatorClaims.length})</span>
                 </h3>
               </div>
@@ -1528,7 +1528,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
             {activeTab === 'reembolsos' && <div>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold text-xs uppercase tracking-wider text-[#fbbf24] flex items-center gap-1.5 font-mono">
-                  <span className="material-symbols-outlined text-[18px]">currency_exchange</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[18px]">currency_exchange</span>
                   <span>Solicitudes de Reembolso Monetario ({operatorRefunds.length})</span>
                 </h3>
               </div>
@@ -1586,7 +1586,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <div>
                 <h4 className="text-sm font-bold text-white font-mono flex items-center gap-2">
-                  <span className="material-symbols-outlined text-amber-400 text-[18px]">military_tech</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-amber-400 text-[18px]">military_tech</span>
                   <span>Ranking de Productividad por Volumen de Ventas</span>
                 </h4>
                 <p className="text-xs text-slate-400 font-mono mt-0.5">
@@ -1647,7 +1647,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                         onClick={() => setSelectedOperatorName(adv.name)}
                         className="mt-3 w-full py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
                       >
-                        <span className="material-symbols-outlined text-[14px]">visibility</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[14px]">visibility</span>
                         <span>Auditar Asesor</span>
                       </button>
                     )}
@@ -1731,7 +1731,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
             <div className="p-4 sm:p-5 bg-[#182338] border-b border-[#2b3a58] flex justify-between items-center shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-[#388bfd]/20 text-[#58a6ff] flex items-center justify-center border border-[#388bfd]/40">
-                  <span className="material-symbols-outlined text-[22px]">swap_horiz</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[22px]">swap_horiz</span>
                 </div>
                 <div>
                   <h3 className="font-bold text-base text-[#f1f5f9]">
@@ -1751,7 +1751,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                 }}
                 className="text-[#94a3b8] hover:text-white p-1"
               >
-                <span className="material-symbols-outlined text-[20px]">close</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
 
@@ -1762,7 +1762,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                     Paso 1: Selecciona la orden a traspasar
                   </span>
                   <div className="relative w-64">
-                    <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[#94a3b8] text-[16px]">
+                    <span aria-hidden="true" className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[#94a3b8] text-[16px]">
                       search
                     </span>
                     <input
@@ -1820,7 +1820,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                               className="px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow"
                             >
                               <span>Solicitar Código</span>
-                              <span className="material-symbols-outlined text-[14px]">send</span>
+                              <span aria-hidden="true" className="material-symbols-outlined text-[14px]">send</span>
                             </button>
                           </div>
                         </div>
@@ -1851,7 +1851,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                     disabled={transferSubmitting}
                     className="px-5 py-2.5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-black text-xs transition-all cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)] active:scale-95 flex items-center gap-1.5 font-mono"
                   >
-                    <span className="material-symbols-outlined text-[18px]">verified</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[18px]">verified</span>
                     <span>Confirmar Traspaso</span>
                   </button>
                 </div>
@@ -1867,7 +1867,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
           <div className="bg-white text-[#0f172a] rounded-2xl w-full max-w-4xl max-h-[min(94vh,740px)] shadow-2xl flex flex-col overflow-hidden">
             <div className="p-4 bg-[#0f172a] text-white flex justify-between items-center shrink-0 print:hidden">
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-cyan-400">print</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-cyan-400">print</span>
                 <span className="text-sm font-bold font-mono">Vista Previa de Reporte de Rendimiento</span>
               </div>
               <div className="flex items-center gap-2">
@@ -1876,7 +1876,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                   onClick={() => window.print()}
                   className="bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-1.5 shadow cursor-pointer active:scale-95 font-mono"
                 >
-                  <span className="material-symbols-outlined text-[16px]">print</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">print</span>
                   <span>Imprimir / Guardar PDF</span>
                 </button>
                 <button
@@ -1884,7 +1884,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
                   onClick={() => setIsPrintModalOpen(false)}
                   className="text-[#94a3b8] hover:text-white p-1 cursor-pointer"
                 >
-                  <span className="material-symbols-outlined text-[20px]">close</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
                 </button>
               </div>
             </div>

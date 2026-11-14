@@ -14,10 +14,12 @@ import { handleFinanceRequest } from './src/server/finance';
 import { handleAnalyticsRequest } from './src/server/analytics';
 import { enforceWorkflowUpdate, handleWorkflowRequest, recordWorkflowReopening } from './src/server/orderWorkflow';
 import { assertPaymentAccess, enforceCollectionUpdate, handlePaymentRequest } from './src/server/orderPayments';
+import { assertOrderMutationAccess } from './src/server/orderAccess';
 import { handleAftersalesRequest, parseStoredJson } from './src/server/aftersales';
 import { warrantyTermsSchema } from './src/utils/aftersales';
 import { workflowRequired } from './src/utils/orderWorkflow';
-import { inventoryForRole, mapInventoryPartRow } from './src/server/inventory';
+import { INVENTORY_READ_ROLES, inventoryForRole, mapInventoryPartRow } from './src/server/inventory';
+import { canReadOrderUpload } from './src/server/uploadAccess';
 import { matchOrderInventory } from './src/utils/inventoryMatching';
 import { filterInventory, inventoryCsv } from './src/utils/inventoryExport';
 import { financeVaultExpiry, lockFinanceVault, revokeFinanceVaults, unlockFinanceVault } from './src/server/financeVault';
@@ -69,8 +71,9 @@ import {
   orderDeliveryFollowupSchema,
 } from './src/server/schemas';
 import { readBody, sendJson, serveFrontend } from './src/server/http';
-import { getOrders, mapOrder, normalizeTransmissionType, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
-import { getClaims } from './src/server/claims';
+import { getOrders, getYardOrders, getYardQueueCounts, YARD_QUEUE_MAX_LIMIT, mapOrder, normalizeTransmissionType, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
+import { getClaims, handleClaimsListRequest } from './src/server/claims';
+import { handleRefundsListRequest } from './src/server/refunds';
 import { getClaimWarrantyError } from './src/utils/orderWarranty';
 import {
   createDatabaseBackup,
@@ -88,6 +91,7 @@ import {
 } from './src/server/audit';
 import { getMessageUsers, getPersonalMessages, getPersonalNote, markPersonalMessageRead, savePersonalNote, sendPersonalMessage } from './src/server/notes';
 import { wasender, formatWasenderPhone } from './src/integrations/wasender/client';
+import { buildWasenderTestMessage } from './src/integrations/wasender/testMessage';
 import {
   getNotificationConfig,
   updateNotificationChannels,
@@ -436,8 +440,10 @@ const server = createServer(async (request, response) => {
         });
       } catch (loginError) {
         console.error('[Login Error]:', loginError);
-        const errorMsg = loginError instanceof Error ? loginError.message : 'Error interno al autenticar';
-        return sendJson(response, 500, { message: `No fue posible completar la solicitud: ${errorMsg}` });
+        if (loginError instanceof z.ZodError) {
+          return sendJson(response, 400, { message: 'Revisa el correo y la contraseña ingresados.' });
+        }
+        return sendJson(response, 500, { message: 'No fue posible completar la solicitud' });
       }
     }
 
@@ -485,18 +491,13 @@ const server = createServer(async (request, response) => {
         : sendJson(response, 401, { message: 'Usuario inactivo' });
     }
 
-    const isImageUpload = ['GET', 'HEAD'].includes(request.method || '') &&
-      pathname.startsWith('/uploads/') &&
-      !pathname.startsWith('/uploads/backups/') &&
-      ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(path.extname(pathname).toLowerCase());
-    const isPublicApiPath = false;
-    const protectedPath = (pathname.startsWith('/api/') || pathname.startsWith('/uploads/')) && !isImageUpload;
-    const authenticatedClaims = (protectedPath || pathname.startsWith('/uploads/')) ? verifyToken(request) as Claims | null : null;
-    if (protectedPath && !isPublicApiPath && !authenticatedClaims) {
+    const protectedPath = pathname.startsWith('/api/') || pathname.startsWith('/uploads/');
+    const authenticatedClaims = protectedPath ? verifyToken(request) as Claims | null : null;
+    if (protectedPath && !authenticatedClaims) {
       return sendJson(response, 401, { message: 'Autenticación requerida' });
     }
 
-    if (authenticatedClaims?.sub && !isImageUpload) {
+    if (authenticatedClaims?.sub) {
       if (!await userIsActive(authenticatedClaims)) return sendJson(response, 401, { message: 'Sesión no válida o revocada' });
     }
     if (['GET', 'HEAD'].includes(request.method || '') && pathname.startsWith('/uploads/backups/')) {
@@ -504,8 +505,7 @@ const server = createServer(async (request, response) => {
       response.writeHead(308, { Location: `/api${pathname}`, 'Cache-Control': 'no-store' });
       return response.end();
     }
-    const isSystemBackupsList = request.method === 'GET' && pathname === '/api/system/backups';
-    const sensitiveSystemPath = (pathname.startsWith('/api/system/') && !isSystemBackupsList) ||
+    const sensitiveSystemPath = pathname.startsWith('/api/system/') ||
       pathname.startsWith('/api/uploads/backups/') || pathname.startsWith('/uploads/backups/');
     const userManagementWrite = /^\/api\/users(?:\/\d+)?$/.test(pathname) && isUnsafeMethod(request.method);
     if (sensitiveSystemPath || userManagementWrite) {
@@ -568,7 +568,12 @@ const server = createServer(async (request, response) => {
         "SELECT id, name, phone FROM users WHERE role = 'admin' AND active = 1 AND deleted_at IS NULL ORDER BY id ASC LIMIT 1"
       );
       const adminUser = adminRows[0];
-      const targetPhone = adminUser?.phone ? formatWasenderPhone(adminUser.phone) : '+580000000000';
+      if (!adminUser?.phone) {
+        return sendJson(response, 503, {
+          message: 'El Super Admin no tiene teléfono configurado para recibir el código. Configúralo en Usuarios o usa Authenticator.',
+        });
+      }
+      const targetPhone = formatWasenderPhone(adminUser.phone);
 
       // 3. Store active 2FA state with strictly 1-minute (60s) expiration and single-use flag
       activeFinancial2FA = {
@@ -582,6 +587,7 @@ const server = createServer(async (request, response) => {
 
       let dispatched = false;
       let warning: string | undefined;
+      const localOtpDevCode = !isProduction && process.env.LOCAL_OTP_DEVCODE?.trim().toLowerCase() === 'true';
       if (wasender.configured && !wasender.isTestMode) {
         try {
           const textMessage = formatOtp2FAMessage({
@@ -596,7 +602,7 @@ const server = createServer(async (request, response) => {
           warning = err instanceof Error ? err.message : 'Error al despachar mensaje WhatsApp';
           console.error('[2FA OTP] Error enviando WhatsApp a Super Admin:', err);
         }
-      } else if (!isProduction) {
+      } else if (localOtpDevCode) {
         dispatched = true;
         console.log(`[2FA OTP LOCAL DEV] PIN generado para Super Admin: ${otpCode}`);
       }
@@ -620,14 +626,14 @@ const server = createServer(async (request, response) => {
       return sendJson(response, 200, {
         ok: true,
         dispatched,
-        message: isProduction
-          ? 'Código de verificación enviado al administrador por WhatsApp'
-          : `[Modo Local] PIN generado: ${otpCode}`,
+        message: localOtpDevCode
+          ? `[Modo Local] PIN generado: ${otpCode}`
+          : 'Código de verificación enviado al administrador por WhatsApp',
         cooldownSeconds: 60,
         expiresInSeconds: 60,
         targetPhoneMasked: `***${targetPhone.slice(-4)}`,
         warning,
-        ...(!isProduction ? { devCode: otpCode } : {}),
+        ...(localOtpDevCode ? { devCode: otpCode } : {}),
       });
     }
 
@@ -1135,7 +1141,7 @@ const server = createServer(async (request, response) => {
         return sendJson(response, 200, backups);
       } catch (err) {
         console.error('[GET /api/system/backups] Failed to list backups:', err);
-        return sendJson(response, 200, []);
+        return sendJson(response, 503, { message: 'No fue posible cargar los respaldos. Reintenta en unos segundos.' });
       }
     }
 
@@ -1231,16 +1237,35 @@ const server = createServer(async (request, response) => {
     // ==========================================
     // ORDERS
     // ==========================================
+    if (request.method === 'GET' && pathname === '/api/yard/orders') {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'vendedor_yarda')) return;
+      const url = new URL(request.url || '/', 'http://localhost');
+      const offset = z.coerce.number().int().min(0).parse(url.searchParams.get('offset') || 0);
+      const limit = z.coerce.number().int().min(1).max(YARD_QUEUE_MAX_LIMIT).parse(url.searchParams.get('limit') || 50);
+      const q = (url.searchParams.get('q') || '').trim().slice(0, 100);
+      const [page, counts] = await Promise.all([
+        getYardOrders({ limit: limit + 1, offset, q }),
+        getYardQueueCounts(),
+      ]);
+      return sendJson(response, 200, {
+        orders: page.slice(0, limit),
+        counts,
+        nextOffset: page.length > limit ? offset + limit : null,
+      });
+    }
     if (request.method === 'GET' && pathname === '/api/orders') {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
       const url = new URL(request.url || '/', 'http://localhost');
       const offset = z.coerce.number().int().min(0).parse(url.searchParams.get('offset') || 0);
       const limit = z.coerce.number().int().min(1).max(1000).parse(url.searchParams.get('limit') || 500);
-      const orders = await getOrders({ limit, offset });
+      const q = (url.searchParams.get('q') || '').trim().slice(0, 100);
+      const orders = await getOrders({ limit, offset, q: q || undefined });
       response.setHeader('X-Next-Offset', orders.length === limit ? String(offset + limit) : '');
       return sendJson(response, 200, orders);
     }
     const detailOrderId = pathname.match(/^\/api\/orders\/(\d+)$/)?.[1];
     if (request.method === 'GET' && detailOrderId) {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
       const orders = await getOrders({ id: Number(detailOrderId), limit: 1 });
       return orders[0] ? sendJson(response, 200, orders[0]) : sendJson(response, 404, { message: 'Orden no encontrada' });
     }
@@ -1485,7 +1510,7 @@ const server = createServer(async (request, response) => {
     // DELIVERY FOLLOWUPS (GARANTÍA TEMPRANA 14 DÍAS)
     // ==========================================
     if (request.method === 'GET' && pathname === '/api/orders/followups/pending') {
-      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) return;
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
       const url = new URL(request.url || '/', 'http://localhost');
       const advisorFilter = url.searchParams.get('advisor');
       const allFilter = url.searchParams.get('all') === 'true';
@@ -1724,7 +1749,9 @@ const server = createServer(async (request, response) => {
         const data = orderDeliveryFollowupSchema.parse(await readBody(request));
 
         const [orderRows] = await pool.query<RowDataPacket[]>(
-          `SELECT o.id, o.order_code, o.status, o.created_at, c.first_name, c.last_name, c.phone, u.name AS advisor
+          `SELECT o.id, o.order_code, o.status, o.created_at, o.user_id,
+                  (SELECT advisor_id FROM order_followup_assignments WHERE order_id = o.id) AS followup_user_id,
+                  c.first_name, c.last_name, c.phone, u.name AS advisor
            FROM orders o
            LEFT JOIN customers c ON c.id = o.customer_id
            LEFT JOIN users u ON u.id = o.user_id
@@ -1746,6 +1773,8 @@ const server = createServer(async (request, response) => {
           if (uRows[0]?.name) opName = uRows[0].name;
         }
         if (!opName) opName = orderRow.advisor || 'Operador';
+
+        assertOrderMutationAccess(authenticatedClaims, orderRow);
 
         const connection = await pool.getConnection();
         try {
@@ -1952,11 +1981,15 @@ const server = createServer(async (request, response) => {
       const messageText = `🔐 *Radar Security Alert · Reversión de Orden*\n\nHola *${adminUser.name || 'Super Admin'}*, se ha solicitado devolver la orden *#${orderRow.order_code || targetOrderId}* del estado 'Listo para Retiro' a 'Pagado'.\n\nMotivo: _${body.reason}_\n\nTu código de seguridad de un solo uso es:\n👉 *${otpCode}* 👈\n\n⏱️ Válido por 3 minutos. Si no solicitaste esta reversión, ignora este mensaje.`;
 
       if (!wasender.configured || wasender.isTestMode) {
-        if (wasender.isTestMode) {
+        if (wasender.isTestMode && process.env.NODE_ENV !== 'production') {
           console.log(`[TEST MODE] OTP para revertir orden ${targetOrderId}: ${otpCode}`);
         } else {
           activeRevertToPaidOtps.delete(targetOrderId);
-          return sendJson(response, 503, { message: 'El servicio de WhatsApp (Wasender) no está configurado o disponible.' });
+          return sendJson(response, 503, {
+            message: wasender.isTestMode
+              ? 'El envío de códigos de seguridad está deshabilitado en producción.'
+              : 'El servicio de WhatsApp (Wasender) no está configurado o disponible.',
+          });
         }
       } else {
         try {
@@ -2163,11 +2196,15 @@ const server = createServer(async (request, response) => {
       const messageText = `🚫 *Radar Security Alert · Cancelación de Orden*\n\nHola *${adminUser.name || 'Super Admin'}*, se ha solicitado cancelar la orden *#${orderRow.order_code || targetOrderId}* con devolución automática de $${netPaid.toFixed(2)}${methodLabel}.\n\nMotivo: _${body.reason}_\n\nTu código de seguridad de un solo uso es:\n👉 *${otpCode}* 👈\n\n⏱️ Válido por 3 minutos. Si no solicitaste esta cancelación, ignora este mensaje.`;
 
       if (!wasender.configured || wasender.isTestMode) {
-        if (wasender.isTestMode) {
+        if (wasender.isTestMode && process.env.NODE_ENV !== 'production') {
           console.log(`[TEST MODE] OTP para cancelar orden ${targetOrderId}: ${otpCode}`);
         } else {
           activeCancelOrderOtps.delete(targetOrderId);
-          return sendJson(response, 503, { message: 'El servicio de WhatsApp (Wasender) no está configurado o disponible.' });
+          return sendJson(response, 503, {
+            message: wasender.isTestMode
+              ? 'El envío de códigos de seguridad está deshabilitado en producción.'
+              : 'El servicio de WhatsApp (Wasender) no está configurado o disponible.',
+          });
         }
       } else {
         try {
@@ -2396,10 +2433,12 @@ const server = createServer(async (request, response) => {
       try {
         await connection.beginTransaction();
         const [orders] = await connection.query<RowDataPacket[]>(
-          'SELECT * FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE', [inventoryLinkId],
+          `SELECT o.*, (SELECT advisor_id FROM order_followup_assignments WHERE order_id = o.id) AS followup_user_id
+           FROM orders o WHERE o.id=? AND o.deleted_at IS NULL FOR UPDATE`, [inventoryLinkId],
         );
         const row = orders[0];
         if (!row) fail(404, 'Orden no encontrada');
+        assertOrderMutationAccess(authenticatedClaims, row);
         if (row.version !== payload.version) fail(409, 'La orden cambió. Actualiza antes de reservar');
         if (row.inventory_part_id) fail(409, 'La orden ya tiene una pieza vinculada');
         if (!['cotizacion', 'espera_confirmacion', 'pagado', 'en_preparacion', 'listo_despacho',
@@ -2443,6 +2482,7 @@ const server = createServer(async (request, response) => {
         // 1. Fetch previous order state and advisor details
         const [prevRows] = await connection.query<RowDataPacket[]>(
           `SELECT o.*,
+                  (SELECT advisor_id FROM order_followup_assignments WHERE order_id = o.id) AS followup_user_id,
                   c.first_name, c.last_name, c.phone AS customer_phone,
                   u.id AS advisor_user_id, u.name AS advisor_name, u.phone AS advisor_phone
            FROM orders o
@@ -2453,6 +2493,7 @@ const server = createServer(async (request, response) => {
         );
         const prevOrder = prevRows[0];
         if (!prevOrder) fail(404, 'Orden no encontrada');
+        assertOrderMutationAccess(authenticatedClaims, prevOrder);
         enforceCollectionUpdate(prevOrder, order);
         await enforceWorkflowUpdate(connection, prevOrder, order, authenticatedClaims || undefined);
         validateOrder(order, prevOrder, String(authenticatedClaims?.role));
@@ -2665,11 +2706,13 @@ const server = createServer(async (request, response) => {
     // CUSTOMERS (CRUD)
     // ==========================================
     if (request.method === 'GET' && pathname === '/api/customers') {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      const includeDeleted = roleIs(authenticatedClaims, 'admin');
       const [rows] = await pool.query<RowDataPacket[]>(`
         SELECT c.*, COUNT(o.id) AS order_count
         FROM customers c
         LEFT JOIN orders o ON o.customer_id = c.id AND o.deleted_at IS NULL
-        WHERE c.deleted_at IS NULL
+        ${includeDeleted ? '' : 'WHERE c.deleted_at IS NULL'}
         GROUP BY c.id
         ORDER BY c.created_at DESC
       `);
@@ -2730,6 +2773,17 @@ const server = createServer(async (request, response) => {
       );
       if (result.affectedRows === 0) return sendJson(response, 404, { message: 'Cliente no encontrado' });
       return sendJson(response, 200, { ok: true, id: Number(customerId) });
+    }
+
+    const customerRestoreId = pathname.match(/^\/api\/customers\/(\d+)\/restore$/)?.[1];
+    if (request.method === 'POST' && customerRestoreId) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const [result] = await pool.execute<ResultSetHeader>(
+        'UPDATE customers SET deleted_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NOT NULL',
+        [customerRestoreId]
+      );
+      if (result.affectedRows === 0) return sendJson(response, 404, { message: 'Cliente eliminado no encontrado' });
+      return sendJson(response, 200, { ok: true, id: Number(customerRestoreId) });
     }
 
     if (request.method === 'GET' && pathname === '/api/customers/duplicates') {
@@ -2943,9 +2997,7 @@ const server = createServer(async (request, response) => {
     // ==========================================
     // CLAIMS & CALLS
     // ==========================================
-    if (request.method === 'GET' && pathname === '/api/claims') {
-      return sendJson(response, 200, await getClaims());
-    }
+    if (await handleClaimsListRequest(request, response, pathname, authenticatedClaims)) return;
 
     if (request.method === 'POST' && pathname === '/api/claims') {
       if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
@@ -3186,36 +3238,7 @@ const server = createServer(async (request, response) => {
     // ==========================================
     // REFUND REQUESTS
     // ==========================================
-    if (request.method === 'GET' && pathname === '/api/refunds') {
-      const [rows] = await pool.query<RowDataPacket[]>(`
-        SELECT r.*, o.order_code, o.brand, o.model, o.year, o.product_type,
-               c.first_name, c.last_name, c.phone AS customer_phone
-        FROM refund_requests r
-        LEFT JOIN orders o ON o.id = r.order_id
-        LEFT JOIN customers c ON c.id = o.customer_id
-        ORDER BY r.created_at DESC
-      `);
-      return sendJson(response, 200, rows.map((row) => ({
-        id: `REF-${row.id}`,
-        orderId: String(row.order_id),
-        orderCode: row.order_code || `ORD-${row.order_id}`,
-        customerName: [row.first_name, row.last_name].filter(Boolean).join(' ') || 'Cliente en Reembolso',
-        customerPhone: row.customer_phone || '',
-        vehicle: [row.year, row.brand, row.model].filter(Boolean).join(' ') || 'Vehículo',
-        part: row.product_type || 'Refacción',
-        reason: row.reason || '',
-        amount: Number(row.amount || 0),
-        amountType: row.amount_type || 'downpayment',
-        paymentMethod: ({zelle:'Zelle',cashapp:'CashApp',cash:'Efectivo'} as Record<string,string>)[row.payment_method] || row.payment_method,
-        paymentDetails: row.payment_contact || row.payment_details || '',
-        status: row.status || 'pending',
-        reviewStage: row.review_stage || undefined,
-        refundScope: row.refund_scope || 'purchase',
-        createdAt: row.created_at,
-        completedAt: row.completed_at || undefined,
-        completedBy: row.completed_by || undefined,
-      })));
-    }
+    if (await handleRefundsListRequest(request, response, pathname, authenticatedClaims)) return;
 
     if (request.method === 'POST' && pathname === '/api/refunds') {
       if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
@@ -3372,15 +3395,28 @@ const server = createServer(async (request, response) => {
       const [rows] = await pool.query<RowDataPacket[]>(
         'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, created_at, updated_at FROM users WHERE deleted_at IS NULL ORDER BY name'
       );
+      const isAdmin = roleIs(authenticatedClaims, 'admin');
       return sendJson(
         response,
         200,
-        rows.map((row) => ({
-          ...row,
-          phone: row.phone || '',
-          avatar_url: row.avatar_url || '',
-          permissions: parsePermissions(row.permissions),
-        }))
+        rows.map((row) => isAdmin
+          ? {
+              ...row,
+              phone: row.phone || '',
+              avatar_url: row.avatar_url || '',
+              permissions: parsePermissions(row.permissions),
+            }
+          : {
+              id: row.id,
+              name: row.name,
+              email: row.email,
+              avatar_url: row.avatar_url || '',
+              role: row.role,
+              theme: row.theme,
+              active: row.active,
+              created_at: row.created_at,
+              updated_at: row.updated_at,
+            })
       );
     }
 
@@ -3743,6 +3779,7 @@ const server = createServer(async (request, response) => {
     // INVENTORY (HOLD & STOCK PARTS)
     // ==========================================
     if (request.method === 'GET' && pathname === '/api/inventory/export.csv') {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
       const url = new URL(request.url || '/', 'http://localhost');
       const filters = z.object({
         query: z.string().max(500),
@@ -3764,6 +3801,7 @@ const server = createServer(async (request, response) => {
       return;
     }
     if (request.method === 'GET' && pathname === '/api/inventory') {
+      if (!requireRole(response, authenticatedClaims, ...INVENTORY_READ_ROLES)) return;
       const [rows] = await pool.query<RowDataPacket[]>(`
         SELECT * FROM inventory_parts
         WHERE deleted_at IS NULL
@@ -3810,6 +3848,7 @@ const server = createServer(async (request, response) => {
 
     const inventoryIdMatch = pathname.match(/^\/api\/inventory\/(\d+)$/);
     if (inventoryIdMatch && request.method === 'GET') {
+      if (!requireRole(response, authenticatedClaims, ...INVENTORY_READ_ROLES)) return;
       const partId = Number(inventoryIdMatch[1]);
       const [rows] = await pool.query<RowDataPacket[]>('SELECT * FROM inventory_parts WHERE id = ? AND deleted_at IS NULL', [partId]);
       if (rows.length === 0) return sendJson(response, 404, { message: 'Pieza de inventario no encontrada' });
@@ -3882,6 +3921,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && pathname === '/api/activities') {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
       const [rows] = await pool.query<RowDataPacket[]>(`
         SELECT so.id, so.status, so.description, so.created_at, o.order_code
         FROM status_orders so
@@ -3958,19 +3998,20 @@ const server = createServer(async (request, response) => {
       const ext = path.extname(filename).toLowerCase();
       const isImage = ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext);
 
-      // Sensitive non-image files (e.g. PDFs, documents) require authentication and order access check
+      const [attachedOrders] = await pool.query<RowDataPacket[]>(
+        `SELECT o.user_id,o.status,o.delivered_at,
+          (SELECT MIN(created_at) FROM status_orders WHERE order_id=o.id AND LOWER(status)='entregado') AS delivery_log_at,
+          (SELECT advisor_id FROM order_followup_assignments WHERE order_id=o.id) AS followup_user_id
+          FROM uploaded_files f JOIN orders o ON o.id=f.order_id WHERE f.filename=?`, [filename]);
+      const attachedOrder = attachedOrders[0];
+
+      // Sensitive non-image files (e.g. PDFs, documents) require order access; images follow role scope
       if (!isImage) {
-        if (!authenticatedClaims) {
-          return sendJson(response, 401, { message: 'Autenticación requerida' });
+        if (attachedOrder && !roleIs(authenticatedClaims, 'admin')) {
+          assertPaymentAccess(attachedOrder, authenticatedClaims!, true);
         }
-        const [attachedOrders] = await pool.query<RowDataPacket[]>(
-          `SELECT o.user_id,o.delivered_at,
-            (SELECT MIN(created_at) FROM status_orders WHERE order_id=o.id AND LOWER(status)='entregado') AS delivery_log_at,
-            (SELECT advisor_id FROM order_followup_assignments WHERE order_id=o.id) AS followup_user_id
-            FROM uploaded_files f JOIN orders o ON o.id=f.order_id WHERE f.filename=?`, [filename]);
-        if (attachedOrders[0] && !roleIs(authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) {
-          assertPaymentAccess(attachedOrders[0], authenticatedClaims, true);
-        }
+      } else if (attachedOrder && !canReadOrderUpload(authenticatedClaims, attachedOrder.status)) {
+        return sendJson(response, 403, { message: 'No tienes permisos para consultar este archivo' });
       }
 
       const mimeTypes: Record<string, string> = {
@@ -3985,7 +4026,7 @@ const server = createServer(async (request, response) => {
       };
       response.writeHead(200, {
         'Content-Type': mimeTypes[ext] || 'application/octet-stream',
-        'Cache-Control': isImage ? 'public, max-age=86400, stale-while-revalidate=604800' : 'private, no-store',
+        'Cache-Control': isImage ? 'private, max-age=86400' : 'private, no-store',
         'X-Content-Type-Options': 'nosniff',
         'Content-Disposition': `${isImage ? 'inline' : 'attachment'}; filename="${filename.replace(/"/g, '')}"`,
       });
@@ -4068,39 +4109,98 @@ const server = createServer(async (request, response) => {
     // ==========================================
     if (request.method === 'GET' && pathname === '/api/wasender/status') {
       if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      let verifiedAt: string | null = null;
+      try {
+        const [verificationRows] = await pool.query<RowDataPacket[]>(
+          "SELECT created_at FROM audit_logs WHERE action = 'WASENDER_TEST_PING' ORDER BY created_at DESC LIMIT 1"
+        );
+        const createdAt = verificationRows[0]?.created_at;
+        verifiedAt = createdAt ? new Date(createdAt).toISOString() : null;
+      } catch (error) {
+        console.error('[Wasender] No se pudo leer la última verificación:', error);
+      }
       return sendJson(response, 200, {
         configured: wasender.configured,
         isTestMode: wasender.isTestMode,
         designatedTestPhone: wasender.designatedTestPhone,
         sessionName: process.env.WASENDER_SESSION_NAME || null,
         connectedPhone: process.env.WASENDER_CONNECTED_PHONE || null,
-        accountName: process.env.BUSINESS_NAME || null,
+        businessName: process.env.BUSINESS_NAME || null,
+        verifiedAt,
         service: 'WasenderAPI (wasenderapi.com)',
       });
     }
 
     if (request.method === 'POST' && pathname === '/api/wasender/test-ping') {
       if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      const retryAfter = rateLimit(`wasender:test-ping:${authenticatedClaims?.sub ?? clientAddress(request)}`, 3, 60_000);
+      if (retryAfter) {
+        response.setHeader('Retry-After', retryAfter);
+        return sendJson(response, 429, { message: 'Demasiadas pruebas de conexión. Espera un minuto antes de reintentar.' });
+      }
       const body = z.object({
         message: z.string().trim().min(1).max(5000).optional(),
         phone: z.string().trim().regex(/^\+?[\d ()-]{7,40}$/).optional(),
       }).parse(await readBody(request));
-      const targetPhone = body.phone || wasender.designatedTestPhone;
+      const requestedPhone = body.phone;
+      const designatedPhone = wasender.designatedTestPhone;
+      const isAdmin = String(authenticatedClaims?.role || '').toLowerCase() === 'admin';
+      const digits = (value: string) => value.replace(/\D/g, '');
+      if (!isAdmin) {
+        if (!designatedPhone) {
+          return sendJson(response, 403, {
+            message: 'El teléfono de prueba no está configurado. Solo un administrador puede enviar la prueba a otro número.',
+          });
+        }
+        if (requestedPhone && digits(requestedPhone) !== digits(designatedPhone)) {
+          return sendJson(response, 403, {
+            message: 'Solo un administrador puede enviar pruebas a un número distinto al teléfono de prueba configurado.',
+          });
+        }
+      }
+      const targetPhone = isAdmin ? requestedPhone || designatedPhone : designatedPhone;
       if (!targetPhone) return sendJson(response, 400, { message: 'Indica un telefono de prueba' });
       const nowStr = new Date().toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      const testText =
-        body.message ||
-        `🛰️ *RADAR V3 • Prueba de Conexión Wasender*\n\n✅ Enlace con WasenderAPI verificado exitosamente.\n⏰ *Hora:* ${nowStr}\n👤 *Operador:* ${authenticatedClaims?.name || 'Administrador'}\n🛡️ *Sesión:* Douglas Movistar (+58 414-5380654)`;
+      let testText = body.message;
+      if (!testText) {
+        let operatorName = String(authenticatedClaims?.name || '').trim();
+        if (!operatorName && authenticatedClaims?.sub) {
+          const [operatorRows] = await pool.query<RowDataPacket[]>('SELECT name FROM users WHERE id = ? LIMIT 1', [authenticatedClaims.sub]);
+          operatorName = String(operatorRows[0]?.name || '').trim();
+        }
+        testText = buildWasenderTestMessage({
+          timeLabel: nowStr,
+          operatorName,
+          sessionName: process.env.WASENDER_SESSION_NAME,
+          connectedPhone: process.env.WASENDER_CONNECTED_PHONE,
+        });
+      }
 
       try {
         const res = await wasender.sendText({ to: targetPhone, text: testText });
+        const maskedRecipient = (() => {
+          const onlyDigits = String(res.recipientUsed || targetPhone).replace(/\D/g, '');
+          return onlyDigits.length <= 4 ? '••••' : `••••${onlyDigits.slice(-4)}`;
+        })();
+        void recordAuditLog(pool, {
+          userId: authenticatedClaims?.sub ? Number(authenticatedClaims.sub) : undefined,
+          username: authenticatedClaims?.email,
+          action: 'WASENDER_TEST_PING',
+          resourceType: 'wasender',
+          details: {
+            recipient: maskedRecipient,
+            requestedCustomPhone: Boolean(requestedPhone),
+            isTestRedirect: res.isTestRedirect,
+          },
+          ipAddress: clientAddress(request),
+          userAgent: request.headers['user-agent'] || null,
+        });
         return sendJson(response, 200, {
           ok: true,
           dispatched: true,
-          recipientUsed: res.recipientUsed,
-          originalRecipient: res.originalRecipient,
+          recipientMasked: maskedRecipient,
           isTestRedirect: res.isTestRedirect,
-          data: res.data,
+          verifiedAt: new Date().toISOString(),
           message: 'Mensaje de prueba transmitido con éxito a WhatsApp',
         });
       } catch (error) {

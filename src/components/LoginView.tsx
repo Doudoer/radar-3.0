@@ -111,7 +111,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
         className="fixed top-4 right-4 z-50 p-2 rounded-xl border border-cyan-500/30 bg-[#070c18]/90 hover:bg-cyan-500/20 text-cyan-300 transition-all cursor-pointer flex items-center gap-1.5 shadow-md font-mono text-xs"
         title={isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
       >
-        <span className="material-symbols-outlined text-[18px]">{isDark ? 'light_mode' : 'dark_mode'}</span>
+        <span aria-hidden="true" className="material-symbols-outlined text-[18px]">{isDark ? 'light_mode' : 'dark_mode'}</span>
         <span className="hidden sm:inline font-bold">{isDark ? 'CLARO' : 'OSCURO'}</span>
       </button>
 
@@ -138,7 +138,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
           <div className="relative w-16 h-16 sm:w-18 sm:h-18 rounded-2xl bg-gradient-to-br from-[#0c1a30] via-[#060c18] to-[#040812] border-2 border-cyan-400/60 flex items-center justify-center text-cyan-400 shadow-[0_0_25px_rgba(6,182,212,0.4),inset_0_0_15px_rgba(6,182,212,0.25)] overflow-hidden">
             {/* Laser Scanline Beam */}
             <div className="absolute inset-x-0 h-[2px] bg-cyan-400 shadow-[0_0_10px_#22d3ee] animate-cyber-scan pointer-events-none" />
-            <span className="material-symbols-outlined text-[32px] sm:text-[36px] drop-shadow-[0_0_10px_rgba(34,211,238,0.8)]">
+            <span aria-hidden="true" className="material-symbols-outlined text-[32px] sm:text-[36px] drop-shadow-[0_0_10px_rgba(34,211,238,0.8)]">
               radar
             </span>
           </div>
@@ -166,7 +166,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
               Correo Electrónico
             </label>
             <div className="relative">
-              <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400/70 text-[18px]">
+              <span aria-hidden="true" className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400/70 text-[18px]">
                 alternate_email
               </span>
               <input
@@ -187,7 +187,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
               Contraseña
             </label>
             <div className="relative">
-              <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400/70 text-[18px]">
+              <span aria-hidden="true" className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-cyan-400/70 text-[18px]">
                 lock
               </span>
               <input
@@ -205,7 +205,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
                 className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-cyan-300 transition cursor-pointer"
                 title={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
               >
-                <span className="material-symbols-outlined text-[19px]">
+                <span aria-hidden="true" className="material-symbols-outlined text-[19px]">
                   {showPassword ? 'visibility_off' : 'visibility'}
                 </span>
               </button>
@@ -215,7 +215,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
           {/* Error Banner */}
           {error && (
             <div className="mb-4 p-3 rounded-2xl border border-red-500/40 bg-red-500/15 text-xs text-red-200 flex items-center gap-2.5 animate-shake shadow-[0_0_20px_rgba(239,68,68,0.2)]">
-              <span className="material-symbols-outlined text-[18px] text-red-400 shrink-0">error</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-red-400 shrink-0">error</span>
               <span className="font-mono">{error}</span>
             </div>
           )}
@@ -233,7 +233,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
               </>
             ) : (
               <>
-                <span className="material-symbols-outlined text-[20px]">login</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">login</span>
                 <span>INGRESAR AL SISTEMA</span>
               </>
             )}
@@ -242,7 +242,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
 
         {/* Footer Security Matrix */}
         <div className="mt-6 pt-4 border-t border-cyan-500/15 w-full flex items-center justify-center gap-2 text-[10px] font-mono text-cyan-400/70 uppercase tracking-widest">
-          <span className="material-symbols-outlined text-[14px] text-emerald-400">verified_user</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-emerald-400">verified_user</span>
           <span>SESIÓN HTTPONLY • ACCESO AUTENTICADO</span>
         </div>
 

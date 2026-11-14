@@ -7,6 +7,7 @@ import {
   OperatorContact,
   NotificationConfigResponse,
 } from '../integrations/wasender/notificationTypes';
+import { useFeedback } from './FeedbackProvider';
 
 interface WasenderNotificationsManagerProps {
   userRole?: 'admin' | 'operador';
@@ -16,6 +17,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
   userRole = 'admin',
 }) => {
   const isSuperAdmin = userRole === 'admin';
+  const { confirm } = useFeedback();
 
   // Config State
   const [channels, setChannels] = useState<NotificationChannelConfig[]>([]);
@@ -232,7 +234,13 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
   };
 
   const handleDeleteContact = async (id: number) => {
-    if (!window.confirm('¿Seguro que deseas eliminar este número de las notificaciones?')) return;
+    const confirmed = await confirm({
+      title: '¿Eliminar este número de las notificaciones?',
+      message: 'Dejará de recibir avisos automáticos de Radar.',
+      confirmLabel: 'Eliminar número',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       const res = await apiFetch(`/wasender/notifications/external-contacts/${id}`, {
         method: 'DELETE',
@@ -283,7 +291,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
         <div>
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-500/20 to-emerald-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.25)]">
-              <span className="material-symbols-outlined text-[20px]">mark_chat_unread</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[20px]">mark_chat_unread</span>
             </div>
             <div>
               <h2 className="text-base font-black text-white uppercase font-mono tracking-wider flex items-center gap-2">
@@ -307,7 +315,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
             disabled={saving || loading}
             className="cyber-btn-primary px-4 py-2.5 text-xs font-black flex items-center gap-2 disabled:opacity-50 cursor-pointer self-start sm:self-auto shrink-0"
           >
-            <span className="material-symbols-outlined text-[18px]">
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">
               {saving ? 'sync' : 'save'}
             </span>
             <span>{saving ? 'Guardando...' : 'Guardar Configuración'}</span>
@@ -320,7 +328,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
             onClick={openNewContactModal}
             className="cyber-btn-primary px-4 py-2.5 text-xs font-black flex items-center gap-2 cursor-pointer self-start sm:self-auto shrink-0"
           >
-            <span className="material-symbols-outlined text-[18px]">person_add</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">person_add</span>
             <span>+ Registrar Número Externo</span>
           </button>
         )}
@@ -337,7 +345,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
               : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
           }`}
         >
-          <span className="material-symbols-outlined text-[16px]">hub</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[16px]">hub</span>
           <span>Canales de Notificación ({channels.length ? `${channels.length} Tipos` : '10 Tipos'})</span>
         </button>
 
@@ -350,7 +358,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
               : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
           }`}
         >
-          <span className="material-symbols-outlined text-[16px]">badge</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[16px]">badge</span>
           <span>Operadores Registrados ({operators.length})</span>
         </button>
 
@@ -363,7 +371,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
               : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
           }`}
         >
-          <span className="material-symbols-outlined text-[16px]">contact_phone</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[16px]">contact_phone</span>
           <span>Números Externos ({externalContacts.length})</span>
         </button>
 
@@ -376,7 +384,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
               : 'text-slate-400 hover:text-emerald-300 hover:bg-slate-800/50'
           }`}
         >
-          <span className="material-symbols-outlined text-[16px]">play_circle</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[16px]">play_circle</span>
           <span>Simulador & Pruebas en Vivo</span>
         </button>
       </div>
@@ -391,7 +399,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
           }`}
         >
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-[18px]">
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">
               {feedback.type === 'success' ? 'check_circle' : 'error'}
             </span>
             <span>{feedback.text}</span>
@@ -401,7 +409,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
             onClick={() => setFeedback(null)}
             className="text-slate-400 hover:text-white cursor-pointer"
           >
-            <span className="material-symbols-outlined text-[16px]">close</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">close</span>
           </button>
         </div>
       )}
@@ -441,7 +449,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
                               : 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300'
                           }`}
                         >
-                          <span className="material-symbols-outlined text-[18px]">{ch.icon || 'notifications'}</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[18px]">{ch.icon || 'notifications'}</span>
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
@@ -484,7 +492,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
 
                     {ch.triggerNotes && (
                       <div className="mt-2 p-2 rounded-xl bg-[#030610] border border-cyan-500/15 text-[10.5px] text-slate-400 font-mono flex items-start gap-1.5">
-                        <span className="material-symbols-outlined text-cyan-400 text-[14px] shrink-0 mt-0.5">
+                        <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-[14px] shrink-0 mt-0.5">
                           info
                         </span>
                         <span>{ch.triggerNotes}</span>
@@ -498,7 +506,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
                       {ch.key === 'RESPALDO_AUTOMATICO' ? (
                         <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/40 space-y-1.5">
                           <div className="flex items-center gap-1.5 text-amber-300 font-bold text-xs font-mono">
-                            <span className="material-symbols-outlined text-[16px]">lock</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">lock</span>
                             <span>Canal Protegido • Exclusivo Super Administrador</span>
                           </div>
                           <p className="text-[10.5px] text-slate-300 font-sans leading-relaxed">
@@ -510,7 +518,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
                           {/* Super Admin toggle */}
                           <label className="flex items-center justify-between text-xs text-slate-300 cursor-pointer bg-[#030610] p-2 rounded-lg border border-cyan-500/10">
                             <div className="flex items-center gap-1.5">
-                              <span className="material-symbols-outlined text-amber-400 text-[15px]">shield_person</span>
+                              <span aria-hidden="true" className="material-symbols-outlined text-amber-400 text-[15px]">shield_person</span>
                               <span className="text-[11px] font-mono">
                                 {isExclusiveAdmin
                                   ? 'Enviar a Super Administrador (Recomendado)'
@@ -644,7 +652,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
                     </div>
                     <span className="text-[10px] text-slate-400 block truncate">{op.email}</span>
                     <div className="mt-1 flex items-center gap-1.5">
-                      <span className="material-symbols-outlined text-[14px] text-emerald-400">call</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-emerald-400">call</span>
                       <span className="font-mono text-[11px] font-bold text-slate-200">
                         {op.phone || (
                           <span className="text-amber-400/80 font-normal italic">Sin teléfono asignado</span>
@@ -722,7 +730,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
                           )}
                         </h4>
                         <div className="flex items-center gap-1.5 mt-1">
-                          <span className="material-symbols-outlined text-emerald-400 text-[14px]">phone_iphone</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-emerald-400 text-[14px]">phone_iphone</span>
                           <span className="font-mono text-xs font-bold text-emerald-300">{contact.phone}</span>
                         </div>
                       </div>
@@ -734,7 +742,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
                           className="p-1 rounded-lg bg-slate-800 text-slate-300 hover:text-white cursor-pointer"
                           title="Editar"
                         >
-                          <span className="material-symbols-outlined text-[15px]">edit</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[15px]">edit</span>
                         </button>
                         <button
                           type="button"
@@ -742,7 +750,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
                           className="p-1 rounded-lg bg-red-950/40 text-red-400 hover:text-red-300 border border-red-500/30 cursor-pointer"
                           title="Eliminar"
                         >
-                          <span className="material-symbols-outlined text-[15px]">delete</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[15px]">delete</span>
                         </button>
                       </div>
                     </div>
@@ -782,7 +790,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-cyan-500/15 pb-3">
               <div>
                 <h3 className="font-bold text-xs text-white uppercase font-mono tracking-wider flex items-center gap-2">
-                  <span className="material-symbols-outlined text-emerald-400 text-[18px]">terminal</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-emerald-400 text-[18px]">terminal</span>
                   <span>Simulador de Enrutamiento & Despacho por Canal</span>
                 </h3>
                 <p className="text-[11px] text-slate-400 mt-0.5">
@@ -882,7 +890,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
                 </>
               ) : (
                 <>
-                  <span className="material-symbols-outlined text-[16px]">send</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">send</span>
                   <span>Ejecutar Prueba de Notificación en Vivo</span>
                 </>
               )}
@@ -894,7 +902,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
             <div className="p-4 rounded-2xl bg-[#040814] border border-cyan-500/30 space-y-3 animate-fade-in">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span
+                  <span aria-hidden="true"
                     className={`material-symbols-outlined text-[20px] ${
                       simulatorResult.ok ? 'text-emerald-400' : 'text-amber-400'
                     }`}
@@ -919,7 +927,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
 
               {simulatorResult.skippedReason && (
                 <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-500/30 text-xs font-mono text-amber-300 flex items-center gap-2">
-                  <span className="material-symbols-outlined text-[16px]">warning</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">warning</span>
                   <span>{simulatorResult.skippedReason}</span>
                 </div>
               )}
@@ -962,7 +970,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          <span className="material-symbols-outlined text-[14px]">
+                          <span aria-hidden="true" className="material-symbols-outlined text-[14px]">
                             {dr.success ? 'done_all' : 'error'}
                           </span>
                           <span>
@@ -994,7 +1002,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
             <div className="px-4 py-3 border-b border-cyan-500/20 bg-cyan-950/30 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-lg bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400">
-                  <span className="material-symbols-outlined text-[18px]">person_add</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[18px]">person_add</span>
                 </div>
                 <h3 className="font-black text-white text-xs uppercase font-mono">
                   {editingContact ? 'Editar Número Externo' : 'Registrar Nuevo Número Externo'}
@@ -1005,7 +1013,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
                 onClick={() => setIsContactModalOpen(false)}
                 className="text-slate-400 hover:text-white cursor-pointer"
               >
-                <span className="material-symbols-outlined text-[18px]">close</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
 
@@ -1132,7 +1140,7 @@ export const WasenderNotificationsManager: React.FC<WasenderNotificationsManager
                 disabled={savingContact}
                 className="cyber-btn-primary px-4 py-1.5 text-xs font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
-                <span className="material-symbols-outlined text-[15px]">
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px]">
                   {savingContact ? 'sync' : 'save'}
                 </span>
                 <span>{savingContact ? 'Guardando...' : 'Guardar Contacto'}</span>

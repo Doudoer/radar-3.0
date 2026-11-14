@@ -36,7 +36,7 @@ export const MobileTabBar: React.FC<MobileTabBarProps> = ({
           isDashboardActive ? 'text-cyan-400 font-bold' : 'text-slate-400 hover:text-slate-200'
         }`}
       >
-        <span className="material-symbols-outlined text-[22px]">space_dashboard</span>
+        <span aria-hidden="true" className="material-symbols-outlined text-[22px]">space_dashboard</span>
         <span className="text-[10px] font-mono leading-tight mt-0.5">Inicio</span>
         {isDashboardActive && (
           <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 mt-0.5 shadow-[0_0_6px_#22d3ee]" />
@@ -52,7 +52,7 @@ export const MobileTabBar: React.FC<MobileTabBarProps> = ({
         }`}
       >
         <div className="relative flex items-center justify-center">
-          <span className="material-symbols-outlined text-[22px]">receipt_long</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[22px]">receipt_long</span>
           {activeOrdersCount > 0 && (
             <span className="absolute -top-1 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-cyan-400 text-slate-950 font-black text-[9px] font-mono flex items-center justify-center shadow-[0_0_8px_#22d3ee]">
               {activeOrdersCount > 99 ? '99+' : activeOrdersCount}
@@ -73,7 +73,7 @@ export const MobileTabBar: React.FC<MobileTabBarProps> = ({
           aria-label="Crear Nueva Orden"
           className="relative -top-3.5 w-12 h-12 rounded-2xl bg-gradient-to-tr from-cyan-400 via-blue-500 to-indigo-500 text-slate-950 flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.65)] border border-cyan-200/50 active:scale-90 transition-all cursor-pointer"
         >
-          <span className="material-symbols-outlined text-[28px] font-black">add</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[28px] font-black">add</span>
         </button>
         <span className="text-[9.5px] font-mono font-bold text-cyan-300 -mt-2">Nueva</span>
       </div>
@@ -87,7 +87,7 @@ export const MobileTabBar: React.FC<MobileTabBarProps> = ({
         }`}
       >
         <div className="relative flex items-center justify-center">
-          <span className="material-symbols-outlined text-[22px]">task_alt</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[22px]">task_alt</span>
           {pendingTasksCount > 0 && (
             <span className="absolute -top-1 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-amber-400 text-slate-950 font-black text-[9px] font-mono flex items-center justify-center shadow-[0_0_8px_#fbbf24]">
               {pendingTasksCount > 99 ? '99+' : pendingTasksCount}
@@ -108,7 +108,7 @@ export const MobileTabBar: React.FC<MobileTabBarProps> = ({
           isClientsActive ? 'text-cyan-400 font-bold' : 'text-slate-400 hover:text-slate-200'
         }`}
       >
-        <span className="material-symbols-outlined text-[22px]">group</span>
+        <span aria-hidden="true" className="material-symbols-outlined text-[22px]">group</span>
         <span className="text-[10px] font-mono leading-tight mt-0.5">Clientes</span>
         {isClientsActive && (
           <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 mt-0.5 shadow-[0_0_6px_#22d3ee]" />
@@ -122,7 +122,7 @@ export const MobileTabBar: React.FC<MobileTabBarProps> = ({
         aria-label="Abrir Menú Completo"
         className="flex flex-col items-center justify-center flex-1 py-1 text-slate-400 hover:text-cyan-300 transition-all active:scale-95 cursor-pointer"
       >
-        <span className="material-symbols-outlined text-[22px]">menu</span>
+        <span aria-hidden="true" className="material-symbols-outlined text-[22px]">menu</span>
         <span className="text-[10px] font-mono leading-tight mt-0.5">Más</span>
       </button>
     </nav>

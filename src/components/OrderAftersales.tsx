@@ -233,7 +233,7 @@ const SupportFields: React.FC<{
     <div className="space-y-2.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3">
       <label className={field}>
         <span className="flex items-center gap-1.5 text-xs font-bold text-[var(--text-primary)]">
-          <span className="material-symbols-outlined text-[16px] text-cyan-400">attach_file</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-400">attach_file</span>
           <span>{pdfOnly ? 'Invoice PDF' : 'Soportes PDF o imágenes (opcional)'}</span>
         </span>
         <input
@@ -341,7 +341,7 @@ function ExecutionFields({
                     : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
-                <span className="material-symbols-outlined text-[15px]">{opt.icon}</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px]">{opt.icon}</span>
                 <span>{opt.label}</span>
               </button>
             );
@@ -420,7 +420,10 @@ function ExecutionFields({
   );
 }
 
-export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
+export const OrderAftersalesPanel: React.FC<{
+  order: Order;
+  onCompleted?: (message: string, action: string) => void;
+}> = ({ order, onCompleted }) => {
   const [detail, setDetail] = useState<(AftersalesData & { version: number }) | null>(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -634,8 +637,12 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
         key.current = null;
         throw new Error(body.message || 'No se pudo guardar la gestión.');
       }
+      const completedAction = mode;
       setMode('');
       setMessage('Gestión registrada. Fecha, hora y responsable guardados automáticamente.');
+      if (completedAction === 'refund_create') {
+        onCompleted?.('Gestión registrada. Fecha, hora y responsable guardados automáticamente.', completedAction);
+      }
       window.dispatchEvent(new Event('radar:data-changed'));
       await load();
     } catch (reason) {
@@ -671,7 +678,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
       <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[var(--border-color)]">
         <div className="flex items-center gap-3">
           <span className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-[21px]">shield_person</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[21px]">shield_person</span>
           </span>
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-[var(--text-primary)] leading-tight">
@@ -687,7 +694,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
           className="cyber-btn-secondary rounded-xl px-3 py-1.5 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
           onClick={() => void load()}
         >
-          <span className="material-symbols-outlined text-[15px]">refresh</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[15px]">refresh</span>
           <span>Actualizar posventa</span>
         </button>
       </div>
@@ -842,7 +849,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <strong className="font-bold text-[var(--text-primary)]">1. Documento PDF</strong>
-                      <span className="material-symbols-outlined text-[16px] text-emerald-500">
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-emerald-500">
                         {detail.invoices.length ? 'check_circle' : 'schedule'}
                       </span>
                     </div>
@@ -854,7 +861,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                           target="_blank"
                           rel="noreferrer"
                         >
-                          <span className="material-symbols-outlined text-[15px]">picture_as_pdf</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[15px]">picture_as_pdf</span>
                           <span className="truncate">Ver / descargar invoice</span>
                         </a>
                         <p className="text-[11px] text-[var(--text-secondary)] truncate">
@@ -871,7 +878,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                   <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] p-3 space-y-1">
                     <div className="flex items-center justify-between gap-2">
                       <strong className="font-bold text-[var(--text-primary)]">2. Gestión de archivo</strong>
-                      <span className="material-symbols-outlined text-[16px] text-cyan-400">upload_file</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-400">upload_file</span>
                     </div>
                     {order.deliveredAt ? (
                       <div className="space-y-0.5">
@@ -880,7 +887,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                           onClick={() => open('invoice')}
                           className="text-xs font-bold text-cyan-400 hover:underline flex items-center gap-1 cursor-pointer"
                         >
-                          <span className="material-symbols-outlined text-[14px]">attach_file</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[14px]">attach_file</span>
                           <span>{detail.invoices.length ? 'Reemplazar invoice' : 'Adjuntar invoice PDF'}</span>
                         </button>
                         <p className="text-[11px] text-[var(--text-secondary)]">PDF oficial · Máx 10 MB</p>
@@ -981,7 +988,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                       >
                         <div className="flex items-center justify-between gap-2">
                           <strong className="font-bold text-[var(--text-primary)]">1. Recepción física</strong>
-                          <span className="material-symbols-outlined text-[16px] text-emerald-500">
+                          <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-emerald-500">
                             {detail.core.receivedAt ? 'check_circle' : 'schedule'}
                           </span>
                         </div>
@@ -1007,7 +1014,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                       >
                         <div className="flex items-center justify-between gap-2">
                           <strong className="font-bold text-[var(--text-primary)]">2. Devolución de dinero</strong>
-                          <span className="material-symbols-outlined text-[16px] text-emerald-500">
+                          <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-emerald-500">
                             {detail.core.refund ? 'paid' : 'hourglass_empty'}
                           </span>
                         </div>
@@ -1154,7 +1161,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                             }`}
                           >
                             <span className="truncate">{s.label}</span>
-                            <span className="material-symbols-outlined text-[14px]">
+                            <span aria-hidden="true" className="material-symbols-outlined text-[14px]">
                               {done ? 'check_circle' : active ? 'pending' : 'radio_button_unchecked'}
                             </span>
                           </div>
@@ -1182,7 +1189,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                             target="_blank"
                             rel="noreferrer"
                           >
-                            <span className="material-symbols-outlined text-[14px]">attachment</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[14px]">attachment</span>
                             <span>Evidencia {index + 1}</span>
                           </a>
                         ))}
@@ -1323,7 +1330,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                                 }`}
                               >
                                 <span className="truncate">{s.label}</span>
-                                <span className="material-symbols-outlined text-[13px]">
+                                <span aria-hidden="true" className="material-symbols-outlined text-[13px]">
                                   {done ? 'check_circle' : active ? 'pending' : 'radio_button_unchecked'}
                                 </span>
                               </div>
@@ -1393,7 +1400,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                   <div className="flex flex-wrap items-start justify-between gap-3 pb-3 border-b border-[var(--border-color)]">
                     <div className="flex items-center gap-2.5">
                       <span className="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 flex items-center justify-center shrink-0">
-                        <span className="material-symbols-outlined text-[20px]">{activeMeta.icon}</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[20px]">{activeMeta.icon}</span>
                       </span>
                       <div>
                         <h3 id="aftersales-modal-title" className="font-bold text-sm sm:text-base text-[var(--text-primary)]">
@@ -1410,7 +1417,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                       onClick={() => setMode('')}
                       aria-label="Cerrar modal"
                     >
-                      <span className="material-symbols-outlined text-[20px]">close</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
                     </button>
                   </div>
 
@@ -1672,7 +1679,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
           <details className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)]/50 p-4">
             <summary className="cursor-pointer font-bold text-sm text-[var(--text-primary)] flex items-center justify-between">
               <span className="inline-flex items-center gap-2">
-                <span className="material-symbols-outlined text-[18px] text-cyan-400">history</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-cyan-400">history</span>
                 <span>Historial de posventa y soportes ({detail.history.length})</span>
               </span>
             </summary>
@@ -1703,7 +1710,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                           target="_blank"
                           rel="noreferrer"
                         >
-                          <span className="material-symbols-outlined text-[14px]">attachment</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[14px]">attachment</span>
                           <span>Soporte {index + 1}</span>
                         </a>
                       ))}
@@ -1716,7 +1723,7 @@ export const OrderAftersalesPanel: React.FC<{ order: Order }> = ({ order }) => {
                           target="_blank"
                           rel="noreferrer"
                         >
-                          <span className="material-symbols-outlined text-[14px]">receipt_long</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[14px]">receipt_long</span>
                           <span>Comprobante de devolución</span>
                         </a>
                       )}

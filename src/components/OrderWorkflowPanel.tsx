@@ -16,6 +16,8 @@ import { readDeliveryPhotos } from '../utils/orderDelivery';
 import { decodeCommunicationEvidence, followupTemplate, hasContactResponse, validateCommunication, type FollowupCommunication } from '../utils/followupCommunication';
 import type { FollowupCallResult } from '../types';
 import { warrantyDeadline } from '../utils/aftersales';
+import { VaultUnlockModal } from './VaultUnlockModal';
+import { useFeedback } from './FeedbackProvider';
 
 export interface WorkflowDetail {
   order: WorkflowOrder; required: boolean; events: WorkflowEvent[]; tasks: WorkflowTask[];
@@ -40,12 +42,16 @@ export const HistoricalWorkflowStage: React.FC<{ order: WorkflowOrder; stage: Ex
 const DownpaymentConfirmationForm: React.FC<{
   task: WorkflowTask; onSaved: () => Promise<void>; onCancel?: () => void;
 }> = ({ task, onSaved, onCancel }) => {
+  const { confirm } = useFeedback();
   const [lines, setLines] = useState<DownpaymentLine[]>([{ method: 'cash', amount: task.order.paid, receivedBy: '', receipt: null }]);
   const [uploading, setUploading] = useState(false);
   const uploadInFlight = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const saving = useRef(false);
+  const exemptingRef = useRef(false);
+  const [vaultPrompt, setVaultPrompt] = useState(false);
+  const vaultRetryRef = useRef<null | (() => void)>(null);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (saving.current || uploadInFlight.current) return;
@@ -65,45 +71,61 @@ const DownpaymentConfirmationForm: React.FC<{
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'No se guardó la confirmación.'); }
     finally { saving.current = false; setBusy(false); }
   };
-  return <form onSubmit={submit} className="horizon-workflow-form space-y-4">
+  const exemptAsAdmin = async () => {
+    if (exemptingRef.current || uploadInFlight.current) return;
+    const confirmed = await confirm({
+      title: `¿Exonerar el anticipo de la orden #${task.order.code}?`,
+      message: 'La orden pasará a Pagado para iniciar preparación. El 100% se cobrará al entregar.',
+      confirmLabel: 'Exonerar anticipo',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    exemptingRef.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const res = await apiFetch(`/orders/${task.order.id}/exempt-downpayment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: 'Anticipo exonerado por Administrador. Cobro contra entrega.' }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.code === 'FINANCE_LOCKED') {
+          vaultRetryRef.current = () => { void exemptAsAdmin(); };
+          setVaultPrompt(true);
+          return;
+        }
+        throw new Error(data.message || 'No se pudo exonerar el anticipo.');
+      }
+      window.dispatchEvent(new Event('radar:data-changed'));
+      window.dispatchEvent(new CustomEvent('radar:followup-updated', { detail: { orderId: task.order.id } }));
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error exonerando anticipo');
+    } finally {
+      exemptingRef.current = false;
+      setBusy(false);
+    }
+  };
+  return <>
+  <form onSubmit={submit} className="horizon-workflow-form space-y-4">
     <h3 className="text-lg font-bold">Confirmación · {task.order.code}</h3>
     <DownpaymentFields paid={task.order.paid} value={lines} onChange={setLines} disabled={busy}
       onUpload={file => uploadDownpaymentReceipt(task.order.id, file)} onUploadingChange={value => { uploadInFlight.current = value; setUploading(value); }} />
     {task.order.paid <= 0 && (
       <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs space-y-2">
         <p role="alert" className="text-amber-400 font-semibold flex items-center gap-1.5">
-          <span className="material-symbols-outlined text-[16px]">info</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[16px]">info</span>
           Sin abono registrado ($0.00). Primero registra el abono desde Registrar cobro.
         </p>
         <button
           type="button"
           disabled={busy || uploading}
-          onClick={async () => {
-            if (!window.confirm(`¿Exonerar anticipo de la orden #${task.order.code} como Administrador y pasar a Pagado para iniciar preparación? El 100% se cobrará al entregar.`)) return;
-            setBusy(true);
-            setError('');
-            try {
-              const res = await apiFetch(`/orders/${task.order.id}/exempt-downpayment`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ notes: 'Anticipo exonerado por Administrador. Cobro contra entrega.' }),
-              });
-              if (!res.ok) {
-                const data = await res.json().catch(() => ({}));
-                throw new Error(data.message || 'No se pudo exonerar el anticipo.');
-              }
-              window.dispatchEvent(new Event('radar:data-changed'));
-              window.dispatchEvent(new CustomEvent('radar:followup-updated', { detail: { orderId: task.order.id } }));
-              await onSaved();
-            } catch (err) {
-              setError(err instanceof Error ? err.message : 'Error exonerando anticipo');
-            } finally {
-              setBusy(false);
-            }
-          }}
+          onClick={() => void exemptAsAdmin()}
           className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer"
         >
-          <span className="material-symbols-outlined text-[16px]">handshake</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[16px]">handshake</span>
           <span>Exonerar Anticipo como Administrador (Cobro Contra Entrega)</span>
         </button>
       </div>
@@ -113,7 +135,20 @@ const DownpaymentConfirmationForm: React.FC<{
       <button type="submit" className="cyber-btn-primary px-4 py-3" disabled={busy || uploading || task.order.paid <= 0}>{busy ? 'Guardando…' : 'Guardar confirmación'}</button>
       {onCancel && <button type="button" className="cyber-btn-secondary px-4 py-3" disabled={busy || uploading} onClick={onCancel}>Cancelar</button>}
     </div>
-  </form>;
+  </form>
+  <VaultUnlockModal
+    isOpen={vaultPrompt}
+    title="Desbloquear bóveda para exonerar el anticipo"
+    description="La exoneración del anticipo pasa la orden a Pagado y afecta el estado financiero. Desbloquea la bóveda durante 15 minutos para continuar."
+    onClose={() => { setVaultPrompt(false); vaultRetryRef.current = null; }}
+    onSuccess={() => {
+      setVaultPrompt(false);
+      const retry = vaultRetryRef.current;
+      vaultRetryRef.current = null;
+      if (retry) setTimeout(retry, 100);
+    }}
+  />
+  </>;
 };
 export const WorkflowActionForm: React.FC<{
   task: WorkflowTask; onSaved: () => Promise<void>; onCancel?: () => void;
@@ -296,7 +331,7 @@ const WorkflowManagementForm: React.FC<{
       <div className="space-y-4">
         {task.objectiveDueDate > today && (
           <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3.5 text-xs flex items-start gap-2.5">
-            <span className="material-symbols-outlined text-amber-400 text-[18px] shrink-0">event_upcoming</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-amber-400 text-[18px] shrink-0">event_upcoming</span>
             <div className="space-y-0.5">
               <strong className="text-amber-300 font-bold block">
                 Hito programado para el {task.objectiveDueDate}
@@ -340,14 +375,12 @@ const WorkflowManagementForm: React.FC<{
                   }}
                 >
                   <option value="call">Llamada</option>
-                  <option value="whatsapp">WhatsApp</option>
                   <option value="sms">SMS</option>
                 </select>
               </label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {([
                   { id: 'call', label: 'Llamada', icon: 'call' },
-                  { id: 'whatsapp', label: 'WhatsApp', icon: 'chat' },
                   { id: 'sms', label: 'SMS', icon: 'sms' },
                 ] as const).map(item => {
                   const active = channel === item.id;
@@ -368,7 +401,7 @@ const WorkflowManagementForm: React.FC<{
                           : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                       }`}
                     >
-                      <span className={`material-symbols-outlined text-[18px] ${active ? 'text-cyan-400' : ''}`}>{item.icon}</span>
+                      <span aria-hidden="true" className={`material-symbols-outlined text-[18px] ${active ? 'text-cyan-400' : ''}`}>{item.icon}</span>
                       <span>{item.label}</span>
                     </button>
                   );
@@ -434,7 +467,7 @@ const WorkflowManagementForm: React.FC<{
                           : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                       }`}
                     >
-                      <span className="material-symbols-outlined text-[16px] shrink-0">{opt.icon}</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px] shrink-0">{opt.icon}</span>
                       <span className="truncate">{opt.label}</span>
                     </button>
                   );
@@ -445,7 +478,7 @@ const WorkflowManagementForm: React.FC<{
 
           {!directContact && (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs flex items-center gap-2 text-amber-400">
-              <span className="material-symbols-outlined text-[18px] shrink-0">schedule</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px] shrink-0">schedule</span>
               <span>
                 {contactResult === 'wrong_number'
                   ? 'Se registrará un bloqueo para actualizar el número del cliente antes de volver a llamar.'
@@ -459,7 +492,7 @@ const WorkflowManagementForm: React.FC<{
               <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3.5 space-y-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-[16px] text-cyan-400">description</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-400">description</span>
                     <span>Plantilla sugerida de mensaje</span>
                   </span>
                   <div className="flex items-center gap-1.5">
@@ -488,7 +521,7 @@ const WorkflowManagementForm: React.FC<{
                         void navigator.clipboard.writeText(template).then(() => setCopied(true)).catch(() => setError('No se pudo copiar la plantilla. Selecciona el texto y cópialo manualmente.'));
                       }}
                     >
-                      <span className="material-symbols-outlined text-[14px]">{copied ? 'check' : 'content_copy'}</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[14px]">{copied ? 'check' : 'content_copy'}</span>
                       <span>{copied ? 'Copiada' : 'Copiar mensaje'}</span>
                     </button>
                   </div>
@@ -503,7 +536,7 @@ const WorkflowManagementForm: React.FC<{
                 photos={screenshots}
                 onChange={setScreenshots}
                 label="Capturas de la conversación (opcional)"
-                description="Puedes registrar la gestión sin capturas o adjuntar imágenes de WhatsApp o SMS."
+                description="Puedes registrar la gestión sin capturas o adjuntar imágenes de SMS."
                 imageLabel="Ver captura de conversación"
                 disabled={busy}
                 onUploadingChange={value => { uploadInFlight.current = value; setUploading(value); }}
@@ -592,7 +625,7 @@ const WorkflowManagementForm: React.FC<{
                         : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                     }`}
                   >
-                    <span className="material-symbols-outlined text-[20px] shrink-0 mt-0.5">{card.icon}</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[20px] shrink-0 mt-0.5">{card.icon}</span>
                     <div className="min-w-0">
                       <strong className="text-xs font-bold block text-[var(--text-primary)]">{card.title}</strong>
                       <span className="text-[11px] text-[var(--text-secondary)] leading-snug block mt-0.5">{card.desc}</span>
@@ -641,7 +674,7 @@ const WorkflowManagementForm: React.FC<{
 
             {(task.task === 'post_7' || task.task === 'post_14') && (partStatus === 'not_installed' || partStatus === 'in_process') && (
               <div className="rounded-xl border border-cyan-500/40 bg-cyan-500/10 p-3 text-xs text-cyan-300 flex items-start gap-2">
-                <span className="material-symbols-outlined text-[18px] shrink-0">event_repeat</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px] shrink-0">event_repeat</span>
                 <span>
                   Para cerrar el hito de {task.title} se requiere que la pieza ya esté instalada y probada. Se agendará una reprogramación para volver a verificar cuando el taller termine el montaje.
                 </span>
@@ -684,7 +717,7 @@ const WorkflowManagementForm: React.FC<{
         }`}
       >
         <div className={`p-2 rounded-xl shrink-0 ${confirmed ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'bg-slate-800 text-slate-400'}`}>
-          <span className="material-symbols-outlined text-xl">
+          <span aria-hidden="true" className="material-symbols-outlined text-xl">
             {confirmed ? 'check_circle' : 'handshake'}
           </span>
         </div>
@@ -730,7 +763,7 @@ const WorkflowManagementForm: React.FC<{
                     ]
             : [
                 'Llamada sin respuesta / buzón de voz; se dejó mensaje de seguimiento.',
-                'Se envió mensaje de seguimiento por WhatsApp; en espera de confirmación.',
+                'Se envió mensaje de seguimiento por SMS; en espera de confirmación.',
               ]
           ).map((quickNote, idx) => (
             <button
@@ -786,7 +819,7 @@ const WorkflowManagementForm: React.FC<{
 };
 export const OrderQuotationSummary: React.FC<{ order: WorkflowOrder }> = ({ order }) => <>
   <p className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-500 mt-2.5">
-    <span className="material-symbols-outlined text-[14px]">check_circle</span>
+    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">check_circle</span>
     <span>Completada al crear la orden</span>
   </p>
   <dl className="text-xs mt-3 space-y-2 rounded-xl bg-[var(--bg-card)]/70 border border-[var(--border-color)] p-2.5">
@@ -847,7 +880,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
     <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[var(--border-color)]">
       <div className="flex items-center gap-3">
         <span className="w-10 h-10 rounded-2xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 flex items-center justify-center shrink-0">
-          <span className="material-symbols-outlined text-[22px]">
+          <span aria-hidden="true" className="material-symbols-outlined text-[22px]">
             {view === 'followup' ? 'support_agent' : view === 'history' ? 'history' : 'account_tree'}
           </span>
         </span>
@@ -865,7 +898,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
         </div>
       </div>
       <button type="button" onClick={() => void reload()} className="cyber-btn-secondary px-3.5 py-2 text-xs font-bold flex items-center gap-1.5">
-        <span className="material-symbols-outlined text-[16px]">sync</span>
+        <span aria-hidden="true" className="material-symbols-outlined text-[16px]">sync</span>
         <span>Recargar flujo</span>
       </button>
     </div>
@@ -902,7 +935,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                     </span>
                     <strong className="text-sm font-bold text-[var(--text-primary)] truncate">{stage.title}</strong>
                   </div>
-                  <span className={`material-symbols-outlined text-[18px] shrink-0 ${
+                  <span aria-hidden="true" className={`material-symbols-outlined text-[18px] shrink-0 ${
                     isDone ? 'text-emerald-500' : isCurrent ? 'text-cyan-400' : 'text-[var(--text-secondary)]'
                   }`}>
                     {STAGE_ICONS[stage.id]}
@@ -916,7 +949,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                 ) : preapprovedAck ? (
                   <div className="text-xs mt-2.5 space-y-2">
                     <p className="inline-flex items-center gap-1.5 font-semibold px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-500">
-                      <span className="material-symbols-outlined text-[14px]">verified</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[14px]">verified</span>
                       <span>Confirmación preaprobada</span>
                     </p>
                     <p className="text-[var(--text-secondary)] leading-relaxed">Orden en Pagado al activar los nuevos requisitos. No requiere comprobantes históricos.</p>
@@ -934,7 +967,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                               : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-secondary)]'
                         }`}
                       >
-                        <span className="material-symbols-outlined text-[14px]">
+                        <span aria-hidden="true" className="material-symbols-outlined text-[14px]">
                           {isDone ? 'check_circle' : isCurrent ? 'pending_actions' : 'schedule'}
                         </span>
                         <span>{isDone ? 'Completada con evidencia' : 'Pendiente de verificar'}</span>
@@ -981,7 +1014,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
           <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 border-b border-slate-800/80">
             <div className="flex items-center gap-2.5">
               <div className="p-2 rounded-xl bg-blue-500/15 text-blue-400">
-                <span className="material-symbols-outlined text-xl">event_available</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-xl">event_available</span>
               </div>
               <div>
                 <strong className="text-sm sm:text-base text-slate-100">
@@ -997,7 +1030,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
 
             <div className="flex flex-wrap items-center gap-2">
               <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300 border border-slate-700 flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-sm text-primary-400">
+                <span aria-hidden="true" className="material-symbols-outlined text-sm text-primary-400">
                   {detail.order.preparation.channel === 'call' ? 'phone' : detail.order.preparation.channel === 'sms' ? 'chat' : 'storefront'}
                 </span>
                 <span>
@@ -1010,7 +1043,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                   ? 'bg-cyan-950/40 text-cyan-300 border-cyan-500/40'
                   : 'bg-emerald-950/40 text-emerald-300 border-emerald-500/40'
               }`}>
-                <span className="material-symbols-outlined text-sm">
+                <span aria-hidden="true" className="material-symbols-outlined text-sm">
                   {detail.order.preparation.deliveryType === 'envio_domicilio' ? 'local_shipping' : 'warehouse'}
                 </span>
                 <span>
@@ -1025,7 +1058,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
             {/* Date */}
             <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-amber-400 text-sm">calendar_today</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-amber-400 text-sm">calendar_today</span>
                 Fecha acordada
               </span>
               <p className="text-sm font-bold text-slate-200">
@@ -1038,7 +1071,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
             {/* Core Plan */}
             <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-violet-400 text-sm">swap_horizontal_circle</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-violet-400 text-sm">swap_horizontal_circle</span>
                 Acuerdo de core
               </span>
               <p className="text-sm font-bold text-slate-200">
@@ -1054,7 +1087,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
             {/* Delivery address or yard note */}
             <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1 sm:col-span-2 md:col-span-1">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-cyan-400 text-sm">
+                <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-sm">
                   {detail.order.preparation.deliveryType === 'envio_domicilio' ? 'location_on' : 'store'}
                 </span>
                 {detail.order.preparation.deliveryType === 'envio_domicilio' ? 'Destino de entrega' : 'Punto de retiro'}
@@ -1070,7 +1103,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
           {/* Customer notes / response bubble if exists */}
           {detail.order.preparation.customerNotes && (
             <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 flex items-start gap-2.5">
-              <span className="material-symbols-outlined text-indigo-400 text-base mt-0.5 shrink-0">forum</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-indigo-400 text-base mt-0.5 shrink-0">forum</span>
               <div className="text-xs space-y-0.5">
                 <span className="font-semibold text-slate-300">Respuesta y notas del cliente:</span>
                 <p className="text-slate-200 italic leading-relaxed">
@@ -1092,7 +1125,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                   rel="noreferrer"
                   className="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-primary-300 border border-slate-700 flex items-center gap-1 transition-all"
                 >
-                  <span className="material-symbols-outlined text-xs">image</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-xs">image</span>
                   <span>Ver captura {idx + 1}</span>
                 </a>
               ))}
@@ -1140,7 +1173,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
               <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-4 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-start gap-3">
                   <span className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-500 flex items-center justify-center shrink-0">
-                    <span className="material-symbols-outlined text-[22px]">task_alt</span>
+                    <span aria-hidden="true" className="material-symbols-outlined text-[22px]">task_alt</span>
                   </span>
                   <div className="space-y-0.5">
                     <strong className="text-sm font-bold text-[var(--text-primary)] block">
@@ -1152,7 +1185,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                   </div>
                 </div>
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/35 px-3 py-1 text-xs font-bold text-emerald-500">
-                  <span className="material-symbols-outlined text-[14px]">verified</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[14px]">verified</span>
                   <span>Finalizado por sistema</span>
                 </span>
               </div>
@@ -1162,7 +1195,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
             <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)]/50 p-4 grid gap-3 sm:grid-cols-3 text-xs">
               <div className="rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] p-3 flex items-center gap-3">
                 <span className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0">
-                  <span className="material-symbols-outlined text-[20px]">local_shipping</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[20px]">local_shipping</span>
                 </span>
                 <div className="min-w-0">
                   <span className="text-[11px] font-medium text-[var(--text-secondary)] block">Fecha de entrega</span>
@@ -1176,7 +1209,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
 
               <div className="rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] p-3 flex items-center gap-3">
                 <span className="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400 flex items-center justify-center shrink-0">
-                  <span className="material-symbols-outlined text-[20px]">verified_user</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[20px]">verified_user</span>
                 </span>
                 <div className="min-w-0">
                   <span className="text-[11px] font-medium text-[var(--text-secondary)] block">Cobertura de garantía</span>
@@ -1194,7 +1227,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
 
               <div className="rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] p-3 flex items-center gap-3">
                 <span className="w-9 h-9 rounded-xl bg-purple-500/15 border border-purple-500/30 text-purple-400 flex items-center justify-center shrink-0">
-                  <span className="material-symbols-outlined text-[20px]">support_agent</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[20px]">support_agent</span>
                 </span>
                 <div className="min-w-0">
                   <span className="text-[11px] font-medium text-[var(--text-secondary)] block">Responsable de seguimiento</span>
@@ -1239,7 +1272,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                           </span>
                           <strong className="text-sm font-bold text-[var(--text-primary)] truncate">{m.title}</strong>
                         </div>
-                        <span className={`material-symbols-outlined text-[18px] shrink-0 ${
+                        <span aria-hidden="true" className={`material-symbols-outlined text-[18px] shrink-0 ${
                           isDone ? 'text-emerald-500' : isCurrent ? 'text-cyan-400' : 'text-[var(--text-secondary)]'
                         }`}>
                           {m.icon}
@@ -1256,7 +1289,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                                 : 'bg-[var(--bg-card)] border-[var(--border-color)] text-[var(--text-secondary)]'
                           }`}
                         >
-                          <span className="material-symbols-outlined text-[14px]">
+                          <span aria-hidden="true" className="material-symbols-outlined text-[14px]">
                             {isDone ? 'check_circle' : isCurrent ? 'pending_actions' : 'schedule'}
                           </span>
                           <span>
@@ -1375,14 +1408,14 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
             {detail.order.postDeliveryFinalized && (
               <div className="rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-3.5 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5">
-                  <span className="material-symbols-outlined text-[18px] text-emerald-500">verified</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-emerald-500">verified</span>
                   <div className="text-xs">
                     <strong className="font-bold text-emerald-500 block">5. Seguimiento Post-Entrega: Finalizado correctamente por el sistema</strong>
                     <span className="text-[11px] text-[var(--text-secondary)]">Orden entregada antes de la activación del nuevo flujo de seguimiento post-entrega.</span>
                   </div>
                 </div>
                 <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-bold text-emerald-500">
-                  <span className="material-symbols-outlined text-[13px]">check_circle</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[13px]">check_circle</span>
                   <span>Finalizado por sistema</span>
                 </span>
               </div>
@@ -1397,7 +1430,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                         ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500'
                         : 'bg-cyan-500/15 border-cyan-500/35 text-cyan-400'
                     }`}>
-                      <span className="material-symbols-outlined text-[20px]">
+                      <span aria-hidden="true" className="material-symbols-outlined text-[20px]">
                         {detail.order.historicalDelivery ? 'verified' : 'fact_check'}
                       </span>
                     </span>
@@ -1419,7 +1452,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                       ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-500'
                       : 'bg-cyan-500/15 border-cyan-500/30 text-cyan-400'
                   }`}>
-                    <span className="material-symbols-outlined text-[14px]">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">
                       {detail.order.historicalDelivery ? 'check_circle' : 'schedule'}
                     </span>
                     <span>{detail.order.historicalDelivery ? 'Entregada en historial' : 'En etapa inicial'}</span>
@@ -1430,7 +1463,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
                   <div className="rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] p-3 space-y-1">
                     <span className="text-[11px] font-medium text-[var(--text-secondary)] flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[14px] text-cyan-400">request_quote</span>
+                      <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-cyan-400">request_quote</span>
                       <span>1. Cotización</span>
                     </span>
                     <strong className="font-bold text-[var(--text-primary)] block tabular-nums">
@@ -1445,7 +1478,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                     <>
                       <div className="rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] p-3 space-y-1">
                         <span className="text-[11px] font-medium text-[var(--text-secondary)] flex items-center gap-1">
-                          <span className="material-symbols-outlined text-[14px] text-emerald-500">payments</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-emerald-500">payments</span>
                           <span>2. Estado Pagado</span>
                         </span>
                         <strong className="font-bold text-[var(--text-primary)] block tabular-nums">
@@ -1458,7 +1491,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
 
                       <div className="rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] p-3 space-y-1">
                         <span className="text-[11px] font-medium text-[var(--text-secondary)] flex items-center gap-1">
-                          <span className="material-symbols-outlined text-[14px] text-emerald-500">inventory_2</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-emerald-500">inventory_2</span>
                           <span>3. Preparación</span>
                         </span>
                         <strong className="font-bold text-[var(--text-primary)] block tabular-nums">
@@ -1471,7 +1504,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
 
                       <div className="rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] p-3 space-y-1">
                         <span className="text-[11px] font-medium text-[var(--text-secondary)] flex items-center gap-1">
-                          <span className="material-symbols-outlined text-[14px] text-emerald-500">local_shipping</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-emerald-500">local_shipping</span>
                           <span>4. Entrega física</span>
                         </span>
                         <strong className="font-bold text-[var(--text-primary)] block tabular-nums">
@@ -1509,7 +1542,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                       <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-[var(--border-color)]">
                         <div className="flex items-center gap-2.5">
                           <span className="w-8 h-8 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] text-cyan-400 flex items-center justify-center shrink-0">
-                            <span className="material-symbols-outlined text-[18px]">{taskMeta.icon}</span>
+                            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">{taskMeta.icon}</span>
                           </span>
                           <div>
                             <strong className="font-bold text-[var(--text-primary)] block leading-tight">
@@ -1522,7 +1555,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                         </div>
 
                         <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${outcomeMeta.cls}`}>
-                          <span className="material-symbols-outlined text-[14px]">{outcomeMeta.icon}</span>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[14px]">{outcomeMeta.icon}</span>
                           <span>{outcomeMeta.label}</span>
                         </span>
                       </div>
@@ -1545,7 +1578,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                               target="_blank"
                               rel="noreferrer"
                             >
-                              <span className="material-symbols-outlined text-[15px]">photo_camera</span>
+                              <span aria-hidden="true" className="material-symbols-outlined text-[15px]">photo_camera</span>
                               <span>Ver imagen de entrega {index + 1}</span>
                             </a>
                           ))}
@@ -1591,7 +1624,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                                   target="_blank"
                                   rel="noreferrer"
                                 >
-                                  <span className="material-symbols-outlined text-[14px]">image</span>
+                                  <span aria-hidden="true" className="material-symbols-outlined text-[14px]">image</span>
                                   <span>Ver captura de conversación {index + 1}</span>
                                 </a>
                               ))}

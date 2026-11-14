@@ -314,7 +314,7 @@ export const StatusRequestModal: React.FC<StatusRequestModalProps> = ({ isOpen, 
         <div className="flex shrink-0 items-start justify-between border-b border-cyan-500/20 bg-[#0a1022]/80 backdrop-blur-md p-5">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
-              <span className="material-symbols-outlined text-[20px]">assignment</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[20px]">assignment</span>
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-bold text-slate-100">Solicitud de Estatus para Patio</h2>
@@ -326,7 +326,7 @@ export const StatusRequestModal: React.FC<StatusRequestModalProps> = ({ isOpen, 
             onClick={onClose}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
@@ -437,7 +437,7 @@ export const StatusRequestModal: React.FC<StatusRequestModalProps> = ({ isOpen, 
 
           {error && (
             <p className="rounded-xl border border-rose-500/30 bg-rose-950/30 px-3.5 py-2.5 text-xs text-rose-300 flex items-center gap-2">
-              <span className="material-symbols-outlined text-[16px] text-rose-400">error</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-rose-400">error</span>
               <span>{error}</span>
             </p>
           )}
@@ -465,7 +465,7 @@ export const StatusRequestModal: React.FC<StatusRequestModalProps> = ({ isOpen, 
               </>
             ) : (
               <>
-                <span className="material-symbols-outlined text-[16px]">picture_as_pdf</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">picture_as_pdf</span>
                 <span>Emitir Reporte PDF</span>
               </>
             )}

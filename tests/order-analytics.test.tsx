@@ -8,7 +8,7 @@ import { useFinanceMovements } from '../src/hooks/useFinanceState';
 import { movementIncome, movementsInPeriod, sumMoney } from '../src/utils/finance';
 import {
   getWeekRange, operationalDistribution, orderSaleTotal, orderCollection, orderBalance,
-  matchesOrderAdvisor, saleStatuses, quoteStatuses, scaleNetBars,
+  ordersForMovements, matchesOrderAdvisor, saleStatuses, quoteStatuses, scaleNetBars,
 } from '../src/utils/orderAnalytics';
 
 vi.mock('../src/hooks/useFinanceState', () => ({ useFinanceMovements: vi.fn() }));
@@ -201,7 +201,7 @@ describe('verified operational analytics', () => {
     ];
 
     const dashHtml = renderDashboard(orders);
-    expect(dashHtml).toContain('Ventas de la Semana');
+    expect(dashHtml).toContain('Valor ventas colocadas');
     expect(dashHtml).toContain('$2,000.00 USD');
     expect(dashHtml).toContain('2 órdenes comerciales');
 
@@ -214,5 +214,32 @@ describe('verified operational analytics', () => {
     );
     expect(opsHtml).toContain('Ventas de la semana:');
     expect(opsHtml).toContain('$2,000.00 USD');
+  });
+
+  it('renders an operational composition for advisor roles without financial placeholders', () => {
+    const html = renderToStaticMarkup(
+      <DashboardView orders={[makeOrder('pagado'), makeOrder('reclamo')]} activities={[]} userRole="operator"
+        onSelectOrder={vi.fn()} onNavigateTaller={vi.fn()} />
+    );
+    expect(movementMock).toHaveBeenCalledWith(false, 'dashboard');
+    expect(html).toContain('Listas para entrega');
+    expect(html).toContain('Entregadas / facturadas');
+    expect(html).toContain('Vista operativa');
+    expect(html).not.toContain('Ingresos netos del período');
+    expect(html).not.toContain('Cobros del período');
+    expect(html).not.toContain('Saldo pendiente');
+    expect(html).not.toContain('$0.00');
+  });
+
+  it('matches weekly movement order ids against string order ids and order codes', () => {
+    const movements = [
+      { id: 1, orderId: '18', kind: 'payment' as const, amount: 100, effectiveAt: '2026-11-02T12:00:00Z', source: 'order_payment' as const },
+      { id: 2, orderId: 'ORD-77', kind: 'payment' as const, amount: 50, effectiveAt: '2026-11-03T12:00:00Z', source: 'order_payment' as const },
+    ];
+    const orders = [
+      { ...makeOrder('pagado'), id: '18', code: 'ORD-18' },
+      { ...makeOrder('pagado'), id: '77', code: 'ORD-77' },
+    ];
+    expect(ordersForMovements(orders, movements, getWeekRange()).map(order => order.id)).toEqual(['18', '77']);
   });
 });

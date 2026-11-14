@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../services/apiFetch';
+import { useDialogAccessibility } from '../hooks/useDialogAccessibility';
 
 type Method = 'whatsapp' | 'totp' | 'backup';
 
@@ -39,6 +40,9 @@ export const VaultUnlockModal: React.FC<VaultUnlockModalProps> = ({
     const timer = setTimeout(() => setCooldown((val) => Math.max(0, val - 1)), 1000);
     return () => clearTimeout(timer);
   }, [cooldown]);
+
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogAccessibility({ open: isOpen, dialogRef, onEscape: onClose });
 
   if (!isOpen) return null;
 
@@ -106,7 +110,9 @@ export const VaultUnlockModal: React.FC<VaultUnlockModalProps> = ({
 
   return (
     <div
-      className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in"
+      ref={dialogRef}
+      tabIndex={-1}
+      className="horizon-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in outline-none"
       role="dialog"
       aria-modal="true"
       aria-labelledby="vault-modal-title"
@@ -121,13 +127,13 @@ export const VaultUnlockModal: React.FC<VaultUnlockModalProps> = ({
           className="absolute top-4 right-4 p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors"
           title="Cerrar"
         >
-          <span className="material-symbols-outlined text-[20px]">close</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
         </button>
 
         {/* Icon & Heading */}
         <div className="flex flex-col items-center gap-2">
           <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.25)]">
-            <span className="material-symbols-outlined text-[32px]">shield_lock</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[32px]">shield_lock</span>
           </div>
           <span className="text-[10px] tracking-widest font-mono font-bold text-cyan-400 uppercase">
             Autenticación en Dos Pasos (2FA)
@@ -172,7 +178,7 @@ export const VaultUnlockModal: React.FC<VaultUnlockModalProps> = ({
         {method === 'whatsapp' ? (
           <div className="rounded-2xl bg-[#040814] border border-cyan-500/25 p-3.5 space-y-2.5">
             <div className="flex items-center justify-center gap-1.5 text-emerald-400 text-xs font-bold font-mono">
-              <span className="material-symbols-outlined text-[16px]">chat</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">chat</span>
               <span>Canal Seguro WhatsApp</span>
             </div>
             <p className="text-[11px] text-slate-400">

@@ -226,7 +226,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         <div className="p-4 sm:p-4.5 border-b border-cyan-500/20 flex justify-between items-center bg-[#0a1022]/80 backdrop-blur-md shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
-              <span className="material-symbols-outlined text-[20px]">download</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[20px]">download</span>
             </div>
             <div>
               <h3 className="text-base font-bold text-slate-100">
@@ -239,7 +239,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             onClick={onClose}
             className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
@@ -265,7 +265,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           <div className="bg-[#050a16] p-3.5 rounded-2xl border border-slate-800 flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <label className="text-[10.5px] text-cyan-400 uppercase tracking-wider font-mono font-bold flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[15px]">filter_list</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px]">filter_list</span>
                 <span>Filtros de Exportación</span>
               </label>
               {hasActiveFilters && (
@@ -274,7 +274,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                   onClick={handleClearFilters}
                   className="text-[10.5px] font-mono text-red-400 hover:text-red-300 hover:underline flex items-center gap-1 cursor-pointer"
                 >
-                  <span className="material-symbols-outlined text-[13px]">restart_alt</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[13px]">restart_alt</span>
                   <span>Limpiar</span>
                 </button>
               )}
@@ -297,7 +297,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                     </option>
                   ))}
                 </select>
-                <span className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px] pointer-events-none">
+                <span aria-hidden="true" className="material-symbols-outlined absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[16px] pointer-events-none">
                   expand_more
                 </span>
               </div>
@@ -351,7 +351,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                       : 'bg-[#050914] border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
                   }`}
                 >
-                  <span className="material-symbols-outlined text-[22px]">{fmt.icon}</span>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[22px]">{fmt.icon}</span>
                   <span className="text-[11px]">{fmt.label}</span>
                 </button>
               ))}
@@ -361,7 +361,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           {/* Warning if 0 orders found */}
           {filteredOrders.length === 0 && (
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-2.5 text-amber-300 text-xs flex items-center gap-2">
-              <span className="material-symbols-outlined text-[18px]">warning</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">warning</span>
               <span>No se encontraron órdenes con el estatus y rango de fechas seleccionado.</span>
             </div>
           )}
@@ -381,7 +381,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               onClick={handleExport}
               className="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-black text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-[0_0_15px_rgba(6,182,212,0.35)] active:scale-95"
             >
-              <span className="material-symbols-outlined text-[16px]">
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">
                 {isGenerating ? 'hourglass_top' : 'file_download'}
               </span>
               <span>

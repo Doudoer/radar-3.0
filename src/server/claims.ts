@@ -1,5 +1,8 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { RowDataPacket } from 'mysql2/promise';
 import { pool } from './config';
+import { requireRole, type Claims } from './auth';
+import { sendJson } from './http';
 import { statusFromDatabase } from './orders';
 
 export const mapClaimStatus = (status: string) => {
@@ -10,8 +13,7 @@ export const mapClaimStatus = (status: string) => {
   return 'Pending';
 };
 
-export const getClaims = async () => {
-  const [rows] = await pool.query<RowDataPacket[]>(`
+export const getClaims = async () => {  const [rows] = await pool.query<RowDataPacket[]>(`
     SELECT cl.*, o.order_code, o.vin_nr, o.brand, o.model, o.year, o.product_type, o.product_specs, o.stock_nr,
       o.status AS order_status, o.warranty_days, c.first_name, c.last_name, c.phone, c.email, u.name AS advisor,
       (SELECT so.status FROM status_orders so WHERE so.order_id = cl.order_id AND so.created_at <= cl.created_at AND so.status <> 'Reclamo' ORDER BY so.created_at DESC, so.id DESC LIMIT 1) AS previous_status
@@ -94,4 +96,20 @@ export const getClaims = async () => {
       stockNumber: row.stock_nr || '',
     };
   });
+};
+
+export const handleClaimsListRequest = async (
+  request: IncomingMessage,
+  response: ServerResponse,
+  pathname: string,
+  claims: Claims | null
+): Promise<boolean> => {
+  if (request.method !== 'GET' || pathname !== '/api/claims') return false;
+  if (!claims) {
+    sendJson(response, 401, { message: 'Autenticación requerida' });
+    return true;
+  }
+  if (!requireRole(response, claims, 'admin', 'operator')) return true;
+  sendJson(response, 200, await getClaims());
+  return true;
 };

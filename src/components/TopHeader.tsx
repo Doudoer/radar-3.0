@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavScreen } from '../types';
 import { useTheme } from '../hooks/useTheme';
+import { isYardReadyUrgent } from '../utils/yardAlerts';
 import { DEFAULT_AVATAR } from './UserProfileModal';
 
 interface TopHeaderProps {
@@ -16,6 +17,12 @@ interface TopHeaderProps {
   onOpenFollowups?: () => void;
   pendingFollowupsCount?: number;
   overdueFollowupsCount?: number;
+  yardReadyCount?: number;
+  yardReadyOldestMinutes?: number | null;
+  onOpenYardReady?: () => void;
+  claimReadyCount?: number;
+  claimReadyOldestMinutes?: number | null;
+  onOpenClaims?: () => void;
   userName?: string;
   userAvatar?: string;
   userRole?: string;
@@ -59,6 +66,12 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onOpenFollowups,
   pendingFollowupsCount = 0,
   overdueFollowupsCount = 0,
+  yardReadyCount = 0,
+  yardReadyOldestMinutes = null,
+  onOpenYardReady,
+  claimReadyCount = 0,
+  claimReadyOldestMinutes = null,
+  onOpenClaims,
   userName = 'Usuario Administrador',
   userAvatar,
   userRole,
@@ -73,6 +86,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   };
 
   const isOrderDetail = currentScreen === 'order-detail' && Boolean(selectedOrderCode);
+  const yardUrgent = yardReadyCount > 0 && isYardReadyUrgent(yardReadyOldestMinutes);
+  const claimUrgent = claimReadyCount > 0 && isYardReadyUrgent(claimReadyOldestMinutes);
   const displayTitle = isOrderDetail ? selectedOrderCode! : meta.title;
   const displayCategory = isOrderDetail ? 'Orden' : meta.category;
   const displayIcon = isOrderDetail ? 'receipt_long' : meta.icon;
@@ -95,11 +110,11 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           className="text-[var(--text-secondary)] hover:text-cyan-400 p-2 rounded-xl hover:bg-[var(--bg-card)] transition-colors cursor-pointer"
           aria-label="Abrir menú"
         >
-          <span className="material-symbols-outlined text-[24px]">menu</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[24px]">menu</span>
         </button>
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500/20 to-blue-600/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-sm">
-            <span className="material-symbols-outlined text-[18px]">{displayIcon}</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">{displayIcon}</span>
           </div>
           <span className="font-bold text-sm text-[var(--text-heading)] truncate">{displayTitle}</span>
         </div>
@@ -108,7 +123,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       {/* Left: Desktop Breadcrumb & Title */}
       <div className="horizon-header-title hidden md:flex items-center gap-3.5 min-w-0">
         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500/15 via-blue-500/10 to-indigo-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.18)] shrink-0">
-          <span className="material-symbols-outlined text-[22px]">{displayIcon}</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[22px]">{displayIcon}</span>
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--text-secondary)] leading-none mb-1">
@@ -117,7 +132,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               onClick={() => onNavigate('dashboard')}
               className="hover:text-cyan-400 transition-colors cursor-pointer flex items-center gap-1"
             >
-              <span className="material-symbols-outlined text-[13px] text-cyan-400">radar</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[13px] text-cyan-400">radar</span>
               <span>Radar</span>
             </button>
             <span className="text-[var(--text-tertiary)] opacity-60">/</span>
@@ -134,10 +149,10 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       </div>
 
       {/* Right Side: Command Island with Search, Actions & Profile */}
-      <div className="horizon-header-tools flex items-center gap-2 sm:gap-2.5 min-w-0">
+      <div className="horizon-header-tools flex items-center gap-1.5 sm:gap-2 min-[1400px]:gap-2.5 min-w-0 max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {/* Spotlight Query Search Bar */}
-        <div className="horizon-header-search hidden lg:block relative w-48 2xl:w-64 group">
-          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-cyan-400/80 text-[18px] group-hover:text-cyan-300 transition-colors pointer-events-none drop-shadow-[0_0_6px_rgba(34,211,238,0.4)]">
+        <div className="horizon-header-search hidden 2xl:block relative w-64 min-w-0 group">
+          <span aria-hidden="true" className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-cyan-400/80 text-[18px] group-hover:text-cyan-300 transition-colors pointer-events-none drop-shadow-[0_0_6px_rgba(34,211,238,0.4)]">
             search
           </span>
           <input
@@ -145,6 +160,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             onClick={onOpenSearch}
             readOnly
             aria-label="Búsqueda global"
+            aria-keyshortcuts="/"
+            title="Buscar en Radar (/ o ⌘K)"
             placeholder="Buscar en Radar..."
             className="w-full py-2 pl-9 pr-12 cursor-pointer transition-all"
           />
@@ -163,7 +180,16 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           aria-label="Buscar"
           title="Buscar en Radar"
         >
-          <span className="material-symbols-outlined text-[20px]">search</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[20px]">search</span>
+        </button>
+        <button
+          type="button"
+          onClick={onOpenSearch}
+          className="hidden lg:inline-flex 2xl:hidden p-2 text-[var(--text-secondary)] hover:text-cyan-400 hover:bg-[var(--bg-primary)] rounded-xl transition-colors cursor-pointer"
+          aria-label="Buscar"
+          title="Buscar en Radar"
+        >
+          <span aria-hidden="true" className="material-symbols-outlined text-[20px]">search</span>
         </button>
 
         {/* Theme Toggle Button */}
@@ -174,34 +200,78 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           className="horizon-icon-button hover:rotate-12 transition-transform cursor-pointer"
           aria-label={isDark ? 'Activar modo claro' : 'Activar modo oscuro'}
         >
-          <span className="material-symbols-outlined text-[19px]">
+          <span aria-hidden="true" className="material-symbols-outlined text-[19px]">
             {isDark ? 'light_mode' : 'dark_mode'}
           </span>
         </button>
+
+        {/* Yard-Ready Alert Opener */}
+        {yardReadyCount > 0 && onOpenYardReady && (
+          <button
+            type="button"
+            onClick={onOpenYardReady}
+            title={`${yardReadyCount} pieza(s) lista(s) en yarda pendiente(s) de notificar al cliente${yardUrgent ? ' · atención requerida' : ''}`}
+            aria-label={`${yardReadyCount} ${yardReadyCount === 1 ? 'pieza lista' : 'piezas listas'} en yarda pendiente(s) de notificar al cliente${yardUrgent ? ', atención requerida' : ''}`}
+            className={`relative inline-flex items-center gap-1.5 py-1.5 px-2.5 rounded-xl text-xs font-mono font-black transition-all cursor-pointer active:scale-95 ${
+              yardUrgent
+                ? 'bg-amber-400 text-slate-950 border border-amber-700/40 shadow-[0_0_16px_rgba(245,158,11,0.45)]'
+                : 'bg-[var(--state-urgency-tint)] border border-[var(--state-urgency-border)] text-[var(--state-urgency-text)] hover:bg-amber-500/25'
+            }`}
+          >
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">campaign</span>
+            <span className="hidden min-[1800px]:inline">Yarda</span>
+            <span className="hidden min-[1800px]:inline text-[10px] opacity-80">
+              por notificar
+            </span>
+            <span
+              className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-black rounded-full ${
+                yardUrgent ? 'bg-slate-950 text-amber-300' : 'bg-amber-400 text-slate-950'
+              }`}
+            >
+              {yardReadyCount > 99 ? '99+' : yardReadyCount}
+            </span>
+          </button>
+        )}
+
+        {/* Claim-Piece-Ready Alert Opener */}
+        {claimReadyCount > 0 && onOpenClaims && (
+          <button
+            type="button"
+            onClick={onOpenClaims}
+            title={`${claimReadyCount} pieza(s) de reclamo lista(s) en yarda${claimUrgent ? ' · atención requerida' : ''}`}
+            aria-label={`${claimReadyCount} ${claimReadyCount === 1 ? 'pieza de reclamo lista' : 'piezas de reclamo listas'} en yarda${claimUrgent ? ', atención requerida' : ''}`}
+            className="relative inline-flex items-center gap-1.5 py-1.5 px-2.5 rounded-xl text-xs font-mono font-black transition-all cursor-pointer active:scale-95 bg-amber-500 text-slate-950 border border-amber-700/40 shadow-[0_0_14px_rgba(245,158,11,0.4)]"
+          >
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">build_circle</span>
+            <span className="hidden min-[1800px]:inline">Reclamo</span>
+            <span className="hidden min-[1800px]:inline text-[10px] opacity-80">
+              listo
+            </span>
+            <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-black rounded-full bg-slate-950 text-amber-300">
+              {claimReadyCount > 99 ? '99+' : claimReadyCount}
+            </span>
+          </button>
+        )}
 
         {/* Post-Delivery Followup Badge & Modal Opener */}
         {onOpenFollowups && (
           <button
             type="button"
             onClick={onOpenFollowups}
-            title="Seguimiento de órdenes · Mi trabajo de hoy"
-            aria-label={`Mi trabajo de hoy${pendingFollowupsCount ? `: ${pendingFollowupsCount} pendientes` : ''}`}
+            title={`Seguimiento de órdenes · Mi trabajo de hoy${overdueFollowupsCount ? ` · ${overdueFollowupsCount} vencidas` : ''}`}
+            aria-label={`Mi trabajo de hoy${pendingFollowupsCount ? `: ${pendingFollowupsCount} pendientes` : ''}${overdueFollowupsCount ? `, ${overdueFollowupsCount} vencidas` : ''}`}
             className={`relative inline-flex items-center gap-1.5 py-1.5 px-2.5 sm:px-3 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer active:scale-95 ${
               overdueFollowupsCount > 0
-                ? 'bg-rose-500/20 border border-rose-500/60 text-rose-300 hover:bg-rose-500/30 shadow-[0_0_15px_rgba(244,63,94,0.3)] animate-pulse'
+                ? 'bg-[var(--state-urgency-tint)] border border-[var(--state-urgency-border)] text-[var(--state-urgency-text)] hover:bg-amber-500/25 shadow-[0_0_12px_rgba(245,158,11,0.2)]'
                 : pendingFollowupsCount > 0
-                ? 'bg-amber-500/15 border border-amber-500/50 text-amber-300 hover:bg-amber-500/25 shadow-[0_0_12px_rgba(245,158,11,0.2)]'
+                ? 'bg-[var(--state-urgency-tint)] border border-[var(--state-urgency-border)] text-[var(--state-urgency-text)] hover:bg-amber-500/25'
                 : 'bg-[var(--bg-primary)] border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/15 shadow-sm'
             }`}
           >
-            <span className="material-symbols-outlined text-[18px]">phone_in_talk</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">phone_in_talk</span>
             <span className="sr-only">Seguimiento</span>
             {pendingFollowupsCount > 0 && (
-              <span
-                className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-black rounded-full shadow-sm ${
-                  overdueFollowupsCount > 0 ? 'bg-rose-500 text-white' : 'bg-amber-400 text-slate-950'
-                }`}
-              >
+              <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-black rounded-full shadow-sm bg-amber-400 text-slate-950">
                 {pendingFollowupsCount}
               </span>
             )}
@@ -214,10 +284,12 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             type="button"
             onClick={onOpenNewOrder}
             aria-label="Nueva Orden"
-            className="hidden sm:inline-flex items-center gap-1.5 py-2 px-3.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-primary-600 hover:from-blue-500 hover:to-primary-500 text-white text-xs font-bold transition-all cursor-pointer shadow-[0_0_18px_rgba(79,70,229,0.35)] active:scale-95 hover:shadow-indigo-500/40"
+            aria-keyshortcuts="N"
+            title="Nueva orden (tecla N)"
+            className="hidden sm:inline-flex shrink-0 items-center gap-1.5 py-2 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95"
           >
-            <span className="material-symbols-outlined text-[17px]">add_circle</span>
-            <span>Nueva Orden</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[17px]">add_circle</span>
+            <span className="hidden xl:inline">Nueva Orden</span>
           </button>
         )}
 
@@ -227,23 +299,23 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             type="button"
             onClick={onToggleYardPortal}
             title="Abrir Portal de Yarda"
-            className="hidden md:inline-flex items-center gap-1.5 py-2 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-mono font-bold transition-all cursor-pointer shadow-sm active:scale-95"
+            className="hidden min-[1800px]:inline-flex items-center gap-1.5 py-2 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-mono font-bold transition-all cursor-pointer shadow-sm active:scale-95"
           >
-            <span className="material-symbols-outlined text-[17px] text-amber-400">agriculture</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[17px] text-amber-400">agriculture</span>
             <span>Vista Yarda</span>
           </button>
         )}
 
         {/* Divider */}
-        <div className="h-6 w-px bg-[var(--border-subtle)] mx-0.5" />
+        <div className="hidden sm:block h-6 w-px bg-[var(--border-subtle)] mx-0.5 shrink-0" />
 
         {/* User Profile Pill */}
-        <div className="flex items-center gap-2">
+        <div className="hidden sm:flex items-center gap-2 min-w-0 shrink-0">
           <button
             type="button"
             onClick={handleProfileClick}
             title="Mi Perfil y Seguridad (Click para editar)"
-            className="flex items-center gap-2.5 pl-1.5 pr-2.5 py-1 bg-[var(--bg-primary)]/80 border border-cyan-500/30 rounded-xl hover:border-cyan-400 hover:bg-[var(--bg-primary)] transition-all cursor-pointer group shadow-sm"
+            className="flex items-center gap-2.5 pl-1.5 pr-2.5 py-1 bg-[var(--bg-primary)]/80 border border-cyan-500/30 rounded-xl hover:border-cyan-400 hover:bg-[var(--bg-primary)] transition-all cursor-pointer group shadow-sm min-w-0"
           >
             <div className="relative w-7 h-7 rounded-lg overflow-hidden border border-cyan-400/50 shadow-[0_0_8px_rgba(34,211,238,0.3)] shrink-0 bg-slate-800">
               <img
@@ -258,18 +330,19 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               />
               <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-[var(--bg-card)]" />
             </div>
-            <div className="hidden xl:flex flex-col text-left">
-              <span className="text-xs text-[var(--text-primary)] font-bold group-hover:text-cyan-400 transition-colors leading-tight">
-                {userName}
+            <div className="hidden xl:flex flex-col text-left min-w-0">
+              <span className="text-xs text-[var(--text-primary)] font-bold group-hover:text-cyan-400 transition-colors leading-tight truncate max-w-[10rem]" title={userName}>
+                <span className="min-[1400px]:hidden">{userName.split(' ')[0]}</span>
+                <span className="hidden min-[1400px]:inline">{userName}</span>
               </span>
               {userRole && (
                 <span className="text-[9px] font-mono font-bold text-cyan-400 uppercase tracking-wider">
-                  {userRole === 'admin' ? 'Super Admin' : 'Operador'}
+                  {userRole?.toLowerCase() === 'admin' ? 'Super Admin' : userRole?.toLowerCase() === 'vendedor_yarda' ? 'Vendedor Yarda' : 'Operador'}
                 </span>
               )}
             </div>
-            <span className="material-symbols-outlined text-[16px] text-cyan-400/70 group-hover:text-cyan-300 transition-transform group-hover:translate-y-0.5">
-              expand_more
+            <span aria-hidden="true" className="hidden min-[1400px]:block text-cyan-400/70 group-hover:text-cyan-300 transition-transform group-hover:translate-y-0.5">
+              <span className="material-symbols-outlined text-[16px]">expand_more</span>
             </span>
           </button>
 
@@ -281,7 +354,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             aria-label="Cerrar sesión"
             className="w-9 h-9 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-all cursor-pointer flex items-center justify-center shadow-sm active:scale-95"
           >
-            <span className="material-symbols-outlined text-[17px]">logout</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[17px]">logout</span>
           </button>
         </div>
       </div>
