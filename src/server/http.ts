@@ -105,9 +105,10 @@ export const serveFrontend = async (request: IncomingMessage, response: ServerRe
     return true;
   }
   const extensionRequested = path.extname(requestPath).toLowerCase();
+  const serviceWorkerPath = requestPath === '/sw.js';
   if (requestPath.split('/').some(part => part.startsWith('.')) ||
       /^\/(?:server\.js|migrate\.js|backups|storage|src|node_modules|package(?:-lock)?\.json)(?:\/|$)/i.test(requestPath) ||
-      (extensionRequested && (!contentTypes[extensionRequested] || (extensionRequested === '.js' && !requestPath.startsWith('/assets/'))))) {
+      (extensionRequested && (!contentTypes[extensionRequested] || (extensionRequested === '.js' && !requestPath.startsWith('/assets/') && !serviceWorkerPath)))) {
     sendJson(response, 404, { message: 'Archivo no encontrado' });
     return true;
   }
@@ -163,11 +164,14 @@ export const serveFrontend = async (request: IncomingMessage, response: ServerRe
     }
 
     // Soporte para ETag (304 Not Modified)
+    const cacheControl = extension === '.html'
+      ? 'no-cache, no-store, must-revalidate, max-age=0'
+      : serviceWorkerPath ? 'no-cache' : 'public, max-age=31536000, immutable';
     const clientEtag = request.headers['if-none-match'];
     if (clientEtag && clientEtag === cached.etag) {
       response.writeHead(304, {
         'ETag': cached.etag,
-        'Cache-Control': extension === '.html' ? 'no-cache, no-store, must-revalidate, max-age=0' : 'public, max-age=31536000, immutable',
+        'Cache-Control': cacheControl,
         ...(extension === '.html' ? { 'Pragma': 'no-cache', 'Expires': '0' } : {}),
       });
       response.end();
@@ -182,7 +186,7 @@ export const serveFrontend = async (request: IncomingMessage, response: ServerRe
       'Content-Type': cached.contentType,
       'Content-Length': String(bodyToSend.length),
       'ETag': cached.etag,
-      'Cache-Control': extension === '.html' ? 'no-cache, no-store, must-revalidate, max-age=0' : 'public, max-age=31536000, immutable',
+      'Cache-Control': cacheControl,
       ...(extension === '.html' ? { 'Pragma': 'no-cache', 'Expires': '0' } : {}),
     };
 

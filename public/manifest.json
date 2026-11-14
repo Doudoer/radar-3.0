@@ -1,5 +1,5 @@
 {
-  "name": "RADAR - Operaciones de Patio",
+  "name": "RADAR · Patio",
   "short_name": "Radar Patio",
   "description": "Gestión física, compatibilidad vehicular y ventas de patio",
   "start_url": "/?portal=yard",
@@ -10,16 +10,22 @@
   "theme_color": "#f2f4f8",
   "icons": [
     {
-      "src": "/icon-yard-192.svg",
+      "src": "/icon-yard-192.png",
       "sizes": "192x192",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icon-yard-512.svg",
+      "src": "/icon-yard-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-yard-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }
