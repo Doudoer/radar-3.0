@@ -3,7 +3,8 @@ import { apiFetch } from '../services/apiFetch';
 import { useFeedback } from './FeedbackProvider';
 import { VaultUnlockModal } from './VaultUnlockModal';
 import { useDialogAccessibility } from '../hooks/useDialogAccessibility';
-import { formatLempiras, isoDateInTimeZone, type WeekPayroll } from '../utils/payroll';
+import { formatUsd, isoDateInTimeZone, type WeekPayroll } from '../utils/payroll';
+import { penaltyAmount, penaltyPercent } from '../utils/penalties';
 import type { WorkflowTask } from '../utils/orderWorkflow';
 import { followupQueueUrl, followupSummary, groupFollowupTasks, parseFollowupQueue, type FollowupQueuePayload } from '../utils/followupQueue';
 
@@ -22,6 +23,28 @@ interface ProfileInfo {
   emergencyContactPhone: string;
   weeklySalary: number | null;
   hasPin: boolean;
+}
+
+export interface PenaltySourceLine {
+  source: 'post_delivery' | 'ready_piece' | 'claim';
+  units: number;
+  percent: number;
+  amount: number;
+  orderId?: number;
+  orderCode?: string;
+  customerName?: string;
+  date?: string | null;
+}
+
+export interface PenaltySnapshot {
+  userId: number;
+  weeklySalary: number | null;
+  rate: number;
+  enabled: boolean;
+  period: { start: string; end: string; label: string; cutoffLabel: string };
+  open: { units: number; percent: number; amount: number; lines: PenaltySourceLine[] };
+  details: PenaltySourceLine[];
+  history: Array<{ periodEnd: string; units: number; percent: number; amount: number; cutAt: string; status: string }>;
 }
 
 export interface FaultAppeal {
@@ -50,6 +73,7 @@ export interface FaultItem {
 interface ProfilePayload {
   profile: ProfileInfo;
   payroll: { timeZone: string; currentWeek: WeekPayroll; history: WeekPayroll[] };
+  penalties?: PenaltySnapshot;
   faults: FaultItem[];
   canManage: boolean;
 }
@@ -69,10 +93,11 @@ interface UserProfileViewProps {
   viewerRole: string;
   onBack?: () => void;
   onOpenAccountSettings?: () => void;
+  onConfigureEmployee?: (userId: number) => void;
   variant?: 'office' | 'yard';
 }
 
-type Tab = 'resumen' | 'seguimiento' | 'faltas' | 'datos';
+type Tab = 'resumen' | 'seguimiento' | 'rendimiento' | 'faltas' | 'datos' | 'equipo';
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Administrador',
@@ -151,19 +176,19 @@ export const WeekLiquidation: React.FC<{
         <div className="text-right">
           <p className={`font-mono text-[10px] font-bold uppercase tracking-[0.12em] ${tone.muted}`}>Cobro estimado</p>
           <p className={`mt-0.5 text-2xl font-black tabular-nums ${week.net < 0 ? tone.warningText : tone.heading}`}>
-            {formatLempiras(week.net)}
+            {formatUsd(week.net)}
           </p>
         </div>
       </div>
       <div className="mt-4 grid grid-cols-3 gap-2">
         <div className={`rounded-2xl px-3 py-2.5 ${tone.subtle}`}>
           <p className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Salario base</p>
-          <p className={`mt-1 text-sm font-black tabular-nums ${tone.heading}`}>{formatLempiras(week.gross)}</p>
+          <p className={`mt-1 text-sm font-black tabular-nums ${tone.heading}`}>{formatUsd(week.gross)}</p>
         </div>
         <div className={`rounded-2xl px-3 py-2.5 ${tone.subtle}`}>
           <p className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Descuentos</p>
           <p className={`mt-1 text-sm font-black tabular-nums ${week.deductions > 0 ? tone.warningText : tone.heading}`}>
-            {week.deductions > 0 ? `−${formatLempiras(week.deductions)}` : formatLempiras(0)}
+            {week.deductions > 0 ? `−${formatUsd(week.deductions)}` : formatUsd(0)}
           </p>
         </div>
         <div className={`rounded-2xl px-3 py-2.5 ${tone.subtle}`}>
@@ -195,11 +220,11 @@ export const WeekLiquidation: React.FC<{
                 {index === 0 && <span className={`ml-2 rounded-full px-2 py-0.5 text-[9.5px] font-bold ${tone.chip}`}>En curso</span>}
               </p>
               <p className={`text-[10.5px] ${tone.muted}`}>
-                Base {formatLempiras(entry.gross)} · {entry.faultCount} {entry.faultCount === 1 ? 'falta' : 'faltas'} · {entry.points} pts
+                Base {formatUsd(entry.gross)} · {entry.faultCount} {entry.faultCount === 1 ? 'falta' : 'faltas'} · {entry.points} pts
               </p>
             </div>
             <p className={`shrink-0 text-xs font-black tabular-nums ${entry.net < 0 ? tone.warningText : tone.heading}`}>
-              {formatLempiras(entry.net)}
+              {formatUsd(entry.net)}
             </p>
           </div>
         ))}
@@ -207,6 +232,491 @@ export const WeekLiquidation: React.FC<{
     </div>
   </>
 );
+
+const PENALTY_SOURCE_LABELS: Record<PenaltySourceLine['source'], { label: string; icon: string }> = {
+  post_delivery: { label: 'Post-entrega', icon: 'home_repair_service' },
+  claim: { label: 'Reclamos', icon: 'assignment_late' },
+  ready_piece: { label: 'Piezas listas', icon: 'inventory_2' },
+};
+
+const formatPercent = (value: number) => `${Number(value || 0).toFixed(2)}%`;
+
+const shortDate = (value?: string | null) =>
+  value ? new Date(value).toLocaleDateString('es-HN', { day: '2-digit', month: 'short' }) : '—';
+
+export const PenaltyCard: React.FC<{
+  penalties: PenaltySnapshot;
+  tone: Tone;
+}> = ({ penalties, tone }) => {
+  const sourceRows = (['post_delivery', 'claim', 'ready_piece'] as const).map(source => {
+    const lines = penalties.open.lines.filter(line => line.source === source);
+    return {
+      source,
+      units: lines.reduce((total, line) => total + line.units, 0),
+      percent: lines.reduce((total, line) => total + line.percent, 0),
+      amount: lines.reduce((total, line) => total + line.amount, 0),
+    };
+  });
+  const net = penalties.weeklySalary === null ? null : penalties.weeklySalary - penalties.open.amount;
+
+  return (
+    <div className={`rounded-3xl p-4 sm:p-5 ${tone.card}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className={`font-mono text-[10px] font-bold uppercase tracking-[0.12em] ${tone.muted}`}>Amonestaciones automáticas</p>
+          <p className={`mt-1 text-sm font-bold ${tone.heading}`}>{penalties.period.label} · período sábado 6:00 p. m.</p>
+          <p className={`mt-0.5 text-[11px] ${tone.muted}`}>{penalties.period.cutoffLabel}</p>
+        </div>
+        <div className="text-right">
+          <p className={`font-mono text-[10px] font-bold uppercase tracking-[0.12em] ${tone.muted}`}>Total del período</p>
+          <p className={`mt-0.5 text-2xl font-black tabular-nums ${penalties.open.amount > 0 ? tone.warningText : tone.heading}`}>
+            {formatPercent(penalties.open.percent)}
+          </p>
+          <p className={`text-[11px] font-bold tabular-nums ${penalties.open.amount > 0 ? tone.warningText : tone.muted}`}>
+            {formatUsd(penalties.open.amount)}
+          </p>
+        </div>
+      </div>
+
+      {!penalties.enabled && (
+        <p className={`mt-3 rounded-xl px-3 py-2 text-[11.5px] ${tone.warningBox}`}>
+          Las amonestaciones automáticas están deshabilitadas. Los contadores quedan en pausa y no se generan cargos nuevos; lo ya acumulado se conserva.
+        </p>
+      )}
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        {sourceRows.map(row => {
+          const meta = PENALTY_SOURCE_LABELS[row.source];
+          return (
+            <div key={row.source} className={`rounded-2xl px-3 py-2.5 ${tone.subtle}`}>
+              <p className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px]">{meta.icon}</span>
+                {meta.label}
+              </p>
+              <p className={`mt-1 text-sm font-black tabular-nums ${row.amount > 0 ? tone.warningText : tone.heading}`}>
+                {row.units > 0 ? `${row.units} u` : 'Sin cargos'} · {formatPercent(row.percent)}
+              </p>
+              <p className={`text-[10.5px] tabular-nums ${tone.muted}`}>{formatUsd(row.amount)}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className={`mt-2 flex flex-wrap items-center justify-between gap-2 rounded-2xl px-3 py-2.5 text-[11.5px] ${tone.subtle}`}>
+        <span className={tone.muted}>
+          Salario base {penalties.weeklySalary === null ? 'sin configurar' : formatUsd(penalties.weeklySalary)}
+          {' · '}tarifa fija {formatPercent(penalties.rate)} por unidad
+          {penalties.weeklySalary !== null ? ` · 1 u = ${formatUsd(penaltyAmount(penalties.weeklySalary, penalties.rate))}` : ''}
+        </span>
+        <span className={`font-bold tabular-nums ${net !== null && net < 0 ? tone.warningText : tone.heading}`}>
+          Neto proyectado {net === null ? '—' : formatUsd(net)}
+        </span>
+      </div>
+
+      {penalties.details.length > 0 && (
+        <div className="mt-4 space-y-1.5">
+          <p className={`text-[11px] font-bold ${tone.heading}`}>Cargos del período</p>
+          {penalties.details.map((line, index) => (
+            <div key={`${line.orderId}-${line.source}-${index}`} className={`flex flex-wrap items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-[11px] ${tone.subtle}`}>
+              <div className="min-w-0">
+                <p className={`truncate font-semibold ${tone.heading}`}>
+                  {PENALTY_SOURCE_LABELS[line.source].label} · {line.orderCode || 'Orden'}
+                </p>
+                <p className={`truncate text-[10.5px] ${tone.muted}`}>
+                  {line.customerName || 'Cliente'} · {shortDate(line.date)} · {line.units} × {formatPercent(penalties.rate)}
+                </p>
+              </div>
+              <p className={`shrink-0 font-bold tabular-nums ${tone.warningText}`}>{formatPercent(line.percent)} · {formatUsd(line.amount)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className={`mt-4 rounded-2xl p-3 ${tone.subtle}`}>
+        <p className={`text-[11px] font-bold ${tone.heading}`}>Cómo se calcula</p>
+        <p className={`mt-0.5 text-[10.5px] ${tone.muted}`}>
+          El porcentaje es el mismo para todo el equipo: {formatPercent(penalties.rate)} por unidad, calculado sobre el salario semanal de cada colaborador.
+        </p>
+        <div className={`mt-2 grid grid-cols-2 gap-1.5 rounded-xl px-2.5 py-2 text-[10.5px] sm:grid-cols-4 ${tone.card}`}>
+          {[1, 2, 3, 5].map(units => {
+            const percent = penaltyPercent(units, penalties.rate);
+            return (
+              <span key={units} className={tone.muted}>
+                {units} u → <strong className={tone.heading}>{formatPercent(percent)}</strong>
+                {penalties.weeklySalary !== null ? ` · ${formatUsd(penaltyAmount(penalties.weeklySalary, percent))}` : ''}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+
+      {penalties.history.length > 0 && (
+        <div className="mt-4">
+          <p className={`text-[11px] font-bold ${tone.heading}`}>Cortes de sábado</p>
+          <div className="mt-1 divide-y divide-[var(--border-subtle)]">
+            {penalties.history.map(entry => (
+              <div key={`${entry.periodEnd}-${entry.status}`} className="flex items-center justify-between gap-2 py-2">
+                <div>
+                  <p className={`text-[11.5px] font-semibold ${tone.heading}`}>Corte del {shortDate(entry.periodEnd)}</p>
+                  <p className={`text-[10.5px] ${tone.muted}`}>
+                    {entry.units} unidades · {formatPercent(entry.percent)} · {entry.status === 'liquidated' ? 'descontado' : 'por descontar'}
+                  </p>
+                </div>
+                <p className={`text-xs font-black tabular-nums ${tone.warningText}`}>{formatUsd(entry.amount)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface TeamMember {
+  id: number;
+  name: string;
+  role: string;
+  active: number | boolean;
+  weekly_salary: number | null;
+}
+
+interface TeamDraft {
+  salary: string;
+}
+
+const toTeamDraft = (member: TeamMember): TeamDraft => ({
+  salary: member.weekly_salary === null ? '' : String(member.weekly_salary),
+});
+
+const putJson = async (url: string, payload: unknown) => {
+  const response = await apiFetch(url, { method: 'PUT', body: JSON.stringify(payload) });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error((body as { message?: string }).message || 'No se pudo guardar.');
+    (error as Error & { code?: string }).code = (body as { code?: string }).code;
+    throw error;
+  }
+  return body;
+};
+
+export const TeamCompensationPanel: React.FC<{
+  tone: Tone;
+  onOpenProfile?: (userId: number) => void;
+  onVaultError: (retry: () => void) => void;
+}> = ({ tone, onOpenProfile, onVaultError }) => {
+  const { toast } = useFeedback();
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [drafts, setDrafts] = useState<Record<number, TeamDraft>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await apiFetch('/users');
+      const payload = await response.json().catch(() => []);
+      if (!response.ok) throw new Error((payload as { message?: string }).message || 'No se pudo cargar el equipo.');
+      const active = (Array.isArray(payload) ? payload as TeamMember[] : [])
+        .filter((member) => Boolean(member.active))
+        .sort((a, b) => a.name.localeCompare(b.name, 'es'));
+      setMembers(active);
+      setDrafts(Object.fromEntries(active.map((member) => [member.id, toTeamDraft(member)])) as Record<number, TeamDraft>);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo cargar el equipo.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const updateDraft = (id: number, patch: Partial<TeamDraft>) => {
+    setDrafts((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+  };
+
+  const saveMemberRef = useRef<(member: TeamMember) => Promise<void>>(async () => {});
+
+  const saveMember = useCallback(async (member: TeamMember) => {
+    const draft = drafts[member.id];
+    if (!draft) return;
+    const salary = draft.salary.trim() ? Number(draft.salary) : null;
+    if (salary !== null && (!Number.isFinite(salary) || salary < 0)) {
+      toast({ title: 'Salario inválido', message: 'Escribe un monto mayor o igual a cero.', tone: 'error' });
+      return;
+    }
+    if ((member.weekly_salary ?? null) === salary) {
+      toast({ title: 'Sin cambios', message: `${member.name} ya tiene ese salario.`, tone: 'info' });
+      return;
+    }
+    const submit = async () => {
+      await putJson(`/users/${member.id}/profile`, { weekly_salary: salary });
+    };
+    setBusyId(member.id);
+    try {
+      await submit();
+      toast({
+        title: `${member.name} actualizado`,
+        message: 'Salario semanal guardado. Aplica desde el siguiente corte.',
+        tone: 'success',
+      });
+      await load();
+    } catch (err) {
+      if (isVaultError(err)) {
+        onVaultError(() => { void saveMemberRef.current(member); });
+      } else {
+        toast({
+          title: 'No se pudo guardar',
+          message: err instanceof Error ? err.message : undefined,
+          tone: 'error',
+        });
+      }
+    } finally {
+      setBusyId(null);
+    }
+  }, [drafts, load, onVaultError, toast]);
+
+  useEffect(() => { saveMemberRef.current = saveMember; }, [saveMember]);
+
+  return (
+    <div className="space-y-3">
+      <div className={`rounded-3xl p-4 sm:p-5 ${tone.card}`}>
+        <p className={`font-mono text-[10px] font-bold uppercase tracking-[0.12em] ${tone.muted}`}>Equipo · compensación individual</p>
+        <p className={`mt-1 text-sm font-bold ${tone.heading}`}>Salario semanal por colaborador</p>
+        <p className={`mt-0.5 text-[11px] ${tone.muted}`}>
+          El descuento aplica un 0.8333% por unidad sobre el salario de cada quien. Edita el monto y guarda;
+          los cambios quedan auditados y aplican desde el siguiente corte de sábado.
+        </p>
+      </div>
+
+      {loading ? (
+        <div className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-8 text-[11.5px] ${tone.card} ${tone.muted}`}>
+          <span className={`material-symbols-outlined animate-spin text-[18px] ${tone.muted}`}>sync</span>
+          Cargando colaboradores…
+        </div>
+      ) : error ? (
+        <div className={`rounded-2xl px-4 py-6 text-center ${tone.card}`}>
+          <p className={`text-[11.5px] ${tone.muted}`}>{error}</p>
+          <button type="button" onClick={() => { void load(); }} className={`mt-3 rounded-xl px-4 py-2 text-xs font-bold ${tone.primary}`}>
+            Reintentar
+          </button>
+        </div>
+      ) : members.length === 0 ? (
+        <div className={`rounded-2xl px-4 py-6 text-center text-[11.5px] ${tone.card} ${tone.muted}`}>
+          No hay colaboradores activos.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {members.map((member) => {
+            const draft = drafts[member.id] || toTeamDraft(member);
+            return (
+              <div key={member.id} className={`rounded-2xl p-3 ${tone.card}`}>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className={`truncate text-[12.5px] font-bold ${tone.heading}`}>{member.name}</p>
+                    <p className={`text-[10.5px] ${tone.muted}`}>
+                      {ROLE_LABELS[member.role] || member.role}
+                    </p>
+                  </div>
+                  {onOpenProfile && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenProfile(member.id)}
+                      className={`rounded-xl px-3 py-1.5 text-[11px] font-bold ${tone.secondary}`}
+                    >
+                      Abrir perfil
+                    </button>
+                  )}
+                </div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
+                  <label className="block text-[10.5px] font-bold">
+                    <span className={tone.muted}>Salario semanal (USD)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={draft.salary}
+                      onChange={(event) => updateDraft(member.id, { salary: event.target.value })}
+                      placeholder="0.00"
+                      className={`mt-1 w-full rounded-xl px-2.5 py-2 text-xs tabular-nums outline-none ${tone.input}`}
+                    />
+                  </label>
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      disabled={busyId === member.id}
+                      onClick={() => { void saveMember(member); }}
+                      className={`w-full rounded-xl px-3 py-2 text-[11.5px] font-bold disabled:opacity-50 sm:w-auto ${tone.primary}`}
+                    >
+                      {busyId === member.id ? 'Guardando…' : 'Guardar'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface PerformanceMetrics {
+  userId: number;
+  name: string;
+  role: string;
+  salesCount: number;
+  salesAmount: number;
+  closures: number;
+  resolutions: number;
+}
+
+interface PerformancePayload {
+  period: { start: string; end: string; label: string };
+  me: PerformanceMetrics & { rank: number; totalEmployees: number };
+  team: { totalEmployees: number; averageSalesAmount: number; averageSalesCount: number; averageClosures: number; averageResolutions: number };
+  series: Array<{ date: string; label: string; amount: number; count: number }>;
+  ranking: Array<PerformanceMetrics & { isMe: boolean }>;
+}
+
+export const PerformancePanel: React.FC<{ targetUserId: number; tone: Tone }> = ({ targetUserId, tone }) => {
+  const [data, setData] = useState<PerformancePayload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    apiFetch(`/performance/weekly?userId=${targetUserId}`)
+      .then(async response => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.message || 'No se pudo cargar el rendimiento.');
+        if (!cancelled) setData(payload as PerformancePayload);
+      })
+      .catch(err => { if (!cancelled) setError(err instanceof Error ? err.message : 'No se pudo cargar el rendimiento.'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [targetUserId]);
+
+  if (loading) {
+    return (
+      <div className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-8 text-[11.5px] ${tone.card} ${tone.muted}`}>
+        <span className={`material-symbols-outlined animate-spin text-[18px] ${tone.muted}`}>sync</span>
+        Cargando rendimiento…
+      </div>
+    );
+  }
+  if (error || !data) {
+    return <div className={`rounded-2xl px-4 py-6 text-[11.5px] ${tone.card} ${tone.muted}`}>{error || 'Sin datos de rendimiento.'}</div>;
+  }
+  const maximum = Math.max(...data.series.map(day => day.amount), 1);
+
+  return (
+    <div className="space-y-3">
+      <div className={`rounded-3xl p-4 sm:p-5 ${tone.card}`}>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className={`font-mono text-[10px] font-bold uppercase tracking-[0.12em] ${tone.muted}`}>Rendimiento semanal</p>
+            <p className={`mt-1 text-sm font-bold ${tone.heading}`}>{data.period.label}</p>
+          </div>
+          <p className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${tone.chip}`}>
+            Puesto #{data.me.rank} de {data.me.totalEmployees}
+          </p>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className={`rounded-2xl px-3 py-2.5 ${tone.subtle}`}>
+            <p className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Ventas</p>
+            <p className={`mt-1 text-sm font-black tabular-nums ${tone.heading}`}>{formatUsd(data.me.salesAmount)}</p>
+            <p className={`text-[10.5px] ${tone.muted}`}>{data.me.salesCount} {data.me.salesCount === 1 ? 'orden' : 'órdenes'}</p>
+          </div>
+          <div className={`rounded-2xl px-3 py-2.5 ${tone.subtle}`}>
+            <p className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Cierres</p>
+            <p className={`mt-1 text-sm font-black tabular-nums ${tone.heading}`}>{data.me.closures}</p>
+            <p className={`text-[10.5px] ${tone.muted}`}>Promedio {data.team.averageClosures}</p>
+          </div>
+          <div className={`rounded-2xl px-3 py-2.5 ${tone.subtle}`}>
+            <p className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Resoluciones</p>
+            <p className={`mt-1 text-sm font-black tabular-nums ${tone.heading}`}>{data.me.resolutions}</p>
+            <p className={`text-[10.5px] ${tone.muted}`}>Promedio {data.team.averageResolutions}</p>
+          </div>
+          <div className={`rounded-2xl px-3 py-2.5 ${tone.subtle}`}>
+            <p className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Promedio equipo</p>
+            <p className={`mt-1 text-sm font-black tabular-nums ${tone.heading}`}>{formatUsd(data.team.averageSalesAmount)}</p>
+            <p className={`text-[10.5px] ${tone.muted}`}>{data.team.totalEmployees} colaboradores</p>
+          </div>
+        </div>
+      </div>
+
+      <div className={`rounded-3xl p-4 sm:p-5 ${tone.card}`}>
+        <div className="flex items-end justify-between gap-2">
+          <div>
+            <p className={`text-sm font-bold ${tone.heading}`}>Ventas por día</p>
+            <p className={`text-[11px] ${tone.muted}`}>Sábado 6:00 p. m. a sábado 6:00 p. m.</p>
+          </div>
+          <p className={`text-[11px] font-bold tabular-nums ${tone.muted}`}>Máx. {formatUsd(maximum)}</p>
+        </div>
+        <div className="mt-4 flex h-32 items-end gap-1.5" role="img" aria-label={`Ventas diarias de ${data.me.name}: ${data.series.map(day => `${day.label} ${formatUsd(day.amount)}`).join(', ')}`}>
+          {data.series.map(day => {
+            const height = day.amount > 0 ? Math.max(4, Math.round(day.amount / maximum * 100)) : 0;
+            return (
+              <div key={day.date} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
+                <span className={`text-[9px] font-bold tabular-nums ${day.amount > 0 ? tone.heading : tone.muted}`}>
+                  {day.amount > 0 ? Math.round(day.amount) : ''}
+                </span>
+                <div className="flex w-full flex-1 items-end">
+                  <div
+                    className={`w-full rounded-t-md ${day.amount > 0 ? 'bg-[var(--brand-solid)]' : 'bg-[var(--border-subtle)]'}`}
+                    style={{ height: `${day.amount > 0 ? height : 2}%` }}
+                  />
+                </div>
+                <span className={`text-[10px] font-bold ${tone.muted}`}>{day.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className={`overflow-hidden rounded-3xl ${tone.card}`}>
+        <div className={`border-b px-4 py-3 ${tone.subtle}`}>
+          <p className={`text-sm font-bold ${tone.heading}`}>Ranking de la semana</p>
+          <p className={`text-[11px] ${tone.muted}`}>Ventas, cierres y resoluciones por colaborador. Solo agregados.</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[430px] text-[11.5px]">
+            <thead>
+              <tr className={`text-left ${tone.muted}`}>
+                <th className="px-3 py-2 font-bold">#</th>
+                <th className="px-3 py-2 font-bold">Colaborador</th>
+                <th className="px-3 py-2 text-right font-bold">Ventas</th>
+                <th className="px-3 py-2 text-right font-bold">Cierres</th>
+                <th className="px-3 py-2 text-right font-bold">Resol.</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--border-subtle)]">
+              {data.ranking.map((entry, index) => (
+                <tr key={entry.userId} className={entry.isMe ? 'bg-[var(--bg-surface)] font-bold' : ''}>
+                  <td className={`px-3 py-2 tabular-nums ${tone.muted}`}>{index + 1}</td>
+                  <td className={`px-3 py-2 ${tone.heading}`}>
+                    {entry.name}{entry.isMe ? ' · Tú' : ''}
+                  </td>
+                  <td className={`px-3 py-2 text-right tabular-nums ${tone.heading}`}>
+                    {formatUsd(entry.salesAmount)}
+                    <span className={`block text-[10px] font-normal ${tone.muted}`}>{entry.salesCount} órdenes</span>
+                  </td>
+                  <td className={`px-3 py-2 text-right tabular-nums ${tone.muted}`}>{entry.closures}</td>
+                  <td className={`px-3 py-2 text-right tabular-nums ${tone.muted}`}>{entry.resolutions}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export const FaultHistoryList: React.FC<{
   faults: FaultItem[];
@@ -246,7 +756,7 @@ export const FaultHistoryList: React.FC<{
             <p className={`text-sm font-black tabular-nums ${
               fault.status === 'activa' ? tone.warningText : `${tone.muted} line-through`
             }`}>
-              {fault.amount > 0 ? `−${formatLempiras(fault.amount)}` : 'Sin monto'}
+              {fault.amount > 0 ? `−${formatUsd(fault.amount)}` : 'Sin monto'}
             </p>
             <p className={`text-[10.5px] ${tone.muted}`}>{fault.points} pts</p>
             {fault.status === 'anulada' && <p className={`text-[10.5px] font-semibold ${tone.muted}`}>Sin descuento</p>}
@@ -330,7 +840,7 @@ export const FollowupBoard: React.FC<{ tasks: WorkflowTask[]; tone: Tone }> = ({
   return (
     <div className="space-y-4">
       <div className={`rounded-2xl px-4 py-3 ${tone.card}`}>
-        <p className={`text-sm font-bold ${tone.heading}`}>{summary.total} pendientes</p>
+        <p className={`text-sm font-bold ${tone.heading}`}>{summary.total} {summary.total === 1 ? 'pendiente' : 'pendientes'}</p>
         <p className={`mt-0.5 text-[11.5px] ${summary.overdue > 0 ? tone.warningText : tone.muted}`}>
           {summary.overdue > 0 ? `${summary.overdue} ${summary.overdue === 1 ? 'atrasado' : 'atrasados'} · ` : ''}
           {summary.readyPieces > 0
@@ -435,6 +945,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   viewerRole,
   onBack,
   onOpenAccountSettings,
+  onConfigureEmployee,
   variant = 'office',
 }) => {
   const tone = TONES[variant];
@@ -450,6 +961,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   const [appealFault, setAppealFault] = useState<FaultItem | null>(null);
   const [resolveAppeal, setResolveAppeal] = useState<FaultAppeal | null>(null);
   const retryRef = useRef<(() => void) | null>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
   const submitFaultRef = useRef<((input: { catalogId: number; faultDate: string; notes: string }) => Promise<boolean>) | null>(null);
 
   const [draft, setDraft] = useState({
@@ -511,6 +1023,11 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   }, [targetUserId, viewerRole]);
 
   useEffect(() => { void loadQueue(); }, [loadQueue]);
+
+  useEffect(() => {
+    const active = tabsRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    active?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [tab]);
 
   const handleVaultRetry = useCallback((retry: () => void) => {
     retryRef.current = retry;
@@ -620,7 +1137,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   const annulFault = useCallback(async (fault: FaultItem) => {
     const confirmed = await confirm({
       title: `¿Anular la falta «${fault.faultType}»?`,
-      message: `Se devolverá ${formatLempiras(fault.amount)} y ${fault.points} pts a la liquidación.`,
+      message: `Se devolverá ${formatUsd(fault.amount)} y ${fault.points} pts a la liquidación.`,
       confirmLabel: 'Anular falta',
     });
     if (!confirmed) return;
@@ -751,7 +1268,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
         {canManage && (
           <>
             <label className="block text-[11px] font-bold">
-              <span className={tone.muted}>Salario semanal (L)</span>
+              <span className={tone.muted}>Salario semanal (USD)</span>
               <input
                 type="number"
                 min="0"
@@ -861,11 +1378,13 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
             </div>
           </div>
 
-          <div className={`flex gap-1.5 rounded-2xl p-1 ${tone.card}`} role="tablist" aria-label="Secciones del perfil">
+          <div ref={tabsRef} className={`flex gap-1.5 overflow-x-auto rounded-2xl p-1 ${tone.card}`} role="tablist" aria-label="Secciones del perfil">
             {([
               ['resumen', 'Resumen'],
               ['seguimiento', 'Seguimiento'],
+              ['rendimiento', 'Rendimiento'],
               ['faltas', `Faltas${activeFaults ? ` · ${activeFaults}` : ''}`],
+              ...(canManage ? [['equipo', 'Equipo'] as [Tab, string]] : []),
               ['datos', 'Datos'],
             ] as [Tab, string][]).map(([key, label]) => (
               <button
@@ -874,7 +1393,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                 role="tab"
                 aria-selected={tab === key}
                 onClick={() => setTab(key)}
-                className={`flex-1 rounded-xl px-2 py-2 text-[11.5px] font-bold transition ${
+                className={`min-w-[72px] flex-1 shrink-0 rounded-xl px-2 py-2 text-[11.5px] font-bold transition ${
                   tab === key ? tone.tabActive : `${tone.muted} hover:bg-black/5`
                 }`}
               >
@@ -897,6 +1416,12 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                   tone={tone}
                   hasSalary={profile.weeklySalary !== null}
                   canManage={canManage}
+                />
+              )}
+              {data.penalties && (
+                <PenaltyCard
+                  penalties={data.penalties}
+                  tone={tone}
                 />
               )}
             </div>
@@ -926,6 +1451,10 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
             </div>
           )}
 
+          {tab === 'rendimiento' && (
+            <PerformancePanel targetUserId={targetUserId} tone={tone} />
+          )}
+
           {tab === 'faltas' && (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -946,6 +1475,14 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
           )}
 
           {tab === 'datos' && detailsForm}
+
+          {tab === 'equipo' && canManage && (
+            <TeamCompensationPanel
+              tone={tone}
+              onOpenProfile={onConfigureEmployee}
+              onVaultError={handleVaultRetry}
+            />
+          )}
         </div>
       </div>
 
@@ -1060,7 +1597,7 @@ export const FaultFormDialog: React.FC<{
             <option value="">Selecciona un tipo…</option>
             {catalog.map((item) => (
               <option key={item.id} value={item.id}>
-                {item.name} · {item.points} pts · {formatLempiras(item.amount)}
+                {item.name} · {item.points} pts · {formatUsd(item.amount)}
               </option>
             ))}
           </select>
@@ -1088,7 +1625,7 @@ export const FaultFormDialog: React.FC<{
         </label>
         {selected && (
           <p className={`rounded-xl px-3 py-2 text-[11.5px] ${tone.subtle}`}>
-            Descuento: <strong>{selected.amount > 0 ? formatLempiras(selected.amount) : 'sin monto definido'}</strong> · <strong>{selected.points} pts</strong>
+            Descuento: <strong>{selected.amount > 0 ? formatUsd(selected.amount) : 'sin monto definido'}</strong> · <strong>{selected.points} pts</strong>
           </p>
         )}
         {error && <p className={`text-[11.5px] ${tone.warningText}`}>{error}</p>}

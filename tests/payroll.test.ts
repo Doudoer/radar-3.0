@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addDaysIso,
   formatLempiras,
+  formatUsd,
   isoDateInTimeZone,
   recentWeeks,
   roundMoney,
@@ -73,5 +74,12 @@ describe('weekly payroll summary', () => {
     expect(formatLempiras(0)).toBe('L 0.00');
     expect(formatLempiras(-250.5)).toBe('-L 250.50');
     expect(formatLempiras(Number.NaN)).toBe('L 0.00');
+  });
+
+  it('formats USD salaries and deductions with two decimals and a sign', () => {
+    expect(formatUsd(75)).toBe('$ 75.00');
+    expect(formatUsd(0)).toBe('$ 0.00');
+    expect(formatUsd(-1.5)).toBe('-$ 1.50');
+    expect(formatUsd(Number.NaN)).toBe('$ 0.00');
   });
 });

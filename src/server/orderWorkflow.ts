@@ -16,9 +16,9 @@ import { applyOrderSettlement, completeOrderDelivery } from './orderPayments';
 import { downpaymentSchema } from '../utils/downpaymentConfirmation';
 import { preparationSchema } from '../utils/orderPreparation';
 import { deliveryPhotosSchema } from '../utils/orderDelivery';
-import { assertPaymentImages } from './paymentEvidence';
+import { assertPaymentImages, assertUploadedOrderAudio } from './paymentEvidence';
 import { financeVaultExpiry } from './financeVault';
-import { communicationSchema } from '../utils/followupCommunication';
+import { communicationSchema, hasContactResponse } from '../utils/followupCommunication';
 import { wasender } from '../integrations/wasender/client';
 import { YARD_ACTION_STATUSES, YARD_REVERT_STATUSES } from '../utils/yardStatuses';
 import {
@@ -110,6 +110,7 @@ export const workflowOrderFromRow = (row: RowDataPacket): WorkflowOrder => {
   advisor: row.advisor || 'Sin asignar', version: Number(row.version),
   createdAt: new Date(row.created_at).toISOString(), status,
   deliveredAt: timestamp(deliveredAt),
+  followupClosedAt: timestamp(row.followup_closed_at),
   postDeliveryFinalized: status === 'entregado' && Boolean(row.post_delivery_finalized),
   historicalDelivery: status === 'entregado' ? {
     paidAt: timestamp(row.historical_paid_at), readyAt: timestamp(row.historical_ready_at), deliveredAt: timestamp(deliveredAt),
@@ -1372,6 +1373,7 @@ export async function handleWorkflowRequest(
       catch (error) { fail(409, error instanceof Error ? error.message : 'Gestión inválida'); }
       const images = [...(action.downpayment?.flatMap(payment => payment.receipt ? [payment.receipt] : []) || []), ...(action.preparation?.screenshots || []), ...(action.deliveryPhotos || []), ...(action.communication?.screenshots || [])];
       await assertPaymentImages(connection, order.id, images, claims);
+      await assertUploadedOrderAudio(connection, order.id, action.communication?.audio || [], claims);
       const [actors] = await connection.query<RowDataPacket[]>('SELECT name FROM users WHERE id=?', [Number(claims.sub)]);
       if (!actors.length) fail(403, 'Operador autenticado no encontrado');
       const actorName = actors[0].name;
@@ -1430,6 +1432,26 @@ export async function handleWorkflowRequest(
         action.preparation ? JSON.stringify(action.preparation) : null],
       );
       eventId = String(insert.insertId);
+      if (action.task.startsWith('post_') && action.communication && hasContactResponse(action.contactResult)) {
+        const evidenceRows = action.communication.channel === 'call'
+          ? (action.communication.audio || []).map(file => ({ kind: 'call_audio' as const, channel: 'call' as const, file }))
+          : (action.communication.screenshots || []).map(file => ({ kind: 'message_screenshot' as const, channel: action.communication!.channel, file }));
+        for (const evidence of evidenceRows) {
+          await connection.execute(
+            `INSERT INTO followup_evidence (order_id,task,event_id,channel,kind,file_url,status,uploaded_by)
+             VALUES (?,?,?,?,?,?,'pending',?)`,
+            [order.id, action.task, insert.insertId, evidence.channel, evidence.kind, evidence.file, Number(claims.sub)],
+          );
+        }
+      }
+      if (action.task.startsWith('post_') && action.outcome === 'completed' && action.partStatus === 'installed_ok') {
+        await connection.execute(
+          `UPDATE orders SET followup_closed_at=COALESCE(followup_closed_at,CURRENT_TIMESTAMP),
+             followup_closed_by=COALESCE(followup_closed_by,?),followup_closed_reason=COALESCE(followup_closed_reason,'installed_ok')
+           WHERE id=?`,
+          [Number(claims.sub), order.id],
+        );
+      }
       events.push({
         ...action, id: eventId, actorId: Number(claims.sub), actorName, createdAt: new Date().toISOString(),
         evidence: action.evidence || '', nextDueDate: action.nextDueDate || null, nextAction: action.nextAction || null,

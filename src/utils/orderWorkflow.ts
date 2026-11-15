@@ -37,6 +37,7 @@ export interface WorkflowOrder {
   yardPieceReadyAt?: string | null;
   downpaymentVerified?: boolean;
   downpaymentVerifiedAt?: string | null;
+  followupClosedAt?: string | null;
   postDeliveryFinalized?: boolean;
   historicalDelivery?: { paidAt: string | null; readyAt: string | null; deliveredAt: string | null } | null;
 }
@@ -141,7 +142,8 @@ export function workflowTasks(order: WorkflowOrder, events: WorkflowEvent[], tod
       ? workflowDate(previous.scheduledAt) : addWorkingDays(workflowDate(previous?.createdAt ||
         (task === 'prepare' && confirmationPreapproved(order, events) ? order.confirmationPolicyAt : null) || order.createdAt), 1));
   } else {
-    if (!order.deliveredAt || order.postDeliveryFinalized) return [];
+    const installedOk = events.some(event => event.task.startsWith('post_') && event.outcome === 'completed' && event.partStatus === 'installed_ok');
+    if (!order.deliveredAt || order.postDeliveryFinalized || order.followupClosedAt || installedOk) return [];
     const milestone = ([3, 7, 14] as const).find(day => !events.some(event => event.task === `post_${day}` && event.outcome === 'completed'));
     if (!milestone) return [];
     task = `post_${milestone}`; title = `Post-entrega · Día ${milestone}`;

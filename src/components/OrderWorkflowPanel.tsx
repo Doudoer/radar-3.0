@@ -12,6 +12,7 @@ import { DownpaymentFields, uploadDownpaymentReceipt } from './DownpaymentConfir
 import { PreparationFields } from './OrderPreparation';
 import { emptyPreparation, preparationSchema, type Preparation } from '../utils/orderPreparation';
 import { OrderDeliveryFields, OrderImageFields } from './OrderDeliveryFields';
+import { uploadFollowupAudio } from '../services/orderFiles';
 import { readDeliveryPhotos } from '../utils/orderDelivery';
 import { decodeCommunicationEvidence, followupTemplate, hasContactResponse, validateCommunication, type FollowupCommunication } from '../utils/followupCommunication';
 import type { FollowupCallResult } from '../types';
@@ -154,6 +155,68 @@ export const WorkflowActionForm: React.FC<{
   task: WorkflowTask; onSaved: () => Promise<void>; onCancel?: () => void;
 }> = props => props.task.task === 'ack'
   ? <DownpaymentConfirmationForm {...props} /> : <WorkflowManagementForm {...props} />;
+const FollowupAudioFields: React.FC<{
+  orderId: string; audio: string[]; onChange: (audio: string[]) => void; disabled?: boolean;
+  required?: boolean; onUploadingChange?: (active: boolean) => void;
+}> = ({ orderId, audio, onChange, disabled, required = false, onUploadingChange }) => {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+  const inFlight = useRef(false);
+  const upload = async (files: File[]) => {
+    if (inFlight.current) return;
+    if (files.length + audio.length > 3) { setError('Adjunta un máximo de 3 audios.'); return; }
+    inFlight.current = true; setUploading(true); onUploadingChange?.(true); setError('');
+    const saved = [...audio];
+    try {
+      for (const file of files) {
+        saved.push(await uploadFollowupAudio(orderId, file));
+        onChange([...saved]);
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'No se pudo subir el audio.');
+    } finally {
+      inFlight.current = false; setUploading(false); onUploadingChange?.(false);
+    }
+  };
+  return (
+    <section className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3.5 space-y-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5">
+          <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-400">graphic_eq</span>
+          Audio de la llamada {required ? '(obligatorio para demostrar el contacto)' : '(opcional)'}
+        </span>
+        <span className="text-[11px] text-[var(--text-secondary)]">{audio.length}/3 audios</span>
+      </div>
+      <fieldset disabled={disabled || uploading} className="min-w-0">
+        <label className="flex items-center gap-2.5 rounded-xl border border-dashed border-[var(--border-color)] bg-[var(--bg-card-subtle)] px-3 py-2.5 text-xs font-semibold text-[var(--text-primary)] cursor-pointer hover:border-cyan-500/60">
+          <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-cyan-400">upload_file</span>
+          <span>{uploading ? 'Subiendo audio…' : 'Adjunta la grabación o el audio del cliente'}</span>
+          <input type="file" className="sr-only" accept="audio/mpeg,audio/mp4,audio/x-m4a,audio/aac,audio/ogg,audio/wav,audio/x-wav,audio/webm"
+            onChange={event => {
+              const files = Array.from<File>(event.currentTarget.files || []);
+              event.currentTarget.value = '';
+              if (files.length) void upload(files);
+            }} />
+        </label>
+        <p className="text-[11px] text-[var(--text-secondary)] mt-1.5">MP3, M4A, AAC, OGG, WAV o WEBM (hasta 10 MB).</p>
+      </fieldset>
+      {audio.length > 0 && (
+        <ul className="space-y-2">
+          {audio.map((url, index) => (
+            <li key={`${url}-${index}`} className="flex items-center gap-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] p-2">
+              <audio controls preload="metadata" src={url} className="w-full h-9" aria-label={`Audio de la llamada ${index + 1}`} />
+              <button type="button" disabled={disabled || uploading} onClick={() => onChange(audio.filter((_, i) => i !== index))}
+                className="shrink-0 p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-rose-400" aria-label={`Quitar audio ${index + 1}`}>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">delete</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {error && <p role="alert" className="text-xs font-semibold text-rose-400">{error}</p>}
+    </section>
+  );
+};
 const WorkflowManagementForm: React.FC<{
   task: WorkflowTask; onSaved: () => Promise<void>; onCancel?: () => void;
 }> = ({ task, onSaved, onCancel }) => {
@@ -163,6 +226,7 @@ const WorkflowManagementForm: React.FC<{
   const [evidence, setEvidence] = useState('');
   const [deliveryPhotos, setDeliveryPhotos] = useState<string[]>([]);
   const [screenshots, setScreenshots] = useState<string[]>([]);
+  const [callAudio, setCallAudio] = useState<string[]>([]);
   const [confirmed, setConfirmed] = useState(false);
   const [nextAction, setNextAction] = useState('');
   const [nextDueDate, setNextDueDate] = useState(addWorkingDays(today, 1));
@@ -282,7 +346,7 @@ const WorkflowManagementForm: React.FC<{
     saving.current = true; setBusy(true); setError('');
     try {
       if (postDelivery) {
-        const communicationError = validateCommunication({ channel, warrantyWarningGiven }, contactResult, directContact ? partStatus : null, outcome);
+        const communicationError = validateCommunication({ channel, warrantyWarningGiven, screenshots, audio: callAudio }, contactResult, directContact ? partStatus : null, outcome);
         if (communicationError) throw new Error(communicationError);
       }
       let verifiedSettlement: Settlement | undefined;
@@ -309,7 +373,10 @@ const WorkflowManagementForm: React.FC<{
         scheduledAt: completed && task.task === 'post_3' && partStatus === 'not_installed' && scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
         contactResult: postDelivery ? contactResult : undefined,
         partStatus: postDelivery && directContact ? partStatus : undefined,
-        communication: postDelivery ? { channel, warrantyWarningGiven: directContact && warrantyWarningGiven, ...(channel !== 'call' ? { screenshots } : {}) } : undefined,
+        communication: postDelivery ? {
+          channel, warrantyWarningGiven: directContact && warrantyWarningGiven,
+          ...(channel === 'call' ? (callAudio.length ? { audio: callAudio } : {}) : (screenshots.length ? { screenshots } : {})),
+        } : undefined,
         settlement: verifiedSettlement,
         preparation: verifiedPreparation,
       };
@@ -370,6 +437,7 @@ const WorkflowManagementForm: React.FC<{
                     const next = event.target.value as FollowupCommunication['channel'];
                     setChannel(next);
                     setScreenshots([]);
+                    setCallAudio([]);
                     changeContact(next === 'call' ? 'answered' : 'sms_replied');
                     setCopied(false);
                   }}
@@ -392,6 +460,7 @@ const WorkflowManagementForm: React.FC<{
                       onClick={() => {
                         setChannel(item.id);
                         setScreenshots([]);
+                        setCallAudio([]);
                         changeContact(item.id === 'call' ? 'answered' : 'sms_replied');
                         setCopied(false);
                       }}
@@ -487,6 +556,17 @@ const WorkflowManagementForm: React.FC<{
             </div>
           )}
 
+          {channel === 'call' && (
+            <FollowupAudioFields
+              orderId={task.order.id}
+              audio={callAudio}
+              onChange={setCallAudio}
+              disabled={busy}
+              required={directContact}
+              onUploadingChange={value => { uploadInFlight.current = value; setUploading(value); }}
+            />
+          )}
+
           {channel !== 'call' && (
             <div className="grid gap-3 pt-1">
               <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3.5 space-y-2.5">
@@ -535,10 +615,11 @@ const WorkflowManagementForm: React.FC<{
                 onUpload={file => uploadDownpaymentReceipt(task.order.id, file)}
                 photos={screenshots}
                 onChange={setScreenshots}
-                label="Capturas de la conversación (opcional)"
-                description="Puedes registrar la gestión sin capturas o adjuntar imágenes de SMS."
+                label={directContact ? 'Capturas de la conversación (obligatorias para demostrar el contacto)' : 'Capturas de la conversación (opcional)'}
+                description={directContact ? 'Adjunta la captura del chat donde el cliente confirma la información.' : 'Puedes registrar el intento sin capturas o adjuntar imágenes de SMS.'}
                 imageLabel="Ver captura de conversación"
                 disabled={busy}
+                required={directContact}
                 onUploadingChange={value => { uploadInFlight.current = value; setUploading(value); }}
               />
             </div>
@@ -1360,7 +1441,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
         );
       })()}
       {view !== 'history' && (task ? <WorkflowActionForm key={`${orderId}-${detail.order.version}-${task.task}`} task={task} onSaved={reload} />
-        : <p className="text-sm text-[var(--text-secondary)]">{view === 'followup' ? (detail.order.postDeliveryFinalized ? 'Seguimiento post-entrega finalizado correctamente por el sistema. Los registros históricos se conservan en Historial.' : 'Sin seguimiento pendiente. Los registros se conservan en Historial.') : 'Sin tarea comercial activa. Consulta Seguimiento post entrega o Historial.'}</p>)}
+        : <p className="text-sm text-[var(--text-secondary)]">{view === 'followup' ? (detail.order.postDeliveryFinalized ? 'Seguimiento post-entrega finalizado correctamente por el sistema. Los registros históricos se conservan en Historial.' : detail.order.followupClosedAt ? `Seguimiento cerrado el ${new Date(detail.order.followupClosedAt).toLocaleDateString('es-MX', { dateStyle: 'medium' })}: pieza instalada y funcionando al 100%. La orden queda excluida de cobros y amonestaciones.` : 'Sin seguimiento pendiente. Los registros se conservan en Historial.') : 'Sin tarea comercial activa. Consulta Seguimiento post entrega o Historial.'}</p>)}
       {view === 'followup' && detail.order.historicalDelivery && !detail.order.deliveredAt && <p role="alert" className="text-sm text-amber-600">Falta la fecha de entrega registrada. Revisa el historial antes de programar seguimientos.</p>}
       {view === 'history' && (() => {
         const TASK_LABELS: Record<string, { label: string; icon: string }> = {
@@ -1403,6 +1484,20 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
               <p role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs font-semibold text-amber-500">
                 La entrega no tiene fecha registrada. Revisa el historial antes de programar los seguimientos post-entrega.
               </p>
+            )}
+
+            {detail.order.followupClosedAt && (
+              <div className="rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-3.5 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-emerald-500">verified</span>
+                  <div className="text-xs">
+                    <strong className="font-bold text-emerald-500 block">Seguimiento cerrado: instalada y funcionando al 100%</strong>
+                    <span className="text-[11px] text-[var(--text-secondary)]">
+                      Cerrado el {new Date(detail.order.followupClosedAt).toLocaleDateString('es-MX', { dateStyle: 'medium' })}. La orden se excluyó de cobros y amonestaciones.
+                    </span>
+                  </div>
+                </div>
+              </div>
             )}
 
             {detail.order.postDeliveryFinalized && (
@@ -1627,6 +1722,19 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                                   <span aria-hidden="true" className="material-symbols-outlined text-[14px]">image</span>
                                   <span>Ver captura de conversación {index + 1}</span>
                                 </a>
+                              ))}
+                            </div>
+                          )}
+                          {Boolean(contact.communication.audio?.length) && (
+                            <div className="space-y-1.5 pt-1">
+                              {contact.communication.audio?.map((url, index) => (
+                                <div key={`${url}-${index}`} className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card-subtle)] p-2 space-y-1">
+                                  <span className="text-[11px] font-semibold text-[var(--text-secondary)] flex items-center gap-1">
+                                    <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-cyan-400">graphic_eq</span>
+                                    Audio de la llamada {index + 1}
+                                  </span>
+                                  <audio controls preload="metadata" src={url} className="w-full h-9" aria-label={`Audio de la llamada ${index + 1}`} />
+                                </div>
                               ))}
                             </div>
                           )}

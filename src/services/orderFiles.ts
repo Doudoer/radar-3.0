@@ -1,11 +1,10 @@
 import { apiFetch } from './apiFetch';
 import { imageEvidenceSchema } from '../utils/orderDelivery';
+import { audioEvidenceSchema } from '../utils/followupCommunication';
 
-export async function uploadOrderFile(orderId: string, file: File, allowPdf = false) {
-  const pdf = allowPdf && file.type === 'application/pdf';
-  if (!pdf && !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
-    throw new Error(allowPdf ? 'Selecciona un PDF o imagen JPG, PNG, WebP o GIF.' : 'Selecciona una imagen JPG, PNG, WebP o GIF.');
-  }
+const AUDIO_TYPES = ['audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/aac', 'audio/ogg', 'audio/wav', 'audio/x-wav', 'audio/webm'];
+
+const uploadFile = async (orderId: string, file: File) => {
   if (!file.size || file.size > 10 * 1024 * 1024) throw new Error('El archivo debe pesar entre 1 byte y 10 MB.');
   const base64 = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -17,8 +16,28 @@ export async function uploadOrderFile(orderId: string, file: File, allowPdf = fa
     body: JSON.stringify({ orderId: Number(orderId), filename: file.name, contentType: file.type, base64 }) });
   const body = await response.json();
   if (!response.ok) throw new Error(body.message || 'No se pudo subir el archivo.');
-  if (typeof body.url !== 'string' || (pdf ? !/^\/uploads\/[a-zA-Z0-9._-]+\.pdf$/i.test(body.url) : !imageEvidenceSchema.safeParse(body.url).success)) {
+  return body.url;
+};
+
+export async function uploadOrderFile(orderId: string, file: File, allowPdf = false) {
+  const pdf = allowPdf && file.type === 'application/pdf';
+  if (!pdf && !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+    throw new Error(allowPdf ? 'Selecciona un PDF o imagen JPG, PNG, WebP o GIF.' : 'Selecciona una imagen JPG, PNG, WebP o GIF.');
+  }
+  const url = await uploadFile(orderId, file);
+  if (typeof url !== 'string' || (pdf ? !/^\/uploads\/[a-zA-Z0-9._-]+\.pdf$/i.test(url) : !imageEvidenceSchema.safeParse(url).success)) {
     throw new Error('Respuesta de archivo inválida.');
   }
-  return body.url;
+  return url;
+}
+
+export async function uploadFollowupAudio(orderId: string, file: File) {
+  if (!AUDIO_TYPES.includes(file.type)) {
+    throw new Error('Selecciona un audio MP3, M4A, AAC, OGG, WAV o WEBM.');
+  }
+  const url = await uploadFile(orderId, file);
+  if (typeof url !== 'string' || !audioEvidenceSchema.safeParse(url).success) {
+    throw new Error('Respuesta de archivo inválida.');
+  }
+  return url;
 }

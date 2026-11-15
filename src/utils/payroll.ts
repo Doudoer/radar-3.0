@@ -105,3 +105,12 @@ export function formatLempiras(amount: number): string {
   }).format(Math.abs(value));
   return value < 0 ? `-L ${formatted}` : `L ${formatted}`;
 }
+
+export function formatUsd(amount: number): string {
+  const value = Number.isFinite(amount) ? roundMoney(amount) : 0;
+  const formatted = new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Math.abs(value));
+  return value < 0 ? `-$ ${formatted}` : `$ ${formatted}`;
+}

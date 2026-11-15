@@ -19,3 +19,16 @@ export async function assertUploadedOrderFiles(connection: PoolConnection, order
 
 export const assertPaymentImages = (connection: PoolConnection, orderId: string | number, images: string[], claims: Claims) =>
   assertUploadedOrderFiles(connection, orderId, images, claims);
+
+export async function assertUploadedOrderAudio(connection: PoolConnection, orderId: string | number, audios: string[], claims: Claims) {
+  for (const audio of audios) {
+    const [files] = await connection.query<RowDataPacket[]>(
+      'SELECT content_type,user_id FROM uploaded_files WHERE filename=? AND order_id=?',
+      [audio.slice('/uploads/'.length), orderId],
+    );
+    if (!files[0] || !files[0].content_type.startsWith('audio/') ||
+        claims.role !== 'admin' && Number(files[0].user_id) !== Number(claims.sub)) {
+      fail(409, 'El audio debe estar subido para esta orden por ti o validado por administración.');
+    }
+  }
+}

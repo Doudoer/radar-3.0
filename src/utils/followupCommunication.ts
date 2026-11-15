@@ -2,12 +2,17 @@ import { z } from 'zod';
 import { warrantyDeadline, type WarrantyTerms } from './aftersales';
 import { deliveryPhotosSchema } from './orderDelivery';
 
+export const audioEvidenceSchema = z.string().regex(/^\/uploads\/[a-zA-Z0-9._-]+\.(?:mp3|m4a|aac|ogg|oga|wav|webm)$/i,
+  'El audio debe ser un archivo subido para la orden.');
+export const followupAudioSchema = z.array(audioEvidenceSchema).min(1, 'Adjunta el audio de la llamada.').max(10, 'Adjunta un máximo de 10 audios.');
 export const communicationSchema = z.object({
   channel: z.enum(['call', 'sms', 'whatsapp']),
   warrantyWarningGiven: z.boolean(),
   screenshots: deliveryPhotosSchema.optional(),
-}).strict().refine(value => value.channel !== 'call' || !value.screenshots?.length,
-  'Las capturas de conversación solo corresponden a SMS.');
+  audio: followupAudioSchema.optional(),
+}).strict()
+  .refine(value => value.channel === 'call' || !value.audio?.length, 'El audio solo corresponde a una llamada.')
+  .refine(value => value.channel !== 'call' || !value.screenshots?.length, 'Las capturas de conversación no corresponden a una llamada.');
 export type FollowupCommunication = z.infer<typeof communicationSchema>;
 export const hasContactResponse = (result?: string | null) => result === 'answered' || result === 'sms_replied';
 export function validateCommunication(communication: FollowupCommunication, result: string | null | undefined, part: string | null | undefined, outcome: string) {
@@ -20,6 +25,8 @@ export function validateCommunication(communication: FollowupCommunication, resu
     if (outcome === 'completed') return 'Necesitas una respuesta real del cliente para completar el objetivo.';
   } else {
     if (outcome === 'no_response') return 'La respuesta del cliente contradice una gestión sin respuesta.';
+    if (communication.channel === 'call' && !communication.audio?.length) return 'Adjunta el audio de la llamada para demostrar el contacto con el cliente.';
+    if (communication.channel !== 'call' && !communication.screenshots?.length) return 'Adjunta la captura de la conversación para demostrar el contacto con el cliente.';
     if (!part) return 'Registra el estado de la pieza confirmado por el cliente.';
     if (part === 'not_installed' && !communication.warrantyWarningGiven) return 'Confirma que advertiste al cliente que la garantía continúa corriendo.';
   }

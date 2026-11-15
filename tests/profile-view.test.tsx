@@ -7,11 +7,13 @@ import {
   FaultFormDialog,
   FaultHistoryList,
   FollowupBoard,
+  PenaltyCard,
   ResolveAppealDialog,
   TONES,
   UserProfileView,
   WeekLiquidation,
   type FaultItem,
+  type PenaltySnapshot,
 } from '../src/components/UserProfileView';
 import type { WeekPayroll } from '../src/utils/payroll';
 import type { WorkflowTask } from '../src/utils/orderWorkflow';
@@ -67,14 +69,14 @@ describe('weekly liquidation', () => {
     );
     expect(html).toContain('Liquidación de la semana');
     expect(html).toContain('9 – 15 nov 2026');
-    expect(html).toContain('L 3,275.00');
-    expect(html).toContain('−L 225.00');
+    expect(html).toContain('$ 3,275.00');
+    expect(html).toContain('−$ 225.00');
     expect(html).toContain('15 pts');
     expect(html).toContain('Historial de semanas');
     expect(html).toContain('En curso');
     expect(html).toContain('2 faltas');
     expect(html).toContain('1 falta');
-    expect(html).toContain('L 3,100.00');
+    expect(html).toContain('$ 3,100.00');
   });
 
   it('marks an overdrawn week as negative instead of hiding the debt', () => {
@@ -87,7 +89,7 @@ describe('weekly liquidation', () => {
         canManage={false}
       />
     );
-    expect(html).toContain('-L 500.00');
+    expect(html).toContain('-$ 500.00');
   });
 
   it('explains the missing salary differently for the employee and an administrator', () => {
@@ -112,7 +114,7 @@ describe('fault history', () => {
   it('lets the employee appeal an active fault that has no appeal yet', () => {
     const html = list([fault()], { isSelf: true });
     expect(html).toContain('Activa');
-    expect(html).toContain('−L 150.00');
+    expect(html).toContain('−$ 150.00');
     expect(html).toContain('Registrada por System Admin');
     expect(html).toContain('Llegó 25 minutos tarde.');
     expect(html).toContain('Apelar falta');
@@ -154,7 +156,41 @@ describe('fault history', () => {
   it('avoids inventing a charge when the catalog entry has no amount', () => {
     const html = list([fault({ amount: 0, points: 0 })], { canManage: true });
     expect(html).toContain('Sin monto');
-    expect(html).not.toContain('−L');
+    expect(html).not.toContain('−$');
+  });
+});
+
+describe('penalty card', () => {
+  const snapshot = (salary: number | null, units = 1): PenaltySnapshot => ({
+    userId: 7,
+    weeklySalary: salary,
+    rate: 0.8333,
+    enabled: true,
+    period: { start: '2026-11-16T00:00:00Z', end: '2026-11-22T00:00:00Z', label: 'Sábado 21', cutoffLabel: 'Se descuenta el sábado 21 a las 6:00 p. m.' },
+    open: {
+      units,
+      percent: 0.83,
+      amount: salary === null ? 0 : 0.62,
+      lines: [{ source: 'post_delivery', units, percent: 0.83, amount: salary === null ? 0 : 0.62 }],
+    },
+    details: [],
+    history: [],
+  });
+
+  it('shows the single team rate and converts it to the employee salary', () => {
+    const html = renderToStaticMarkup(<PenaltyCard penalties={snapshot(75)} tone={TONES.office} />);
+    expect(html).toContain('tarifa fija 0.83% por unidad');
+    expect(html).toContain('1 u = $ 0.62');
+    expect(html).toContain('Cómo se calcula');
+    expect(html).toContain('salario semanal de cada colaborador');
+    expect(html).not.toContain('Tramo');
+    expect(html).not.toContain('Guardar tarifa');
+  });
+
+  it('does not invent a dollar charge when the salary is missing', () => {
+    const html = renderToStaticMarkup(<PenaltyCard penalties={snapshot(null)} tone={TONES.office} />);
+    expect(html).toContain('Salario base sin configurar');
+    expect(html).not.toContain('1 u =');
   });
 });
 
@@ -288,10 +324,17 @@ describe('follow-up board', () => {
         order: { ...followupTask().order, id: 'ord-3', code: 'RAD-0003', yardPieceReady: true },
       }),
     ]);
+    expect(html).toContain('3 pendientes');
     expect(html).toContain('Seguimientos post-entrega · 1');
     expect(html).toContain('Reclamos · 1');
     expect(html).toContain('Piezas listas para entregar · 1');
     expect(html).toContain('Pieza lista en patio');
+  });
+
+  it('uses singular copy for a single pending task', () => {
+    const html = board([followupTask({ task: 'incident', title: 'Dar seguimiento a la incidencia' })]);
+    expect(html).toContain('1 pendiente');
+    expect(html).toContain('1 atrasado');
   });
 
   it('summarises pending, overdue and ready pieces with the overdue penalty', () => {

@@ -19,7 +19,9 @@ describe('current post-delivery followup', () => {
     expect(html).toContain('Detalle de la gestión');
     expect(html).toContain('Advertí verbalmente');
     expect(html).not.toContain('Evidencia o referencia verificable');
-    expect(html).not.toContain('type="file"');
+    expect(html).toContain('Audio de la llamada');
+    expect(html).toContain('obligatorio para demostrar el contacto');
+    expect(html).toContain('type="file"');
     expect(html).not.toContain('14 DÍAS CLAVE');
   });
   it('does not invent milestones for orders outside the approved historical cutoff', () => {

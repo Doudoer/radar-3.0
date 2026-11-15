@@ -767,6 +767,7 @@ export default function App() {
                 viewerRole={userRole}
                 onBack={profileTargetId ? () => openProfileFor() : undefined}
                 onOpenAccountSettings={() => setIsProfileModalOpen(true)}
+                onConfigureEmployee={openProfileFor}
               />
             )}
 

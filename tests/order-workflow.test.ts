@@ -23,15 +23,22 @@ const event = (task: WorkflowEvent['task'], overrides: Partial<WorkflowEvent> = 
   blockedBy: null, scheduledAt: null, contactResult: null, partStatus: null, ...overrides,
 });
 describe('verifiable order workflow', () => {
-  it('completes followup with real responses and notes without requiring additional evidence on any channel', () => {
+  it('completes followup with real responses and channel-specific contact evidence', () => {
     const events = ['ack', 'prepare', 'delivery'].map(task => event(task as WorkflowEvent['task']));
     const delivered = { ...order, status: 'entregado' as const, deliveredAt: '2026-11-01T16:00:00Z' };
     for (const channel of ['call', 'sms', 'whatsapp'] as const) {
       expect(() => validateWorkflowAction(delivered, events, {
         task: 'post_3', outcome: 'completed', notes: 'Cliente confirmó instalación y funcionamiento.',
         confirmed: true, contactResult: channel === 'call' ? 'answered' : 'sms_replied',
-        partStatus: 'installed_ok', communication: { channel, warrantyWarningGiven: false },
+        partStatus: 'installed_ok', communication: channel === 'call'
+          ? { channel, warrantyWarningGiven: false, audio: ['/uploads/call.mp3'] }
+          : { channel, warrantyWarningGiven: false, screenshots: ['/uploads/chat.png'] },
       }, '2026-11-05')).not.toThrow();
+      expect(() => validateWorkflowAction(delivered, events, {
+        task: 'post_3', outcome: 'completed', notes: 'Cliente confirmó instalación y funcionamiento.',
+        confirmed: true, contactResult: channel === 'call' ? 'answered' : 'sms_replied',
+        partStatus: 'installed_ok', communication: { channel, warrantyWarningGiven: false },
+      }, '2026-11-05')).toThrow(channel === 'call' ? /audio/ : /captura/);
     }
   });
   it('covers October 21 inclusive, not earlier history', () => {
@@ -88,11 +95,13 @@ describe('verifiable order workflow', () => {
     const events = ['quote', 'ack', 'prepare', 'delivery'].map(task => event(task as WorkflowEvent['task']));
     expect(workflowTasks({ ...order, status: 'entregado', deliveredAt: '2026-11-05T16:00:00Z' }, events, '2026-11-05')[0].task).toBe('post_3');
   });
-  it('schedules calendar-day 3/7/14 checks even after earlier installed-ok confirmation', () => {
+  it('closes the post-delivery followup once the piece is installed and working', () => {
     const events = ['quote', 'ack', 'prepare', 'delivery', 'post_3'].map(task => event(task as WorkflowEvent['task'], { partStatus: 'installed_ok', contactResult: 'answered' }));
-    const tasks = workflowTasks({ ...order, status: 'entregado', deliveredAt: '2026-11-05T16:00:00Z' }, events, '2026-11-06');
-    expect(tasks[0].task).toBe('post_7');
-    expect(tasks[0].dueDate).toBe('2026-11-12');
+    expect(workflowTasks({ ...order, status: 'entregado', deliveredAt: '2026-11-05T16:00:00Z' }, events, '2026-11-06')).toEqual([]);
+    expect(workflowTasks({ ...order, status: 'entregado', deliveredAt: '2026-11-05T16:00:00Z', followupClosedAt: '2026-11-06T00:00:00Z' }, events.slice(0, 4), '2026-11-06')).toEqual([]);
+    const pending = workflowTasks({ ...order, status: 'entregado', deliveredAt: '2026-11-05T16:00:00Z' },
+      events.map(item => item.task === 'post_3' ? { ...item, partStatus: 'not_installed' as const } : item), '2026-11-06');
+    expect(pending[0].task).toBe('post_7');
   });
   it('does not permit delivered closure without liquidation or confirmed documentation', () => {
     const events = ['quote', 'ack', 'prepare'].map(task => event(task as WorkflowEvent['task']));
@@ -130,7 +139,7 @@ describe('verifiable order workflow', () => {
     expect(() => validateWorkflowAction({ ...order, status: 'entregado', deliveredAt: '2026-11-01T16:00:00Z' }, stages, {
       task: 'post_3', outcome: 'completed', notes: 'El cliente recibió la pieza', evidence: 'Respuesta del cliente',
       confirmed: true, contactResult: 'answered', partStatus: 'not_installed',
-      communication: { channel: 'call', warrantyWarningGiven: true },
+      communication: { channel: 'call', warrantyWarningGiven: true, audio: ['/uploads/call.mp3'] },
     }, '2026-11-05')).toThrow(/instalación/i);
   });
   it('requires confirmed operation by day 7 and day 14', () => {
@@ -138,7 +147,7 @@ describe('verifiable order workflow', () => {
     expect(() => validateWorkflowAction({ ...order, status: 'entregado', deliveredAt: '2026-10-28T16:00:00Z' }, stages, {
       task: 'post_7', outcome: 'completed', notes: 'Continúa en montaje', evidence: 'Cliente confirma montaje',
       confirmed: true, contactResult: 'answered', partStatus: 'in_process',
-      communication: { channel: 'call', warrantyWarningGiven: false },
+      communication: { channel: 'call', warrantyWarningGiven: false, audio: ['/uploads/call.mp3'] },
     }, '2026-11-05')).toThrow(/objetivo|funcionamiento/i);
   });
   it('validates retry dates, next actions and external ownership without changing stages', () => {
@@ -168,7 +177,7 @@ describe('verifiable order workflow', () => {
   it('completes all calendar checkpoints only with their objective and actual customer response', () => {
     const delivered = { ...order, status: 'entregado' as const, deliveredAt: '2026-10-21T16:00:00Z' };
     const stages = ['quote', 'ack', 'prepare', 'delivery', 'post_3', 'post_7'].map(task => event(task as WorkflowEvent['task']));
-    const action = { task: 'post_14' as const, outcome: 'completed' as const, notes: 'Client confirms satisfaction', evidence: 'Conversation reference', confirmed: true, contactResult: 'answered' as const, partStatus: 'installed_ok' as const, communication: { channel: 'call' as const, warrantyWarningGiven: false } };
+    const action = { task: 'post_14' as const, outcome: 'completed' as const, notes: 'Client confirms satisfaction', evidence: 'Conversation reference', confirmed: true, contactResult: 'answered' as const, partStatus: 'installed_ok' as const, communication: { channel: 'call' as const, warrantyWarningGiven: false, audio: ['/uploads/call.mp3'] } };
     expect(workflowTasks(delivered, stages, '2026-11-04')[0].bucket).toBe('today');
     expect(() => validateWorkflowAction(delivered, stages, action, '2026-11-04')).not.toThrow();
     expect(() => validateWorkflowAction(delivered, stages, { ...action, partStatus: 'has_issues' }, '2026-11-04')).toThrow(/objetivo/);
@@ -190,7 +199,7 @@ describe('verifiable order workflow', () => {
     expect(() => validateWorkflowAction(delivered, stages, {
       task: 'post_3', outcome: 'completed', notes: 'Customer confirmed reception', evidence: 'Conversation reference',
       confirmed: true, contactResult: 'answered', partStatus: 'installed_ok',
-      communication: { channel: 'call', warrantyWarningGiven: false },
+      communication: { channel: 'call', warrantyWarningGiven: false, audio: ['/uploads/call.mp3'] },
     }, '2026-11-06')).toThrow(/todavía/);
   });
   it('does not let callers postpone the initial confirmation SLA or contradict a no-response result', () => {

@@ -2,24 +2,30 @@ import { describe, expect, it } from 'vitest';
 import { communicationSchema, validateCommunication, followupTemplate, decodeCommunicationEvidence } from '../src/utils/followupCommunication';
 
 describe('followup communication rules', () => {
-  it('accepts optional message screenshots but rejects call attachments, nonimages and oversized lists', () => {
+  it('accepts channel-specific evidence and rejects cross-channel or oversized attachments', () => {
     for (const channel of ['sms', 'whatsapp']) {
       for (const screenshots of [undefined, [], ['/uploads/conversation.png', '/uploads/reply.jpg']]) {
         expect(communicationSchema.safeParse({ channel, warrantyWarningGiven: false, screenshots }).success).toBe(true);
       }
+      expect(communicationSchema.safeParse({ channel, warrantyWarningGiven: false, audio: ['/uploads/call.mp3'] }).success).toBe(false);
     }
     for (const screenshots of [['/uploads/invoice.pdf'], ['https://example.test/image.png'], Array(21).fill('/uploads/image.png')]) {
       expect(communicationSchema.safeParse({ channel: 'sms', warrantyWarningGiven: false, screenshots }).success).toBe(false);
     }
     expect(communicationSchema.safeParse({ channel: 'call', warrantyWarningGiven: false, screenshots: ['/uploads/image.png'] }).success).toBe(false);
+    expect(communicationSchema.safeParse({ channel: 'call', warrantyWarningGiven: false, audio: ['/uploads/call.mp4'] }).success).toBe(false);
+    expect(communicationSchema.safeParse({ channel: 'call', warrantyWarningGiven: false, audio: Array(11).fill('/uploads/call.mp3') }).success).toBe(false);
+    expect(communicationSchema.safeParse({ channel: 'call', warrantyWarningGiven: false, audio: ['/uploads/call.mp3'] }).success).toBe(true);
     const stored = { format: 'followup-contact-v1', reference: '', communication: { channel: 'whatsapp', warrantyWarningGiven: false, screenshots: ['/uploads/conversation.png'] } };
     expect(decodeCommunicationEvidence(JSON.stringify(stored))).toEqual(stored);
   });
-  it('validates channel/result pairing and real-contact installation warning', () => {
+  it('validates channel/result pairing, contact evidence and the installation warning', () => {
     expect(validateCommunication({ channel: 'call', warrantyWarningGiven: false }, 'sms_replied', 'not_installed', 'completed')).toMatch(/canal/);
-    expect(validateCommunication({ channel: 'sms', warrantyWarningGiven: false }, 'sms_replied', 'not_installed', 'completed')).toMatch(/garantía/);
-    expect(validateCommunication({ channel: 'call', warrantyWarningGiven: true }, 'answered', 'not_installed', 'blocked')).toBeNull();
-    expect(validateCommunication({ channel: 'whatsapp', warrantyWarningGiven: false }, 'sms_replied', 'installed_ok', 'completed')).toBeNull();
+    expect(validateCommunication({ channel: 'sms', warrantyWarningGiven: false }, 'sms_replied', 'not_installed', 'completed')).toMatch(/captura/);
+    expect(validateCommunication({ channel: 'call', warrantyWarningGiven: false }, 'answered', 'not_installed', 'completed')).toMatch(/audio/);
+    expect(validateCommunication({ channel: 'sms', warrantyWarningGiven: false, screenshots: ['/uploads/chat.png'] }, 'sms_replied', 'not_installed', 'completed')).toMatch(/garantía/);
+    expect(validateCommunication({ channel: 'call', warrantyWarningGiven: true, audio: ['/uploads/call.mp3'] }, 'answered', 'not_installed', 'blocked')).toBeNull();
+    expect(validateCommunication({ channel: 'whatsapp', warrantyWarningGiven: false, screenshots: ['/uploads/chat.png'] }, 'sms_replied', 'installed_ok', 'completed')).toBeNull();
   });
   it('never invents piece state or warning without response; wrong numbers require a block', () => {
     for (const result of ['sms_sent', 'sms_no_reply', 'no_answer', 'busy']) {

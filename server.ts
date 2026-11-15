@@ -61,6 +61,8 @@ import {
   faultAnnulSchema,
   faultAppealSchema,
   faultAppealResolveSchema,
+  penaltySettingsSchema,
+  evidenceReviewSchema,
   wasenderDispatchSchema,
   backupRestoreSchema,
   backupSnapshotCreateSchema,
@@ -81,6 +83,8 @@ import {
 import { readBody, sendJson, serveFrontend } from './src/server/http';
 import { isoDateInTimeZone, PAYROLL_TIME_ZONE, recentWeeks, roundMoney, summarizeWeek } from './src/utils/payroll';
 import { getOrders, getYardOrders, getYardQueueCounts, YARD_QUEUE_MAX_LIMIT, mapOrder, normalizeTransmissionType, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
+import { getUserPenaltySnapshot, readPenaltySettings, syncPenaltiesThrottled, writePenaltySettings } from './src/server/penalties';
+import { getWeeklyPerformance } from './src/server/performance';
 import { getClaims, handleClaimsListRequest } from './src/server/claims';
 import { handleRefundsListRequest } from './src/server/refunds';
 import { getClaimWarrantyError } from './src/utils/orderWarranty';
@@ -180,6 +184,14 @@ const MIME_EXTENSION_MAP: Record<string, string[]> = {
   'application/pdf': ['.pdf'],
   'text/plain': ['.txt', '.log'],
   'text/csv': ['.csv'],
+  'audio/mpeg': ['.mp3'],
+  'audio/mp4': ['.m4a'],
+  'audio/x-m4a': ['.m4a'],
+  'audio/aac': ['.aac'],
+  'audio/ogg': ['.ogg', '.oga'],
+  'audio/wav': ['.wav'],
+  'audio/x-wav': ['.wav'],
+  'audio/webm': ['.webm'],
 };
 
 const validateFileMagicBytes = (buffer: Buffer, mimeType: string): boolean => {
@@ -201,6 +213,22 @@ const validateFileMagicBytes = (buffer: Buffer, mimeType: string): boolean => {
   }
   if (mimeType === 'text/plain' || mimeType === 'text/csv') {
     return !buffer.includes(0x00);
+  }
+  if (mimeType === 'audio/mpeg') {
+    return buffer.subarray(0, 3).toString('ascii') === 'ID3' || (buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0);
+  }
+  if (mimeType === 'audio/mp4' || mimeType === 'audio/x-m4a') {
+    return buffer.length >= 8 && buffer.subarray(4, 8).toString('ascii') === 'ftyp';
+  }
+  if (mimeType === 'audio/aac') {
+    return (buffer.length >= 8 && buffer.subarray(4, 8).toString('ascii') === 'ftyp') || (buffer[0] === 0xff && (buffer[1] & 0xf6) === 0xf0);
+  }
+  if (mimeType === 'audio/ogg') return buffer.subarray(0, 4).toString('ascii') === 'OggS';
+  if (mimeType === 'audio/wav' || mimeType === 'audio/x-wav') {
+    return buffer.length >= 12 && buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WAVE';
+  }
+  if (mimeType === 'audio/webm') {
+    return buffer.length >= 4 && buffer[0] === 0x1a && buffer[1] === 0x45 && buffer[2] === 0xdf && buffer[3] === 0xa3;
   }
   return false;
 };
@@ -3480,7 +3508,7 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && pathname === '/api/users') {
       if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) return;
       const [rows] = await pool.query<RowDataPacket[]>(
-        'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, created_at, updated_at, (pin_hash IS NOT NULL) AS has_pin FROM users WHERE deleted_at IS NULL ORDER BY name'
+        'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, created_at, updated_at, weekly_salary, (pin_hash IS NOT NULL) AS has_pin FROM users WHERE deleted_at IS NULL ORDER BY name'
       );
       const isAdmin = roleIs(authenticatedClaims, 'admin');
       return sendJson(
@@ -3493,6 +3521,7 @@ const server = createServer(async (request, response) => {
               avatar_url: row.avatar_url || '',
               permissions: parsePermissions(row.permissions),
               hasPin: Boolean(has_pin),
+              weekly_salary: row.weekly_salary === null ? null : Number(row.weekly_salary),
             }
           : {
               id: row.id,
@@ -3738,6 +3767,8 @@ const server = createServer(async (request, response) => {
         .filter((fault) => fault.status === 'activa')
         .map((fault) => ({ faultDate: fault.faultDate, amount: fault.amount, points: fault.points }));
       const weeks = recentWeeks(8);
+      await syncPenaltiesThrottled(pool);
+      const penalties = await getUserPenaltySnapshot(pool, targetId);
       return sendJson(response, 200, {
         profile: {
           id: Number(rows[0].id),
@@ -3760,6 +3791,7 @@ const server = createServer(async (request, response) => {
           currentWeek: summarizeWeek(salary, activeFaults, weeks[0]),
           history: weeks.map((week) => summarizeWeek(salary, activeFaults, week)),
         },
+        penalties,
         faults,
         canManage: isAdmin,
       });
@@ -3817,6 +3849,106 @@ const server = createServer(async (request, response) => {
         userAgent: request.headers['user-agent'] || null,
       });
       return sendJson(response, 200, { ok: true });
+    }
+
+    if (request.method === 'GET' && pathname === '/api/settings') {
+      const settings = await readPenaltySettings(pool);
+      return sendJson(response, 200, {
+        penaltiesEnabled: settings.enabled,
+        penaltiesEnabledSince: settings.enabledSince,
+        updatedAt: settings.updatedAt,
+      });
+    }
+
+    if (request.method === 'PUT' && pathname === '/api/settings/penalties') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const payload = penaltySettingsSchema.parse(await readBody(request));
+      const before = await readPenaltySettings(pool);
+      const settings = await writePenaltySettings(pool, payload.enabled, Number(authenticatedClaims?.sub));
+      void recordAuditLog(pool, {
+        userId: Number(authenticatedClaims?.sub),
+        username: authenticatedClaims?.email,
+        action: 'PENALTIES_TOGGLED',
+        resourceType: 'settings',
+        resourceId: 'penalties.enabled',
+        details: { previous: before.enabled, next: settings.enabled },
+        ipAddress: request.socket.remoteAddress || 'unknown',
+        userAgent: request.headers['user-agent'] || null,
+      });
+      return sendJson(response, 200, {
+        ok: true,
+        penaltiesEnabled: settings.enabled,
+        penaltiesEnabledSince: settings.enabledSince,
+      });
+    }
+
+    if (request.method === 'GET' && pathname === '/api/performance/weekly') {
+      const url = new URL(request.url || '/', 'http://localhost');
+      const isAdmin = roleIs(authenticatedClaims, 'admin');
+      const requestedId = Number(url.searchParams.get('userId') || authenticatedClaims?.sub || 0);
+      if (!requestedId) return sendJson(response, 400, { message: 'Usuario invalido' });
+      if (!isAdmin && requestedId !== Number(authenticatedClaims?.sub)) {
+        return sendJson(response, 403, { message: 'Solo puedes ver tu propio rendimiento' });
+      }
+      const weekParam = url.searchParams.get('week');
+      const anchor = weekParam && Number.isFinite(Date.parse(weekParam)) ? new Date(weekParam) : new Date();
+      const performance = await getWeeklyPerformance(pool, requestedId, anchor);
+      return sendJson(response, 200, performance);
+    }
+
+    if (request.method === 'GET' && pathname === '/api/followup-evidence') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const url = new URL(request.url || '/', 'http://localhost');
+      const showAll = url.searchParams.get('status') === 'all';
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT e.id,e.order_id,e.task,e.channel,e.kind,e.file_url,e.status,e.note,e.created_at,
+                e.review_note,e.reviewed_at,o.order_code,u.name AS uploader
+           FROM followup_evidence e
+           LEFT JOIN orders o ON o.id=e.order_id
+           LEFT JOIN users u ON u.id=e.uploaded_by
+          WHERE ${showAll ? '1=1' : "e.status='pending'"}
+          ORDER BY e.created_at DESC LIMIT 100`,
+      );
+      return sendJson(response, 200, {
+        items: rows.map(row => ({
+          id: Number(row.id),
+          orderId: Number(row.order_id),
+          orderCode: row.order_code || '',
+          task: row.task,
+          channel: row.channel,
+          kind: row.kind,
+          fileUrl: row.file_url,
+          status: row.status,
+          note: row.note || '',
+          uploader: row.uploader || 'Operador',
+          createdAt: new Date(row.created_at).toISOString(),
+          reviewedAt: row.reviewed_at ? new Date(row.reviewed_at).toISOString() : null,
+          reviewNote: row.review_note || '',
+        })),
+      });
+    }
+
+    const evidenceReviewMatch = pathname.match(/^\/api\/followup-evidence\/(\d+)\/review$/);
+    if (evidenceReviewMatch && request.method === 'POST') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const payload = evidenceReviewSchema.parse(await readBody(request));
+      const evidenceId = Number(evidenceReviewMatch[1]);
+      const [result] = await pool.execute<ResultSetHeader>(
+        "UPDATE followup_evidence SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,review_note=? WHERE id=? AND status='pending'",
+        [payload.status, Number(authenticatedClaims?.sub), payload.note || null, evidenceId],
+      );
+      if (!result.affectedRows) return sendJson(response, 409, { message: 'La evidencia ya fue revisada o no existe.' });
+      void recordAuditLog(pool, {
+        userId: Number(authenticatedClaims?.sub),
+        username: authenticatedClaims?.email,
+        action: 'FOLLOWUP_EVIDENCE_REVIEWED',
+        resourceType: 'followup_evidence',
+        resourceId: evidenceId,
+        details: { status: payload.status, note: payload.note || null },
+        ipAddress: request.socket.remoteAddress || 'unknown',
+        userAgent: request.headers['user-agent'] || null,
+      });
+      return sendJson(response, 200, { ok: true, id: evidenceId, status: payload.status });
     }
 
     if (pathname === '/api/faults/catalog') {
@@ -4470,6 +4602,7 @@ const server = createServer(async (request, response) => {
       }
       const ext = path.extname(filename).toLowerCase();
       const isImage = ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext);
+      const isAudio = ['.mp3', '.m4a', '.aac', '.ogg', '.oga', '.wav', '.webm'].includes(ext);
 
       const [attachedOrders] = await pool.query<RowDataPacket[]>(
         `SELECT o.user_id,o.status,o.delivered_at,
@@ -4496,12 +4629,19 @@ const server = createServer(async (request, response) => {
         '.pdf': 'application/pdf',
         '.txt': 'text/plain',
         '.csv': 'text/csv',
+        '.mp3': 'audio/mpeg',
+        '.m4a': 'audio/mp4',
+        '.aac': 'audio/aac',
+        '.ogg': 'audio/ogg',
+        '.oga': 'audio/ogg',
+        '.wav': 'audio/wav',
+        '.webm': 'audio/webm',
       };
       response.writeHead(200, {
         'Content-Type': mimeTypes[ext] || 'application/octet-stream',
         'Cache-Control': isImage ? 'private, max-age=86400' : 'private, no-store',
         'X-Content-Type-Options': 'nosniff',
-        'Content-Disposition': `${isImage ? 'inline' : 'attachment'}; filename="${filename.replace(/"/g, '')}"`,
+        'Content-Disposition': `${isImage || isAudio ? 'inline' : 'attachment'}; filename="${filename.replace(/"/g, '')}"`,
       });
       if (request.method === 'HEAD') {
         response.end();

@@ -97,6 +97,52 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   const [testCustomMessage, setTestCustomMessage] = useState('');
   const [sendingTestPing, setSendingTestPing] = useState(false);
   const [testPingFeedback, setTestPingFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [penaltiesEnabled, setPenaltiesEnabled] = useState<boolean | null>(null);
+  const [penaltiesSaving, setPenaltiesSaving] = useState(false);
+  const [penaltiesMessage, setPenaltiesMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [evidenceItems, setEvidenceItems] = useState<Array<{
+    id: number; orderCode: string; task: string; channel: string; kind: string;
+    fileUrl: string; uploader: string; createdAt: string;
+  }>>([]);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [evidenceReviewing, setEvidenceReviewing] = useState<number | null>(null);
+  const [evidenceMessage, setEvidenceMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const fetchPendingEvidence = useCallback(async () => {
+    setEvidenceLoading(true);
+    try {
+      const response = await apiFetch('/followup-evidence');
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok) setEvidenceItems(Array.isArray(payload.items) ? payload.items : []);
+    } catch {
+      // el panel de amonestaciones conserva su último estado conocido
+    } finally {
+      setEvidenceLoading(false);
+    }
+  }, []);
+
+  const reviewEvidence = async (id: number, status: 'approved' | 'rejected') => {
+    if (evidenceReviewing !== null) return;
+    setEvidenceReviewing(id);
+    setEvidenceMessage(null);
+    try {
+      const response = await apiFetch(`/followup-evidence/${id}/review`, {
+        method: 'POST',
+        body: JSON.stringify({ status }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'No se pudo revisar la evidencia.');
+      setEvidenceItems(items => items.filter(item => item.id !== id));
+      setEvidenceMessage({
+        type: 'success',
+        text: status === 'approved' ? 'Evidencia aprobada. El contador puede reanudarse.' : 'Evidencia rechazada. El contador se reanuda desde la revisión.',
+      });
+    } catch (error) {
+      setEvidenceMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo revisar la evidencia.' });
+    } finally {
+      setEvidenceReviewing(null);
+    }
+  };
 
   const fetchDbHealth = useCallback(async () => {
     try {
@@ -239,7 +285,40 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     void checkVaultStatus().then(active => { if (active) void fetchBackups(); });
     void fetchWasenderStatus();
     void fetchDbHealth();
-  }, [checkVaultStatus, fetchBackups, fetchWasenderStatus, fetchDbHealth]);
+    void fetchPendingEvidence();
+    void apiFetch('/settings')
+      .then(async response => {
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) setPenaltiesEnabled(Boolean(payload.penaltiesEnabled));
+      })
+      .catch(() => setPenaltiesEnabled(null));
+  }, [checkVaultStatus, fetchBackups, fetchWasenderStatus, fetchDbHealth, fetchPendingEvidence]);
+
+  const togglePenalties = async () => {
+    if (penaltiesEnabled === null || penaltiesSaving) return;
+    const next = !penaltiesEnabled;
+    setPenaltiesSaving(true);
+    setPenaltiesMessage(null);
+    try {
+      const response = await apiFetch('/settings/penalties', {
+        method: 'PUT',
+        body: JSON.stringify({ enabled: next }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'No se pudo cambiar el estado de las amonestaciones.');
+      setPenaltiesEnabled(Boolean(payload.penaltiesEnabled));
+      setPenaltiesMessage({
+        type: 'success',
+        text: next
+          ? 'Amonestaciones habilitadas. Los contadores se reanudan desde este momento.'
+          : 'Amonestaciones deshabilitadas. Lo acumulado y lo liquidado se conserva.',
+      });
+    } catch (error) {
+      setPenaltiesMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo cambiar el estado.' });
+    } finally {
+      setPenaltiesSaving(false);
+    }
+  };
 
   // Handle immediate snapshot creation
   const handleCreateSnapshot = async () => {
@@ -431,6 +510,143 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
           </div>
         </div>
       </div>
+
+      {isSuperAdmin && (
+        <div className="relative overflow-hidden rounded-3xl border border-cyan-500/25 bg-[#070c18]/90 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.6)] backdrop-blur-2xl md:p-6">
+          <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-amber-300 to-transparent" />
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
+                penaltiesEnabled === false
+                  ? 'border-amber-400/40 bg-amber-500/10 text-amber-300'
+                  : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300'
+              }`}>
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">notifications_active</span>
+              </div>
+              <div>
+                <h2 className="font-mono text-sm font-black uppercase tracking-wider text-white">Amonestaciones automáticas</h2>
+                <p className="mt-1 max-w-2xl text-xs text-slate-400">
+                  Genera cargos por seguimientos post-entrega, reclamos y piezas listas sin notificar. Al deshabilitarlas, los contadores se pausan y no se generan cargos nuevos; lo acumulado y lo liquidado se conserva. Las faltas manuales no dependen de este interruptor. El descuento aplica 0.8333% por unidad sobre el salario semanal de cada colaborador; el porcentaje es el mismo para todo el equipo.
+                </p>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              <span className={`rounded-full border px-2.5 py-1 font-mono text-[10.5px] font-bold uppercase tracking-wide ${
+                penaltiesEnabled === null
+                  ? 'border-slate-600 text-slate-400'
+                  : penaltiesEnabled
+                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                    : 'border-amber-400/40 bg-amber-500/10 text-amber-300'
+              }`}>
+                {penaltiesEnabled === null ? 'Sin estado' : penaltiesEnabled ? 'Habilitadas' : 'Deshabilitadas'}
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={penaltiesEnabled === true}
+                aria-label="Habilitar amonestaciones automáticas"
+                disabled={penaltiesEnabled === null || penaltiesSaving}
+                onClick={() => { void togglePenalties(); }}
+                className={`relative h-8 w-14 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                  penaltiesEnabled
+                    ? 'border-emerald-400/50 bg-emerald-500/30'
+                    : 'border-slate-600 bg-slate-800'
+                }`}
+              >
+                <span className={`absolute top-1 h-6 w-6 rounded-full bg-white transition-all ${
+                  penaltiesEnabled ? 'left-7' : 'left-1'
+                }`} />
+              </button>
+            </div>
+          </div>
+          {penaltiesMessage && (
+            <p className={`mt-3 rounded-2xl px-3 py-2 font-mono text-[11px] ${
+              penaltiesMessage.type === 'success'
+                ? 'border border-emerald-500/40 bg-emerald-950/40 text-emerald-300'
+                : 'border border-amber-400/40 bg-amber-950/30 text-amber-200'
+            }`}>
+              {penaltiesMessage.text}
+            </p>
+          )}
+          <div className="mt-4 space-y-2.5 border-t border-cyan-500/15 pt-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-mono text-[11px] font-black uppercase tracking-wider text-slate-300">
+                Evidencias por verificar {evidenceItems.length > 0 && <span className="text-amber-300">({evidenceItems.length})</span>}
+              </h3>
+              <button
+                type="button"
+                disabled={evidenceLoading}
+                onClick={() => { void fetchPendingEvidence(); }}
+                className="cyber-btn-secondary px-2.5 py-1 text-[11px] font-semibold disabled:opacity-50"
+              >
+                {evidenceLoading ? 'Actualizando…' : 'Actualizar'}
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Mientras una evidencia de contacto está pendiente, los contadores de esa orden se pausan. Apruébala o recházala para que el cálculo continúe.
+            </p>
+            {evidenceMessage && (
+              <p className={`rounded-xl px-3 py-2 font-mono text-[11px] ${
+                evidenceMessage.type === 'success'
+                  ? 'border border-emerald-500/40 bg-emerald-950/40 text-emerald-300'
+                  : 'border border-amber-400/40 bg-amber-950/30 text-amber-200'
+              }`}>
+                {evidenceMessage.text}
+              </p>
+            )}
+            {evidenceItems.length === 0 ? (
+              <p className="rounded-xl border border-slate-700/60 bg-[#040814] px-3 py-2.5 text-[11px] text-slate-400">
+                Sin evidencias pendientes de revisión.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {evidenceItems.map(item => {
+                  const taskLabel = ({ post_3: 'Día 3', post_7: 'Día 7', post_14: 'Día 14' } as Record<string, string>)[item.task] || item.task;
+                  const channelLabel = ({ call: 'Llamada', sms: 'SMS', whatsapp: 'WhatsApp' } as Record<string, string>)[item.channel] || item.channel;
+                  return (
+                    <li key={item.id} className="rounded-xl border border-slate-700/70 bg-[#040814] p-3 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <strong className="font-mono text-[11px] font-bold text-white">#{item.orderCode} · Seguimiento {taskLabel}</strong>
+                          <p className="text-[11px] text-slate-400">
+                            {channelLabel} · {item.uploader} · {new Date(item.createdAt).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={evidenceReviewing !== null}
+                            onClick={() => { void reviewEvidence(item.id, 'approved'); }}
+                            className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-bold text-emerald-300 disabled:opacity-50"
+                          >
+                            Aprobar
+                          </button>
+                          <button
+                            type="button"
+                            disabled={evidenceReviewing !== null}
+                            onClick={() => { void reviewEvidence(item.id, 'rejected'); }}
+                            className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold text-amber-300 disabled:opacity-50"
+                          >
+                            Rechazar
+                          </button>
+                        </div>
+                      </div>
+                      {item.kind === 'call_audio' ? (
+                        <audio controls preload="metadata" src={item.fileUrl} className="w-full h-9" aria-label={`Audio de llamada de la orden ${item.orderCode}`} />
+                      ) : (
+                        <a href={item.fileUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-semibold text-cyan-300 hover:underline">
+                          <span aria-hidden="true" className="material-symbols-outlined text-[14px]">image</span>
+                          <span>Ver captura de la conversación</span>
+                        </a>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* SUPER ADMIN: Disaster Recovery & Backup Center */}
       {isSuperAdmin && (

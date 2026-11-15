@@ -3,6 +3,8 @@ import { apiFetch } from '../services/apiFetch';
 import { PRESET_AVATARS, DEFAULT_AVATAR } from './UserProfileModal';
 import { VaultUnlockModal } from './VaultUnlockModal';
 import { useFeedback } from './FeedbackProvider';
+import { formatUsd } from '../utils/payroll';
+import { PENALTY_PERCENT_PER_UNIT } from '../utils/penalties';
 
 export type ManagedUser = {
   id: number;
@@ -15,6 +17,7 @@ export type ManagedUser = {
   active: number;
   updated_at: string;
   hasPin?: boolean;
+  weekly_salary?: number | null;
 };
 
 export type YardCashReceiver = {
@@ -1244,6 +1247,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
                 <th className="py-3.5 px-4">Colaborador / Perfil</th>
                 <th className="py-3.5 px-4">Contacto Directo</th>
                 <th className="py-3.5 px-4">Rol & Permisos</th>
+                <th className="py-3.5 px-4">Compensación</th>
                 <th className="py-3.5 px-4">Última Actualización</th>
                 <th className="py-3.5 px-4">Estado</th>
                 <th className="py-3.5 px-4 text-right">Acciones</th>
@@ -1252,7 +1256,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
             <tbody className="divide-y divide-cyan-500/10 text-slate-300">
               {loading && usersList.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-slate-400 font-mono">
+                  <td colSpan={7} className="px-4 py-12 text-center text-slate-400 font-mono">
                     <div className="inline-flex items-center gap-2 text-cyan-400">
                       <span aria-hidden="true" className="material-symbols-outlined animate-spin text-[20px]">sync</span>
                       <span>Cargando colaboradores de Radar...</span>
@@ -1261,7 +1265,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
                 </tr>
               ) : usersList.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-slate-400 font-mono">
+                  <td colSpan={7} className="px-4 py-10 text-center text-slate-400 font-mono">
                     No hay usuarios disponibles en radar_db.
                   </td>
                 </tr>
@@ -1306,6 +1310,28 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
                         <span className="text-[10.5px] font-mono text-slate-400">
                           ({user.permissions?.length || 0} permisos)
                         </span>
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <div className="space-y-0.5">
+                        <div className="font-mono text-[11.5px] font-bold text-slate-200">
+                          {user.weekly_salary === null || user.weekly_salary === undefined
+                            ? 'Sin salario'
+                            : formatUsd(Number(user.weekly_salary))}
+                        </div>
+                        <div className="font-mono text-[10.5px] text-slate-400">
+                          Descuento {PENALTY_PERCENT_PER_UNIT.toFixed(2)} %/u
+                        </div>
+                        {onOpenProfile && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenProfile(user.id)}
+                            className="mt-0.5 inline-flex items-center gap-1 text-[10.5px] font-bold text-cyan-400 hover:text-cyan-300 cursor-pointer transition-colors"
+                          >
+                            <span aria-hidden="true" className="material-symbols-outlined text-[13px]">tune</span>
+                            Ajustar
+                          </button>
+                        )}
                       </div>
                     </td>
                     <td className="py-3.5 px-4 font-mono text-[11px] text-slate-400">

@@ -205,6 +205,14 @@ export const uploadPayloadSchema = z.object({
     'application/pdf',
     'text/plain',
     'text/csv',
+    'audio/mpeg',
+    'audio/mp4',
+    'audio/x-m4a',
+    'audio/aac',
+    'audio/ogg',
+    'audio/wav',
+    'audio/x-wav',
+    'audio/webm',
   ]),
   base64: z.string().min(1).max(15_000_000).refine(value => {
     const encoded = value.replace(/^data:[^;,]+;base64,/, '');
@@ -369,6 +377,15 @@ export const userProfileDetailsSchema = z.object({
   hired_on: isoDateSchema.optional().nullable(),
   weekly_salary: moneySchema.optional().nullable(),
 });
+
+export const penaltySettingsSchema = z.object({
+  enabled: z.boolean(),
+}).strict();
+
+export const evidenceReviewSchema = z.object({
+  status: z.enum(['approved', 'rejected']),
+  note: z.string().trim().max(300).optional(),
+}).strict();
 
 export const faultCatalogSchema = z.object({
   name: z.string().trim().min(3, 'El nombre debe tener al menos 3 caracteres').max(120),

@@ -318,7 +318,12 @@ describe('workflow API transactional enforcement', () => {
       created_at: row.created_at, notes: 'Confirmed', evidence: 'Reference',
     }));
     const { database, connection } = setup({ status: 'Entregado', delivered_at: new Date('2026-11-01T16:00:00Z') }, events);
-    const { req, res } = request('POST', { ...action, task: 'post_3', downpayment: undefined, ...management, evidence: undefined, contactResult: 'sms_replied', partStatus: 'installed_ok', communication: { channel: 'whatsapp', warrantyWarningGiven: false } });
+    connection.query.mockReset().mockResolvedValue([[], []])
+      .mockResolvedValueOnce([[{ ...row, status: 'Entregado', delivered_at: new Date('2026-11-01T16:00:00Z') }] as RowDataPacket[], []])
+      .mockResolvedValueOnce([events as RowDataPacket[], []])
+      .mockResolvedValueOnce([[{ content_type: 'image/png', user_id: 7 }] as RowDataPacket[], []])
+      .mockResolvedValueOnce([[{ name: 'Authenticated actor' }] as RowDataPacket[], []]);
+    const { req, res } = request('POST', { ...action, task: 'post_3', downpayment: undefined, ...management, evidence: undefined, contactResult: 'sms_replied', partStatus: 'installed_ok', communication: { channel: 'whatsapp', warrantyWarningGiven: false, screenshots: ['/uploads/chat.png'] } });
     await handleWorkflowRequest(req, res, '/api/orders/901/workflow', { sub: '7', role: 'operator' }, database, vi.fn());
     expect(connection.execute.mock.calls.some(call => String(call[0]).includes('INSERT INTO order_delivery_followups'))).toBe(true);
     const contact = connection.execute.mock.calls.find(call => String(call[0]).includes('INSERT INTO order_delivery_followups'));
@@ -326,6 +331,11 @@ describe('workflow API transactional enforcement', () => {
     const recorded = connection.execute.mock.calls.find(call => String(call[0]).includes('INSERT INTO order_workflow_events'));
     expect(Array.isArray(recorded?.[1]) && recorded[1].some((value: unknown) => typeof value === 'string' && value.includes('followup-contact-v1'))).toBe(true);
     expect(connection.execute.mock.calls.some(call => String(call[0]).includes('whatsapp_dispatched)') && String(call[0]).includes('0)'))).toBe(true);
+    const evidence = connection.execute.mock.calls.find(call => String(call[0]).includes('INSERT INTO followup_evidence'));
+    expect(evidence?.[1]).toEqual(expect.arrayContaining(['901', 'post_3', 21, 'whatsapp', 'message_screenshot', '/uploads/chat.png', 7]));
+    const closure = connection.execute.mock.calls.find(call => String(call[0]).includes('followup_closed_at'));
+    expect(String(closure?.[0])).toContain('followup_closed_reason');
+    expect(closure?.[1]).toEqual([7, '901']);
     expect(connection.commit).toHaveBeenCalledOnce();
   });
   it('rejects missing channel, contradictory message results and missing warning before writing', async () => {
