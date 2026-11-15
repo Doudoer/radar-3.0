@@ -25,7 +25,7 @@ import { filterInventory, inventoryCsv } from './src/utils/inventoryExport';
 import { financeVaultExpiry, lockFinanceVault, revokeFinanceVaults, unlockFinanceVault } from './src/server/financeVault';
 import { businessDate, businessDaysBetween, isEligibleForDeliveryFollowup } from './src/server/businessTime';
 import { startNotificationOutbox } from './src/server/outbox';
-import { clearSessionCookie, isLoginRateLimited, recordLoginFailure, resetLoginAttempts, requireRole, roleIs, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
+import { clearSessionCookie, isLoginRateLimited, isPinInUse, recordLoginFailure, resetLoginAttempts, requireRole, roleIs, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
 import QRCode from 'qrcode';
 import {
   generateTotpSecret,
@@ -44,6 +44,7 @@ import {
   customerSchema,
   customerMergeSchema,
   loginSchema,
+  pinLoginSchema,
   orderPayloadSchema,
   personalMessageSchema,
   personalNoteSchema,
@@ -53,6 +54,13 @@ import {
   userCreateSchema,
   userUpdateSchema,
   userProfileUpdateSchema,
+  userProfileDetailsSchema,
+  faultCatalogSchema,
+  faultCatalogUpdateSchema,
+  faultCreateSchema,
+  faultAnnulSchema,
+  faultAppealSchema,
+  faultAppealResolveSchema,
   wasenderDispatchSchema,
   backupRestoreSchema,
   backupSnapshotCreateSchema,
@@ -71,6 +79,7 @@ import {
   orderDeliveryFollowupSchema,
 } from './src/server/schemas';
 import { readBody, sendJson, serveFrontend } from './src/server/http';
+import { isoDateInTimeZone, PAYROLL_TIME_ZONE, recentWeeks, roundMoney, summarizeWeek } from './src/utils/payroll';
 import { getOrders, getYardOrders, getYardQueueCounts, YARD_QUEUE_MAX_LIMIT, mapOrder, normalizeTransmissionType, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
 import { getClaims, handleClaimsListRequest } from './src/server/claims';
 import { handleRefundsListRequest } from './src/server/refunds';
@@ -442,6 +451,84 @@ const server = createServer(async (request, response) => {
         console.error('[Login Error]:', loginError);
         if (loginError instanceof z.ZodError) {
           return sendJson(response, 400, { message: 'Revisa el correo y la contraseña ingresados.' });
+        }
+        return sendJson(response, 500, { message: 'No fue posible completar la solicitud' });
+      }
+    }
+
+    // Acceso rápido con PIN para el portal de yarda. Límite estricto: 4 dígitos
+    // son pocas combinaciones, así que 5 intentos por IP y 40 globales cada 15 minutos.
+    if (request.method === 'POST' && pathname === '/api/auth/pin-login') {
+      try {
+        if (!jwtSecret) return sendJson(response, 503, { message: 'JWT_SECRET no está configurado' });
+        const ip = clientAddress(request);
+        const userAgent = request.headers['user-agent'] || null;
+        const retryAfter = Math.max(
+          rateLimit(`pin-login:ip:${ip}`, 5, 15 * 60_000),
+          rateLimit('pin-login:global', 40, 15 * 60_000)
+        );
+        if (retryAfter > 0) {
+          void recordAuditLog(pool, {
+            action: 'LOGIN_FAILED',
+            resourceType: 'auth',
+            details: { reason: 'PIN: demasiados intentos', method: 'pin' },
+            ipAddress: ip,
+            userAgent,
+          });
+          response.setHeader('Retry-After', String(retryAfter));
+          return sendJson(response, 429, { message: 'Demasiados intentos de PIN. Espera unos minutos e intenta de nuevo.' });
+        }
+        const { pin } = pinLoginSchema.parse(await readBody(request));
+        const [rows] = await pool.query<RowDataPacket[]>(
+          'SELECT * FROM users WHERE pin_hash IS NOT NULL AND active = 1 AND deleted_at IS NULL'
+        );
+        let user: RowDataPacket | undefined;
+        for (const row of rows) {
+          if (await bcrypt.compare(pin, String(row.pin_hash || ''))) {
+            user = row;
+            break;
+          }
+        }
+        if (!user) {
+          // Equipara el tiempo de respuesta cuando no hay usuarios con PIN configurado.
+          if (rows.length === 0) await bcrypt.compare(pin, '$2b$12$6FGd3C7kJQ65reUTNa78ne9FCUG1I0zigqJFGA3oVQD3bBRXMrFkW');
+          void recordAuditLog(pool, {
+            action: 'LOGIN_FAILED',
+            resourceType: 'auth',
+            details: { reason: 'PIN incorrecto', method: 'pin' },
+            ipAddress: ip,
+            userAgent,
+          });
+          return sendJson(response, 401, { message: 'PIN incorrecto' });
+        }
+        const sessionVersion = Number(user.session_version ?? 1) || 1;
+        const token = jwt.sign({ sub: user.id, role: user.role, email: user.email, sessionVersion }, jwtSecret, { expiresIn: '30d' });
+        setSessionCookie(response, token, 30 * 24 * 60 * 60);
+        void recordAuditLog(pool, {
+          userId: user.id,
+          username: user.email,
+          action: 'LOGIN_SUCCESS',
+          resourceType: 'auth',
+          details: { role: user.role, method: 'pin' },
+          ipAddress: ip,
+          userAgent,
+        });
+        return sendJson(response, 200, {
+          user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            phone: user.phone || '',
+            avatar_url: user.avatar_url || '',
+            role: user.role,
+            permissions: parsePermissions(user.permissions),
+            theme: user.theme || 'light',
+          },
+        });
+      } catch (pinError) {
+        console.error('[PIN Login Error]:', pinError);
+        if (pinError instanceof z.ZodError) {
+          return sendJson(response, 400, { message: 'El PIN debe tener exactamente 4 dígitos.' });
         }
         return sendJson(response, 500, { message: 'No fue posible completar la solicitud' });
       }
@@ -3393,18 +3480,19 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && pathname === '/api/users') {
       if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) return;
       const [rows] = await pool.query<RowDataPacket[]>(
-        'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, created_at, updated_at FROM users WHERE deleted_at IS NULL ORDER BY name'
+        'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, created_at, updated_at, (pin_hash IS NOT NULL) AS has_pin FROM users WHERE deleted_at IS NULL ORDER BY name'
       );
       const isAdmin = roleIs(authenticatedClaims, 'admin');
       return sendJson(
         response,
         200,
-        rows.map((row) => isAdmin
+        rows.map(({ has_pin, ...row }) => isAdmin
           ? {
               ...row,
               phone: row.phone || '',
               avatar_url: row.avatar_url || '',
               permissions: parsePermissions(row.permissions),
+              hasPin: Boolean(has_pin),
             }
           : {
               id: row.id,
@@ -3424,23 +3512,31 @@ const server = createServer(async (request, response) => {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
       const userData = userCreateSchema.parse(await readBody(request));
       const passwordHash = await bcrypt.hash(userData.password, 12);
+      let pinHash: string | null = null;
+      if (userData.pin) {
+        if (await isPinInUse(userData.pin)) {
+          return sendJson(response, 409, { message: 'Ese PIN ya está en uso por otro usuario' });
+        }
+        pinHash = await bcrypt.hash(userData.pin, 12);
+      }
       try {
         const [result] = await pool.execute<ResultSetHeader>(
-          `INSERT INTO users (name, email, phone, avatar_url, password, role, permissions, active)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO users (name, email, phone, avatar_url, password, pin_hash, role, permissions, active)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             userData.name,
             userData.email.toLowerCase(),
             userData.phone ? userData.phone.trim() : null,
             userData.avatar_url ? userData.avatar_url.trim() : null,
             passwordHash,
+            pinHash,
             userData.role,
             JSON.stringify(userData.permissions),
             userData.active ? 1 : 0,
           ]
         );
         const [rows] = await pool.query<RowDataPacket[]>(
-          'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, created_at, updated_at FROM users WHERE id = ? LIMIT 1',
+          'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, created_at, updated_at, (pin_hash IS NOT NULL) AS has_pin FROM users WHERE id = ? LIMIT 1',
           [result.insertId]
         );
         void recordAuditLog(pool, {
@@ -3449,7 +3545,7 @@ const server = createServer(async (request, response) => {
           action: 'USER_CREATED',
           resourceType: 'user',
           resourceId: result.insertId,
-          details: { name: userData.name, email: userData.email, role: userData.role },
+          details: { name: userData.name, email: userData.email, role: userData.role, hasPin: Boolean(pinHash) },
           ipAddress: request.socket.remoteAddress || 'unknown',
           userAgent: request.headers['user-agent'] || null,
         });
@@ -3458,6 +3554,8 @@ const server = createServer(async (request, response) => {
           phone: rows[0].phone || '',
           avatar_url: rows[0].avatar_url || '',
           permissions: parsePermissions(rows[0].permissions),
+          hasPin: Boolean(rows[0].has_pin),
+          has_pin: undefined,
         });
       } catch (error) {
         if (typeof error === 'object' && error && 'code' in error && error.code === 'ER_DUP_ENTRY') {
@@ -3478,6 +3576,7 @@ const server = createServer(async (request, response) => {
 
       try {
         let passwordUpdateClause = '';
+        let pinUpdateClause = '';
         const params: (string | number | null)[] = [
           user.name,
           user.email.toLowerCase(),
@@ -3492,10 +3591,19 @@ const server = createServer(async (request, response) => {
           passwordUpdateClause = ', password = ?, password_changed_at = CURRENT_TIMESTAMP';
           params.push(hash);
         }
+        if (user.pin === null) {
+          pinUpdateClause = ', pin_hash = NULL';
+        } else if (user.pin) {
+          if (await isPinInUse(user.pin, Number(userId))) {
+            return sendJson(response, 409, { message: 'Ese PIN ya está en uso por otro usuario' });
+          }
+          pinUpdateClause = ', pin_hash = ?';
+          params.push(await bcrypt.hash(user.pin, 12));
+        }
         params.push(userId);
 
         await pool.execute(
-          `UPDATE users SET name = ?, email = ?, phone = ?, avatar_url = ?, role = ?, permissions = ?, active = ? ${passwordUpdateClause}, session_version=session_version+1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`,
+          `UPDATE users SET name = ?, email = ?, phone = ?, avatar_url = ?, role = ?, permissions = ?, active = ? ${passwordUpdateClause}${pinUpdateClause}, session_version=session_version+1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`,
           params
         );
       } catch (error) {
@@ -3514,7 +3622,7 @@ const server = createServer(async (request, response) => {
       }
 
       const [rows] = await pool.query<RowDataPacket[]>(
-        'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, created_at, updated_at FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, created_at, updated_at, (pin_hash IS NOT NULL) AS has_pin FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
         [userId]
       );
       if (!rows[0]) return sendJson(response, 404, { message: 'Usuario no encontrado' });
@@ -3524,7 +3632,7 @@ const server = createServer(async (request, response) => {
         action: 'USER_UPDATED',
         resourceType: 'user',
         resourceId: userId,
-        details: { name: user.name, email: user.email, role: user.role, active: user.active },
+        details: { name: user.name, email: user.email, role: user.role, active: user.active, hasPin: Boolean(rows[0].has_pin) },
         ipAddress: request.socket.remoteAddress || 'unknown',
         userAgent: request.headers['user-agent'] || null,
       });
@@ -3533,6 +3641,8 @@ const server = createServer(async (request, response) => {
         phone: rows[0].phone || '',
         avatar_url: rows[0].avatar_url || '',
         permissions: parsePermissions(rows[0].permissions),
+        hasPin: Boolean(rows[0].has_pin),
+        has_pin: undefined,
       });
     }
 
@@ -3560,6 +3670,369 @@ const server = createServer(async (request, response) => {
         userAgent: request.headers['user-agent'] || null,
       });
       return sendJson(response, 200, { ok: true, id: Number(userId) });
+    }
+
+    // ==========================================
+    // EMPLOYEE PROFILES, FAULTS & WEEKLY PAYROLL
+    // ==========================================
+    const vaultBlocked = (message: string) => {
+      if (financeVaultExpiry(request, authenticatedClaims)) return false;
+      void sendJson(response, 403, { code: 'FINANCE_LOCKED', message });
+      return true;
+    };
+
+    const profileMatch = pathname.match(/^\/api\/users\/(\d+)\/profile$/);
+    if (request.method === 'GET' && profileMatch) {
+      const targetId = Number(profileMatch[1]);
+      const isAdmin = roleIs(authenticatedClaims, 'admin');
+      if (!isAdmin && Number(authenticatedClaims?.sub) !== targetId) {
+        return sendJson(response, 403, { message: 'Solo puedes ver tu propio perfil' });
+      }
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT id, name, email, phone, avatar_url, role, active, created_at,
+                DATE_FORMAT(hired_on, '%Y-%m-%d') AS hired_on,
+                address, emergency_contact_name, emergency_contact_phone, weekly_salary,
+                (pin_hash IS NOT NULL) AS has_pin
+           FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
+        [targetId]
+      );
+      if (!rows[0]) return sendJson(response, 404, { message: 'Usuario no encontrado' });
+      const [faultRows] = await pool.query<RowDataPacket[]>(
+        `SELECT f.id, f.fault_type, f.points, f.amount,
+                DATE_FORMAT(f.fault_date, '%Y-%m-%d') AS fault_date,
+                f.notes, f.status, f.created_at, f.annulled_at,
+                creator.name AS created_by_name,
+                a.id AS appeal_id, a.message AS appeal_message, a.status AS appeal_status,
+                a.resolution_note AS appeal_resolution_note, a.created_at AS appeal_created_at,
+                a.resolved_at AS appeal_resolved_at
+           FROM employee_faults f
+           LEFT JOIN users creator ON creator.id = f.created_by
+           LEFT JOIN fault_appeals a ON a.fault_id = f.id
+          WHERE f.user_id = ?
+          ORDER BY f.fault_date DESC, f.id DESC
+          LIMIT 200`,
+        [targetId]
+      );
+      const faults = faultRows.map((row) => ({
+        id: Number(row.id),
+        faultType: String(row.fault_type),
+        points: Number(row.points),
+        amount: Number(row.amount),
+        faultDate: String(row.fault_date),
+        notes: row.notes || '',
+        status: String(row.status),
+        createdAt: row.created_at,
+        annulledAt: row.annulled_at,
+        createdByName: row.created_by_name || '',
+        appeal: row.appeal_id ? {
+          id: Number(row.appeal_id),
+          message: String(row.appeal_message || ''),
+          status: String(row.appeal_status),
+          resolutionNote: row.appeal_resolution_note || '',
+          createdAt: row.appeal_created_at,
+          resolvedAt: row.appeal_resolved_at,
+        } : null,
+      }));
+      const salary = rows[0].weekly_salary === null ? null : Number(rows[0].weekly_salary);
+      const activeFaults = faults
+        .filter((fault) => fault.status === 'activa')
+        .map((fault) => ({ faultDate: fault.faultDate, amount: fault.amount, points: fault.points }));
+      const weeks = recentWeeks(8);
+      return sendJson(response, 200, {
+        profile: {
+          id: Number(rows[0].id),
+          name: rows[0].name,
+          email: rows[0].email,
+          phone: rows[0].phone || '',
+          avatarUrl: rows[0].avatar_url || '',
+          role: rows[0].role,
+          active: Boolean(rows[0].active),
+          createdAt: rows[0].created_at,
+          hiredOn: rows[0].hired_on || null,
+          address: rows[0].address || '',
+          emergencyContactName: rows[0].emergency_contact_name || '',
+          emergencyContactPhone: rows[0].emergency_contact_phone || '',
+          weeklySalary: salary,
+          hasPin: Boolean(rows[0].has_pin),
+        },
+        payroll: {
+          timeZone: PAYROLL_TIME_ZONE,
+          currentWeek: summarizeWeek(salary, activeFaults, weeks[0]),
+          history: weeks.map((week) => summarizeWeek(salary, activeFaults, week)),
+        },
+        faults,
+        canManage: isAdmin,
+      });
+    }
+
+    if (request.method === 'PUT' && profileMatch) {
+      const targetId = Number(profileMatch[1]);
+      const isAdmin = roleIs(authenticatedClaims, 'admin');
+      if (!isAdmin && Number(authenticatedClaims?.sub) !== targetId) {
+        return sendJson(response, 403, { message: 'Solo puedes editar tu propio perfil' });
+      }
+      const payload = userProfileDetailsSchema.parse(await readBody(request));
+      const compensationTouched = payload.weekly_salary !== undefined || payload.hired_on !== undefined;
+      if (!isAdmin && compensationTouched) {
+        return sendJson(response, 403, { message: 'Solo la administración puede cambiar salario y fecha de ingreso' });
+      }
+      if (isAdmin && compensationTouched && vaultBlocked('Desbloquea la boveda antes de cambiar salario o fecha de ingreso')) return;
+      const [currentRows] = await pool.query<RowDataPacket[]>(
+        `SELECT address, emergency_contact_name, emergency_contact_phone,
+                DATE_FORMAT(hired_on, '%Y-%m-%d') AS hired_on, weekly_salary
+           FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
+        [targetId]
+      );
+      const current = currentRows[0];
+      if (!current) return sendJson(response, 404, { message: 'Usuario no encontrado' });
+      const pick = (value: string | null | undefined, fallback: string | null) =>
+        value === undefined ? fallback : (value?.trim() || null);
+      const params: (string | number | null)[] = [
+        pick(payload.address, current.address),
+        pick(payload.emergency_contact_name, current.emergency_contact_name),
+        pick(payload.emergency_contact_phone, current.emergency_contact_phone),
+      ];
+      let compensationClause = '';
+      if (isAdmin) {
+        const nextSalary = payload.weekly_salary === undefined
+          ? (current.weekly_salary === null ? null : Number(current.weekly_salary))
+          : (payload.weekly_salary === null ? null : roundMoney(payload.weekly_salary));
+        const nextHiredOn = payload.hired_on === undefined ? current.hired_on : payload.hired_on;
+        compensationClause = ', weekly_salary = ?, hired_on = ?';
+        params.push(nextSalary, nextHiredOn);
+      }
+      params.push(targetId);
+      await pool.execute(
+        `UPDATE users SET address = ?, emergency_contact_name = ?, emergency_contact_phone = ?${compensationClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        params
+      );
+      void recordAuditLog(pool, {
+        userId: Number(authenticatedClaims.sub),
+        username: authenticatedClaims.email,
+        action: 'USER_PROFILE_UPDATED',
+        resourceType: 'profile',
+        resourceId: targetId,
+        details: { self: !isAdmin, salaryChanged: isAdmin && payload.weekly_salary !== undefined },
+        ipAddress: request.socket.remoteAddress || 'unknown',
+        userAgent: request.headers['user-agent'] || null,
+      });
+      return sendJson(response, 200, { ok: true });
+    }
+
+    if (pathname === '/api/faults/catalog') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      if (request.method === 'GET') {
+        let [rows] = await pool.query<RowDataPacket[]>(
+          'SELECT id, name, description, points, amount, active, updated_at FROM fault_catalog ORDER BY active DESC, name'
+        );
+        if (rows.length === 0) {
+          await pool.query(
+            `INSERT INTO fault_catalog (name, description, points, amount) VALUES
+             ('Retardo', 'Llegada tarde al turno o a una operación asignada.', 5, 0.00),
+             ('Salida anticipada', 'Abandono del turno antes de la hora acordada sin autorización.', 5, 0.00),
+             ('Incumplimiento de proceso', 'No seguir el procedimiento de patio, despacho o seguimiento.', 10, 0.00),
+             ('Ausencia injustificada', 'Falta al turno sin justificación registrada.', 20, 0.00),
+             ('Daño a pieza o equipo', 'Daño comprobado a una pieza, herramienta o equipo.', 25, 0.00)`
+          );
+          [rows] = await pool.query<RowDataPacket[]>(
+            'SELECT id, name, description, points, amount, active, updated_at FROM fault_catalog ORDER BY active DESC, name'
+          );
+        }
+        return sendJson(response, 200, rows.map((row) => ({
+          id: Number(row.id),
+          name: row.name,
+          description: row.description || '',
+          points: Number(row.points),
+          amount: Number(row.amount),
+          active: Boolean(row.active),
+          updatedAt: row.updated_at,
+        })));
+      }
+      if (request.method === 'POST') {
+        if (vaultBlocked('Desbloquea la boveda antes de gestionar el catalogo de faltas')) return;
+        const catalog = faultCatalogSchema.parse(await readBody(request));
+        const [result] = await pool.execute<ResultSetHeader>(
+          'INSERT INTO fault_catalog (name, description, points, amount, active) VALUES (?, ?, ?, ?, ?)',
+          [catalog.name, catalog.description?.trim() || null, catalog.points, roundMoney(catalog.amount), catalog.active ? 1 : 0]
+        );
+        void recordAuditLog(pool, {
+          userId: Number(authenticatedClaims.sub),
+          username: authenticatedClaims.email,
+          action: 'FAULT_CATALOG_CREATED',
+          resourceType: 'fault_catalog',
+          resourceId: result.insertId,
+          details: { name: catalog.name, points: catalog.points, amount: catalog.amount },
+          ipAddress: request.socket.remoteAddress || 'unknown',
+          userAgent: request.headers['user-agent'] || null,
+        });
+        return sendJson(response, 201, { id: result.insertId });
+      }
+    }
+
+    const catalogId = pathname.match(/^\/api\/faults\/catalog\/(\d+)$/)?.[1];
+    if (request.method === 'PUT' && catalogId) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      if (vaultBlocked('Desbloquea la boveda antes de gestionar el catalogo de faltas')) return;
+      const patch = faultCatalogUpdateSchema.parse(await readBody(request));
+      const fields: string[] = [];
+      const params: (string | number | null)[] = [];
+      if (patch.name !== undefined) { fields.push('name = ?'); params.push(patch.name); }
+      if (patch.description !== undefined) { fields.push('description = ?'); params.push(patch.description?.trim() || null); }
+      if (patch.points !== undefined) { fields.push('points = ?'); params.push(patch.points); }
+      if (patch.amount !== undefined) { fields.push('amount = ?'); params.push(roundMoney(patch.amount)); }
+      if (patch.active !== undefined) { fields.push('active = ?'); params.push(patch.active ? 1 : 0); }
+      if (!fields.length) return sendJson(response, 400, { message: 'No hay cambios para guardar' });
+      params.push(catalogId);
+      const [result] = await pool.execute<ResultSetHeader>(
+        `UPDATE fault_catalog SET ${fields.join(', ')} WHERE id = ?`, params
+      );
+      if (result.affectedRows === 0) return sendJson(response, 404, { message: 'Tipo de falta no encontrado' });
+      void recordAuditLog(pool, {
+        userId: Number(authenticatedClaims.sub),
+        username: authenticatedClaims.email,
+        action: 'FAULT_CATALOG_UPDATED',
+        resourceType: 'fault_catalog',
+        resourceId: Number(catalogId),
+        details: { changes: patch },
+        ipAddress: request.socket.remoteAddress || 'unknown',
+        userAgent: request.headers['user-agent'] || null,
+      });
+      return sendJson(response, 200, { ok: true });
+    }
+
+    if (request.method === 'POST' && pathname === '/api/faults') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      if (vaultBlocked('Desbloquea la boveda antes de registrar faltas')) return;
+      const payload = faultCreateSchema.parse(await readBody(request));
+      if (payload.fault_date > isoDateInTimeZone()) {
+        return sendJson(response, 400, { message: 'La fecha de la falta no puede ser futura' });
+      }
+      const [userRows] = await pool.query<RowDataPacket[]>(
+        'SELECT id FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1', [payload.user_id]
+      );
+      if (!userRows[0]) return sendJson(response, 404, { message: 'Usuario no encontrado' });
+      const [catalogRows] = await pool.query<RowDataPacket[]>(
+        'SELECT id, name, points, amount, active FROM fault_catalog WHERE id = ? LIMIT 1', [payload.catalog_id]
+      );
+      const catalog = catalogRows[0];
+      if (!catalog) return sendJson(response, 404, { message: 'Tipo de falta no encontrado' });
+      if (!catalog.active) return sendJson(response, 409, { message: 'Ese tipo de falta esta inactivo' });
+      const [result] = await pool.execute<ResultSetHeader>(
+        `INSERT INTO employee_faults (user_id, catalog_id, fault_type, points, amount, fault_date, notes, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [payload.user_id, payload.catalog_id, catalog.name, Number(catalog.points), Number(catalog.amount),
+          payload.fault_date, payload.notes?.trim() || null, authenticatedClaims.sub]
+      );
+      void recordAuditLog(pool, {
+        userId: Number(authenticatedClaims.sub),
+        username: authenticatedClaims.email,
+        action: 'FAULT_CREATED',
+        resourceType: 'employee_fault',
+        resourceId: result.insertId,
+        details: { userId: payload.user_id, faultType: catalog.name, points: Number(catalog.points), amount: Number(catalog.amount), faultDate: payload.fault_date },
+        ipAddress: request.socket.remoteAddress || 'unknown',
+        userAgent: request.headers['user-agent'] || null,
+      });
+      return sendJson(response, 201, { id: result.insertId });
+    }
+
+    const annulMatch = pathname.match(/^\/api\/faults\/(\d+)\/annul$/);
+    if (request.method === 'POST' && annulMatch) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      if (vaultBlocked('Desbloquea la boveda antes de anular faltas')) return;
+      const payload = faultAnnulSchema.parse(await readBody(request));
+      const [result] = await pool.execute<ResultSetHeader>(
+        "UPDATE employee_faults SET status = 'anulada', annulled_by = ?, annulled_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'activa'",
+        [authenticatedClaims.sub, annulMatch[1]]
+      );
+      if (result.affectedRows === 0) return sendJson(response, 404, { message: 'Falta no encontrada o ya anulada' });
+      await pool.execute(
+        `UPDATE fault_appeals SET status = 'aceptada', resolution_note = COALESCE(?, 'Anulada por administración'),
+                resolved_by = ?, resolved_at = CURRENT_TIMESTAMP
+          WHERE fault_id = ? AND status = 'pendiente'`,
+        [payload.note?.trim() || null, authenticatedClaims.sub, annulMatch[1]]
+      );
+      void recordAuditLog(pool, {
+        userId: Number(authenticatedClaims.sub),
+        username: authenticatedClaims.email,
+        action: 'FAULT_ANNULLED',
+        resourceType: 'employee_fault',
+        resourceId: Number(annulMatch[1]),
+        details: { note: payload.note?.trim() || null },
+        ipAddress: request.socket.remoteAddress || 'unknown',
+        userAgent: request.headers['user-agent'] || null,
+      });
+      return sendJson(response, 200, { ok: true });
+    }
+
+    const appealMatch = pathname.match(/^\/api\/faults\/(\d+)\/appeal$/);
+    if (request.method === 'POST' && appealMatch) {
+      const payload = faultAppealSchema.parse(await readBody(request));
+      const [faultRows] = await pool.query<RowDataPacket[]>(
+        'SELECT user_id, status FROM employee_faults WHERE id = ? LIMIT 1', [appealMatch[1]]
+      );
+      if (!faultRows[0]) return sendJson(response, 404, { message: 'Falta no encontrada' });
+      if (Number(faultRows[0].user_id) !== Number(authenticatedClaims.sub)) {
+        return sendJson(response, 403, { message: 'Solo puedes apelar tus propias faltas' });
+      }
+      if (faultRows[0].status !== 'activa') return sendJson(response, 409, { message: 'Esta falta ya fue anulada' });
+      try {
+        const [result] = await pool.execute<ResultSetHeader>(
+          'INSERT INTO fault_appeals (fault_id, user_id, message) VALUES (?, ?, ?)',
+          [appealMatch[1], authenticatedClaims.sub, payload.message]
+        );
+        void recordAuditLog(pool, {
+          userId: Number(authenticatedClaims.sub),
+          username: authenticatedClaims.email,
+          action: 'FAULT_APPEALED',
+          resourceType: 'employee_fault',
+          resourceId: Number(appealMatch[1]),
+          details: { appealId: result.insertId },
+          ipAddress: request.socket.remoteAddress || 'unknown',
+          userAgent: request.headers['user-agent'] || null,
+        });
+        return sendJson(response, 201, { id: result.insertId });
+      } catch (error) {
+        if (typeof error === 'object' && error && 'code' in error && error.code === 'ER_DUP_ENTRY') {
+          return sendJson(response, 409, { message: 'Ya enviaste una apelación para esta falta' });
+        }
+        throw error;
+      }
+    }
+
+    const resolveMatch = pathname.match(/^\/api\/faults\/appeals\/(\d+)\/resolve$/);
+    if (request.method === 'POST' && resolveMatch) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      if (vaultBlocked('Desbloquea la boveda antes de resolver apelaciones')) return;
+      const payload = faultAppealResolveSchema.parse(await readBody(request));
+      const [rows] = await pool.query<RowDataPacket[]>(
+        'SELECT id, fault_id, status FROM fault_appeals WHERE id = ? LIMIT 1', [resolveMatch[1]]
+      );
+      if (!rows[0]) return sendJson(response, 404, { message: 'Apelación no encontrada' });
+      if (rows[0].status !== 'pendiente') return sendJson(response, 409, { message: 'Esta apelación ya fue resuelta' });
+      const [result] = await pool.execute<ResultSetHeader>(
+        `UPDATE fault_appeals SET status = ?, resolution_note = ?, resolved_by = ?, resolved_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND status = 'pendiente'`,
+        [payload.decision, payload.note?.trim() || null, authenticatedClaims.sub, resolveMatch[1]]
+      );
+      if (result.affectedRows === 0) return sendJson(response, 409, { message: 'Esta apelación ya fue resuelta' });
+      if (payload.decision === 'aceptada') {
+        await pool.execute(
+          "UPDATE employee_faults SET status = 'anulada', annulled_by = ?, annulled_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'activa'",
+          [authenticatedClaims.sub, rows[0].fault_id]
+        );
+      }
+      void recordAuditLog(pool, {
+        userId: Number(authenticatedClaims.sub),
+        username: authenticatedClaims.email,
+        action: 'FAULT_APPEAL_RESOLVED',
+        resourceType: 'fault_appeal',
+        resourceId: Number(resolveMatch[1]),
+        details: { decision: payload.decision, faultId: Number(rows[0].fault_id) },
+        ipAddress: request.socket.remoteAddress || 'unknown',
+        userAgent: request.headers['user-agent'] || null,
+      });
+      return sendJson(response, 200, { ok: true });
     }
 
     // ==========================================

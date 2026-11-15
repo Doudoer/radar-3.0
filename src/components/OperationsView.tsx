@@ -441,7 +441,7 @@ export const OperationsView: React.FC<OperationsViewProps> = ({
         entry.downPaymentSum = sumMoney([entry.downPaymentSum, orderCollection(order)]);
         entry.balanceSum = sumMoney([entry.balanceSum, orderBalance(order)]);
       }
-      if (order.status === 'entregado') {
+      if (order.status === 'entregado' || (order.status === 'reclamo' && Boolean(order.deliveredAt))) {
         entry.deliveredCount += 1;
       }
     });

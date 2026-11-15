@@ -37,6 +37,7 @@ const ExportModal = React.lazy(() => import('./components/ExportModal').then((m)
 const StatusRequestModal = React.lazy(() => import('./components/StatusRequestModal').then((m) => ({ default: m.StatusRequestModal })));
 const ChangePasswordModal = React.lazy(() => import('./components/ChangePasswordModal').then((m) => ({ default: m.ChangePasswordModal })));
 const UserProfileModal = React.lazy(() => import('./components/UserProfileModal').then((m) => ({ default: m.UserProfileModal })));
+const UserProfileView = React.lazy(() => import('./components/UserProfileView').then((m) => ({ default: m.UserProfileView })));
 const DailyFollowupBriefingModal = React.lazy(() => import('./components/DailyFollowupBriefingModal').then((m) => ({ default: m.DailyFollowupBriefingModal })));
 
 const ViewFallback: React.FC = () => (
@@ -130,6 +131,7 @@ export default function App() {
   const [isStatusRequestOpen, setIsStatusRequestOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [profileTargetId, setProfileTargetId] = useState<number | null>(null);
 
   // Follow-up modal & pending items
   const [isFollowupModalOpen, setIsFollowupModalOpen] = useState(false);
@@ -345,6 +347,12 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
+  const openProfileFor = useCallback((userId?: number) => {
+    setProfileTargetId(userId && userId !== authUser?.id ? userId : null);
+    setCurrentScreen('perfil');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [authUser?.id]);
+
   // Navigation handlers
   const handleNavigate = (screen: NavScreen) => {
     if ((screen === 'relacion_semanal' || screen === 'finanzas') && userRole !== 'admin') {
@@ -352,6 +360,7 @@ export default function App() {
       return;
     }
     ordersInitialRangeRef.current = null;
+    if (screen !== 'perfil') setProfileTargetId(null);
     setCurrentScreen(screen);
     if (screen === 'reclamos') setClaimsFocusOrderId(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -554,7 +563,7 @@ export default function App() {
           onNavigate={handleNavigate}
           onOpenSearch={() => setIsSearchModalOpen(true)}
           onLogout={() => { void logout(); }}
-          onOpenProfile={() => setIsProfileModalOpen(true)}
+          onOpenProfile={() => openProfileFor()}
           onOpenChangePassword={() => setIsChangePasswordOpen(true)}
           onOpenFollowups={() => handleNavigate('mi_trabajo')}
           pendingFollowupsCount={pendingFollowupsCount}
@@ -743,12 +752,22 @@ export default function App() {
 
             {(currentScreen === 'usuarios' || currentScreen === 'directorio') && (
               userRole === 'admin'
-                ? <UsersManagementView currentUserId={authUser.id} />
+                ? <UsersManagementView currentUserId={authUser.id} onOpenProfile={openProfileFor} />
                 : (
                   <div className="horizon-card p-8 text-center text-sm text-slate-300">
                     Acceso restringido. Solo administración puede gestionar usuarios y permisos.
                   </div>
                 )
+            )}
+
+            {currentScreen === 'perfil' && (
+              <UserProfileView
+                targetUserId={profileTargetId ?? authUser.id}
+                viewerId={authUser.id}
+                viewerRole={userRole}
+                onBack={profileTargetId ? () => openProfileFor() : undefined}
+                onOpenAccountSettings={() => setIsProfileModalOpen(true)}
+              />
             )}
 
             {currentScreen === 'order-detail' && selectedOrder && (

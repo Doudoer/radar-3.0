@@ -77,6 +77,24 @@ describe('workflow API transactional enforcement', () => {
       expect(JSON.parse(String(end.mock.calls[0][0])).tasks).toHaveLength(expected);
     }
   });
+  it('scopes the admin profile queue to post-entrega, reclamos and piezas listas para entregar for one operator', async () => {
+    for (const [claims, url, extra, expected] of [
+      [{ sub: '7', role: 'operator' }, '/api/workflow/tasks?operatorId=7', {}, 0],
+      [{ sub: '1', role: 'admin' }, '/api/workflow/tasks?operatorId=7', {}, 0],
+      [{ sub: '1', role: 'admin' }, '/api/workflow/tasks', {}, 1],
+      [{ sub: '1', role: 'admin' }, '/api/workflow/tasks?operatorId=9', { status: 'Entregado', delivered_at: '2026-11-01T16:00:00Z', followup_user_id: 9 }, 1],
+      [{ sub: '1', role: 'admin' }, '/api/workflow/tasks?operatorId=7', { status: 'Entregado', delivered_at: '2026-11-01T16:00:00Z', followup_user_id: 9 }, 0],
+      [{ sub: '7', role: 'operator' }, '/api/workflow/tasks?operatorId=9', { status: 'Entregado', delivered_at: '2026-11-01T16:00:00Z', followup_user_id: 9 }, 0],
+      [{ sub: '7', role: 'operator' }, '/api/workflow/tasks', { status: 'Reclamo' }, 1],
+    ] as const) {
+      const { database, connection } = setup();
+      connection.query.mockReset().mockResolvedValue([[], []]).mockResolvedValueOnce([[{ ...row, ...extra }] as RowDataPacket[], []]);
+      const { req, res, end } = request('GET');
+      req.url = url;
+      await handleWorkflowRequest(req, res, '/api/workflow/tasks', claims, database, vi.fn());
+      expect(JSON.parse(String(end.mock.calls[0][0])).tasks).toHaveLength(expected);
+    }
+  });
   it('allows only admin to assign an active advisor, with version lock and no commercial or milestone writes', async () => {
     const { database, connection } = setup();
     connection.query.mockReset().mockResolvedValue([[], []])

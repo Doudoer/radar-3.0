@@ -14,6 +14,7 @@ export type ManagedUser = {
   permissions: string[];
   active: number;
   updated_at: string;
+  hasPin?: boolean;
 };
 
 export type YardCashReceiver = {
@@ -128,6 +129,8 @@ const UserEditModal: React.FC<UserEditModalProps> = React.memo(({
     phone: user.phone || '',
     avatar_url: user.avatar_url || '',
     password: '',
+    pin: '',
+    removePin: false,
     role: user.role,
     active: Boolean(user.active),
     permissions: user.permissions || [],
@@ -183,6 +186,17 @@ const UserEditModal: React.FC<UserEditModalProps> = React.memo(({
 
       if (draft.password.trim()) {
         payload.password = draft.password.trim();
+      }
+
+      const pinValue = draft.pin.trim();
+      if (draft.removePin && user.hasPin) {
+        payload.pin = null;
+      } else if (pinValue) {
+        if (!/^\d{4}$/.test(pinValue)) {
+          setError('El PIN debe tener exactamente 4 dígitos.');
+          return;
+        }
+        payload.pin = pinValue;
       }
 
       const response = await apiFetch(`/users/${user.id}`, {
@@ -334,6 +348,50 @@ const UserEditModal: React.FC<UserEditModalProps> = React.memo(({
                 />
               </label>
 
+              <div className="p-3 bg-[#040814] border border-cyan-500/25 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono uppercase text-slate-300 font-bold flex items-center gap-1.5">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-cyan-400">dialpad</span>
+                    PIN de acceso a Yarda
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold border ${
+                    user.hasPin
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                      : 'border-slate-700 bg-slate-900 text-slate-400'
+                  }`}>
+                    {user.hasPin ? 'Configurado' : 'Sin PIN'}
+                  </span>
+                </div>
+                <input
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={4}
+                  autoComplete="off"
+                  value={draft.pin}
+                  onChange={(e) => setDraft({
+                    ...draft,
+                    pin: e.target.value.replace(/\D/g, '').slice(0, 4),
+                    removePin: false,
+                  })}
+                  placeholder={user.hasPin ? 'Dejar vacío para mantener el actual' : '4 dígitos (opcional)'}
+                  className="w-full rounded-xl border border-cyan-500/30 bg-[#070c18] px-3.5 py-2 text-sm text-white outline-none focus:border-cyan-400 font-mono tracking-[0.4em]"
+                />
+                {user.hasPin && (
+                  <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={draft.removePin}
+                      onChange={(e) => setDraft({ ...draft, removePin: e.target.checked, pin: e.target.checked ? '' : draft.pin })}
+                      className="h-3.5 w-3.5 accent-cyan-400 rounded cursor-pointer"
+                    />
+                    <span>Quitar PIN actual</span>
+                  </label>
+                )}
+                <p className="text-[10px] text-slate-500 leading-snug">
+                  Permite entrar al portal de yarda solo con 4 dígitos. Debe ser único entre usuarios.
+                </p>
+              </div>
+
               <label className="text-xs text-slate-300 font-mono uppercase text-[10px] block">
                 Rol
                 <select
@@ -437,6 +495,7 @@ const UserCreateModal: React.FC<UserCreateModalProps> = React.memo(({
     phone: '',
     avatar_url: '',
     password: '',
+    pin: '',
     role: 'operator' as 'operator' | 'admin' | 'vendedor_yarda',
     active: true,
     permissions: ['orders:view', 'orders:edit', 'customers:view', 'claims:view'] as string[],
@@ -493,6 +552,11 @@ const UserCreateModal: React.FC<UserCreateModalProps> = React.memo(({
     setSaving(true);
     setError(null);
     try {
+      const pinValue = draft.pin.trim();
+      if (pinValue && !/^\d{4}$/.test(pinValue)) {
+        setError('El PIN debe tener exactamente 4 dígitos.');
+        return;
+      }
       const response = await apiFetch('/users', {
         method: 'POST',
         body: JSON.stringify({
@@ -504,6 +568,7 @@ const UserCreateModal: React.FC<UserCreateModalProps> = React.memo(({
           role: draft.role,
           active: draft.active,
           permissions: draft.permissions,
+          ...(pinValue ? { pin: pinValue } : {}),
         }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -673,6 +738,23 @@ const UserCreateModal: React.FC<UserCreateModalProps> = React.memo(({
               <option value="vendedor_yarda">🚜 Vendedor Yarda (Patio)</option>
               <option value="admin">Administrador</option>
             </select>
+          </label>
+
+          <label className="text-xs text-slate-300 font-mono uppercase text-[10px]">
+            PIN de acceso a Yarda (opcional)
+            <input
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={4}
+              autoComplete="off"
+              value={draft.pin}
+              onChange={(e) => setDraft({ ...draft, pin: e.target.value.replace(/\D/g, '').slice(0, 4) })}
+              placeholder="4 dígitos"
+              className="mt-1 w-full rounded-xl border border-cyan-500/30 bg-[#040814] px-3.5 py-2 text-sm text-white outline-none focus:border-cyan-400 font-mono tracking-[0.4em]"
+            />
+            <span className="block mt-1 text-[10px] text-slate-500 normal-case">
+              Con este PIN el usuario entra al portal de yarda sin escribir correo ni contraseña. Debe ser único.
+            </span>
           </label>
 
           <div className="mt-1">
@@ -977,9 +1059,10 @@ const YardReceiversSection: React.FC<YardReceiversSectionProps> = React.memo(({
 // ============================================================================
 interface UsersManagementViewProps {
   currentUserId?: number;
+  onOpenProfile?: (userId: number) => void;
 }
 
-export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ currentUserId }) => {
+export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ currentUserId, onOpenProfile }) => {
   const [usersList, setUsersList] = useState<ManagedUser[]>([]);
   const [yardReceivers, setYardReceivers] = useState<YardCashReceiver[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1244,6 +1327,15 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-right">
+                      {onOpenProfile && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenProfile(user.id)}
+                          className="text-slate-400 hover:text-cyan-300 font-semibold cursor-pointer mr-3 transition-colors text-xs"
+                        >
+                          Perfil
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => handleEditUser(user, 'edit')}

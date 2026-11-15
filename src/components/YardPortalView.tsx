@@ -8,6 +8,8 @@ import { YardCustomerBlock } from './YardCustomerBlock';
 import { expandYearRangesInText } from '../utils/compatibilityFormat';
 import { yardQueueCountsFromOrders, type YardQueueCounts, type YardQueueTab } from '../utils/yardQueue';
 
+const YardProfileSheet = React.lazy(() => import('./UserProfileView').then((m) => ({ default: m.UserProfileView })));
+
 const createIdempotencyKey = () => {
   try {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -102,6 +104,7 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
   const [isCompatibilityModalOpen, setIsCompatibilityModalOpen] = useState(false);
   const [photoLightboxIndex, setPhotoLightboxIndex] = useState<number | null>(null);
   const [copiedField, setCopiedField] = useState<'vin' | 'phone' | null>(null);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
 
   // Pull-to-refresh mobile gesture state
   const [pullStartY, setPullStartY] = useState(0);
@@ -740,6 +743,20 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
             </div>
 
             <div className="flex items-center gap-1 shrink-0">
+              {currentUser?.id && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic(10);
+                    setIsProfileOpen(true);
+                  }}
+                  title="Mi perfil y liquidación"
+                  aria-label="Abrir mi perfil y liquidación semanal"
+                  className="yard-icon-btn"
+                >
+                  <span aria-hidden="true" className="material-symbols-outlined text-[21px]">account_circle</span>
+                </button>
+              )}
               {onRefreshOrders && (
                 <button
                   type="button"
@@ -2021,6 +2038,19 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* My Profile & Weekly Payroll Sheet */}
+      {isProfileOpen && currentUser?.id && (
+        <React.Suspense fallback={null}>
+          <YardProfileSheet
+            targetUserId={currentUser.id}
+            viewerId={currentUser.id}
+            viewerRole={currentUser.role || 'vendedor_yarda'}
+            variant="yard"
+            onBack={() => setIsProfileOpen(false)}
+          />
+        </React.Suspense>
       )}
 
       {/* Cancel Order Modal */}

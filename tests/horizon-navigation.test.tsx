@@ -24,8 +24,9 @@ describe('Horizon navigation preserves Radar access and routes', () => {
     const html = renderToStaticMarkup(<Sidebar currentScreen="dashboard" userRole="admin" onNavigate={() => {}} />);
     expect(html).toContain('aria-label="Operación"');
     expect(html).toContain('aria-label="Administración"');
-    expect(html.match(/class="horizon-nav-item /g)).toHaveLength(11);
+    expect(html.match(/class="horizon-nav-item /g)).toHaveLength(12);
     expect(html).toContain('Mi trabajo de hoy');
+    expect(html).toContain('Mi perfil');
   });
   it('preserves the mobile drawer and alias selection', () => {
     const html = renderToStaticMarkup(<Sidebar currentScreen="finanzas" userRole="admin" isOpenMobile onNavigate={() => {}} />);

@@ -1,6 +1,7 @@
 import { IncomingMessage, ServerResponse } from 'node:http';
 import type { RowDataPacket } from 'mysql2/promise';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 import { jwtSecret, pool } from './config';
 
 export type Claims = jwt.JwtPayload & { role?: string; sub?: string | number };
@@ -79,6 +80,17 @@ setInterval(() => {
   }
 }, 60_000).unref();
 
+export const isPinInUse = async (pin: string, excludeUserId?: number) => {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT id, pin_hash FROM users WHERE pin_hash IS NOT NULL AND deleted_at IS NULL${excludeUserId ? ' AND id <> ?' : ''}`,
+    excludeUserId ? [excludeUserId] : []
+  );
+  for (const row of rows) {
+    if (await bcrypt.compare(pin, String(row.pin_hash || ''))) return true;
+  }
+  return false;
+};
+
 export const userIsActive = async (claims: Claims) => {
   if (!claims.sub) return false;
   try {
@@ -101,9 +113,9 @@ export const userIsActive = async (claims: Claims) => {
   }
 };
 
-export const setSessionCookie = (response: ServerResponse, token: string) => {
+export const setSessionCookie = (response: ServerResponse, token: string, maxAgeSeconds = 28800) => {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  appendCookie(response, `radar_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800${secure}`);
+  appendCookie(response, `radar_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure}`);
 };
 
 export const clearSessionCookie = (response: ServerResponse) => {

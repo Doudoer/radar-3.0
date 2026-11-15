@@ -50,6 +50,7 @@ const SCREEN_METADATA: Record<string, { title: string; category: string; icon: s
   ayuda: { title: 'Sistema', category: 'Administración', icon: 'help_outline' },
   usuarios: { title: 'Usuarios', category: 'Seguridad', icon: 'manage_accounts' },
   directorio: { title: 'Usuarios', category: 'Seguridad', icon: 'manage_accounts' },
+  perfil: { title: 'Perfil', category: 'Personal', icon: 'account_circle' },
   'order-detail': { title: 'Detalle de Orden', category: 'Operaciones', icon: 'receipt_long' },
 };
 

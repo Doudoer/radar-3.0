@@ -37,7 +37,7 @@ export const apiFetch = async (path: string, options: RequestInit = {}) => {
   }
   if (cleanPath.startsWith('/auth/') && unsafe && response.ok) csrfToken = '';
 
-  if (response.status === 401 && !cleanPath.startsWith('/auth/login')) {
+  if (response.status === 401 && !cleanPath.startsWith('/auth/login') && cleanPath !== '/auth/pin-login') {
     sessionStorage.removeItem('radar_authenticated');
     window.dispatchEvent(new CustomEvent('radar:unauthorized'));
   }

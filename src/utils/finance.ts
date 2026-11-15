@@ -82,8 +82,11 @@ export const movementsInPeriod = (movements: FinanceMovement[], range: { start: 
 export const movementIncome = (movements: FinanceMovement[]): number =>
   sumMoney(movements.map((movement) => movement.kind === 'refund' ? -Math.abs(movement.amount) : Math.abs(movement.amount)));
 
+export const isDeliveredSaleOrder = (order: Order): boolean =>
+  order.status === 'entregado' || (order.status === 'reclamo' && Boolean(order.deliveredAt));
+
 export const commissionBase = (orders: Order[]): number =>
-  sumMoney(orders.filter((order) => order.status === 'entregado' && !order.isYardSale &&
+  sumMoney(orders.filter((order) => isDeliveredSaleOrder(order) && !order.isYardSale &&
     order.advisorRole !== 'vendedor_yarda').map((order) => order.financials.partPrice ?? 0));
 
 export const commissionAmount = (orders: Order[]): number =>

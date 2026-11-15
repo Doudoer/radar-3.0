@@ -12,6 +12,12 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(200),
 });
 
+export const pinSchema = z.string().trim().regex(/^\d{4}$/, 'El PIN debe tener exactamente 4 dígitos');
+
+export const pinLoginSchema = z.object({
+  pin: pinSchema,
+});
+
 export const claimSchema = z.object({
   orderId: z.coerce.number().int().positive(),
   description: z.string().trim().min(3).max(5000),
@@ -148,6 +154,7 @@ export const userCreateSchema = z.object({
   role: z.enum(['admin', 'operator', 'vendedor_yarda']).default('operator'),
   permissions: z.array(z.string().trim().min(1).max(80)).max(100).default([]),
   active: z.boolean().default(true),
+  pin: pinSchema.optional().nullable(),
 });
 
 export const userUpdateSchema = z.object({
@@ -159,6 +166,7 @@ export const userUpdateSchema = z.object({
   role: z.enum(['admin', 'operator', 'vendedor_yarda']),
   permissions: z.array(z.string().trim().min(1).max(80)).max(100),
   active: z.boolean(),
+  pin: pinSchema.optional().nullable(),
 });
 
 export const userProfileUpdateSchema = z.object({
@@ -343,6 +351,59 @@ export const cancelOrderSchema = z.object({
   reason: z.string().trim().min(5, 'Explica el motivo de la cancelación').max(500),
   paymentMethod: z.string().trim().max(50).optional(),
   version: z.number().int().positive().optional(),
+});
+
+const isoDateSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida')
+  .refine((value) => {
+    const date = new Date(`${value}T00:00:00Z`);
+    return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  }, 'Fecha inválida');
+
+export const userProfileDetailsSchema = z.object({
+  address: z.string().trim().max(255).optional().nullable(),
+  emergency_contact_name: z.string().trim().max(160).optional().nullable(),
+  emergency_contact_phone: z.string().trim().max(40).optional().nullable(),
+  hired_on: isoDateSchema.optional().nullable(),
+  weekly_salary: moneySchema.optional().nullable(),
+});
+
+export const faultCatalogSchema = z.object({
+  name: z.string().trim().min(3, 'El nombre debe tener al menos 3 caracteres').max(120),
+  description: z.string().trim().max(255).optional().nullable(),
+  points: z.coerce.number().int().min(0, 'Los puntos no pueden ser negativos').max(100),
+  amount: moneySchema,
+  active: z.boolean().optional().default(true),
+});
+
+export const faultCatalogUpdateSchema = z.object({
+  name: z.string().trim().min(3, 'El nombre debe tener al menos 3 caracteres').max(120).optional(),
+  description: z.string().trim().max(255).optional().nullable(),
+  points: z.coerce.number().int().min(0, 'Los puntos no pueden ser negativos').max(100).optional(),
+  amount: moneySchema.optional(),
+  active: z.boolean().optional(),
+});
+
+export const faultCreateSchema = z.object({
+  user_id: z.coerce.number().int().positive(),
+  catalog_id: z.coerce.number().int().positive(),
+  fault_date: isoDateSchema,
+  notes: z.string().trim().max(500).optional().nullable(),
+});
+
+export const faultAnnulSchema = z.object({
+  note: z.string().trim().max(500).optional().nullable(),
+});
+
+export const faultAppealSchema = z.object({
+  message: z.string().trim().min(10, 'Explica tu apelación con al menos 10 caracteres').max(500),
+});
+
+export const faultAppealResolveSchema = z.object({
+  decision: z.enum(['aceptada', 'rechazada']),
+  note: z.string().trim().max(500).optional().nullable(),
 });
 
 export const orderDeliveryFollowupSchema = z.object({

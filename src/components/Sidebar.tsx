@@ -37,6 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'reclamos', label: 'Reclamos', icon: 'error_outline' },
     { id: 'reembolsos', label: 'Reembolsos', icon: 'currency_exchange' },
     { id: 'mis_operaciones', label: 'Mis Operaciones', icon: 'assignment_ind' },
+    { id: 'perfil', label: 'Mi perfil', icon: 'account_circle' },
     ...(isSuperAdmin
       ? [{ id: 'relacion_semanal' as NavScreen, label: 'Relación Semanal', icon: 'domain', aliases: ['finanzas' as NavScreen] }]
       : []),

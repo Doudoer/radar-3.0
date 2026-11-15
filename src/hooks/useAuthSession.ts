@@ -48,12 +48,31 @@ export const useAuthSession = () => {
   }, [handleUnauthorized]);
 
   useEffect(() => {
-    if (!authenticated) {
-      setChecking(false);
-      return;
-    }
+    let cancelled = false;
 
-    refreshUser().finally(() => setChecking(false));
+    const restoreRememberedSession = async () => {
+      try {
+        const response = await apiFetch('/auth/me');
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (payload?.user && !cancelled) {
+          sessionStorage.setItem('radar_authenticated', 'true');
+          setUser(payload.user);
+          setAuthenticated(true);
+        }
+      } catch {
+        // Sin sesión recordada: se muestra el login normal.
+      }
+    };
+
+    const bootstrap = async () => {
+      if (authenticated) await refreshUser();
+      else await restoreRememberedSession();
+      if (!cancelled) setChecking(false);
+    };
+
+    void bootstrap();
+    return () => { cancelled = true; };
   }, [authenticated, refreshUser]);
 
   const login = useCallback((authenticatedUser: AuthUser) => {

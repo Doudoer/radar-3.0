@@ -55,7 +55,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
 
   if (!isReady) {
     return (
-      <main className="flex min-h-screen min-h-[100dvh] items-center justify-center bg-[#050811] px-4 py-8 text-[#dfe2ef] relative overflow-hidden cyber-grid-bg">
+      <main data-auth-gate="true" className="flex min-h-screen min-h-[100dvh] items-center justify-center bg-[#050811] px-4 py-8 text-[#dfe2ef] relative overflow-hidden cyber-grid-bg">
         {/* Ambient Neon Backlight Orbs */}
         <div className="absolute top-1/3 left-1/3 -translate-x-1/2 -translate-y-1/2 w-72 h-72 bg-cyan-500/15 rounded-full blur-[80px] pointer-events-none" />
         <div className="absolute bottom-1/3 right-1/3 translate-x-1/2 translate-y-1/2 w-72 h-72 bg-emerald-500/15 rounded-full blur-[80px] pointer-events-none" />
@@ -103,7 +103,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
   }
 
   return (
-    <main className="horizon-login flex min-h-screen min-h-[100dvh] items-center justify-center bg-[#050811] px-4 py-6 sm:py-8 text-[#dfe2ef] relative overflow-y-auto custom-scrollbar transition-opacity duration-300">
+    <main data-auth-gate="true" className="horizon-login flex min-h-screen min-h-[100dvh] items-center justify-center bg-[#050811] px-4 py-6 sm:py-8 text-[#dfe2ef] relative overflow-y-auto custom-scrollbar transition-opacity duration-300">
       {/* Top right theme toggle */}
       <button
         type="button"

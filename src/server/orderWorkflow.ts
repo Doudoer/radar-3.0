@@ -287,7 +287,9 @@ export async function handleWorkflowRequest(
   const queue = pathname === '/api/workflow/tasks';
   if (!match && !queue && !assignment && !yardReady && !yardReadyAck && !yardReadyRevert && !yardUnavailable && !claimReady && !claimReadyRevert && !verifyDownpayment && !exemptDownpayment && !yardCompatibility) return false;
   const isYardAction = Boolean(yardReady || yardUnavailable || claimReady);
-  if (isYardAction) {
+  if (queue) {
+    if (!requireRole(response, claims, 'admin', 'operator', 'vendedor_yarda')) return true;
+  } else if (isYardAction) {
     if (!requireRole(response, claims, 'admin', 'vendedor_yarda')) return true;
   } else if (!requireRole(response, claims, 'admin', 'operator')) {
     return true;
@@ -1232,6 +1234,8 @@ export async function handleWorkflowRequest(
     finally { connection.release(); }
   }
   if (request.method === 'GET') {
+    const queueUrl = new URL(request.url || '/', 'http://localhost');
+    const requestedOperatorId = claims.role === 'admin' ? Number(queueUrl.searchParams.get('operatorId')) || null : null;
     const params: (string | number)[] = [];
     let where = 'o.deleted_at IS NULL';
     if (match) { where += ' AND o.id=?'; params.push(match[1]); }
@@ -1264,10 +1268,13 @@ export async function handleWorkflowRequest(
       const events = eventRows.filter(event => Number(event.order_id) === Number(row.id)).map(workflowEventFromRow);
       const pending = workflowTasks(order, events, today).filter(task => {
         if (match) return true;
+        const assigneeId = workflowTaskAssignee(order, task.task).userId;
         // "Mi trabajo de hoy": para operadores, solo Reclamos (incident), Listas para entregar (prepare) y Seguimiento post entrega (post_*)
-        const isAllowedQueue = claims.role === 'admin' || task.task === 'incident' || task.task === 'prepare' || task.task.startsWith('post_');
+        const isAllowedQueue = task.task === 'incident' || task.task === 'prepare' || task.task.startsWith('post_');
+        if (requestedOperatorId) return isAllowedQueue && assigneeId === requestedOperatorId;
+        if (claims.role === 'admin') return true;
         if (!isAllowedQueue) return false;
-        return claims.role === 'admin' || workflowTaskAssignee(order, task.task).userId === Number(claims.sub);
+        return assigneeId === Number(claims.sub);
       });
       if (match) {
         const [contacts] = await database.query<RowDataPacket[]>('SELECT id,operator_name,notes,created_at FROM order_delivery_followups WHERE order_id=? ORDER BY id DESC', [order.id]);

@@ -76,25 +76,45 @@ export const InstallAppPrompt: React.FC<InstallAppPromptProps> = ({ variant }) =
 
     let openTimer: number | undefined;
     let promptListener: ((event: Event) => void) | undefined;
+    let gateObserver: MutationObserver | undefined;
+
+    // No tapamos el login: la instalación se ofrece cuando la puerta de acceso desaparece.
+    const openWhenGateCleared = (apply: () => void) => {
+      const gatePresent = () => Boolean(document.querySelector('[data-auth-gate]'));
+      if (!gatePresent()) {
+        apply();
+        return;
+      }
+      gateObserver = new MutationObserver(() => {
+        if (!gatePresent()) {
+          gateObserver?.disconnect();
+          gateObserver = undefined;
+          apply();
+        }
+      });
+      gateObserver.observe(document.body, { childList: true, subtree: true });
+    };
 
     if (detected.inAppBrowser) {
-      setMode('in-app');
-      setOpen(true);
+      openWhenGateCleared(() => {
+        setMode('in-app');
+        setOpen(true);
+      });
     } else if (detected.platform === 'ios') {
       setMode('ios');
-      openTimer = window.setTimeout(() => setOpen(true), 900);
+      openTimer = window.setTimeout(() => openWhenGateCleared(() => setOpen(true)), 900);
     } else {
       promptListener = (event: Event) => {
         event.preventDefault();
         promptEventRef.current = event as BeforeInstallPromptEvent;
         setMode('android-native');
-        setOpen(true);
+        openWhenGateCleared(() => setOpen(true));
       };
       window.addEventListener('beforeinstallprompt', promptListener);
       openTimer = window.setTimeout(() => {
         if (!promptEventRef.current) {
           setMode('android-manual');
-          setOpen(true);
+          openWhenGateCleared(() => setOpen(true));
         }
       }, 2500);
     }
@@ -103,6 +123,7 @@ export const InstallAppPrompt: React.FC<InstallAppPromptProps> = ({ variant }) =
       window.removeEventListener('appinstalled', onInstalled);
       if (promptListener) window.removeEventListener('beforeinstallprompt', promptListener);
       if (openTimer) window.clearTimeout(openTimer);
+      gateObserver?.disconnect();
     };
   }, [remember, storageKey]);
 

@@ -6,7 +6,7 @@ import { useFeedback } from './FeedbackProvider';
 import { useDialogAccessibility } from '../hooks/useDialogAccessibility';
 import {
   getFinanceWeekRange, parseFinanceDate, isInFinancePeriod, financeDateKey,
-  FINANCE_TIME_ZONE, commissionBase, commissionAmount, movementIncome, movementsInPeriod, sumMoney,
+  FINANCE_TIME_ZONE, commissionBase, commissionAmount, isDeliveredSaleOrder, movementIncome, movementsInPeriod, sumMoney,
 } from '../utils/finance';
 import {
   generateOfficialDeliveriesPdf,
@@ -483,10 +483,10 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
     [orders, income.movements, currentWeekRange],
   );
 
-  // Delivered Parts of the current running week:
+  // Delivered Parts of the current running week (claims on delivered orders keep counting):
   const weeklyDeliveriesOrders = useMemo(() => {
     return orders.filter((o) => {
-      if (o.status !== 'entregado') return false;
+      if (!isDeliveredSaleOrder(o)) return false;
       const dateToCheck = o.deliveredAt;
       return isDateInWeek(dateToCheck, currentWeekRange);
     });

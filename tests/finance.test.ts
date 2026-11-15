@@ -53,14 +53,16 @@ describe('finance timezone and integer-cent calculations', () => {
     expect(toCents(1.005)).toBe(101);
     const orders = [
       order(),
+      order({ id: 'claim-after-delivery', status: 'reclamo', financials: { partPrice: 500, total: 700, subtotal: 700 } }),
+      order({ id: 'claim-without-delivery', status: 'reclamo', deliveredAt: undefined, financials: { partPrice: 500, total: 700, subtotal: 700 } }),
       order({ id: 'yard', isYardSale: true }),
       order({ id: 'yard-role', advisorRole: 'vendedor_yarda' }),
       order({ id: 'pending', status: 'pagado' }),
       order({ id: 'missing-price', financials: { total: 9000, subtotal: 9000 } }),
       order({ id: 'zero', financials: { partPrice: 0, total: 9000, subtotal: 9000 } }),
     ];
-    expect(commissionBase(orders)).toBe(1000);
-    expect(commissionAmount(orders)).toBe(20);
+    expect(commissionBase(orders)).toBe(1500);
+    expect(commissionAmount(orders)).toBe(30);
     expect(commissionAmount([order({ financials: { partPrice: 123.45, total: 200, subtotal: 200 } })])).toBe(2.47);
   });
 
