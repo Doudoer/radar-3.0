@@ -67,16 +67,34 @@ describe('weekly liquidation', () => {
         canManage
       />
     );
-    expect(html).toContain('Liquidación de la semana');
+    expect(html).toContain('Esta semana');
     expect(html).toContain('9 – 15 nov 2026');
     expect(html).toContain('$ 3,275.00');
     expect(html).toContain('−$ 225.00');
     expect(html).toContain('15 pts');
-    expect(html).toContain('Historial de semanas');
-    expect(html).toContain('En curso');
-    expect(html).toContain('2 faltas');
+    expect(html).toContain('Semanas anteriores');
+    expect(html).not.toContain('En curso');
     expect(html).toContain('1 falta');
     expect(html).toContain('$ 3,100.00');
+  });
+
+  it('shows a single projected net after subtracting penalties, not two competing totals', () => {
+    const html = renderToStaticMarkup(
+      <WeekLiquidation
+        week={week()}
+        history={[]}
+        tone={TONES.office}
+        hasSalary
+        canManage={false}
+        penaltyAmount={225}
+        cutoffLabel="Corte sábado 21, 6:00 p. m. · hora de Honduras"
+      />
+    );
+    expect(html).toContain('$ 3,050.00');
+    expect(html).toContain('Amonestaciones');
+    expect(html).toContain('−$ 225.00');
+    expect(html).toContain('Corte sábado 21, 6:00 p. m. · hora de Honduras');
+    expect(html).not.toContain('Neto proyectado');
   });
 
   it('marks an overdrawn week as negative instead of hiding the debt', () => {
@@ -185,6 +203,7 @@ describe('penalty card', () => {
     expect(html).toContain('salario semanal de cada colaborador');
     expect(html).not.toContain('Tramo');
     expect(html).not.toContain('Guardar tarifa');
+    expect(html).not.toContain('Neto proyectado');
   });
 
   it('does not invent a dollar charge when the salary is missing', () => {

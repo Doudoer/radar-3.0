@@ -97,7 +97,7 @@ interface UserProfileViewProps {
   variant?: 'office' | 'yard';
 }
 
-type Tab = 'resumen' | 'seguimiento' | 'rendimiento' | 'faltas' | 'datos' | 'equipo';
+type Tab = 'resumen' | 'rendimiento' | 'faltas' | 'datos' | 'equipo';
 
 const ROLE_LABELS: Record<string, string> = {
   admin: 'Administrador',
@@ -115,7 +115,7 @@ export interface Tone {
   primary: string;
   secondary: string;
   chip: string;
-  tabActive: string;
+  tabUnderline: string;
   warningText: string;
   warningBox: string;
 }
@@ -131,7 +131,7 @@ export const TONES: Record<'office' | 'yard', Tone> = {
     primary: 'bg-[var(--brand-solid)] text-[color:#ffffff] hover:opacity-90',
     secondary: 'bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-hover)]',
     chip: 'bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-secondary)]',
-    tabActive: 'bg-[var(--text-heading)] text-[var(--bg-card)]',
+    tabUnderline: 'border-[var(--brand-solid)] text-[var(--text-heading)]',
     warningText: 'text-[var(--state-urgency-text)]',
     warningBox: 'border border-[var(--state-urgency-border)] bg-[var(--state-urgency-tint)] text-[var(--state-urgency-text)]',
   },
@@ -145,7 +145,7 @@ export const TONES: Record<'office' | 'yard', Tone> = {
     primary: 'bg-[var(--yard-accent)] text-[var(--yard-accent-ink)] hover:brightness-95',
     secondary: 'bg-[var(--yard-raised)] border border-[var(--yard-line)] text-[var(--yard-ink-soft)]',
     chip: 'bg-[var(--yard-raised)] border border-[var(--yard-line)] text-[var(--yard-muted)]',
-    tabActive: 'bg-[var(--yard-accent)] text-[var(--yard-accent-ink)]',
+    tabUnderline: 'border-[var(--yard-accent)] text-[var(--yard-ink)]',
     warningText: 'text-amber-700',
     warningBox: 'border border-amber-300 bg-amber-50 text-amber-800',
   },
@@ -164,74 +164,83 @@ export const WeekLiquidation: React.FC<{
   tone: Tone;
   hasSalary: boolean;
   canManage: boolean;
-}> = ({ week, history, tone, hasSalary, canManage }) => (
-  <>
-    <div className={`rounded-3xl p-4 sm:p-5 ${tone.card}`}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className={`font-mono text-[10px] font-bold uppercase tracking-[0.12em] ${tone.muted}`}>Liquidación de la semana</p>
-          <p className={`mt-1 text-sm font-bold ${tone.heading}`}>{week.label}</p>
-          <p className={`mt-0.5 text-[11px] ${tone.muted}`}>Corte lunes a domingo · hora de Honduras</p>
-        </div>
-        <div className="text-right">
-          <p className={`font-mono text-[10px] font-bold uppercase tracking-[0.12em] ${tone.muted}`}>Cobro estimado</p>
-          <p className={`mt-0.5 text-2xl font-black tabular-nums ${week.net < 0 ? tone.warningText : tone.heading}`}>
-            {formatUsd(week.net)}
-          </p>
-        </div>
-      </div>
-      <div className="mt-4 grid grid-cols-3 gap-2">
-        <div className={`rounded-2xl px-3 py-2.5 ${tone.subtle}`}>
-          <p className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Salario base</p>
-          <p className={`mt-1 text-sm font-black tabular-nums ${tone.heading}`}>{formatUsd(week.gross)}</p>
-        </div>
-        <div className={`rounded-2xl px-3 py-2.5 ${tone.subtle}`}>
-          <p className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Descuentos</p>
-          <p className={`mt-1 text-sm font-black tabular-nums ${week.deductions > 0 ? tone.warningText : tone.heading}`}>
-            {week.deductions > 0 ? `−${formatUsd(week.deductions)}` : formatUsd(0)}
-          </p>
-        </div>
-        <div className={`rounded-2xl px-3 py-2.5 ${tone.subtle}`}>
-          <p className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Puntos</p>
-          <p className={`mt-1 text-sm font-black tabular-nums ${week.points > 0 ? tone.warningText : tone.heading}`}>
-            {week.points} pts
-          </p>
-        </div>
-      </div>
-      {!hasSalary && (
-        <p className={`mt-3 rounded-xl px-3 py-2 text-[11.5px] ${tone.warningBox}`}>
-          {canManage
-            ? 'Este usuario aún no tiene salario semanal configurado. Puedes definirlo en la pestaña «Datos».'
-            : 'La administración aún no ha configurado tu salario semanal.'}
+  penaltyAmount?: number;
+  cutoffLabel?: string;
+}> = ({ week, history, tone, hasSalary, canManage, penaltyAmount = 0, cutoffLabel }) => {
+  const penalty = Number((penaltyAmount || 0).toFixed(2));
+  const projected = Number((week.net - penalty).toFixed(2));
+  const previousWeeks = history.filter(entry => entry.start !== week.start);
+
+  return (
+    <>
+      <section className={`rounded-3xl px-5 py-5 sm:px-6 sm:py-6 ${tone.card}`} aria-labelledby="profile-week-heading">
+        <p id="profile-week-heading" className={`font-mono text-[10px] font-bold uppercase tracking-[0.14em] ${tone.muted}`}>Esta semana</p>
+        <p className={`mt-2 text-[38px] font-black leading-none tabular-nums sm:text-[44px] ${
+          !hasSalary ? tone.muted : projected < 0 ? tone.warningText : tone.heading
+        }`}>
+          {hasSalary ? formatUsd(projected) : 'Sin salario'}
         </p>
-      )}
-    </div>
-    <div className={`overflow-hidden rounded-3xl ${tone.card}`}>
-      <div className={`border-b px-4 py-3 ${tone.subtle}`}>
-        <p className={`text-xs font-bold ${tone.heading}`}>Historial de semanas</p>
-        <p className={`text-[11px] ${tone.muted}`}>Salario base menos faltas activas de cada semana.</p>
-      </div>
-      <div className="divide-y divide-[var(--border-subtle)]">
-        {history.map((entry, index) => (
-          <div key={entry.start} className="flex items-center justify-between gap-3 px-4 py-2.5">
-            <div className="min-w-0">
-              <p className={`truncate text-xs font-semibold ${tone.heading}`}>
-                {entry.label}
-                {index === 0 && <span className={`ml-2 rounded-full px-2 py-0.5 text-[9.5px] font-bold ${tone.chip}`}>En curso</span>}
-              </p>
-              <p className={`text-[10.5px] ${tone.muted}`}>
-                Base {formatUsd(entry.gross)} · {entry.faultCount} {entry.faultCount === 1 ? 'falta' : 'faltas'} · {entry.points} pts
-              </p>
-            </div>
-            <p className={`shrink-0 text-xs font-black tabular-nums ${entry.net < 0 ? tone.warningText : tone.heading}`}>
-              {formatUsd(entry.net)}
-            </p>
+        <p className={`mt-2 text-xs ${tone.muted}`}>
+          {week.label}{' · '}{cutoffLabel || 'Corte lunes a domingo · hora de Honduras'}
+        </p>
+        <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[var(--border-subtle)] pt-4 sm:flex sm:flex-wrap sm:gap-x-10">
+          <div>
+            <dt className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Salario base</dt>
+            <dd className={`mt-0.5 text-sm font-black tabular-nums ${tone.heading}`}>{formatUsd(week.gross)}</dd>
           </div>
-        ))}
-      </div>
-    </div>
-  </>
-);
+          <div>
+            <dt className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Faltas</dt>
+            <dd className={`mt-0.5 text-sm font-black tabular-nums ${week.deductions > 0 ? tone.warningText : tone.heading}`}>
+              {week.deductions > 0 ? `−${formatUsd(week.deductions)}` : formatUsd(0)}
+            </dd>
+          </div>
+          {penalty > 0 && (
+            <div>
+              <dt className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Amonestaciones</dt>
+              <dd className={`mt-0.5 text-sm font-black tabular-nums ${tone.warningText}`}>−{formatUsd(penalty)}</dd>
+            </div>
+          )}
+          <div>
+            <dt className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Puntos</dt>
+            <dd className={`mt-0.5 text-sm font-black tabular-nums ${week.points > 0 ? tone.warningText : tone.heading}`}>
+              {week.points} pts
+            </dd>
+          </div>
+        </dl>
+        {!hasSalary && (
+          <p className={`mt-4 rounded-xl px-3 py-2 text-[11.5px] ${tone.warningBox}`}>
+            {canManage
+              ? 'Este usuario aún no tiene salario semanal configurado. Puedes definirlo en la pestaña «Datos».'
+              : 'La administración aún no ha configurado tu salario semanal.'}
+          </p>
+        )}
+      </section>
+      {previousWeeks.length > 0 && (
+        <section className={`rounded-3xl px-5 py-4 sm:px-6 ${tone.card}`}>
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className={`text-sm font-bold ${tone.heading}`}>Semanas anteriores</h2>
+            <span className={`text-[10.5px] ${tone.muted}`}>Base menos faltas</span>
+          </div>
+          <div className="mt-2 divide-y divide-[var(--border-subtle)]">
+            {previousWeeks.map(entry => (
+              <div key={entry.start} className="flex items-center justify-between gap-3 py-2.5">
+                <div className="min-w-0">
+                  <p className={`truncate text-xs font-semibold ${tone.heading}`}>{entry.label}</p>
+                  <p className={`text-[10.5px] ${tone.muted}`}>
+                    Base {formatUsd(entry.gross)} · {entry.faultCount} {entry.faultCount === 1 ? 'falta' : 'faltas'} · {entry.points} pts
+                  </p>
+                </div>
+                <p className={`shrink-0 text-xs font-black tabular-nums ${entry.net < 0 ? tone.warningText : tone.heading}`}>
+                  {formatUsd(entry.net)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+    </>
+  );
+};
 
 const PENALTY_SOURCE_LABELS: Record<PenaltySourceLine['source'], { label: string; icon: string }> = {
   post_delivery: { label: 'Post-entrega', icon: 'home_repair_service' },
@@ -257,22 +266,19 @@ export const PenaltyCard: React.FC<{
       amount: lines.reduce((total, line) => total + line.amount, 0),
     };
   });
-  const net = penalties.weeklySalary === null ? null : penalties.weeklySalary - penalties.open.amount;
 
   return (
-    <div className={`rounded-3xl p-4 sm:p-5 ${tone.card}`}>
+    <section className={`rounded-3xl px-5 py-5 sm:px-6 ${tone.card}`} aria-labelledby="profile-penalties-heading">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className={`font-mono text-[10px] font-bold uppercase tracking-[0.12em] ${tone.muted}`}>Amonestaciones automáticas</p>
-          <p className={`mt-1 text-sm font-bold ${tone.heading}`}>{penalties.period.label} · período sábado 6:00 p. m.</p>
-          <p className={`mt-0.5 text-[11px] ${tone.muted}`}>{penalties.period.cutoffLabel}</p>
+          <h2 id="profile-penalties-heading" className={`font-mono text-[10px] font-bold uppercase tracking-[0.14em] ${tone.muted}`}>Amonestaciones</h2>
+          <p className={`mt-1 text-xs ${tone.muted}`}>{penalties.period.cutoffLabel}</p>
         </div>
         <div className="text-right">
-          <p className={`font-mono text-[10px] font-bold uppercase tracking-[0.12em] ${tone.muted}`}>Total del período</p>
-          <p className={`mt-0.5 text-2xl font-black tabular-nums ${penalties.open.amount > 0 ? tone.warningText : tone.heading}`}>
+          <p className={`text-2xl font-black leading-none tabular-nums ${penalties.open.amount > 0 ? tone.warningText : tone.heading}`}>
             {formatPercent(penalties.open.percent)}
           </p>
-          <p className={`text-[11px] font-bold tabular-nums ${penalties.open.amount > 0 ? tone.warningText : tone.muted}`}>
+          <p className={`mt-1 text-[11px] font-bold tabular-nums ${penalties.open.amount > 0 ? tone.warningText : tone.muted}`}>
             {formatUsd(penalties.open.amount)}
           </p>
         </div>
@@ -284,60 +290,41 @@ export const PenaltyCard: React.FC<{
         </p>
       )}
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+      <ul className="mt-4 divide-y divide-[var(--border-subtle)] border-y border-[var(--border-subtle)]">
         {sourceRows.map(row => {
           const meta = PENALTY_SOURCE_LABELS[row.source];
           return (
-            <div key={row.source} className={`rounded-2xl px-3 py-2.5 ${tone.subtle}`}>
-              <p className={`flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>
-                <span aria-hidden="true" className="material-symbols-outlined text-[15px]">{meta.icon}</span>
+            <li key={row.source} className="flex items-center justify-between gap-3 py-2.5">
+              <span className={`flex items-center gap-2 text-xs font-semibold ${tone.heading}`}>
+                <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${tone.muted}`}>{meta.icon}</span>
                 {meta.label}
-              </p>
-              <p className={`mt-1 text-sm font-black tabular-nums ${row.amount > 0 ? tone.warningText : tone.heading}`}>
-                {row.units > 0 ? `${row.units} u` : 'Sin cargos'} · {formatPercent(row.percent)}
-              </p>
-              <p className={`text-[10.5px] tabular-nums ${tone.muted}`}>{formatUsd(row.amount)}</p>
-            </div>
+              </span>
+              <span className="shrink-0 text-right">
+                <span className={`block text-xs font-black tabular-nums ${row.amount > 0 ? tone.warningText : tone.heading}`}>
+                  {row.units > 0 ? `${row.units} u · ${formatPercent(row.percent)}` : 'Sin cargos'}
+                </span>
+                <span className={`block text-[10.5px] tabular-nums ${tone.muted}`}>{formatUsd(row.amount)}</span>
+              </span>
+            </li>
           );
         })}
-      </div>
+      </ul>
 
-      <div className={`mt-2 flex flex-wrap items-center justify-between gap-2 rounded-2xl px-3 py-2.5 text-[11.5px] ${tone.subtle}`}>
-        <span className={tone.muted}>
-          Salario base {penalties.weeklySalary === null ? 'sin configurar' : formatUsd(penalties.weeklySalary)}
-          {' · '}tarifa fija {formatPercent(penalties.rate)} por unidad
-          {penalties.weeklySalary !== null ? ` · 1 u = ${formatUsd(penaltyAmount(penalties.weeklySalary, penalties.rate))}` : ''}
-        </span>
-        <span className={`font-bold tabular-nums ${net !== null && net < 0 ? tone.warningText : tone.heading}`}>
-          Neto proyectado {net === null ? '—' : formatUsd(net)}
-        </span>
-      </div>
+      <p className={`mt-3 text-[10.5px] ${tone.muted}`}>
+        Salario base {penalties.weeklySalary === null ? 'sin configurar' : formatUsd(penalties.weeklySalary)}
+        {' · '}tarifa fija {formatPercent(penalties.rate)} por unidad
+        {penalties.weeklySalary !== null ? ` · 1 u = ${formatUsd(penaltyAmount(penalties.weeklySalary, penalties.rate))}` : ''}
+      </p>
 
-      {penalties.details.length > 0 && (
-        <div className="mt-4 space-y-1.5">
-          <p className={`text-[11px] font-bold ${tone.heading}`}>Cargos del período</p>
-          {penalties.details.map((line, index) => (
-            <div key={`${line.orderId}-${line.source}-${index}`} className={`flex flex-wrap items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-[11px] ${tone.subtle}`}>
-              <div className="min-w-0">
-                <p className={`truncate font-semibold ${tone.heading}`}>
-                  {PENALTY_SOURCE_LABELS[line.source].label} · {line.orderCode || 'Orden'}
-                </p>
-                <p className={`truncate text-[10.5px] ${tone.muted}`}>
-                  {line.customerName || 'Cliente'} · {shortDate(line.date)} · {line.units} × {formatPercent(penalties.rate)}
-                </p>
-              </div>
-              <p className={`shrink-0 font-bold tabular-nums ${tone.warningText}`}>{formatPercent(line.percent)} · {formatUsd(line.amount)}</p>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className={`mt-4 rounded-2xl p-3 ${tone.subtle}`}>
-        <p className={`text-[11px] font-bold ${tone.heading}`}>Cómo se calcula</p>
-        <p className={`mt-0.5 text-[10.5px] ${tone.muted}`}>
+      <details className="group mt-3 border-t border-[var(--border-subtle)] pt-3">
+        <summary className={`flex cursor-pointer list-none items-center gap-1.5 text-[11.5px] font-bold [&::-webkit-details-marker]:hidden ${tone.heading}`}>
+          <span aria-hidden="true" className="material-symbols-outlined text-[15px] transition-transform group-open:rotate-180">expand_more</span>
+          Cómo se calcula
+        </summary>
+        <p className={`mt-1.5 text-[10.5px] ${tone.muted}`}>
           El porcentaje es el mismo para todo el equipo: {formatPercent(penalties.rate)} por unidad, calculado sobre el salario semanal de cada colaborador.
         </p>
-        <div className={`mt-2 grid grid-cols-2 gap-1.5 rounded-xl px-2.5 py-2 text-[10.5px] sm:grid-cols-4 ${tone.card}`}>
+        <div className="mt-2 grid grid-cols-2 gap-1.5 text-[10.5px] sm:grid-cols-4">
           {[1, 2, 3, 5].map(units => {
             const percent = penaltyPercent(units, penalties.rate);
             return (
@@ -348,11 +335,38 @@ export const PenaltyCard: React.FC<{
             );
           })}
         </div>
-      </div>
+      </details>
+
+      {penalties.details.length > 0 && (
+        <details className="group mt-2 border-t border-[var(--border-subtle)] pt-3">
+          <summary className={`flex cursor-pointer list-none items-center gap-1.5 text-[11.5px] font-bold [&::-webkit-details-marker]:hidden ${tone.heading}`}>
+            <span aria-hidden="true" className="material-symbols-outlined text-[15px] transition-transform group-open:rotate-180">expand_more</span>
+            Cargos del período ({penalties.details.length})
+          </summary>
+          <div className="mt-2 space-y-1">
+            {penalties.details.map((line, index) => (
+              <div key={`${line.orderId}-${line.source}-${index}`} className="flex flex-wrap items-center justify-between gap-2 py-1.5 text-[11px]">
+                <div className="min-w-0">
+                  <p className={`truncate font-semibold ${tone.heading}`}>
+                    {PENALTY_SOURCE_LABELS[line.source].label} · {line.orderCode || 'Orden'}
+                  </p>
+                  <p className={`truncate text-[10.5px] ${tone.muted}`}>
+                    {line.customerName || 'Cliente'} · {shortDate(line.date)} · {line.units} × {formatPercent(penalties.rate)}
+                  </p>
+                </div>
+                <p className={`shrink-0 font-bold tabular-nums ${tone.warningText}`}>{formatPercent(line.percent)} · {formatUsd(line.amount)}</p>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
 
       {penalties.history.length > 0 && (
-        <div className="mt-4">
-          <p className={`text-[11px] font-bold ${tone.heading}`}>Cortes de sábado</p>
+        <details className="group mt-2 border-t border-[var(--border-subtle)] pt-3">
+          <summary className={`flex cursor-pointer list-none items-center gap-1.5 text-[11.5px] font-bold [&::-webkit-details-marker]:hidden ${tone.heading}`}>
+            <span aria-hidden="true" className="material-symbols-outlined text-[15px] transition-transform group-open:rotate-180">expand_more</span>
+            Cortes de sábado ({penalties.history.length})
+          </summary>
           <div className="mt-1 divide-y divide-[var(--border-subtle)]">
             {penalties.history.map(entry => (
               <div key={`${entry.periodEnd}-${entry.status}`} className="flex items-center justify-between gap-2 py-2">
@@ -366,9 +380,9 @@ export const PenaltyCard: React.FC<{
               </div>
             ))}
           </div>
-        </div>
+        </details>
       )}
-    </div>
+    </section>
   );
 };
 
@@ -1314,9 +1328,9 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
     <div className={variant === 'yard' ? 'fixed inset-0 z-[140] overflow-y-auto' : ''}>
       <div className={`${tone.page} ${variant === 'yard' ? 'min-h-full' : 'space-y-4'}`}>
         <div className={variant === 'yard' ? 'mx-auto w-full max-w-3xl px-3 pb-24 pt-4 sm:px-4' : 'space-y-4'}>
-          <div className={`rounded-3xl p-4 sm:p-5 ${tone.card}`}>
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-3">
+          <div className={variant === 'yard' ? `rounded-3xl p-4 sm:p-5 ${tone.card}` : 'pb-1'}>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-3.5">
                 {onBack && (
                   <button
                     type="button"
@@ -1327,7 +1341,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                     <span aria-hidden="true" className="material-symbols-outlined text-[20px]">arrow_back</span>
                   </button>
                 )}
-                <div className={`flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl font-mono text-lg font-black ${
+                <div className={`flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl font-mono text-xl font-black ${
                   variant === 'yard' ? 'bg-[var(--yard-accent-soft)] text-[var(--yard-accent-strong)]' : 'bg-[var(--bg-surface)] text-[var(--brand-solid)] border border-[var(--border-subtle)]'
                 }`}>
                   {profile.avatarUrl
@@ -1335,15 +1349,15 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                     : initialsFor(profile.name)}
                 </div>
                 <div className="min-w-0">
-                  <h1 className={`truncate text-lg font-black sm:text-xl ${tone.heading}`}>{profile.name}</h1>
-                  <p className={`truncate text-[11.5px] ${tone.muted}`}>
+                  <h1 className={`truncate text-xl font-black sm:text-2xl ${tone.heading}`}>{profile.name}</h1>
+                  <p className={`mt-0.5 truncate text-xs ${tone.muted}`}>
                     {ROLE_LABELS[profile.role] || profile.role}
                     {profile.hiredOn ? ` · Ingreso ${formatFaultDate(profile.hiredOn)}` : ''}
                     {!profile.active ? ' · Cuenta inactiva' : ''}
                   </p>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 {isSelf && onOpenAccountSettings && (
                   <button
                     type="button"
@@ -1359,7 +1373,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                     <button
                       type="button"
                       onClick={() => setFaultModalOpen(true)}
-                      className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-[11.5px] font-bold ${tone.primary}`}
+                      className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-[11.5px] font-bold ${tone.secondary}`}
                     >
                       <span aria-hidden="true" className="material-symbols-outlined text-[16px]">add_alert</span>
                       Registrar falta
@@ -1367,10 +1381,11 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                     <button
                       type="button"
                       onClick={() => setCatalogOpen(true)}
-                      className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-[11.5px] font-bold ${tone.secondary}`}
+                      aria-label="Catálogo de faltas"
+                      title="Catálogo de faltas"
+                      className={`flex h-9 w-9 items-center justify-center rounded-xl ${tone.secondary}`}
                     >
-                      <span aria-hidden="true" className="material-symbols-outlined text-[16px]">tune</span>
-                      Catálogo
+                      <span aria-hidden="true" className="material-symbols-outlined text-[17px]">tune</span>
                     </button>
                   </>
                 )}
@@ -1378,10 +1393,9 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
             </div>
           </div>
 
-          <div ref={tabsRef} className={`flex gap-1.5 overflow-x-auto rounded-2xl p-1 ${tone.card}`} role="tablist" aria-label="Secciones del perfil">
+          <div ref={tabsRef} className="flex gap-5 overflow-x-auto border-b border-[var(--border-subtle)]" role="tablist" aria-label="Secciones del perfil">
             {([
               ['resumen', 'Resumen'],
-              ['seguimiento', 'Seguimiento'],
               ['rendimiento', 'Rendimiento'],
               ['faltas', `Faltas${activeFaults ? ` · ${activeFaults}` : ''}`],
               ...(canManage ? [['equipo', 'Equipo'] as [Tab, string]] : []),
@@ -1393,8 +1407,10 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                 role="tab"
                 aria-selected={tab === key}
                 onClick={() => setTab(key)}
-                className={`min-w-[72px] flex-1 shrink-0 rounded-xl px-2 py-2 text-[11.5px] font-bold transition ${
-                  tab === key ? tone.tabActive : `${tone.muted} hover:bg-black/5`
+                className={`-mb-px shrink-0 border-b-2 px-0.5 pb-2.5 pt-1 text-xs font-bold transition ${
+                  tab === key
+                    ? tone.tabUnderline
+                    : `border-transparent ${tone.muted} hover:text-[var(--text-heading)]`
                 }`}
               >
                 {label}
@@ -1416,6 +1432,8 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                   tone={tone}
                   hasSalary={profile.weeklySalary !== null}
                   canManage={canManage}
+                  penaltyAmount={data.penalties?.open.amount ?? 0}
+                  cutoffLabel={data.penalties ? `Corte sábado, 6:00 p. m. · hora de Honduras` : undefined}
                 />
               )}
               {data.penalties && (
@@ -1427,32 +1445,32 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
             </div>
           )}
 
-          {tab === 'seguimiento' && (
-            <div className="space-y-3">
-              {queueLoading ? (
-                <div className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-8 text-[11.5px] ${tone.card} ${tone.muted}`}>
-                  <span className={`material-symbols-outlined animate-spin text-[18px] ${tone.muted}`}>sync</span>
-                  Cargando seguimientos…
-                </div>
-              ) : queueError ? (
-                <div className={`rounded-2xl px-4 py-6 text-center ${tone.card}`}>
-                  <p className={`text-[11.5px] ${tone.muted}`}>{queueError}</p>
-                  <button
-                    type="button"
-                    onClick={() => { void loadQueue(); }}
-                    className={`mt-3 rounded-xl px-4 py-2 text-xs font-bold ${tone.primary}`}
-                  >
-                    Reintentar
-                  </button>
-                </div>
-              ) : (
-                <FollowupBoard tasks={queue?.tasks || []} tone={tone} />
-              )}
-            </div>
-          )}
-
           {tab === 'rendimiento' && (
-            <PerformancePanel targetUserId={targetUserId} tone={tone} />
+            <div className="space-y-4">
+              <PerformancePanel targetUserId={targetUserId} tone={tone} />
+              <section className="space-y-3" aria-labelledby="profile-followups-heading">
+                <h2 id="profile-followups-heading" className={`text-sm font-bold ${tone.heading}`}>Seguimientos</h2>
+                {queueLoading ? (
+                  <div className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-8 text-[11.5px] ${tone.card} ${tone.muted}`}>
+                    <span className={`material-symbols-outlined animate-spin text-[18px] ${tone.muted}`}>sync</span>
+                    Cargando seguimientos…
+                  </div>
+                ) : queueError ? (
+                  <div className={`rounded-2xl px-4 py-6 text-center ${tone.card}`}>
+                    <p className={`text-[11.5px] ${tone.muted}`}>{queueError}</p>
+                    <button
+                      type="button"
+                      onClick={() => { void loadQueue(); }}
+                      className={`mt-3 rounded-xl px-4 py-2 text-xs font-bold ${tone.primary}`}
+                    >
+                      Reintentar
+                    </button>
+                  </div>
+                ) : (
+                  <FollowupBoard tasks={queue?.tasks || []} tone={tone} />
+                )}
+              </section>
+            </div>
           )}
 
           {tab === 'faltas' && (

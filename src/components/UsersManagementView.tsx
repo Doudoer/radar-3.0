@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { apiFetch } from '../services/apiFetch';
-import { PRESET_AVATARS, DEFAULT_AVATAR } from './UserProfileModal';
+import { PRESET_AVATARS, DEFAULT_AVATAR } from '../utils/avatars';
 import { VaultUnlockModal } from './VaultUnlockModal';
 import { useFeedback } from './FeedbackProvider';
 import { formatUsd } from '../utils/payroll';

@@ -563,8 +563,6 @@ export default function App() {
           onNavigate={handleNavigate}
           onOpenSearch={() => setIsSearchModalOpen(true)}
           onLogout={() => { void logout(); }}
-          onOpenProfile={() => openProfileFor()}
-          onOpenChangePassword={() => setIsChangePasswordOpen(true)}
           onOpenFollowups={() => handleNavigate('mi_trabajo')}
           pendingFollowupsCount={pendingFollowupsCount}
           overdueFollowupsCount={overdueFollowupsCount}
@@ -576,8 +574,6 @@ export default function App() {
           claimReadyCount={claimReadyAlerts.length}
           claimReadyOldestMinutes={claimReadyOldestMinutes}
           onOpenClaims={claimReadyAlerts.length ? () => handleOpenClaims(claimReadyAlerts[0].id) : undefined}
-          userName={authUser?.name || 'Usuario'}
-          userAvatar={authUser?.avatar_url}
           userRole={userRole}
           onToggleYardPortal={() => setYardPortalActive(true)}
           onOpenNewOrder={handleOpenNewOrder}

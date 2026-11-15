@@ -2,7 +2,6 @@ import React from 'react';
 import { NavScreen } from '../types';
 import { useTheme } from '../hooks/useTheme';
 import { isYardReadyUrgent } from '../utils/yardAlerts';
-import { DEFAULT_AVATAR } from './UserProfileModal';
 
 interface TopHeaderProps {
   currentScreen: NavScreen;
@@ -11,8 +10,6 @@ interface TopHeaderProps {
   onOpenSearch: () => void;
   onLogout: () => void;
   onToggleMobileMenu: () => void;
-  onOpenProfile?: () => void;
-  onOpenChangePassword?: () => void;
   onOpenNewOrder?: () => void;
   onOpenFollowups?: () => void;
   pendingFollowupsCount?: number;
@@ -23,8 +20,6 @@ interface TopHeaderProps {
   claimReadyCount?: number;
   claimReadyOldestMinutes?: number | null;
   onOpenClaims?: () => void;
-  userName?: string;
-  userAvatar?: string;
   userRole?: string;
   unreadCount?: number;
   onToggleYardPortal?: () => void;
@@ -61,8 +56,6 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onOpenSearch,
   onLogout,
   onToggleMobileMenu,
-  onOpenProfile,
-  onOpenChangePassword,
   onOpenNewOrder,
   onOpenFollowups,
   pendingFollowupsCount = 0,
@@ -73,8 +66,6 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   claimReadyCount = 0,
   claimReadyOldestMinutes = null,
   onOpenClaims,
-  userName = 'Usuario Administrador',
-  userAvatar,
   userRole,
   onToggleYardPortal,
 }) => {
@@ -92,14 +83,6 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   const displayTitle = isOrderDetail ? selectedOrderCode! : meta.title;
   const displayCategory = isOrderDetail ? 'Orden' : meta.category;
   const displayIcon = isOrderDetail ? 'receipt_long' : meta.icon;
-
-  const handleProfileClick = () => {
-    if (onOpenProfile) {
-      onOpenProfile();
-    } else if (onOpenChangePassword) {
-      onOpenChangePassword();
-    }
-  };
 
   return (
     <header className="horizon-topbar sticky top-0 z-30 shrink-0 w-full flex justify-between items-center px-4 sm:px-6 lg:px-8 transition-all gap-4">
@@ -310,54 +293,16 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         {/* Divider */}
         <div className="hidden sm:block h-6 w-px bg-[var(--border-subtle)] mx-0.5 shrink-0" />
 
-        {/* User Profile Pill */}
-        <div className="hidden sm:flex items-center gap-2 min-w-0 shrink-0">
-          <button
-            type="button"
-            onClick={handleProfileClick}
-            title="Mi Perfil y Seguridad (Click para editar)"
-            className="flex items-center gap-2.5 pl-1.5 pr-2.5 py-1 bg-[var(--bg-primary)]/80 border border-cyan-500/30 rounded-xl hover:border-cyan-400 hover:bg-[var(--bg-primary)] transition-all cursor-pointer group shadow-sm min-w-0"
-          >
-            <div className="relative w-7 h-7 rounded-lg overflow-hidden border border-cyan-400/50 shadow-[0_0_8px_rgba(34,211,238,0.3)] shrink-0 bg-slate-800">
-              <img
-                src={userAvatar || DEFAULT_AVATAR}
-                alt={userName}
-                loading="lazy"
-                decoding="async"
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = DEFAULT_AVATAR;
-                }}
-              />
-              <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-[var(--bg-card)]" />
-            </div>
-            <div className="hidden xl:flex flex-col text-left min-w-0">
-              <span className="text-xs text-[var(--text-primary)] font-bold group-hover:text-cyan-400 transition-colors leading-tight truncate max-w-[10rem]" title={userName}>
-                <span className="min-[1400px]:hidden">{userName.split(' ')[0]}</span>
-                <span className="hidden min-[1400px]:inline">{userName}</span>
-              </span>
-              {userRole && (
-                <span className="text-[9px] font-mono font-bold text-cyan-400 uppercase tracking-wider">
-                  {userRole?.toLowerCase() === 'admin' ? 'Super Admin' : userRole?.toLowerCase() === 'vendedor_yarda' ? 'Vendedor Yarda' : 'Operador'}
-                </span>
-              )}
-            </div>
-            <span aria-hidden="true" className="hidden min-[1400px]:block text-cyan-400/70 group-hover:text-cyan-300 transition-transform group-hover:translate-y-0.5">
-              <span className="material-symbols-outlined text-[16px]">expand_more</span>
-            </span>
-          </button>
-
-          {/* Logout Button */}
-          <button
-            type="button"
-            onClick={onLogout}
-            title="Cerrar sesión segura"
-            aria-label="Cerrar sesión"
-            className="w-9 h-9 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-all cursor-pointer flex items-center justify-center shadow-sm active:scale-95"
-          >
-            <span aria-hidden="true" className="material-symbols-outlined text-[17px]">logout</span>
-          </button>
-        </div>
+        {/* Logout Button */}
+        <button
+          type="button"
+          onClick={onLogout}
+          title="Cerrar sesión segura"
+          aria-label="Cerrar sesión"
+          className="w-9 h-9 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-all cursor-pointer flex items-center justify-center shadow-sm active:scale-95"
+        >
+          <span aria-hidden="true" className="material-symbols-outlined text-[17px]">logout</span>
+        </button>
       </div>
     </header>
   );
