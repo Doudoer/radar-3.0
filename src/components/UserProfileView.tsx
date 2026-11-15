@@ -7,6 +7,8 @@ import { formatUsd, isoDateInTimeZone, type WeekPayroll } from '../utils/payroll
 import { penaltyAmount, penaltyPercent } from '../utils/penalties';
 import type { WorkflowTask } from '../utils/orderWorkflow';
 import { followupQueueUrl, followupSummary, groupFollowupTasks, parseFollowupQueue, type FollowupQueuePayload } from '../utils/followupQueue';
+import { PRESET_AVATARS, DEFAULT_AVATAR } from '../utils/avatars';
+import type { AuthUser } from '../hooks/useAuthSession';
 
 interface ProfileInfo {
   id: number;
@@ -92,7 +94,7 @@ interface UserProfileViewProps {
   viewerId?: number;
   viewerRole: string;
   onBack?: () => void;
-  onOpenAccountSettings?: () => void;
+  onUserUpdated?: (updatedUser: Partial<AuthUser>) => void;
   onConfigureEmployee?: (userId: number) => void;
   variant?: 'office' | 'yard';
 }
@@ -958,7 +960,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   viewerId,
   viewerRole,
   onBack,
-  onOpenAccountSettings,
+  onUserUpdated,
   onConfigureEmployee,
   variant = 'office',
 }) => {
@@ -981,6 +983,18 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   const [draft, setDraft] = useState({
     address: '', emergencyContactName: '', emergencyContactPhone: '', salary: '', hiredOn: '',
   });
+  const [accountName, setAccountName] = useState('');
+  const [accountEmail, setAccountEmail] = useState('');
+  const [accountPhone, setAccountPhone] = useState('');
+  const [accountAvatarUrl, setAccountAvatarUrl] = useState('');
+  const [showCustomAvatarUrl, setShowCustomAvatarUrl] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPasswords, setShowPasswords] = useState(false);
+  const [savingAccount, setSavingAccount] = useState(false);
+  const [accountError, setAccountError] = useState<string | null>(null);
+  const [accountSuccess, setAccountSuccess] = useState<string | null>(null);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -998,6 +1012,10 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
         salary: profile.weeklySalary === null ? '' : String(profile.weeklySalary),
         hiredOn: profile.hiredOn || '',
       });
+      setAccountName(profile.name || '');
+      setAccountEmail(profile.email || '');
+      setAccountPhone(profile.phone || '');
+      setAccountAvatarUrl(profile.avatarUrl || DEFAULT_AVATAR);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo cargar el perfil.');
     } finally {
@@ -1071,6 +1089,105 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
     () => (data?.faults || []).filter((fault) => fault.status === 'activa').length,
     [data]
   );
+
+  const handleAvatarUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
+      setAccountError('Usa una imagen PNG, JPEG, WebP o GIF.');
+      return;
+    }
+    if (file.size > 350 * 1024) {
+      setAccountError('La imagen de perfil no debe superar los 350KB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setAccountAvatarUrl(reader.result);
+        setAccountError(null);
+      }
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  const saveAccountSettings = useCallback(async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!profile) return;
+    setAccountError(null);
+    setAccountSuccess(null);
+
+    if (!accountName.trim()) {
+      setAccountError('El nombre completo es obligatorio.');
+      return;
+    }
+    if (!accountEmail.trim() || !accountEmail.includes('@')) {
+      setAccountError('Por favor ingresa un correo electrónico válido.');
+      return;
+    }
+
+    const identityChanged = accountEmail.trim().toLowerCase() !== (profile.email || '').toLowerCase()
+      || (viewerRole.toLowerCase() === 'admin' && accountPhone.trim() !== (profile.phone || ''));
+    if (identityChanged && !currentPassword) {
+      setAccountError('Confirma tu contraseña actual en Seguridad. Para cambiar el teléfono administrativo, desbloquea primero la bóveda.');
+      return;
+    }
+
+    if (newPassword) {
+      if (!currentPassword) {
+        setAccountError('Debes ingresar tu contraseña actual para cambiarla.');
+        return;
+      }
+      if (newPassword.length < 8) {
+        setAccountError('La nueva contraseña debe tener al menos 8 caracteres.');
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        setAccountError('La nueva contraseña y su confirmación no coinciden.');
+        return;
+      }
+    }
+
+    setSavingAccount(true);
+    try {
+      const payload: Record<string, unknown> = {
+        name: accountName.trim(),
+        email: accountEmail.trim().toLowerCase(),
+        phone: accountPhone.trim() || null,
+        avatar_url: accountAvatarUrl.trim() || null,
+      };
+      if (currentPassword) payload.currentPassword = currentPassword;
+      if (newPassword) payload.newPassword = newPassword;
+
+      const response = await apiFetch('/auth/profile', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body.message || 'Error al actualizar el perfil.');
+      }
+
+      onUserUpdated?.({
+        name: body.user.name,
+        email: body.user.email,
+        phone: body.user.phone,
+        avatar_url: body.user.avatar_url,
+      });
+      setAccountSuccess('¡Cuenta y seguridad actualizadas con éxito!');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      toast({ title: 'Cuenta actualizada', message: 'Tu perfil y seguridad se guardaron correctamente.', tone: 'success' });
+      await load(true);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Error de conexión.';
+      setAccountError(message);
+      toast({ title: 'No se pudo actualizar la cuenta', message, tone: 'error' });
+    } finally {
+      setSavingAccount(false);
+    }
+  }, [accountAvatarUrl, accountEmail, accountName, accountPhone, confirmPassword, currentPassword, load, newPassword, onUserUpdated, profile, toast, viewerRole]);
 
   const saveDetails = useCallback(async () => {
     if (!profile) return;
@@ -1238,89 +1355,310 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   const isSelf = viewerId !== undefined && Number(profile.id) === Number(viewerId);
 
   const detailsForm = (
-    <div className={`space-y-4 rounded-3xl p-4 sm:p-5 ${tone.card}`}>
-      <div>
-        <p className={`text-sm font-bold ${tone.heading}`}>Datos del colaborador</p>
-        <p className={`text-[11.5px] ${tone.muted}`}>
-          {canManage ? 'La administración puede editar contacto y compensación.' : 'Puedes actualizar tus datos de contacto y emergencia.'}
-        </p>
+    <div className="space-y-4">
+      <div className={`space-y-4 rounded-3xl p-4 sm:p-5 ${tone.card}`}>
+        <div>
+          <p className={`text-sm font-bold ${tone.heading}`}>Datos del colaborador</p>
+          <p className={`text-[11.5px] ${tone.muted}`}>
+            {canManage ? 'La administración puede editar contacto y compensación.' : 'Puedes actualizar tus datos de contacto y emergencia.'}
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block text-[11px] font-bold">
+            <span className={tone.muted}>Dirección</span>
+            <input
+              type="text"
+              value={draft.address}
+              maxLength={255}
+              onChange={(event) => setDraft((prev) => ({ ...prev, address: event.target.value }))}
+              placeholder="Colonia, calle, referencia"
+              className={`mt-1 w-full rounded-xl px-3 py-2 text-xs outline-none ${tone.input}`}
+            />
+          </label>
+          <label className="block text-[11px] font-bold">
+            <span className={tone.muted}>Contacto de emergencia</span>
+            <input
+              type="text"
+              value={draft.emergencyContactName}
+              maxLength={160}
+              onChange={(event) => setDraft((prev) => ({ ...prev, emergencyContactName: event.target.value }))}
+              placeholder="Nombre completo"
+              className={`mt-1 w-full rounded-xl px-3 py-2 text-xs outline-none ${tone.input}`}
+            />
+          </label>
+          <label className="block text-[11px] font-bold">
+            <span className={tone.muted}>Teléfono de emergencia</span>
+            <input
+              type="tel"
+              value={draft.emergencyContactPhone}
+              maxLength={40}
+              onChange={(event) => setDraft((prev) => ({ ...prev, emergencyContactPhone: event.target.value }))}
+              placeholder="Ej. +504 9999-0000"
+              className={`mt-1 w-full rounded-xl px-3 py-2 text-xs outline-none ${tone.input}`}
+            />
+          </label>
+          {canManage && (
+            <>
+              <label className="block text-[11px] font-bold">
+                <span className={tone.muted}>Salario semanal (USD)</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={draft.salary}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, salary: event.target.value }))}
+                  placeholder="0.00"
+                  className={`mt-1 w-full rounded-xl px-3 py-2 text-xs tabular-nums outline-none ${tone.input}`}
+                />
+              </label>
+              <label className="block text-[11px] font-bold">
+                <span className={tone.muted}>Fecha de ingreso</span>
+                <input
+                  type="date"
+                  value={draft.hiredOn}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, hiredOn: event.target.value }))}
+                  className={`mt-1 w-full rounded-xl px-3 py-2 text-xs outline-none ${tone.input}`}
+                />
+              </label>
+            </>
+          )}
+        </div>
+        <div className={`grid gap-2 rounded-2xl px-3 py-2.5 text-[11.5px] sm:grid-cols-3 ${tone.subtle}`}>
+          <span><span className={tone.muted}>Correo: </span>{profile.email || '—'}</span>
+          <span><span className={tone.muted}>Teléfono: </span>{profile.phone || '—'}</span>
+          <span><span className={tone.muted}>Acceso Yarda: </span>{profile.hasPin ? 'PIN configurado' : 'Sin PIN'}</span>
+        </div>
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => { void saveDetails(); }}
+            disabled={saving}
+            className={`rounded-xl px-4 py-2.5 text-xs font-bold disabled:opacity-50 ${tone.primary}`}
+          >
+            {saving ? 'Guardando…' : 'Guardar datos'}
+          </button>
+        </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block text-[11px] font-bold">
-          <span className={tone.muted}>Dirección</span>
-          <input
-            type="text"
-            value={draft.address}
-            maxLength={255}
-            onChange={(event) => setDraft((prev) => ({ ...prev, address: event.target.value }))}
-            placeholder="Colonia, calle, referencia"
-            className={`mt-1 w-full rounded-xl px-3 py-2 text-xs outline-none ${tone.input}`}
-          />
-        </label>
-        <label className="block text-[11px] font-bold">
-          <span className={tone.muted}>Contacto de emergencia</span>
-          <input
-            type="text"
-            value={draft.emergencyContactName}
-            maxLength={160}
-            onChange={(event) => setDraft((prev) => ({ ...prev, emergencyContactName: event.target.value }))}
-            placeholder="Nombre completo"
-            className={`mt-1 w-full rounded-xl px-3 py-2 text-xs outline-none ${tone.input}`}
-          />
-        </label>
-        <label className="block text-[11px] font-bold">
-          <span className={tone.muted}>Teléfono de emergencia</span>
-          <input
-            type="tel"
-            value={draft.emergencyContactPhone}
-            maxLength={40}
-            onChange={(event) => setDraft((prev) => ({ ...prev, emergencyContactPhone: event.target.value }))}
-            placeholder="Ej. +504 9999-0000"
-            className={`mt-1 w-full rounded-xl px-3 py-2 text-xs outline-none ${tone.input}`}
-          />
-        </label>
-        {canManage && (
-          <>
+
+      {isSelf && (
+        <form onSubmit={(event) => { void saveAccountSettings(event); }} className={`space-y-4 rounded-3xl p-4 sm:p-5 ${tone.card}`}>
+          <div>
+            <p className={`text-sm font-bold ${tone.heading}`}>Cuenta, avatar y seguridad</p>
+            <p className={`text-[11.5px] ${tone.muted}`}>
+              Edita tu foto de perfil, datos de acceso y contraseña directamente desde aquí.
+            </p>
+          </div>
+
+          {accountError && (
+            <div className={`rounded-xl px-3 py-2 text-xs flex items-center gap-2 ${tone.warningBox}`}>
+              <span aria-hidden="true" className="material-symbols-outlined text-[17px] shrink-0">error</span>
+              <span>{accountError}</span>
+            </div>
+          )}
+
+          {accountSuccess && (
+            <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+              <span aria-hidden="true" className="material-symbols-outlined text-[17px] shrink-0">check_circle</span>
+              <span>{accountSuccess}</span>
+            </div>
+          )}
+
+          <div className={`rounded-2xl p-3.5 space-y-3 ${tone.subtle}`}>
+            <div className="flex items-center justify-between gap-2">
+              <span className={`text-xs font-bold flex items-center gap-1.5 ${tone.heading}`}>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">face</span>
+                Avatar de Perfil
+              </span>
+              <label className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold cursor-pointer ${tone.secondary}`}>
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">upload</span>
+                <span>Subir Foto</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  onChange={handleAvatarUpload}
+                  className="hidden"
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="relative shrink-0">
+                <div className={`h-16 w-16 overflow-hidden rounded-2xl border-2 border-[var(--brand-solid)] ${tone.card}`}>
+                  <img
+                    src={accountAvatarUrl || DEFAULT_AVATAR}
+                    alt="Avatar Actual"
+                    className="h-full w-full object-cover"
+                    onError={(event) => {
+                      (event.target as HTMLImageElement).src = DEFAULT_AVATAR;
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className={`mb-1.5 block text-[10px] font-mono font-bold uppercase tracking-wider ${tone.muted}`}>
+                  Elegir Avatar Rápido
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {PRESET_AVATARS.map((av) => (
+                    <button
+                      key={av.id}
+                      type="button"
+                      onClick={() => setAccountAvatarUrl(av.url)}
+                      title={av.label}
+                      className={`h-8 w-8 overflow-hidden rounded-xl border transition-all cursor-pointer ${
+                        accountAvatarUrl === av.url
+                          ? 'border-[var(--brand-solid)] scale-110 ring-2 ring-[var(--brand-solid)]/30'
+                          : 'border-[var(--border-subtle)] opacity-75 hover:opacity-100'
+                      }`}
+                    >
+                      <img src={av.url} alt={av.label} className="h-full w-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowCustomAvatarUrl((prev) => !prev)}
+                className={`inline-flex items-center gap-1 text-[11px] font-bold cursor-pointer ${tone.muted} hover:underline`}
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">
+                  {showCustomAvatarUrl ? 'expand_less' : 'add_link'}
+                </span>
+                <span>{showCustomAvatarUrl ? 'Ocultar URL personalizada' : 'Usar URL de imagen externa'}</span>
+              </button>
+              {showCustomAvatarUrl && (
+                <input
+                  type="url"
+                  value={accountAvatarUrl}
+                  onChange={(event) => setAccountAvatarUrl(event.target.value)}
+                  placeholder="https://ejemplo.com/mi-avatar.jpg"
+                  className={`mt-2 w-full rounded-xl px-3 py-2 text-xs font-mono outline-none ${tone.input}`}
+                />
+              )}
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-[11px] font-bold">
-              <span className={tone.muted}>Salario semanal (USD)</span>
+              <span className={tone.muted}>Nombre Completo *</span>
               <input
-                type="number"
-                min="0"
-                step="0.01"
-                inputMode="decimal"
-                value={draft.salary}
-                onChange={(event) => setDraft((prev) => ({ ...prev, salary: event.target.value }))}
-                placeholder="0.00"
-                className={`mt-1 w-full rounded-xl px-3 py-2 text-xs tabular-nums outline-none ${tone.input}`}
-              />
-            </label>
-            <label className="block text-[11px] font-bold">
-              <span className={tone.muted}>Fecha de ingreso</span>
-              <input
-                type="date"
-                value={draft.hiredOn}
-                onChange={(event) => setDraft((prev) => ({ ...prev, hiredOn: event.target.value }))}
+                type="text"
+                required
+                value={accountName}
+                onChange={(event) => setAccountName(event.target.value)}
+                placeholder="Ej. Juan Pérez"
                 className={`mt-1 w-full rounded-xl px-3 py-2 text-xs outline-none ${tone.input}`}
               />
             </label>
-          </>
-        )}
-      </div>
-      <div className={`grid gap-2 rounded-2xl px-3 py-2.5 text-[11.5px] sm:grid-cols-3 ${tone.subtle}`}>
-        <span><span className={tone.muted}>Correo: </span>{profile.email || '—'}</span>
-        <span><span className={tone.muted}>Teléfono: </span>{profile.phone || '—'}</span>
-        <span><span className={tone.muted}>Acceso Yarda: </span>{profile.hasPin ? 'PIN configurado' : 'Sin PIN'}</span>
-      </div>
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => { void saveDetails(); }}
-          disabled={saving}
-          className={`rounded-xl px-4 py-2.5 text-xs font-bold disabled:opacity-50 ${tone.primary}`}
-        >
-          {saving ? 'Guardando…' : 'Guardar datos'}
-        </button>
-      </div>
+            <label className="block text-[11px] font-bold">
+              <span className={tone.muted}>Correo Electrónico *</span>
+              <input
+                type="email"
+                required
+                value={accountEmail}
+                onChange={(event) => setAccountEmail(event.target.value)}
+                placeholder="usuario@radar.com"
+                className={`mt-1 w-full rounded-xl px-3 py-2 text-xs font-mono outline-none ${tone.input}`}
+              />
+            </label>
+            <label className="block text-[11px] font-bold sm:col-span-2">
+              <span className={tone.muted}>Número de Teléfono / WhatsApp</span>
+              <input
+                type="tel"
+                value={accountPhone}
+                onChange={(event) => setAccountPhone(event.target.value)}
+                placeholder="Ej. +1 (919) 555-0199"
+                className={`mt-1 w-full rounded-xl px-3 py-2 text-xs font-mono outline-none ${tone.input}`}
+              />
+              <span className={`mt-1 block text-[10.5px] font-normal ${tone.muted}`}>
+                Permite contacto rápido interno y seguimiento de operaciones.
+              </span>
+            </label>
+          </div>
+
+          <div className={`space-y-3 rounded-2xl p-3.5 ${tone.subtle}`}>
+            <div className="flex items-center justify-between gap-2">
+              <span className={`text-xs font-bold flex items-center gap-1.5 ${tone.heading}`}>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">lock_reset</span>
+                Seguridad & Contraseña
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowPasswords((prev) => !prev)}
+                className={`inline-flex items-center gap-1 text-[11px] font-bold cursor-pointer ${tone.muted} hover:underline`}
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">
+                  {showPasswords ? 'visibility_off' : 'visibility'}
+                </span>
+                <span>{showPasswords ? 'Ocultar' : 'Mostrar'}</span>
+              </button>
+            </div>
+            <p className={`text-[11px] ${tone.muted}`}>
+              Solo completa la nueva contraseña si deseas cambiar tu clave de acceso (o tu contraseña actual si modificas tu correo).
+            </p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className="block text-[11px] font-bold">
+                <span className={tone.muted}>Contraseña Actual</span>
+                <input
+                  type={showPasswords ? 'text' : 'password'}
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  placeholder="••••••••"
+                  className={`mt-1 w-full rounded-xl px-3 py-2 text-xs font-mono outline-none ${tone.input}`}
+                />
+              </label>
+              <label className="block text-[11px] font-bold">
+                <span className={tone.muted}>Nueva Contraseña</span>
+                <input
+                  type={showPasswords ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  placeholder="Mínimo 8 caracteres"
+                  className={`mt-1 w-full rounded-xl px-3 py-2 text-xs font-mono outline-none ${tone.input}`}
+                />
+              </label>
+              <label className="block text-[11px] font-bold">
+                <span className={tone.muted}>Confirmar Nueva Contraseña</span>
+                <input
+                  type={showPasswords ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  placeholder="Repite la contraseña"
+                  className={`mt-1 w-full rounded-xl px-3 py-2 text-xs font-mono outline-none ${tone.input}`}
+                />
+              </label>
+            </div>
+            <div className={`grid gap-1 text-[11px] sm:grid-cols-3 ${tone.muted}`}>
+              <div className="flex items-center gap-1.5">
+                <span aria-hidden="true" className={`material-symbols-outlined text-[14px] ${newPassword.length >= 8 ? 'text-emerald-500' : ''}`}>check_circle</span>
+                <span>Mínimo 8 caracteres</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span aria-hidden="true" className={`material-symbols-outlined text-[14px] ${/[A-Z]/.test(newPassword) && /[a-z]/.test(newPassword) ? 'text-emerald-500' : ''}`}>check_circle</span>
+                <span>Mayúsculas y minúsculas</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span aria-hidden="true" className={`material-symbols-outlined text-[14px] ${/[0-9]/.test(newPassword) && /[^a-zA-Z0-9]/.test(newPassword) ? 'text-emerald-500' : ''}`}>check_circle</span>
+                <span>Números y símbolos especiales</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={savingAccount}
+              className={`rounded-xl px-4 py-2.5 text-xs font-bold disabled:opacity-50 ${tone.primary}`}
+            >
+              {savingAccount ? 'Guardando cuenta…' : 'Guardar cuenta y seguridad'}
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   );
 
@@ -1358,16 +1696,6 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
-                {isSelf && onOpenAccountSettings && (
-                  <button
-                    type="button"
-                    onClick={onOpenAccountSettings}
-                    className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-[11.5px] font-bold ${tone.secondary}`}
-                  >
-                    <span aria-hidden="true" className="material-symbols-outlined text-[16px]">manage_accounts</span>
-                    Cuenta y seguridad
-                  </button>
-                )}
                 {canManage && (
                   <>
                     <button

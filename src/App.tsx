@@ -36,7 +36,6 @@ const SearchModal = React.lazy(() => import('./components/SearchModal').then((m)
 const ExportModal = React.lazy(() => import('./components/ExportModal').then((m) => ({ default: m.ExportModal })));
 const StatusRequestModal = React.lazy(() => import('./components/StatusRequestModal').then((m) => ({ default: m.StatusRequestModal })));
 const ChangePasswordModal = React.lazy(() => import('./components/ChangePasswordModal').then((m) => ({ default: m.ChangePasswordModal })));
-const UserProfileModal = React.lazy(() => import('./components/UserProfileModal').then((m) => ({ default: m.UserProfileModal })));
 const UserProfileView = React.lazy(() => import('./components/UserProfileView').then((m) => ({ default: m.UserProfileView })));
 const DailyFollowupBriefingModal = React.lazy(() => import('./components/DailyFollowupBriefingModal').then((m) => ({ default: m.DailyFollowupBriefingModal })));
 
@@ -130,7 +129,6 @@ export default function App() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isStatusRequestOpen, setIsStatusRequestOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
-  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [profileTargetId, setProfileTargetId] = useState<number | null>(null);
 
   // Follow-up modal & pending items
@@ -762,7 +760,7 @@ export default function App() {
                 viewerId={authUser.id}
                 viewerRole={userRole}
                 onBack={profileTargetId ? () => openProfileFor() : undefined}
-                onOpenAccountSettings={() => setIsProfileModalOpen(true)}
+                onUserUpdated={(updated) => updateUser(updated)}
                 onConfigureEmployee={openProfileFor}
               />
             )}
@@ -838,14 +836,6 @@ export default function App() {
         )}
         {isChangePasswordOpen && (
           <ChangePasswordModal isOpen={isChangePasswordOpen} onClose={() => setIsChangePasswordOpen(false)} />
-        )}
-        {isProfileModalOpen && (
-          <UserProfileModal
-            isOpen={isProfileModalOpen}
-            onClose={() => setIsProfileModalOpen(false)}
-            user={authUser}
-            onUserUpdated={(updated) => updateUser(updated)}
-          />
         )}
         {isFollowupModalOpen && (
           <DailyFollowupBriefingModal
