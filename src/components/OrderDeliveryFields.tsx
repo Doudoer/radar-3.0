@@ -25,12 +25,16 @@ export const OrderImageFields: React.FC<{
   onUploadingChange,
 }) => {
   const [uploading, setUploading] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [error, setError] = useState('');
   const inFlight = useRef(false);
+  const dropzoneRef = useRef<HTMLLabelElement>(null);
 
   const upload = async (files: File[]) => {
+    const valid = files.filter(f => f.size > 0);
+    if (!valid.length) return;
     if (inFlight.current) return;
-    if (files.length + photos.length > 20) {
+    if (valid.length + photos.length > 20) {
       setError('Adjunta un máximo de 20 imágenes.');
       return;
     }
@@ -40,7 +44,7 @@ export const OrderImageFields: React.FC<{
     setError('');
     const saved = [...photos];
     try {
-      for (const file of files) {
+      for (const file of valid) {
         saved.push(await onUpload(file));
         onChange([...saved]);
       }
@@ -53,8 +57,58 @@ export const OrderImageFields: React.FC<{
     }
   };
 
+  const extractClipboardImages = (data: DataTransfer | null): File[] => {
+    if (!data) return [];
+    const files: File[] = [];
+    for (const item of Array.from(data.items || [])) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    if (files.length) return files;
+    return Array.from(data.files || []).filter(f => f.type.startsWith('image/'));
+  };
+
+  const handlePasteEvent = (event: React.ClipboardEvent) => {
+    if (disabled || uploading) return;
+    const files = extractClipboardImages(event.clipboardData);
+    if (!files.length) return;
+    event.preventDefault();
+    void upload(files);
+  };
+
+  const handlePasteButton = async () => {
+    if (disabled || uploading) return;
+    setError('');
+    if (!navigator.clipboard?.read) {
+      dropzoneRef.current?.focus();
+      setError('Presiona Ctrl+V (o Cmd+V en Mac) para pegar la captura desde el portapapeles.');
+      return;
+    }
+    try {
+      const items = await navigator.clipboard.read();
+      const files: File[] = [];
+      for (const item of items) {
+        const imageType = item.types.find(t => t.startsWith('image/'));
+        if (!imageType) continue;
+        const blob = await item.getType(imageType);
+        const ext = imageType.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
+        files.push(new File([blob], `captura-${Date.now()}.${ext}`, { type: imageType }));
+      }
+      if (!files.length) {
+        setError('No se encontró ninguna imagen en el portapapeles.');
+        return;
+      }
+      await upload(files);
+    } catch {
+      dropzoneRef.current?.focus();
+      setError('Haz clic en el recuadro y presiona Ctrl+V (o Cmd+V) para pegar la captura.');
+    }
+  };
+
   return (
-    <section className="space-y-4">
+    <section className="space-y-4" onPaste={handlePasteEvent}>
       <fieldset disabled={disabled || uploading} className="min-w-0 space-y-3.5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
           <label className="text-xs sm:text-sm font-semibold uppercase tracking-wider text-slate-200 flex items-center gap-2">
@@ -66,12 +120,31 @@ export const OrderImageFields: React.FC<{
           </span>
         </div>
 
-        {/* Visual Drag & Drop Upload Zone */}
-        <label className={`relative group flex flex-col items-center justify-center p-5 sm:p-6 rounded-2xl border-2 border-dashed cursor-pointer transition-all ${
-          disabled || uploading
-            ? 'opacity-60 cursor-not-allowed border-slate-700 bg-slate-900/40'
-            : 'border-slate-700/80 hover:border-primary-500/70 bg-slate-900/50 hover:bg-primary-950/20'
-        }`}>
+        {/* Visual Drag & Drop & Paste Upload Zone */}
+        <label
+          ref={dropzoneRef}
+          tabIndex={0}
+          onDragEnter={event => { event.preventDefault(); if (!disabled && !uploading) setDragging(true); }}
+          onDragOver={event => { event.preventDefault(); if (!disabled && !uploading) setDragging(true); }}
+          onDragLeave={event => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+          }}
+          onDrop={event => {
+            event.preventDefault();
+            setDragging(false);
+            if (disabled || uploading) return;
+            const files = Array.from<File>(event.dataTransfer?.files || []).filter(f => f.type.startsWith('image/'));
+            if (files.length) void upload(files);
+            else setError('Arrastra archivos de imagen válidos (JPG, PNG, WebP o GIF).');
+          }}
+          className={`relative group flex flex-col items-center justify-center p-5 sm:p-6 rounded-2xl border-2 border-dashed cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary-500/50 ${
+            disabled || uploading
+              ? 'opacity-60 cursor-not-allowed border-slate-700 bg-slate-900/40'
+              : dragging
+                ? 'border-primary-400 bg-primary-950/35 ring-2 ring-primary-500/40'
+                : 'border-slate-700/80 hover:border-primary-500/70 bg-slate-900/50 hover:bg-primary-950/20'
+          }`}
+        >
           <input
             className="sr-only"
             type="file"
@@ -89,13 +162,25 @@ export const OrderImageFields: React.FC<{
           </div>
           <div className="text-center">
             <p className="text-xs sm:text-sm font-medium text-slate-200">
-              <span className="text-primary-400 font-semibold underline decoration-primary-500/50 underline-offset-2">Haz clic para subir</span> o arrastra tus imágenes aquí
+              <span className="text-primary-400 font-semibold underline decoration-primary-500/50 underline-offset-2">Haz clic para subir</span>, arrastra o pega (<kbd className="px-1.5 py-0.5 text-[10px] rounded bg-slate-800 border border-slate-700">Ctrl+V</kbd>) aquí
             </p>
             <p className="text-[11px] text-slate-400 mt-1">
               JPG, PNG, WebP o GIF (hasta 10 MB c/u)
             </p>
           </div>
         </label>
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <button
+            type="button"
+            disabled={disabled || uploading}
+            onClick={() => void handlePasteButton()}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-900/70 hover:border-primary-500/60 hover:text-primary-300 text-xs font-semibold text-slate-200 transition-all disabled:opacity-50"
+          >
+            <span aria-hidden="true" className="material-symbols-outlined text-[15px]">content_paste</span>
+            <span>Pegar captura del portapapeles</span>
+          </button>
+        </div>
 
         {/* Visual Gallery Grid of Uploaded Photos */}
         {photos.length > 0 && (
