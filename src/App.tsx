@@ -10,6 +10,7 @@ import { TopHeader } from './components/TopHeader';
 import { DashboardView } from './components/DashboardView';
 import { OrdersTableView } from './components/OrdersTableView';
 import { PersonalNotesWidget } from './components/PersonalNotesWidget';
+import { IncomingCallBanner } from './components/IncomingCallBanner';
 import { MobileTabBar } from './components/MobileTabBar';
 import { YardReadyAlertBar } from './components/YardReadyAlertBar';
 import { LoadingOverlay } from './components/LoadingOverlay';
@@ -37,6 +38,7 @@ const ExportModal = React.lazy(() => import('./components/ExportModal').then((m)
 const StatusRequestModal = React.lazy(() => import('./components/StatusRequestModal').then((m) => ({ default: m.StatusRequestModal })));
 const ChangePasswordModal = React.lazy(() => import('./components/ChangePasswordModal').then((m) => ({ default: m.ChangePasswordModal })));
 const UserProfileView = React.lazy(() => import('./components/UserProfileView').then((m) => ({ default: m.UserProfileView })));
+const CallsLogView = React.lazy(() => import('./components/CallsLogView').then((m) => ({ default: m.CallsLogView })));
 const DailyFollowupBriefingModal = React.lazy(() => import('./components/DailyFollowupBriefingModal').then((m) => ({ default: m.DailyFollowupBriefingModal })));
 
 const ViewFallback: React.FC = () => (
@@ -130,6 +132,7 @@ export default function App() {
   const [isStatusRequestOpen, setIsStatusRequestOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [profileTargetId, setProfileTargetId] = useState<number | null>(null);
+  const [pbxEnabled, setPbxEnabled] = useState(true);
 
   // Follow-up modal & pending items
   const [isFollowupModalOpen, setIsFollowupModalOpen] = useState(false);
@@ -551,6 +554,7 @@ export default function App() {
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         userRole={userRole}
+        pbxEnabled={pbxEnabled}
       />
       {/* Main Content Column */}
       <div className="horizon-workspace flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[var(--bg-surface)] backdrop-blur-2xl z-10">
@@ -765,6 +769,10 @@ export default function App() {
               />
             )}
 
+            {currentScreen === 'llamadas' && pbxEnabled && (
+              <CallsLogView onSelectOrder={handleSelectOrder} />
+            )}
+
             {currentScreen === 'order-detail' && selectedOrder && (
               <OrderDetailView
                 openDeliveryPayment={deliveryPaymentOrderId === selectedOrder.id}
@@ -797,6 +805,16 @@ export default function App() {
       </div>
 
       <PersonalNotesWidget />
+      <IncomingCallBanner
+        onSelectOrder={handleSelectOrder}
+        onOpenCallLog={() => handleNavigate('llamadas')}
+        onEnabledChange={(enabled) => {
+          setPbxEnabled(enabled);
+          if (!enabled && currentScreen === 'llamadas') {
+            handleNavigate('dashboard');
+          }
+        }}
+      />
 
       {/* Global Modals con Suspense y carga condicional */}
       <React.Suspense fallback={null}>

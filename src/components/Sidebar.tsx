@@ -11,6 +11,7 @@ interface SidebarProps {
   onCloseMobile?: () => void;
   activeOrdersCount?: number;
   userRole?: string;
+  pbxEnabled?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -21,6 +22,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpenMobile,
   onCloseMobile,
   userRole = 'operador',
+  pbxEnabled = true,
 }) => {
   const isDrawerOpen = isOpen || isOpenMobile || false;
   const handleClose = onClose || onCloseMobile;
@@ -37,6 +39,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'reclamos', label: 'Reclamos', icon: 'error_outline' },
     { id: 'reembolsos', label: 'Reembolsos', icon: 'currency_exchange' },
     { id: 'mis_operaciones', label: 'Mis Operaciones', icon: 'assignment_ind' },
+    ...(pbxEnabled ? [{ id: 'llamadas' as NavScreen, label: 'Llamadas PBX', icon: 'call' }] : []),
     { id: 'perfil', label: 'Mi perfil', icon: 'account_circle' },
     ...(isSuperAdmin
       ? [{ id: 'relacion_semanal' as NavScreen, label: 'Relación Semanal', icon: 'domain', aliases: ['finanzas' as NavScreen] }]

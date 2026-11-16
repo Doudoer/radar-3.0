@@ -162,16 +162,15 @@ const initialsFor = (name: string) =>
 
 export const WeekLiquidation: React.FC<{
   week: WeekPayroll;
-  history: WeekPayroll[];
+  history?: WeekPayroll[];
   tone: Tone;
   hasSalary: boolean;
   canManage: boolean;
   penaltyAmount?: number;
   cutoffLabel?: string;
-}> = ({ week, history, tone, hasSalary, canManage, penaltyAmount = 0, cutoffLabel }) => {
+}> = ({ week, tone, hasSalary, canManage, penaltyAmount = 0, cutoffLabel }) => {
   const penalty = Number((penaltyAmount || 0).toFixed(2));
   const projected = Number((week.net - penalty).toFixed(2));
-  const previousWeeks = history.filter(entry => entry.start !== week.start);
 
   return (
     <>
@@ -217,29 +216,6 @@ export const WeekLiquidation: React.FC<{
           </p>
         )}
       </section>
-      {previousWeeks.length > 0 && (
-        <section className={`rounded-3xl px-5 py-4 sm:px-6 ${tone.card}`}>
-          <div className="flex items-baseline justify-between gap-3">
-            <h2 className={`text-sm font-bold ${tone.heading}`}>Semanas anteriores</h2>
-            <span className={`text-[10.5px] ${tone.muted}`}>Base menos faltas</span>
-          </div>
-          <div className="mt-2 divide-y divide-[var(--border-subtle)]">
-            {previousWeeks.map(entry => (
-              <div key={entry.start} className="flex items-center justify-between gap-3 py-2.5">
-                <div className="min-w-0">
-                  <p className={`truncate text-xs font-semibold ${tone.heading}`}>{entry.label}</p>
-                  <p className={`text-[10.5px] ${tone.muted}`}>
-                    Base {formatUsd(entry.gross)} · {entry.faultCount} {entry.faultCount === 1 ? 'falta' : 'faltas'} · {entry.points} pts
-                  </p>
-                </div>
-                <p className={`shrink-0 text-xs font-black tabular-nums ${entry.net < 0 ? tone.warningText : tone.heading}`}>
-                  {formatUsd(entry.net)}
-                </p>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
     </>
   );
 };

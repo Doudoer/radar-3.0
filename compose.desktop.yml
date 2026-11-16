@@ -46,6 +46,7 @@ services:
       WASENDER_BASE_URL: http://127.0.0.1:9
       WASENDER_ENABLED: "false"
       LOCAL_OTP_DEVCODE: "true"
+      PBX_WEBHOOK_SECRET: radar-desktop-pbx-test-secret
     volumes:
       - uploads:/app/uploads
       - app_backups:/app/backups

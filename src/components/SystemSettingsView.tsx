@@ -100,6 +100,36 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   const [penaltiesEnabled, setPenaltiesEnabled] = useState<boolean | null>(null);
   const [penaltiesSaving, setPenaltiesSaving] = useState(false);
   const [penaltiesMessage, setPenaltiesMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [pbxSettings, setPbxSettings] = useState<{
+    enabled: boolean;
+    liveAlertsEnabled: boolean;
+    secretConfigured: boolean;
+    secretSource: 'db' | 'env' | 'none';
+    webhookPath: string;
+    amiHost: string;
+    amiPort: number;
+    amiUser: string;
+    ringTimeoutSeconds: number;
+    healthStatus: 'online' | 'error' | 'offline' | 'waiting' | 'disabled' | 'misconfigured';
+    bridgeStatus: 'online' | 'error' | 'offline';
+    lastHeartbeatAt: string | null;
+    lastEventAt: string | null;
+    lastError: string | null;
+    totalCalls: number;
+    activeCount: number;
+  } | null>(null);
+  const [pbxDraft, setPbxDraft] = useState({
+    amiHost: '5.161.82.204',
+    amiPort: '5038',
+    amiUser: 'radar_monitor',
+    ringTimeoutSeconds: '120',
+    liveAlertsEnabled: true,
+    webhookSecret: '',
+  });
+  const [showPbxGuide, setShowPbxGuide] = useState(false);
+  const [pbxSaving, setPbxSaving] = useState(false);
+  const [pbxTesting, setPbxTesting] = useState(false);
+  const [pbxMessage, setPbxMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [evidenceItems, setEvidenceItems] = useState<Array<{
     id: number; orderCode: string; task: string; channel: string; kind: string;
     fileUrl: string; uploader: string; createdAt: string;
@@ -286,6 +316,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     void fetchWasenderStatus();
     void fetchDbHealth();
     void fetchPendingEvidence();
+    void fetchPbxSettings();
     void apiFetch('/settings')
       .then(async response => {
         const payload = await response.json().catch(() => ({}));
@@ -293,6 +324,108 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       })
       .catch(() => setPenaltiesEnabled(null));
   }, [checkVaultStatus, fetchBackups, fetchWasenderStatus, fetchDbHealth, fetchPendingEvidence]);
+
+  const fetchPbxSettings = useCallback(async () => {
+    if (!isSuperAdmin) return;
+    try {
+      const response = await apiFetch('/settings/pbx');
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setPbxSettings(payload);
+        setPbxDraft((prev) => ({
+          ...prev,
+          amiHost: payload.amiHost || '5.161.82.204',
+          amiPort: String(payload.amiPort || 5038),
+          amiUser: payload.amiUser || 'radar_monitor',
+          ringTimeoutSeconds: String(payload.ringTimeoutSeconds || 120),
+          liveAlertsEnabled: payload.liveAlertsEnabled !== false,
+        }));
+      }
+    } catch {
+      // Ignore transient load error
+    }
+  }, [isSuperAdmin]);
+
+  const savePbxConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pbxSaving) return;
+    setPbxSaving(true);
+    setPbxMessage(null);
+    try {
+      const body: Record<string, unknown> = {
+        amiHost: pbxDraft.amiHost.trim(),
+        amiPort: Number(pbxDraft.amiPort) || 5038,
+        amiUser: pbxDraft.amiUser.trim(),
+        ringTimeoutSeconds: Number(pbxDraft.ringTimeoutSeconds) || 120,
+        liveAlertsEnabled: pbxDraft.liveAlertsEnabled,
+      };
+      if (pbxDraft.webhookSecret.trim()) {
+        body.webhookSecret = pbxDraft.webhookSecret.trim();
+      }
+      const response = await apiFetch('/settings/pbx', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'No se pudo guardar la configuración PBX.');
+      setPbxSettings(payload);
+      setPbxDraft((prev) => ({ ...prev, webhookSecret: '' }));
+      setPbxMessage({
+        type: 'success',
+        text: 'Configuración de Issabel PBX guardada correctamente.',
+      });
+    } catch (error) {
+      setPbxMessage({ type: 'error', text: error instanceof Error ? error.message : 'Error al guardar configuración PBX.' });
+    } finally {
+      setPbxSaving(false);
+    }
+  };
+
+  const togglePbx = async () => {
+    if (!pbxSettings || pbxSaving) return;
+    const next = !pbxSettings.enabled;
+    setPbxSaving(true);
+    setPbxMessage(null);
+    try {
+      const response = await apiFetch('/settings/pbx', {
+        method: 'PUT',
+        body: JSON.stringify({ enabled: next }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'No se pudo cambiar el estado del PBX.');
+      setPbxSettings(payload);
+      setPbxMessage({
+        type: 'success',
+        text: next
+          ? 'Monitoreo Issabel PBX habilitado. Las alertas entrantes están activas.'
+          : 'Monitoreo Issabel PBX deshabilitado. No se mostrarán alertas nuevas hasta activarlo.',
+      });
+    } catch (error) {
+      setPbxMessage({ type: 'error', text: error instanceof Error ? error.message : 'Error al actualizar PBX.' });
+    } finally {
+      setPbxSaving(false);
+    }
+  };
+
+  const sendPbxTestCall = async () => {
+    if (pbxTesting) return;
+    setPbxTesting(true);
+    setPbxMessage(null);
+    try {
+      const response = await apiFetch('/settings/pbx/test', { method: 'POST', body: JSON.stringify({}) });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'No se pudo enviar la prueba.');
+      setPbxMessage({
+        type: 'success',
+        text: 'Alerta de prueba enviada (se cerrará automáticamente en 12 segundos).',
+      });
+      void fetchPbxSettings();
+    } catch (error) {
+      setPbxMessage({ type: 'error', text: error instanceof Error ? error.message : 'Error al probar PBX.' });
+    } finally {
+      setPbxTesting(false);
+    }
+  };
 
   const togglePenalties = async () => {
     if (penaltiesEnabled === null || penaltiesSaving) return;
@@ -645,6 +778,254 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
               </ul>
             )}
           </div>
+        </div>
+      )}
+
+      {/* SUPER ADMIN: Issabel PBX Monitor Configuration */}
+      {isSuperAdmin && (
+        <div className="relative overflow-hidden rounded-3xl border border-cyan-500/25 bg-[#070c18]/90 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.6)] backdrop-blur-2xl md:p-6">
+          <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-cyan-400" />
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
+                pbxSettings?.healthStatus === 'online'
+                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                  : pbxSettings?.healthStatus === 'error'
+                    ? 'border-rose-500/40 bg-rose-500/10 text-rose-300'
+                    : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300'
+              }`}>
+                <span aria-hidden="true" className="material-symbols-outlined text-[20px]">call</span>
+              </div>
+              <div>
+                <h2 className="font-mono text-sm font-black uppercase tracking-wider text-white">Central Telefónica (Issabel PBX)</h2>
+                <p className="mt-1 max-w-2xl text-xs text-slate-400">
+                  Monitoreo en modo solo lectura desde Issabel PBX y PortSIP. Muestra alertas de llamadas entrantes a todo el equipo de oficina y registra entrantes, salientes y perdidas.
+                </p>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              <span className={`rounded-full border px-2.5 py-1 font-mono text-[10.5px] font-bold uppercase tracking-wide ${
+                pbxSettings?.healthStatus === 'online'
+                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                  : pbxSettings?.healthStatus === 'error'
+                    ? 'border-rose-500/40 bg-rose-500/10 text-rose-300'
+                    : pbxSettings?.healthStatus === 'offline' || pbxSettings?.healthStatus === 'misconfigured'
+                      ? 'border-amber-400/40 bg-amber-500/10 text-amber-300'
+                      : 'border-slate-600 bg-slate-800/60 text-slate-300'
+              }`}>
+                {!pbxSettings
+                  ? 'Cargando…'
+                  : pbxSettings.healthStatus === 'online'
+                    ? 'En línea'
+                    : pbxSettings.healthStatus === 'error'
+                      ? 'Con error'
+                      : pbxSettings.healthStatus === 'offline'
+                        ? 'Sin señal'
+                        : pbxSettings.healthStatus === 'misconfigured'
+                          ? 'Falta secreto'
+                          : pbxSettings.healthStatus === 'disabled'
+                            ? 'Deshabilitado'
+                            : 'Esperando puente'}
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={pbxSettings?.enabled === true}
+                aria-label="Habilitar monitoreo Issabel PBX"
+                disabled={!pbxSettings || pbxSaving}
+                onClick={() => { void togglePbx(); }}
+                className={`relative h-8 w-14 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                  pbxSettings?.enabled
+                    ? 'border-emerald-400/50 bg-emerald-500/30'
+                    : 'border-slate-600 bg-slate-800'
+                }`}
+              >
+                <span className={`absolute top-1 h-6 w-6 rounded-full bg-white transition-all ${
+                  pbxSettings?.enabled ? 'left-7' : 'left-1'
+                }`} />
+              </button>
+            </div>
+          </div>
+
+          {pbxSettings?.lastError && (
+            <div className="mt-3 flex items-start gap-2 rounded-2xl border border-rose-500/40 bg-rose-950/40 px-3 py-2 font-mono text-[11px] text-rose-300">
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px] shrink-0">error</span>
+              <span>Último error reportado por el puente Issabel: {pbxSettings.lastError}</span>
+            </div>
+          )}
+
+          {pbxMessage && (
+            <p className={`mt-3 rounded-2xl px-3 py-2 font-mono text-[11px] ${
+              pbxMessage.type === 'success'
+                ? 'border border-emerald-500/40 bg-emerald-950/40 text-emerald-300'
+                : 'border border-amber-400/40 bg-amber-950/30 text-amber-200'
+            }`}>
+              {pbxMessage.text}
+            </p>
+          )}
+
+          <div className="mt-4 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-2xl border border-cyan-500/15 bg-slate-950/60 px-3 py-2.5">
+              <p className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Secreto Webhook</p>
+              <p className={`mt-1 font-mono text-xs font-bold ${pbxSettings?.secretConfigured ? 'text-emerald-300' : 'text-amber-300'}`}>
+                {pbxSettings?.secretConfigured ? 'PBX_WEBHOOK_SECRET OK' : 'No configurado'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-cyan-500/15 bg-slate-950/60 px-3 py-2.5">
+              <p className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Último latido AMI</p>
+              <p className="mt-1 font-mono text-xs font-bold text-slate-200">
+                {pbxSettings?.lastHeartbeatAt ? new Date(pbxSettings.lastHeartbeatAt).toLocaleString('es-HN') : 'Sin latido aún'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-cyan-500/15 bg-slate-950/60 px-3 py-2.5">
+              <p className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Último evento</p>
+              <p className="mt-1 font-mono text-xs font-bold text-slate-200">
+                {pbxSettings?.lastEventAt ? new Date(pbxSettings.lastEventAt).toLocaleString('es-HN') : 'Sin llamadas aún'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-cyan-500/15 bg-slate-950/60 px-3 py-2.5">
+              <p className="font-mono text-[10px] uppercase tracking-wider text-slate-400">Historial / Activas</p>
+              <p className="mt-1 font-mono text-xs font-bold text-slate-200">
+                {pbxSettings ? `${pbxSettings.totalCalls} registradas · ${pbxSettings.activeCount} sonando` : '—'}
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={(e) => { void savePbxConfig(e); }} className="mt-4 space-y-3 border-t border-cyan-500/15 pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-mono text-[11px] font-black uppercase tracking-wider text-[var(--text-heading)]">
+                Configuración de conexión
+              </p>
+              <label className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--text-secondary)] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={pbxDraft.liveAlertsEnabled}
+                  onChange={(e) => setPbxDraft((prev) => ({ ...prev, liveAlertsEnabled: e.target.checked }))}
+                  className="h-4 w-4 rounded border-cyan-500/40 accent-cyan-500"
+                />
+                <span>Mostrar alertas flotantes en vivo</span>
+              </label>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="block text-[11px] font-bold text-[var(--text-muted)]">
+                IP / Host Issabel PBX
+                <input
+                  type="text"
+                  required
+                  value={pbxDraft.amiHost}
+                  onChange={(e) => setPbxDraft((prev) => ({ ...prev, amiHost: e.target.value }))}
+                  placeholder="5.161.82.204"
+                  className="mt-1 w-full rounded-xl border border-cyan-500/25 bg-[var(--bg-surface)] px-3 py-2 font-mono text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                />
+              </label>
+              <label className="block text-[11px] font-bold text-[var(--text-muted)]">
+                Puerto AMI
+                <input
+                  type="number"
+                  min={1}
+                  max={65535}
+                  required
+                  value={pbxDraft.amiPort}
+                  onChange={(e) => setPbxDraft((prev) => ({ ...prev, amiPort: e.target.value }))}
+                  placeholder="5038"
+                  className="mt-1 w-full rounded-xl border border-cyan-500/25 bg-[var(--bg-surface)] px-3 py-2 font-mono text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                />
+              </label>
+              <label className="block text-[11px] font-bold text-[var(--text-muted)]">
+                Usuario AMI (solo lectura)
+                <input
+                  type="text"
+                  required
+                  value={pbxDraft.amiUser}
+                  onChange={(e) => setPbxDraft((prev) => ({ ...prev, amiUser: e.target.value }))}
+                  placeholder="radar_monitor"
+                  className="mt-1 w-full rounded-xl border border-cyan-500/25 bg-[var(--bg-surface)] px-3 py-2 font-mono text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                />
+              </label>
+              <label className="block text-[11px] font-bold text-[var(--text-muted)]">
+                Expiración alerta (seg)
+                <input
+                  type="number"
+                  min={15}
+                  max={300}
+                  required
+                  value={pbxDraft.ringTimeoutSeconds}
+                  onChange={(e) => setPbxDraft((prev) => ({ ...prev, ringTimeoutSeconds: e.target.value }))}
+                  placeholder="120"
+                  className="mt-1 w-full rounded-xl border border-cyan-500/25 bg-[var(--bg-surface)] px-3 py-2 font-mono text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                />
+              </label>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <label className="block flex-1 text-[11px] font-bold text-[var(--text-muted)]">
+                Nuevo Secreto Webhook (x-pbx-secret)
+                <input
+                  type="text"
+                  value={pbxDraft.webhookSecret}
+                  onChange={(e) => setPbxDraft((prev) => ({ ...prev, webhookSecret: e.target.value }))}
+                  placeholder={pbxSettings?.secretConfigured ? 'Configurado (deja vacío para conservar el actual)' : 'Escribe o genera un secreto compartido'}
+                  className="mt-1 w-full rounded-xl border border-cyan-500/25 bg-[var(--bg-surface)] px-3 py-2 font-mono text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  const token = Array.from(crypto.getRandomValues(new Uint8Array(18)), (b) => b.toString(16).padStart(2, '0')).join('');
+                  setPbxDraft((prev) => ({ ...prev, webhookSecret: token }));
+                }}
+                className="rounded-xl border border-cyan-500/30 bg-[var(--bg-surface)] px-3 py-2 font-mono text-[11px] font-bold text-[var(--text-secondary)] hover:border-cyan-400 cursor-pointer"
+              >
+                Generar secreto
+              </button>
+              <button
+                type="submit"
+                disabled={pbxSaving}
+                className="rounded-xl bg-[var(--brand-solid)] px-4 py-2 font-mono text-[11px] font-bold text-white hover:opacity-90 disabled:opacity-50 cursor-pointer"
+              >
+                {pbxSaving ? 'Guardando…' : 'Guardar configuración'}
+              </button>
+            </div>
+          </form>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-cyan-500/15 pt-3.5">
+            <p className="font-mono text-[11px] text-slate-400">
+              Endpoint: <span className="text-cyan-300">{pbxSettings?.webhookPath || '/api/pbx/events'}</span> · Puente en VPS Issabel: <span className="text-slate-200">scripts/issabel-ami-bridge.mjs</span>
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowPbxGuide((prev) => !prev)}
+                className="rounded-xl border border-cyan-500/30 bg-slate-900 px-3 py-1.5 font-mono text-[11px] font-bold text-slate-200 hover:bg-slate-800 cursor-pointer"
+              >
+                {showPbxGuide ? 'Ocultar comando VPS' : 'Ver comando VPS'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { void fetchPbxSettings(); }}
+                className="rounded-xl border border-cyan-500/30 bg-slate-900 px-3 py-1.5 font-mono text-[11px] font-bold text-slate-200 hover:bg-slate-800 cursor-pointer"
+              >
+                Actualizar estado
+              </button>
+              <button
+                type="button"
+                disabled={!pbxSettings?.enabled || pbxTesting}
+                onClick={() => { void sendPbxTestCall(); }}
+                className="rounded-xl bg-cyan-500/20 border border-cyan-400/40 px-3 py-1.5 font-mono text-[11px] font-bold text-cyan-200 hover:bg-cyan-500/30 disabled:opacity-50 cursor-pointer"
+              >
+                {pbxTesting ? 'Enviando…' : 'Probar alerta en vivo'}
+              </button>
+            </div>
+          </div>
+
+          {showPbxGuide && (
+            <pre className="mt-3 overflow-x-auto rounded-2xl border border-cyan-500/20 bg-slate-950/90 p-3 font-mono text-[11px] text-cyan-200">
+{`AMI_HOST=127.0.0.1 AMI_PORT=${pbxDraft.amiPort || '5038'} AMI_USER=${pbxDraft.amiUser || 'radar_monitor'} \\
+AMI_SECRET=<PASSWORD_AMI> \\
+RADAR_WEBHOOK_URL=${typeof window !== 'undefined' ? `${window.location.origin}/api/pbx/events` : 'https://tu-dominio/api/pbx/events'} \\
+PBX_WEBHOOK_SECRET=${pbxDraft.webhookSecret || '<TU_PBX_WEBHOOK_SECRET>'} \\
+node scripts/issabel-ami-bridge.mjs`}
+            </pre>
+          )}
         </div>
       )}
 

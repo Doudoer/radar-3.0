@@ -24,6 +24,7 @@ import { matchOrderInventory } from './src/utils/inventoryMatching';
 import { filterInventory, inventoryCsv } from './src/utils/inventoryExport';
 import { financeVaultExpiry, lockFinanceVault, revokeFinanceVaults, unlockFinanceVault } from './src/server/financeVault';
 import { businessDate, businessDaysBetween, isEligibleForDeliveryFollowup } from './src/server/businessTime';
+import { getExpectedPbxWebhookSecret, listActiveIncomingCalls, listPbxCallLogs, readPbxSettings, recordPbxHeartbeat, upsertPbxCallEvent, verifyPbxWebhookSecret, writePbxSettings } from './src/server/pbxCalls';
 import { startNotificationOutbox } from './src/server/outbox';
 import { clearSessionCookie, isLoginRateLimited, isPinInUse, recordLoginFailure, resetLoginAttempts, requireRole, roleIs, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
 import QRCode from 'qrcode';
@@ -102,6 +103,34 @@ import {
   recordAuditLog,
   getAuditLogs,
 } from './src/server/audit';
+
+const pbxStreamClients = new Set<ServerResponse>();
+const broadcastPbxActive = (active: unknown[], enabled = true) => {
+  const frame = `data: ${JSON.stringify({ type: 'call_event', active, enabled })}\n\n`;
+  for (const client of pbxStreamClients) {
+    try {
+      client.write(frame);
+    } catch {
+      pbxStreamClients.delete(client);
+    }
+  }
+};
+const pbxHeartbeatSchema = z.object({
+  status: z.enum(['online', 'error']),
+  error: z.string().trim().max(500).nullable().optional(),
+});
+const pbxEventSchema = z.object({
+  uniqueid: z.string().trim().min(1).max(64),
+  event: z.enum(['ringing', 'answered', 'missed', 'ended']),
+  direction: z.enum(['inbound', 'outbound', 'internal']).optional(),
+  caller_number: z.string().trim().min(1).max(64),
+  caller_name: z.string().trim().max(120).nullable().optional(),
+  destination: z.string().trim().max(64).nullable().optional(),
+  answered_by_ext: z.string().trim().max(32).nullable().optional(),
+  duration_seconds: z.coerce.number().int().min(0).optional(),
+  billsec_seconds: z.coerce.number().int().min(0).optional(),
+  timestamp: z.string().trim().max(64).nullable().optional(),
+});
 import { getMessageUsers, getPersonalMessages, getPersonalNote, markPersonalMessageRead, savePersonalNote, sendPersonalMessage } from './src/server/notes';
 import { wasender, formatWasenderPhone } from './src/integrations/wasender/client';
 import { buildWasenderTestMessage } from './src/integrations/wasender/testMessage';
@@ -357,7 +386,7 @@ const server = createServer(async (request, response) => {
         return sendJson(response, 403, { code: 'ORIGIN_REJECTED', message: 'Origen no autorizado' });
       }
       if (request.method === 'OPTIONS') return response.writeHead(204).end();
-      if (isUnsafeMethod(request.method) && !validCsrfToken(request)) {
+      if (isUnsafeMethod(request.method) && pathname !== '/api/pbx/events' && pathname !== '/api/pbx/heartbeat' && !validCsrfToken(request)) {
         if (rateLimit(`csrf-alert:${ipAddress}`, 1, 60_000) === 0) {
           void recordAuditLog(pool, { action: 'SECURITY_ALERT_TRIGGERED', resourceType: 'http', details: { reason: 'CSRF_REJECTED' }, ipAddress });
         }
@@ -604,6 +633,44 @@ const server = createServer(async (request, response) => {
             },
           })
         : sendJson(response, 401, { message: 'Usuario inactivo' });
+    }
+
+    if (request.method === 'POST' && pathname === '/api/pbx/heartbeat') {
+      const expectedSecret = await getExpectedPbxWebhookSecret(pool);
+      if (!expectedSecret) {
+        return sendJson(response, 503, { message: 'PBX_WEBHOOK_SECRET no configurado en el servidor' });
+      }
+      const headerSecret = Array.isArray(request.headers['x-pbx-secret'])
+        ? request.headers['x-pbx-secret'][0]
+        : request.headers['x-pbx-secret'];
+      if (!verifyPbxWebhookSecret(headerSecret, expectedSecret)) {
+        return sendJson(response, 401, { message: 'Secreto PBX inválido' });
+      }
+      const payload = pbxHeartbeatSchema.parse(await readBody(request));
+      const snapshot = await recordPbxHeartbeat(pool, payload);
+      return sendJson(response, 200, { ok: true, healthStatus: snapshot.healthStatus });
+    }
+
+    if (request.method === 'POST' && pathname === '/api/pbx/events') {
+      const expectedSecret = await getExpectedPbxWebhookSecret(pool);
+      if (!expectedSecret) {
+        return sendJson(response, 503, { message: 'PBX_WEBHOOK_SECRET no configurado en el servidor' });
+      }
+      const headerSecret = Array.isArray(request.headers['x-pbx-secret'])
+        ? request.headers['x-pbx-secret'][0]
+        : request.headers['x-pbx-secret'];
+      if (!verifyPbxWebhookSecret(headerSecret, expectedSecret)) {
+        return sendJson(response, 401, { message: 'Secreto PBX inválido' });
+      }
+      const settings = await readPbxSettings(pool);
+      if (!settings.enabled) {
+        return sendJson(response, 200, { ok: true, skipped: true, reason: 'disabled', activeCount: 0 });
+      }
+      const payload = pbxEventSchema.parse(await readBody(request));
+      const call = await upsertPbxCallEvent(pool, payload);
+      const active = settings.liveAlertsEnabled ? await listActiveIncomingCalls(pool) : [];
+      broadcastPbxActive(active, true);
+      return sendJson(response, 200, { ok: true, call, activeCount: active.length });
     }
 
     const protectedPath = pathname.startsWith('/api/') || pathname.startsWith('/uploads/');
@@ -3894,6 +3961,125 @@ const server = createServer(async (request, response) => {
       const anchor = weekParam && Number.isFinite(Date.parse(weekParam)) ? new Date(weekParam) : new Date();
       const performance = await getWeeklyPerformance(pool, requestedId, anchor);
       return sendJson(response, 200, performance);
+    }
+
+    if (request.method === 'GET' && pathname === '/api/settings/pbx') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const snapshot = await readPbxSettings(pool);
+      return sendJson(response, 200, snapshot);
+    }
+
+    if (request.method === 'PUT' && pathname === '/api/settings/pbx') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const payload = z.object({
+        enabled: z.boolean().optional(),
+        liveAlertsEnabled: z.boolean().optional(),
+        amiHost: z.string().trim().min(1).max(120).optional(),
+        amiPort: z.coerce.number().int().min(1).max(65535).optional(),
+        amiUser: z.string().trim().min(1).max(64).optional(),
+        webhookSecret: z.string().trim().max(200).optional(),
+        ringTimeoutSeconds: z.coerce.number().int().min(15).max(300).optional(),
+      }).parse(await readBody(request));
+      const before = await readPbxSettings(pool);
+      const snapshot = await writePbxSettings(pool, payload, Number(authenticatedClaims?.sub));
+      if (!snapshot.enabled || !snapshot.liveAlertsEnabled) {
+        broadcastPbxActive([], snapshot.enabled);
+      } else if (before.enabled !== snapshot.enabled) {
+        broadcastPbxActive(await listActiveIncomingCalls(pool), true);
+      }
+      void recordAuditLog(pool, {
+        userId: Number(authenticatedClaims?.sub),
+        username: authenticatedClaims?.email,
+        action: 'PBX_SETTINGS_UPDATED',
+        resourceType: 'settings',
+        resourceId: 'pbx',
+        details: {
+          previousEnabled: before.enabled,
+          nextEnabled: snapshot.enabled,
+          liveAlertsEnabled: snapshot.liveAlertsEnabled,
+          amiHost: snapshot.amiHost,
+          amiPort: snapshot.amiPort,
+          secretRotated: Boolean(payload.webhookSecret?.trim()),
+        },
+        ipAddress: request.socket.remoteAddress || 'unknown',
+        userAgent: request.headers['user-agent'] || null,
+      });
+      return sendJson(response, 200, snapshot);
+    }
+
+    if (request.method === 'POST' && pathname === '/api/settings/pbx/test') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const settings = await readPbxSettings(pool);
+      if (!settings.enabled) {
+        return sendJson(response, 400, { message: 'Habilita primero el monitoreo PBX para enviar una prueba.' });
+      }
+      const uniqueid = `pbx-test-${Date.now()}`;
+      const call = await upsertPbxCallEvent(pool, {
+        uniqueid,
+        event: 'ringing',
+        direction: 'inbound',
+        caller_number: '+504 9999-0000',
+        caller_name: 'Prueba de Alerta PBX',
+        destination: '501',
+      });
+      const active = await listActiveIncomingCalls(pool);
+      broadcastPbxActive(active);
+      setTimeout(() => {
+        void upsertPbxCallEvent(pool, {
+          uniqueid,
+          event: 'missed',
+          direction: 'inbound',
+          caller_number: '+504 9999-0000',
+          destination: '501',
+          duration_seconds: 12,
+        }).then(async () => {
+          broadcastPbxActive(await listActiveIncomingCalls(pool));
+        }).catch(() => {});
+      }, 12000);
+      return sendJson(response, 200, { ok: true, call, activeCount: active.length });
+    }
+
+    if (request.method === 'GET' && pathname === '/api/pbx/calls/active') {
+      const settings = await readPbxSettings(pool);
+      const active = settings.enabled && settings.liveAlertsEnabled ? await listActiveIncomingCalls(pool) : [];
+      return sendJson(response, 200, { active, enabled: settings.enabled });
+    }
+
+    if (request.method === 'GET' && pathname === '/api/pbx/calls') {
+      const url = new URL(request.url || '/', 'http://localhost');
+      const result = await listPbxCallLogs(pool, {
+        direction: url.searchParams.get('direction') || undefined,
+        status: url.searchParams.get('status') || undefined,
+        search: url.searchParams.get('search') || undefined,
+        limit: Number(url.searchParams.get('limit') || 100),
+      });
+      return sendJson(response, 200, result);
+    }
+
+    if (request.method === 'GET' && pathname === '/api/pbx/stream') {
+      response.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      });
+      pbxStreamClients.add(response);
+      const settings = await readPbxSettings(pool);
+      const active = settings.enabled && settings.liveAlertsEnabled ? await listActiveIncomingCalls(pool) : [];
+      response.write(`data: ${JSON.stringify({ type: 'snapshot', active, enabled: settings.enabled })}\n\n`);
+      const keepalive = setInterval(() => {
+        try {
+          response.write(': ping\n\n');
+        } catch {
+          clearInterval(keepalive);
+          pbxStreamClients.delete(response);
+        }
+      }, 25000);
+      request.on('close', () => {
+        clearInterval(keepalive);
+        pbxStreamClients.delete(response);
+      });
+      return;
     }
 
     if (request.method === 'GET' && pathname === '/api/followup-evidence') {

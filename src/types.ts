@@ -21,7 +21,8 @@ export type NavScreen =
   | 'directorio'
   | 'piezas'
   | 'hold'
-  | 'perfil';
+  | 'perfil'
+  | 'llamadas';
 
 // Catálogo Exhaustivo de Estatus en RADAR (13 Estatus)
 export type OrderStatus = 

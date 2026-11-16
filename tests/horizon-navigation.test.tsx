@@ -24,13 +24,18 @@ describe('Horizon navigation preserves Radar access and routes', () => {
     const html = renderToStaticMarkup(<Sidebar currentScreen="dashboard" userRole="admin" onNavigate={() => {}} />);
     expect(html).toContain('aria-label="Operación"');
     expect(html).toContain('aria-label="Administración"');
-    expect(html.match(/class="horizon-nav-item /g)).toHaveLength(12);
+    expect(html.match(/class="horizon-nav-item /g)).toHaveLength(13);
     expect(html).toContain('Mi trabajo de hoy');
+    expect(html).toContain('Llamadas PBX');
     expect(html).toContain('Mi perfil');
   });
   it('preserves the mobile drawer and alias selection', () => {
     const html = renderToStaticMarkup(<Sidebar currentScreen="finanzas" userRole="admin" isOpenMobile onNavigate={() => {}} />);
     expect(html).toContain('translate-x-0');
     expect(html).toMatch(/aria-current="page"[^>]*>.*?domain.*?Relación Semanal/s);
+  });
+  it('hides Llamadas PBX when PBX monitoring is disabled', () => {
+    const html = renderToStaticMarkup(<Sidebar currentScreen="dashboard" userRole="operator" pbxEnabled={false} onNavigate={() => {}} />);
+    expect(html).not.toContain('Llamadas PBX');
   });
 });

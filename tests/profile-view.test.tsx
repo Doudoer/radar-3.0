@@ -72,10 +72,8 @@ describe('weekly liquidation', () => {
     expect(html).toContain('$ 3,275.00');
     expect(html).toContain('−$ 225.00');
     expect(html).toContain('15 pts');
-    expect(html).toContain('Semanas anteriores');
+    expect(html).not.toContain('Semanas anteriores');
     expect(html).not.toContain('En curso');
-    expect(html).toContain('1 falta');
-    expect(html).toContain('$ 3,100.00');
   });
 
   it('shows a single projected net after subtracting penalties, not two competing totals', () => {
