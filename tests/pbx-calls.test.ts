@@ -1,3 +1,5 @@
+import { EventEmitter } from 'node:events';
+import net from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import {
@@ -11,7 +13,7 @@ import {
   verifyPbxWebhookSecret,
   writePbxEnabled,
 } from '../src/server/pbxCalls';
-import { createPbxAmiManager } from '../src/server/pbxAmiClient';
+import { createPbxAmiManager, inferDirection, parseAmiBlock } from '../src/server/pbxAmiClient';
 
 const createMockPool = (queryHandler: (sql: string, params?: unknown[]) => unknown[]) => {
   const execute = vi.fn(async () => [{ affectedRows: 1 }, []]);
@@ -189,5 +191,96 @@ describe('pbxCalls helpers', () => {
     const manager = createPbxAmiManager(pool, vi.fn());
     await manager.refresh();
     manager.stop();
+  });
+
+  it('parses AMI blocks, infers call directions, and processes AMI socket lifecycle events', async () => {
+    const parsed = parseAmiBlock('Event: DialBegin\r\nCallerIDNum: 50499990000\r\nInvalidLine\r\n');
+    expect(parsed).toEqual({ Event: 'DialBegin', CallerIDNum: '50499990000' });
+
+    expect(inferDirection({ Context: 'from-trunk' })).toBe('inbound');
+    expect(inferDirection({ Context: 'from-internal', DestChannel: 'PJSIP/trunk-1' })).toBe('outbound');
+    expect(inferDirection({ Context: 'from-internal', Channel: 'PJSIP/501', DestCallerIDNum: '50499990000' })).toBe('outbound');
+    expect(inferDirection({ Context: 'from-internal', Channel: 'PJSIP/501', DestCallerIDNum: '502' })).toBe('internal');
+    expect(inferDirection({ Context: 'custom-ctx' })).toBe('inbound');
+
+    class FakeSocket extends EventEmitter {
+      destroyed = false;
+      writes: string[] = [];
+      setTimeout = vi.fn();
+      write = vi.fn((chunk: string) => {
+        this.writes.push(chunk);
+        return true;
+      });
+      destroy = vi.fn(() => {
+        this.destroyed = true;
+      });
+    }
+
+    const fakeSocket = new FakeSocket();
+    const spy = vi.spyOn(net, 'createConnection').mockImplementation(((_opts: unknown, cb?: () => void) => {
+      queueMicrotask(() => cb?.());
+      return fakeSocket as unknown as net.Socket;
+    }) as typeof net.createConnection);
+
+    try {
+      const { pool } = createMockPool((sql) => {
+        if (sql.includes('FROM app_settings')) {
+          return [
+            { setting_key: 'pbx.enabled', setting_value: '1' },
+            { setting_key: 'pbx.ami_host', setting_value: '5.161.82.204' },
+            { setting_key: 'pbx.ami_port', setting_value: '5038' },
+            { setting_key: 'pbx.ami_user', setting_value: 'radar_monitor' },
+            { setting_key: 'pbx.ami_secret', setting_value: 'secret123' },
+            { setting_key: 'pbx.live_alerts_enabled', setting_value: '1' },
+          ];
+        }
+        if (sql.includes('FROM pbx_call_logs WHERE uniqueid')) {
+          return [{
+            id: 1,
+            uniqueid: 'u-1',
+            direction: 'inbound',
+            status: 'ringing',
+            caller_number: '99990000',
+            started_at: '2026-11-16T00:00:00.000Z',
+          }];
+        }
+        if (sql.includes('COUNT(*) AS totalCalls')) {
+          return [{ totalCalls: 1, activeCount: 1 }];
+        }
+        return [];
+      });
+
+      const onActiveChanged = vi.fn();
+      const manager = createPbxAmiManager(pool, onActiveChanged);
+      await manager.refresh();
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(fakeSocket.writes.some((w) => w.includes('Action: Login'))).toBe(true);
+
+      // Timeout after connect sends Ping
+      fakeSocket.emit('timeout');
+      expect(fakeSocket.writes.some((w) => w.includes('Action: Ping'))).toBe(true);
+
+      // Auth success + error
+      fakeSocket.emit('data', Buffer.from('Response: Success\r\nMessage: Authentication accepted\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Response: Error\r\nMessage: Bad auth\r\n\r\n'));
+
+      // Call lifecycle: DialBegin -> BridgeEnter -> Hangup -> Cdr
+      fakeSocket.emit('data', Buffer.from('Event: DialBegin\r\nUniqueid: u-1\r\nContext: from-trunk\r\nCallerIDNum: 99990000\r\nExten: 501\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Event: BridgeEnter\r\nUniqueid: u-1\r\nDestCallerIDNum: 501\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Event: Hangup\r\nUniqueid: u-1\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Event: Cdr\r\nUniqueid: u-1\r\nDisposition: ANSWERED\r\nDuration: 20\r\nBillableSeconds: 15\r\n\r\n'));
+
+      // Missed call via DialEnd
+      fakeSocket.emit('data', Buffer.from('Event: DialBegin\r\nUniqueid: u-2\r\nContext: from-trunk\r\nCallerIDNum: 88881111\r\nExten: 502\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Event: DialEnd\r\nUniqueid: u-2\r\nDialStatus: CANCEL\r\n\r\n'));
+
+      fakeSocket.emit('error', new Error('ECONNRESET'));
+      fakeSocket.emit('close');
+      await new Promise((r) => setTimeout(r, 20));
+      manager.stop();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

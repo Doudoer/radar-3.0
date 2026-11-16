@@ -19,7 +19,7 @@ interface TrackedCall {
   closed?: boolean;
 }
 
-const parseAmiBlock = (raw: string): Record<string, string> => {
+export const parseAmiBlock = (raw: string): Record<string, string> => {
   const data: Record<string, string> = {};
   for (const line of raw.split(/\r?\n/)) {
     const idx = line.indexOf(':');
@@ -29,7 +29,7 @@ const parseAmiBlock = (raw: string): Record<string, string> => {
   return data;
 };
 
-const inferDirection = (ev: Record<string, string>): PbxCallDirection => {
+export const inferDirection = (ev: Record<string, string>): PbxCallDirection => {
   const ctx = String(ev.Context || '').toLowerCase();
   const destChan = String(ev.DestChannel || '').toLowerCase();
   const chan = String(ev.Channel || '').toLowerCase();
