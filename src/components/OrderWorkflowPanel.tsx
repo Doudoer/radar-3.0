@@ -111,24 +111,55 @@ export const collectWorkflowFiles = (detail: WorkflowDetail): CollectedWorkflowF
   return files;
 };
 
-export const WorkflowFilesGallery: React.FC<{ detail: WorkflowDetail }> = ({ detail }) => {
-  const files = collectWorkflowFiles(detail);
+export const WorkflowFilesGallery: React.FC<{
+  detail: WorkflowDetail;
+  stageFilter?: string | null;
+  onClearStageFilter?: () => void;
+}> = ({ detail, stageFilter, onClearStageFilter }) => {
+  const allFiles = collectWorkflowFiles(detail);
+  const files = stageFilter ? allFiles.filter(f => f.stageLabel === stageFilter) : allFiles;
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const previewFile = previewIndex !== null ? files[previewIndex] || null : null;
+
+  useEffect(() => {
+    if (previewIndex === null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPreviewIndex(null);
+      else if (event.key === 'ArrowRight') setPreviewIndex(prev => (prev !== null && prev + 1 < files.length ? prev + 1 : prev));
+      else if (event.key === 'ArrowLeft') setPreviewIndex(prev => (prev !== null && prev > 0 ? prev - 1 : prev));
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [previewIndex, files.length]);
+
   return (
     <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)]/50 p-4 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-cyan-400">folder_open</span>
           <strong className="text-xs sm:text-sm font-bold text-[var(--text-primary)]">
-            Archivos cargados en el flujo ({files.length})
+            Archivos cargados en el flujo ({files.length}{stageFilter ? ` de ${allFiles.length}` : ''})
           </strong>
+          {stageFilter && (
+            <button
+              type="button"
+              onClick={onClearStageFilter}
+              className="inline-flex items-center gap-1 rounded-full bg-cyan-500/15 border border-cyan-500/35 px-2.5 py-0.5 text-[11px] font-bold text-cyan-400 hover:bg-cyan-500/25"
+            >
+              <span>Etapa: {stageFilter}</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">close</span>
+            </button>
+          )}
         </div>
         <span className="text-[11px] text-[var(--text-secondary)]">
-          Comprobantes, capturas de preparación, fotos de entrega y audios
+          Haz clic en cualquier archivo para verlo aquí sin descargarlo
         </span>
       </div>
       {files.length === 0 ? (
         <p className="text-xs text-[var(--text-secondary)]">
-          Aún no hay archivos cargados en las etapas del flujo de esta orden.
+          {stageFilter
+            ? `No hay archivos cargados en la etapa "${stageFilter}".`
+            : 'Aún no hay archivos cargados en las etapas del flujo de esta orden.'}
         </p>
       ) : (
         <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
@@ -148,39 +179,124 @@ export const WorkflowFilesGallery: React.FC<{ detail: WorkflowDetail }> = ({ det
                 {file.isAudio ? (
                   <audio controls preload="metadata" src={file.url} className="w-full h-8" aria-label={file.kindLabel} />
                 ) : isPdf ? (
-                  <a
-                    href={file.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center justify-center gap-2 h-24 rounded-lg border border-dashed border-[var(--border-color)] bg-[var(--bg-card-subtle)] text-cyan-400 font-semibold hover:border-cyan-500/50"
+                  <button
+                    type="button"
+                    onClick={() => setPreviewIndex(idx)}
+                    className="w-full flex items-center justify-center gap-2 h-24 rounded-lg border border-dashed border-[var(--border-color)] bg-[var(--bg-card-subtle)] text-cyan-400 font-semibold hover:border-cyan-500/50"
                   >
                     <span aria-hidden="true" className="material-symbols-outlined text-[24px]">picture_as_pdf</span>
-                    <span>Abrir PDF</span>
-                  </a>
+                    <span>Ver PDF aquí</span>
+                  </button>
                 ) : (
-                  <a href={file.url} target="_blank" rel="noreferrer" className="block group overflow-hidden rounded-lg border border-[var(--border-color)] bg-black/20">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewIndex(idx)}
+                    className="w-full block group overflow-hidden rounded-lg border border-[var(--border-color)] bg-black/20"
+                  >
                     <img
                       src={file.url}
                       alt={file.kindLabel}
                       loading="lazy"
                       className="h-24 w-full object-cover transition-transform group-hover:scale-105"
                     />
-                  </a>
+                  </button>
                 )}
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-semibold text-[var(--text-primary)] truncate">{file.kindLabel}</span>
-                  <a
-                    href={file.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[11px] font-bold text-cyan-400 hover:underline shrink-0"
-                  >
-                    Abrir
-                  </a>
+                  {!file.isAudio && (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewIndex(idx)}
+                      className="text-[11px] font-bold text-cyan-400 hover:underline shrink-0"
+                    >
+                      Ver
+                    </button>
+                  )}
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {previewFile && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={previewFile.kindLabel}
+          className="horizon-modal fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setPreviewIndex(null)}
+        >
+          <div
+            className="relative w-full max-w-4xl rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4 shadow-2xl space-y-3"
+            onClick={event => event.stopPropagation()}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[var(--border-color)]">
+              <div className="flex flex-wrap items-center gap-2 min-w-0">
+                <span className="rounded-md bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 text-[11px] font-bold text-cyan-400">
+                  {previewFile.stageLabel}
+                </span>
+                <strong className="text-sm font-bold text-[var(--text-primary)] truncate">
+                  {previewFile.kindLabel}
+                </strong>
+                <span className="text-xs text-[var(--text-secondary)]">· {previewFile.actorName}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {files.length > 1 && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={previewIndex === 0}
+                      onClick={() => setPreviewIndex(prev => (prev !== null && prev > 0 ? prev - 1 : prev))}
+                      className="px-2 py-1 rounded-lg border border-[var(--border-color)] text-xs font-semibold disabled:opacity-40"
+                    >
+                      Anterior
+                    </button>
+                    <span className="text-[11px] text-[var(--text-secondary)] px-1">
+                      {(previewIndex ?? 0) + 1} / {files.length}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={previewIndex !== null && previewIndex + 1 >= files.length}
+                      onClick={() => setPreviewIndex(prev => (prev !== null && prev + 1 < files.length ? prev + 1 : prev))}
+                      className="px-2 py-1 rounded-lg border border-[var(--border-color)] text-xs font-semibold disabled:opacity-40"
+                    >
+                      Siguiente
+                    </button>
+                  </div>
+                )}
+                <a
+                  href={previewFile.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-2.5 py-1 rounded-lg border border-[var(--border-color)] text-xs font-semibold text-cyan-400 hover:bg-cyan-500/10"
+                >
+                  Nueva pestaña
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPreviewIndex(null)}
+                  className="px-2.5 py-1 rounded-lg bg-rose-500/15 border border-rose-500/35 text-xs font-bold text-rose-400 hover:bg-rose-500/25"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center bg-black/30 rounded-xl p-2 min-h-[240px]">
+              {previewFile.isAudio ? (
+                <audio controls autoPlay src={previewFile.url} className="w-full max-w-lg" />
+              ) : /\.pdf($|\?)/i.test(previewFile.url) ? (
+                <iframe src={previewFile.url} title={previewFile.kindLabel} className="w-full h-[72vh] rounded-lg bg-white" />
+              ) : (
+                <img
+                  src={previewFile.url}
+                  alt={previewFile.kindLabel}
+                  className="max-h-[75vh] max-w-full object-contain rounded-lg"
+                />
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -1155,6 +1271,8 @@ const STAGE_CAPTIONS: Record<Exclude<WorkflowStage, 'quote'>, { done: string; ac
 export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' | 'followup' | 'history' }> = ({ orderId, view = 'workflow' }) => {
   const [detail, setDetail] = useState<WorkflowDetail | null>(null);
   const [error, setError] = useState('');
+  const [showFilesPanel, setShowFilesPanel] = useState(false);
+  const [filesStageFilter, setFilesStageFilter] = useState<string | null>(null);
   const generation = useRef(0);
   const reload = useCallback(async () => {
     const request = ++generation.current;
@@ -1167,10 +1285,11 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
     }
   }, [orderId]);
   useEffect(() => {
-    setDetail(null); void reload();
+    setDetail(null); setShowFilesPanel(false); setFilesStageFilter(null); void reload();
     return () => { generation.current++; };
   }, [reload]);
   const completed = completedWorkflowStages(detail?.events || [], detail?.order);
+  const workflowFiles = detail ? collectWorkflowFiles(detail) : [];
   const task = detail?.tasks.find(item => view === 'followup' ? item.task.startsWith('post_') : !item.task.startsWith('post_'));
   return <section className="horizon-view-card horizon-workflow-panel space-y-5">
     <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[var(--border-color)]">
@@ -1193,10 +1312,29 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
           </p>
         </div>
       </div>
-      <button type="button" onClick={() => void reload()} className="cyber-btn-secondary px-3.5 py-2 text-xs font-bold flex items-center gap-1.5">
-        <span aria-hidden="true" className="material-symbols-outlined text-[16px]">sync</span>
-        <span>Recargar flujo</span>
-      </button>
+      <div className="flex flex-wrap items-center gap-2">
+        {detail && view !== 'history' && (
+          <button
+            type="button"
+            onClick={() => {
+              setFilesStageFilter(null);
+              setShowFilesPanel(prev => !prev);
+            }}
+            className={`px-3.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all ${
+              showFilesPanel
+                ? 'bg-cyan-500/20 border-cyan-500 text-cyan-400'
+                : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-primary)] hover:border-cyan-500/50'
+            }`}
+          >
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">photo_library</span>
+            <span>{showFilesPanel ? 'Ocultar pruebas' : `Ver archivos y pruebas (${workflowFiles.length})`}</span>
+          </button>
+        )}
+        <button type="button" onClick={() => void reload()} className="cyber-btn-secondary px-3.5 py-2 text-xs font-bold flex items-center gap-1.5">
+          <span aria-hidden="true" className="material-symbols-outlined text-[16px]">sync</span>
+          <span>Recargar flujo</span>
+        </button>
+      </div>
     </div>
     {error ? <p role="alert" className="text-red-600">{error}</p> : !detail ? <p role="status">Cargando flujo…</p> : <>
       {view === 'workflow' && <><ol className="horizon-workflow-stages grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1300,6 +1438,23 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                   </div>
                 )}
               </div>
+              {(() => {
+                const stageFilesCount = workflowFiles.filter(f => f.stageLabel === stage.title).length;
+                if (!stageFilesCount) return null;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilesStageFilter(stage.title);
+                      setShowFilesPanel(true);
+                    }}
+                    className="mt-3 w-full inline-flex items-center justify-center gap-1.5 rounded-xl border border-cyan-500/35 bg-cyan-500/10 px-2.5 py-1.5 text-xs font-bold text-cyan-400 hover:bg-cyan-500/20 transition-all"
+                  >
+                    <span aria-hidden="true" className="material-symbols-outlined text-[15px]">photo_library</span>
+                    <span>Ver pruebas ({stageFilesCount})</span>
+                  </button>
+                );
+              })()}
             </li>
           );
         })}
@@ -1655,6 +1810,13 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
           </div>
         );
       })()}
+      {view !== 'history' && showFilesPanel && (
+        <WorkflowFilesGallery
+          detail={detail}
+          stageFilter={filesStageFilter}
+          onClearStageFilter={() => setFilesStageFilter(null)}
+        />
+      )}
       {view !== 'history' && (task ? <WorkflowActionForm key={`${orderId}-${detail.order.version}-${task.task}`} task={task} onSaved={reload} />
         : <p className="text-sm text-[var(--text-secondary)]">{view === 'followup' ? (detail.order.postDeliveryFinalized ? 'Seguimiento post-entrega finalizado correctamente por el sistema. Los registros históricos se conservan en Historial.' : detail.order.followupClosedAt ? `Seguimiento cerrado el ${new Date(detail.order.followupClosedAt).toLocaleDateString('es-MX', { dateStyle: 'medium' })}: pieza instalada y funcionando al 100%. La orden queda excluida de cobros y amonestaciones.` : 'Sin seguimiento pendiente. Los registros se conservan en Historial.') : 'Sin tarea comercial activa. Consulta Seguimiento post entrega o Historial.'}</p>)}
       {view === 'followup' && detail.order.historicalDelivery && !detail.order.deliveredAt && <p role="alert" className="text-sm text-amber-600">Falta la fecha de entrega registrada. Revisa el historial antes de programar seguimientos.</p>}
