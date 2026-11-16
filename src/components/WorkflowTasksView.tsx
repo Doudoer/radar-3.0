@@ -736,7 +736,7 @@ export const WorkflowTasksView: React.FC<{
                         </span>
                       </div>
                     )}
-                    {task.order.yardPieceReady && task.task !== 'prepare' && (
+                    {task.order.yardPieceReady && task.task !== 'prepare' && task.order.status !== 'entregado' && !task.order.deliveredAt && !task.task.startsWith('post_') && (
                       <div className="rounded-xl bg-emerald-500 text-slate-950 border-2 border-emerald-300 px-3 py-2.5 font-black text-xs sm:text-sm flex items-center gap-2 shadow-[0_0_18px_rgba(16,185,129,0.35)]">
                         <span aria-hidden="true" className="material-symbols-outlined text-[20px] shrink-0">campaign</span>
                         <span className="flex-1 min-w-0">¡PIEZA LISTA EN YARDA! — Contactar al comprador para acordar entrega</span>
