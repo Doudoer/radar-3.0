@@ -1429,7 +1429,7 @@ export async function handleWorkflowRequest(
         [order.id, action.task, action.outcome, Number(claims.sub), actorName,
         action.exemptDownpayment ? (action.notes || 'Anticipo exonerado por Administrador. Cobro del 100% acordado contra entrega al cliente.') : action.downpayment ? 'Downpayment existente documentado; no se agregó dinero al acumulado.' : action.preparation ? action.preparation.channel === 'in_person' ? 'Preparación verificada con el cliente presente para entrega inmediata en yarda; sin llamada ni cita futura.' : 'Preparación y cita verificadas con el cliente; sin registrar cobros ni recepción del core.' : action.notes,
         action.downpayment ? '' : action.communication ? JSON.stringify({ format: 'followup-contact-v1', reference: action.evidence || '', communication: action.communication })
-          : action.evidence || '', workflowTasks(order, events)[0].objectiveDueDate,
+          : action.evidence || '', workflowTasks(order, events)[0]?.objectiveDueDate || null,
         action.nextDueDate || null, action.nextAction || null, action.blockedBy || null,
         action.outcome === 'completed' ? toMysqlDateTime(action.scheduledAt) : null,
         action.preparation ? action.preparation.channel === 'in_person' ? null : action.preparation.channel === 'sms' ? 'sms_replied' : 'answered' : action.contactResult || null,
@@ -1475,12 +1475,30 @@ export async function handleWorkflowRequest(
           action.contactResult || 'no_answer', action.partStatus || previousContacts[0]?.part_status || 'not_installed', Number(action.communication?.warrantyWarningGiven || false),
           action.scheduledAt ? workflowDate(action.scheduledAt) : null, action.notes],
         );
-        await connection.execute(
-          `INSERT INTO call_register (order_id,caller_name,caller_phone,attended_by,conversation_summary,whatsapp_dispatched)
-         VALUES (?,?,?,?,?,0)`,
-          [order.id, [previous.first_name, previous.last_name].filter(Boolean).join(' ') || 'Cliente', previous.customer_phone || '',
-            actorName, `[FLUJO ${action.task} · ${action.contactResult || 'no_answer'}] ${action.notes}`],
-        );
+        try {
+          await connection.execute('SAVEPOINT call_register_mirror');
+          await connection.execute(
+            `INSERT INTO call_register (order_id,caller_name,caller_phone,attended_by,conversation_summary,whatsapp_dispatched)
+           VALUES (?,?,?,?,?,0)`,
+            [order.id, [previous.first_name, previous.last_name].filter(Boolean).join(' ') || 'Cliente', previous.customer_phone || '',
+              actorName, `[FLUJO ${action.task} · ${action.contactResult || 'no_answer'}] ${action.notes}`],
+          );
+          await connection.execute('RELEASE SAVEPOINT call_register_mirror');
+        } catch (mirrorError) {
+          await connection.execute('ROLLBACK TO SAVEPOINT call_register_mirror').catch(() => {});
+          console.warn('[Workflow] No se pudo espejar llamada en call_register:', mirrorError);
+          try {
+            await connection.execute(
+              `INSERT INTO call_register (order_id,phone,contact_name,description,whatsapp_dispatched)
+             VALUES (?,?,?,?,0)`,
+              [order.id, String(previous.customer_phone || '').slice(0, 20),
+                ([previous.first_name, previous.last_name].filter(Boolean).join(' ') || 'Cliente').slice(0, 100),
+                `[FLUJO ${action.task} · ${action.contactResult || 'no_answer'}] ${action.notes}`],
+            );
+          } catch {
+            // Secondary call_register mirror is non-critical; canonical records live in order_workflow_events & order_delivery_followups.
+          }
+        }
       }
       await connection.execute(
         "INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details) VALUES (?,?,'ORDER_WORKFLOW_RECORDED','order',?,?)",
