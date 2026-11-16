@@ -47,7 +47,7 @@ const inferDirection = (ev: Record<string, string>): PbxCallDirection => {
 };
 
 export interface PbxAmiManager {
-  refresh: () => Promise<void>;
+  refresh: (force?: boolean) => Promise<void>;
   stop: () => void;
 }
 
@@ -203,7 +203,7 @@ export const createPbxAmiManager = (
     }, 8000);
   };
 
-  const refresh = async () => {
+  const refresh = async (force = false) => {
     if (stopped) return;
     try {
       const settings = await readPbxSettings(pool);
@@ -215,19 +215,22 @@ export const createPbxAmiManager = (
       }
 
       const targetKey = `${settings.amiHost}:${settings.amiPort}:${settings.amiUser}:${amiSecret}`;
-      if (socket && !socket.destroyed && currentKey === targetKey) {
+      if (!force && socket && !socket.destroyed && currentKey === targetKey) {
         return;
       }
 
       disconnectSocket();
       currentKey = targetKey;
+      let connected = false;
 
       const conn = net.createConnection({ host: settings.amiHost, port: settings.amiPort }, () => {
+        connected = true;
+        conn.setTimeout(60000);
         conn.write(
           `Action: Login\r\nUsername: ${settings.amiUser}\r\nSecret: ${amiSecret}\r\nEvents: call,cdr\r\n\r\n`,
         );
       });
-      conn.setTimeout(60000);
+      conn.setTimeout(5000);
       socket = conn;
 
       let buffer = '';
@@ -256,6 +259,14 @@ export const createPbxAmiManager = (
       });
 
       conn.on('timeout', () => {
+        if (!connected) {
+          void recordPbxHeartbeat(pool, {
+            status: 'error',
+            error: `Tiempo agotado conectando a ${settings.amiHost}:${settings.amiPort} (abre TCP ${settings.amiPort} para 46.225.4.89 en el firewall de Issabel/VPS)`,
+          });
+          conn.destroy();
+          return;
+        }
         conn.write('Action: Ping\r\n\r\n');
       });
 

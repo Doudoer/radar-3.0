@@ -3973,6 +3973,14 @@ const server = createServer(async (request, response) => {
       return sendJson(response, 200, sanitizePbxSettingsForClient(snapshot));
     }
 
+    if (request.method === 'POST' && pathname === '/api/settings/pbx/reconnect') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      await pbxAmiManager.refresh(true);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const snapshot = await readPbxSettings(pool);
+      return sendJson(response, 200, sanitizePbxSettingsForClient(snapshot));
+    }
+
     if (request.method === 'PUT' && pathname === '/api/settings/pbx') {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
       const payload = z.object({

@@ -6,10 +6,12 @@ import {
   normalizePhoneDigits,
   readPbxSettings,
   recordPbxHeartbeat,
+  sanitizePbxSettingsForClient,
   upsertPbxCallEvent,
   verifyPbxWebhookSecret,
   writePbxEnabled,
 } from '../src/server/pbxCalls';
+import { createPbxAmiManager } from '../src/server/pbxAmiClient';
 
 const createMockPool = (queryHandler: (sql: string, params?: unknown[]) => unknown[]) => {
   const execute = vi.fn(async () => [{ affectedRows: 1 }, []]);
@@ -170,9 +172,22 @@ describe('pbxCalls helpers', () => {
         expect.stringContaining("'pbx.last_error'"),
         ['ECONNREFUSED'],
       );
+      expect(sanitizePbxSettingsForClient({ ...online, amiSecretValue: 'secret' })).not.toHaveProperty('amiSecretValue');
     } finally {
       if (prevSecret === undefined) delete process.env.PBX_WEBHOOK_SECRET;
       else process.env.PBX_WEBHOOK_SECRET = prevSecret;
     }
+  });
+
+  it('skips AMI socket when disabled or missing AMI secret and stops cleanly', async () => {
+    const { pool } = createMockPool((sql) => {
+      if (sql.includes('FROM app_settings')) {
+        return [{ setting_key: 'pbx.enabled', setting_value: '0' }];
+      }
+      return [{ totalCalls: 0, activeCount: 0 }];
+    });
+    const manager = createPbxAmiManager(pool, vi.fn());
+    await manager.refresh();
+    manager.stop();
   });
 });

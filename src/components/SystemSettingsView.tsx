@@ -130,6 +130,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   });
   const [showPbxGuide, setShowPbxGuide] = useState(false);
   const [pbxSaving, setPbxSaving] = useState(false);
+  const [pbxRefreshing, setPbxRefreshing] = useState(false);
   const [pbxTesting, setPbxTesting] = useState(false);
   const [pbxMessage, setPbxMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [evidenceItems, setEvidenceItems] = useState<Array<{
@@ -347,6 +348,28 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       // Ignore transient load error
     }
   }, [isSuperAdmin]);
+
+  const refreshPbxStatus = async () => {
+    if (pbxRefreshing) return;
+    setPbxRefreshing(true);
+    setPbxMessage(null);
+    try {
+      const response = await apiFetch('/settings/pbx/reconnect', { method: 'POST', body: JSON.stringify({}) });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'No se pudo verificar el estado PBX.');
+      setPbxSettings(payload);
+      setPbxMessage({
+        type: payload.healthStatus === 'online' ? 'success' : 'error',
+        text: payload.healthStatus === 'online'
+          ? 'Conexión AMI en línea con Issabel PBX.'
+          : payload.lastError || 'Sin respuesta aún de Issabel PBX. Revisa el puerto TCP 5038 en el firewall.',
+      });
+    } catch (error) {
+      setPbxMessage({ type: 'error', text: error instanceof Error ? error.message : 'Error al verificar PBX.' });
+    } finally {
+      setPbxRefreshing(false);
+    }
+  };
 
   const savePbxConfig = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1016,10 +1039,11 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => { void fetchPbxSettings(); }}
-                className="rounded-xl border border-cyan-500/30 bg-slate-900 px-3 py-1.5 font-mono text-[11px] font-bold text-slate-200 hover:bg-slate-800 cursor-pointer"
+                disabled={pbxRefreshing}
+                onClick={() => { void refreshPbxStatus(); }}
+                className="rounded-xl border border-cyan-500/30 bg-slate-900 px-3 py-1.5 font-mono text-[11px] font-bold text-slate-200 hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
               >
-                Actualizar estado
+                {pbxRefreshing ? 'Verificando…' : 'Actualizar estado'}
               </button>
               <button
                 type="button"
