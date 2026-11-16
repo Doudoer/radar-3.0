@@ -24,7 +24,8 @@ import { matchOrderInventory } from './src/utils/inventoryMatching';
 import { filterInventory, inventoryCsv } from './src/utils/inventoryExport';
 import { financeVaultExpiry, lockFinanceVault, revokeFinanceVaults, unlockFinanceVault } from './src/server/financeVault';
 import { businessDate, businessDaysBetween, isEligibleForDeliveryFollowup } from './src/server/businessTime';
-import { getExpectedPbxWebhookSecret, listActiveIncomingCalls, listPbxCallLogs, readPbxSettings, recordPbxHeartbeat, upsertPbxCallEvent, verifyPbxWebhookSecret, writePbxSettings } from './src/server/pbxCalls';
+import { getExpectedPbxWebhookSecret, listActiveIncomingCalls, listPbxCallLogs, readPbxSettings, recordPbxHeartbeat, sanitizePbxSettingsForClient, upsertPbxCallEvent, verifyPbxWebhookSecret, writePbxSettings } from './src/server/pbxCalls';
+import { createPbxAmiManager } from './src/server/pbxAmiClient';
 import { startNotificationOutbox } from './src/server/outbox';
 import { clearSessionCookie, isLoginRateLimited, isPinInUse, recordLoginFailure, resetLoginAttempts, requireRole, roleIs, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
 import QRCode from 'qrcode';
@@ -115,6 +116,9 @@ const broadcastPbxActive = (active: unknown[], enabled = true) => {
     }
   }
 };
+const pbxAmiManager = createPbxAmiManager(pool, (active, enabled) => {
+  broadcastPbxActive(active, enabled);
+});
 const pbxHeartbeatSchema = z.object({
   status: z.enum(['online', 'error']),
   error: z.string().trim().max(500).nullable().optional(),
@@ -3966,7 +3970,7 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && pathname === '/api/settings/pbx') {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
       const snapshot = await readPbxSettings(pool);
-      return sendJson(response, 200, snapshot);
+      return sendJson(response, 200, sanitizePbxSettingsForClient(snapshot));
     }
 
     if (request.method === 'PUT' && pathname === '/api/settings/pbx') {
@@ -3977,6 +3981,7 @@ const server = createServer(async (request, response) => {
         amiHost: z.string().trim().min(1).max(120).optional(),
         amiPort: z.coerce.number().int().min(1).max(65535).optional(),
         amiUser: z.string().trim().min(1).max(64).optional(),
+        amiSecret: z.string().trim().max(200).optional(),
         webhookSecret: z.string().trim().max(200).optional(),
         ringTimeoutSeconds: z.coerce.number().int().min(15).max(300).optional(),
       }).parse(await readBody(request));
@@ -3987,6 +3992,7 @@ const server = createServer(async (request, response) => {
       } else if (before.enabled !== snapshot.enabled) {
         broadcastPbxActive(await listActiveIncomingCalls(pool), true);
       }
+      void pbxAmiManager.refresh();
       void recordAuditLog(pool, {
         userId: Number(authenticatedClaims?.sub),
         username: authenticatedClaims?.email,
@@ -3999,12 +4005,13 @@ const server = createServer(async (request, response) => {
           liveAlertsEnabled: snapshot.liveAlertsEnabled,
           amiHost: snapshot.amiHost,
           amiPort: snapshot.amiPort,
+          amiSecretUpdated: Boolean(payload.amiSecret?.trim()),
           secretRotated: Boolean(payload.webhookSecret?.trim()),
         },
         ipAddress: request.socket.remoteAddress || 'unknown',
         userAgent: request.headers['user-agent'] || null,
       });
-      return sendJson(response, 200, snapshot);
+      return sendJson(response, 200, sanitizePbxSettingsForClient(snapshot));
     }
 
     if (request.method === 'POST' && pathname === '/api/settings/pbx/test') {
@@ -5322,6 +5329,7 @@ async function startServer() {
     startDailyClaimsReportScheduler(pool, wasender);
     startDailyBackupScheduler(pool, wasender);
     startNotificationOutbox(pool, wasender);
+    void pbxAmiManager.refresh();
   });
 }
 startServer().catch(error => {

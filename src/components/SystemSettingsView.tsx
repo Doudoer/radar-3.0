@@ -104,6 +104,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     enabled: boolean;
     liveAlertsEnabled: boolean;
     secretConfigured: boolean;
+    amiSecretConfigured?: boolean;
     secretSource: 'db' | 'env' | 'none';
     webhookPath: string;
     amiHost: string;
@@ -122,6 +123,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     amiHost: '5.161.82.204',
     amiPort: '5038',
     amiUser: 'radar_monitor',
+    amiSecret: '',
     ringTimeoutSeconds: '120',
     liveAlertsEnabled: true,
     webhookSecret: '',
@@ -359,6 +361,9 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
         ringTimeoutSeconds: Number(pbxDraft.ringTimeoutSeconds) || 120,
         liveAlertsEnabled: pbxDraft.liveAlertsEnabled,
       };
+      if (pbxDraft.amiSecret.trim()) {
+        body.amiSecret = pbxDraft.amiSecret.trim();
+      }
       if (pbxDraft.webhookSecret.trim()) {
         body.webhookSecret = pbxDraft.webhookSecret.trim();
       }
@@ -369,7 +374,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.message || 'No se pudo guardar la configuración PBX.');
       setPbxSettings(payload);
-      setPbxDraft((prev) => ({ ...prev, webhookSecret: '' }));
+      setPbxDraft((prev) => ({ ...prev, amiSecret: '', webhookSecret: '' }));
       setPbxMessage({
         type: 'success',
         text: 'Configuración de Issabel PBX guardada correctamente.',
@@ -906,7 +911,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                 <span>Mostrar alertas flotantes en vivo</span>
               </label>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <label className="block text-[11px] font-bold text-[var(--text-muted)]">
                 IP / Host Issabel PBX
                 <input
@@ -939,6 +944,16 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                   value={pbxDraft.amiUser}
                   onChange={(e) => setPbxDraft((prev) => ({ ...prev, amiUser: e.target.value }))}
                   placeholder="radar_monitor"
+                  className="mt-1 w-full rounded-xl border border-cyan-500/25 bg-[var(--bg-surface)] px-3 py-2 font-mono text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                />
+              </label>
+              <label className="block text-[11px] font-bold text-[var(--text-muted)]">
+                Contraseña AMI (Issabel)
+                <input
+                  type="password"
+                  value={pbxDraft.amiSecret}
+                  onChange={(e) => setPbxDraft((prev) => ({ ...prev, amiSecret: e.target.value }))}
+                  placeholder={pbxSettings?.amiSecretConfigured ? 'Configurada (vacío = conservar)' : 'Clave de radar_monitor'}
                   className="mt-1 w-full rounded-xl border border-cyan-500/25 bg-[var(--bg-surface)] px-3 py-2 font-mono text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
                 />
               </label>

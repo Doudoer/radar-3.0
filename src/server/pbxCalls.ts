@@ -58,6 +58,8 @@ export interface PbxSettingsSnapshot {
   enabled: boolean;
   liveAlertsEnabled: boolean;
   secretConfigured: boolean;
+  amiSecretConfigured: boolean;
+  amiSecretValue?: string;
   secretSource: 'db' | 'env' | 'none';
   webhookPath: string;
   amiHost: string;
@@ -79,6 +81,7 @@ export interface PbxSettingsUpdateInput {
   amiHost?: string;
   amiPort?: number;
   amiUser?: string;
+  amiSecret?: string;
   webhookSecret?: string;
   ringTimeoutSeconds?: number;
 }
@@ -90,6 +93,7 @@ const PBX_SETTING_KEYS = [
   'pbx.ami_host',
   'pbx.ami_port',
   'pbx.ami_user',
+  'pbx.ami_secret',
   'pbx.webhook_secret',
   'pbx.ring_timeout_seconds',
   'pbx.last_heartbeat_at',
@@ -129,6 +133,8 @@ export const readPbxSettings = async (pool: Pool, now = new Date()): Promise<Pbx
   const amiPortRaw = Number(map.get('pbx.ami_port') || 5038);
   const amiPort = Number.isFinite(amiPortRaw) && amiPortRaw > 0 ? amiPortRaw : 5038;
   const amiUser = (map.get('pbx.ami_user') || 'radar_monitor').trim();
+  const amiSecretValue = (map.get('pbx.ami_secret') || process.env.PBX_AMI_SECRET || '').trim();
+  const amiSecretConfigured = Boolean(amiSecretValue);
   const ringRaw = Number(map.get('pbx.ring_timeout_seconds') || STALE_RINGING_SECONDS);
   const ringTimeoutSeconds = Number.isFinite(ringRaw) && ringRaw >= 15 ? Math.min(300, Math.round(ringRaw)) : STALE_RINGING_SECONDS;
 
@@ -147,7 +153,7 @@ export const readPbxSettings = async (pool: Pool, now = new Date()): Promise<Pbx
   let healthStatus: PbxHealthStatus;
   if (!enabled) {
     healthStatus = 'disabled';
-  } else if (!secretConfigured) {
+  } else if (!secretConfigured && !amiSecretConfigured) {
     healthStatus = 'misconfigured';
   } else if (bridgeStatus === 'error' && lastError) {
     healthStatus = 'error';
@@ -163,6 +169,8 @@ export const readPbxSettings = async (pool: Pool, now = new Date()): Promise<Pbx
     enabled,
     liveAlertsEnabled,
     secretConfigured,
+    amiSecretConfigured,
+    amiSecretValue: amiSecretValue || undefined,
     secretSource,
     webhookPath: '/api/pbx/events',
     amiHost,
@@ -179,6 +187,11 @@ export const readPbxSettings = async (pool: Pool, now = new Date()): Promise<Pbx
   };
 };
 
+export const sanitizePbxSettingsForClient = (snapshot: PbxSettingsSnapshot): Omit<PbxSettingsSnapshot, 'amiSecretValue'> => {
+  const { amiSecretValue: _omit, ...rest } = snapshot;
+  return rest;
+};
+
 export const writePbxSettings = async (
   pool: Pool,
   input: PbxSettingsUpdateInput,
@@ -190,6 +203,7 @@ export const writePbxSettings = async (
   if (typeof input.amiHost === 'string' && input.amiHost.trim()) entries.push(['pbx.ami_host', input.amiHost.trim().slice(0, 120)]);
   if (typeof input.amiPort === 'number' && Number.isFinite(input.amiPort) && input.amiPort > 0) entries.push(['pbx.ami_port', String(Math.round(input.amiPort))]);
   if (typeof input.amiUser === 'string' && input.amiUser.trim()) entries.push(['pbx.ami_user', input.amiUser.trim().slice(0, 64)]);
+  if (typeof input.amiSecret === 'string' && input.amiSecret.trim()) entries.push(['pbx.ami_secret', input.amiSecret.trim().slice(0, 200)]);
   if (typeof input.webhookSecret === 'string' && input.webhookSecret.trim()) entries.push(['pbx.webhook_secret', input.webhookSecret.trim().slice(0, 200)]);
   if (typeof input.ringTimeoutSeconds === 'number' && Number.isFinite(input.ringTimeoutSeconds)) {
     entries.push(['pbx.ring_timeout_seconds', String(Math.max(15, Math.min(300, Math.round(input.ringTimeoutSeconds))))]);
