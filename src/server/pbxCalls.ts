@@ -93,6 +93,25 @@ export interface PbxEmployeeCallPerformance {
   avgTalkSeconds: number;
 }
 
+export interface PbxExtensionPresenceEvent {
+  status: 'online' | 'offline';
+  reason: string | null;
+  occurredAt: string;
+}
+
+export interface PbxExtensionPresenceReportRow {
+  extension: string;
+  userId: number | null;
+  userName: string;
+  liveStatus: 'online' | 'offline' | 'in_call' | 'unknown';
+  firstConnectedAt: string | null;
+  lastDisconnectedAt: string | null;
+  connectedWorkdaySeconds: number;
+  workdayElapsedSeconds: number;
+  availabilityPct: number;
+  events: PbxExtensionPresenceEvent[];
+}
+
 export type PbxHealthStatus = 'online' | 'error' | 'offline' | 'waiting' | 'disabled' | 'misconfigured';
 
 export interface PbxSettingsSnapshot {
@@ -948,6 +967,168 @@ export const listPbxDailyAnalytics = async (
     businessHours: { start: '07:00', end: '18:00', timeZone: PBX_BUSINESS_TIMEZONE },
     days: sorted,
     employeePerformance,
+  };
+};
+
+export const recordPbxExtensionPresence = async (
+  pool: Pool,
+  extension: string,
+  status: 'online' | 'offline',
+  reason?: string | null,
+  occurredAt = new Date(),
+): Promise<boolean> => {
+  const ext = extension.trim().slice(0, 16);
+  if (!ext) return false;
+  const [prevRows] = await pool.query<RowDataPacket[]>(
+    'SELECT status FROM pbx_extension_presence_logs WHERE extension = ? ORDER BY occurred_at DESC, id DESC LIMIT 1',
+    [ext],
+  );
+  if (prevRows.length && String(prevRows[0].status) === status) {
+    return false;
+  }
+  await pool.execute(
+    'INSERT INTO pbx_extension_presence_logs (extension, status, reason, occurred_at) VALUES (?, ?, ?, ?)',
+    [ext, status, reason ? reason.trim().slice(0, 64) : null, toMysqlDatetime(occurredAt.toISOString(), occurredAt)],
+  );
+  return true;
+};
+
+export const getPbxExtensionsPresenceReport = async (
+  pool: Pool,
+  dateStr?: string,
+  liveStatusMap: Record<string, 'online' | 'offline' | 'in_call'> = {},
+  now = new Date(),
+): Promise<{
+  date: string;
+  today: string;
+  workdayStart: string;
+  workdayEnd: string;
+  extensions: PbxExtensionPresenceReportRow[];
+}> => {
+  const today = getPbxBusinessDate(now);
+  const targetDate = dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : today;
+  const { startUtc, endUtc } = getUtcRangeForPbxDate(targetDate);
+  const dayStartMs = Date.parse(`${startUtc.replace(' ', 'T')}Z`);
+  const dayEndMs = Date.parse(`${endUtc.replace(' ', 'T')}Z`);
+  const bhStartMs = dayStartMs + PBX_BUSINESS_START_HOUR * 3_600_000;
+  const bhEndMs = dayStartMs + PBX_BUSINESS_END_HOUR * 3_600_000;
+  const effectiveEndMs = targetDate === today ? Math.min(bhEndMs, now.getTime()) : bhEndMs;
+  const workdayElapsedSeconds = effectiveEndMs > bhStartMs ? Math.round((effectiveEndMs - bhStartMs) / 1000) : 0;
+
+  const { byExt } = await loadPbxExtensionDirectory(pool);
+  const [dayLogRows] = await pool.query<RowDataPacket[]>(
+    `SELECT extension, status, reason, occurred_at
+     FROM pbx_extension_presence_logs
+     WHERE occurred_at >= ? AND occurred_at < ?
+     ORDER BY occurred_at ASC, id ASC`,
+    [startUtc, endUtc],
+  ).catch(() => [[] as RowDataPacket[]]);
+
+  const [priorRows] = await pool.query<RowDataPacket[]>(
+    `SELECT p.extension, p.status
+     FROM pbx_extension_presence_logs p
+     INNER JOIN (
+       SELECT extension, MAX(id) AS max_id
+       FROM pbx_extension_presence_logs
+       WHERE occurred_at < ?
+       GROUP BY extension
+     ) latest ON latest.max_id = p.id`,
+    [startUtc],
+  ).catch(() => [[] as RowDataPacket[]]);
+
+  const priorStatusByExt = new Map<string, 'online' | 'offline'>();
+  for (const r of priorRows) {
+    const ext = String(r.extension || '').trim();
+    if (ext) priorStatusByExt.set(ext, r.status === 'online' ? 'online' : 'offline');
+  }
+
+  const eventsByExt = new Map<string, Array<{ status: 'online' | 'offline'; reason: string | null; ms: number; iso: string }>>();
+  for (const r of dayLogRows) {
+    const ext = String(r.extension || '').trim();
+    if (!ext) continue;
+    const dt = new Date(r.occurred_at);
+    const ms = dt.getTime();
+    if (!Number.isFinite(ms)) continue;
+    const arr = eventsByExt.get(ext) || [];
+    arr.push({
+      status: r.status === 'online' ? 'online' : 'offline',
+      reason: r.reason ? String(r.reason) : null,
+      ms,
+      iso: dt.toISOString(),
+    });
+    eventsByExt.set(ext, arr);
+  }
+
+  const allExts = new Set<string>([
+    ...Object.keys(byExt),
+    ...Object.keys(liveStatusMap),
+    ...eventsByExt.keys(),
+  ]);
+
+  const rows: PbxExtensionPresenceReportRow[] = [];
+  for (const ext of allExts) {
+    const evs = eventsByExt.get(ext) || [];
+    const liveStatus: PbxExtensionPresenceReportRow['liveStatus'] =
+      targetDate === today && liveStatusMap[ext]
+        ? liveStatusMap[ext]
+        : (evs.length ? evs[evs.length - 1].status : (priorStatusByExt.get(ext) || 'unknown'));
+
+    // Calculate connected seconds during [bhStartMs, effectiveEndMs]
+    let connectedMs = 0;
+    if (effectiveEndMs > bhStartMs) {
+      let curStatus: 'online' | 'offline' = priorStatusByExt.get(ext) || 'offline';
+      let cursor = dayStartMs;
+
+      const addSpan = (fromMs: number, toMs: number, st: 'online' | 'offline') => {
+        if (st !== 'online') return;
+        const overlapStart = Math.max(fromMs, bhStartMs);
+        const overlapEnd = Math.min(toMs, effectiveEndMs);
+        if (overlapEnd > overlapStart) connectedMs += overlapEnd - overlapStart;
+      };
+
+      for (const ev of evs) {
+        addSpan(cursor, ev.ms, curStatus);
+        curStatus = ev.status;
+        cursor = ev.ms;
+      }
+      const tailEnd = targetDate === today ? Math.min(dayEndMs, now.getTime()) : dayEndMs;
+      addSpan(cursor, tailEnd, curStatus);
+    }
+
+    const connectedWorkdaySeconds = Math.round(connectedMs / 1000);
+    const availabilityPct = workdayElapsedSeconds > 0
+      ? Math.min(100, Math.round((connectedWorkdaySeconds / workdayElapsedSeconds) * 100))
+      : 0;
+    const firstOnline = evs.find((e) => e.status === 'online');
+    const lastOffline = [...evs].reverse().find((e) => e.status === 'offline');
+
+    rows.push({
+      extension: ext,
+      userId: byExt[ext]?.userId ?? null,
+      userName: byExt[ext]?.name || `Ext. ${ext}`,
+      liveStatus,
+      firstConnectedAt: firstOnline ? firstOnline.iso : null,
+      lastDisconnectedAt: lastOffline ? lastOffline.iso : null,
+      connectedWorkdaySeconds,
+      workdayElapsedSeconds,
+      availabilityPct,
+      events: evs.map((e) => ({ status: e.status, reason: e.reason, occurredAt: e.iso })),
+    });
+  }
+
+  rows.sort((a, b) => {
+    const aAssigned = a.userId !== null ? 0 : 1;
+    const bAssigned = b.userId !== null ? 0 : 1;
+    if (aAssigned !== bAssigned) return aAssigned - bAssigned;
+    return a.extension.localeCompare(b.extension, undefined, { numeric: true });
+  });
+
+  return {
+    date: targetDate,
+    today,
+    workdayStart: '07:00',
+    workdayEnd: '18:00',
+    extensions: rows,
   };
 };
 

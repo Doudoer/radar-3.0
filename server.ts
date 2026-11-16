@@ -24,7 +24,7 @@ import { matchOrderInventory } from './src/utils/inventoryMatching';
 import { filterInventory, inventoryCsv } from './src/utils/inventoryExport';
 import { financeVaultExpiry, lockFinanceVault, revokeFinanceVaults, unlockFinanceVault } from './src/server/financeVault';
 import { businessDate, businessDaysBetween, isEligibleForDeliveryFollowup } from './src/server/businessTime';
-import { getExpectedPbxWebhookSecret, listActiveIncomingCalls, listPbxCallLogs, listPbxDailyAnalytics, readPbxSettings, recordPbxHeartbeat, sanitizePbxSettingsForClient, startPbxDailyRolloverScheduler, upsertPbxCallEvent, verifyPbxWebhookSecret, writePbxSettings } from './src/server/pbxCalls';
+import { getExpectedPbxWebhookSecret, getPbxExtensionsPresenceReport, listActiveIncomingCalls, listPbxCallLogs, listPbxDailyAnalytics, readPbxSettings, recordPbxHeartbeat, sanitizePbxSettingsForClient, startPbxDailyRolloverScheduler, upsertPbxCallEvent, verifyPbxWebhookSecret, writePbxSettings } from './src/server/pbxCalls';
 import { createPbxAmiManager } from './src/server/pbxAmiClient';
 import { startNotificationOutbox } from './src/server/outbox';
 import { clearSessionCookie, isLoginRateLimited, isPinInUse, recordLoginFailure, resetLoginAttempts, requireRole, roleIs, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
@@ -4081,6 +4081,16 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && pathname === '/api/pbx/analytics') {
       const url = new URL(request.url || '/', 'http://localhost');
       const result = await listPbxDailyAnalytics(pool, Number(url.searchParams.get('days') || 30));
+      return sendJson(response, 200, result);
+    }
+
+    if (request.method === 'GET' && pathname === '/api/pbx/presence') {
+      const url = new URL(request.url || '/', 'http://localhost');
+      const result = await getPbxExtensionsPresenceReport(
+        pool,
+        url.searchParams.get('date') || undefined,
+        pbxAmiManager.getExtensionLiveStatuses(),
+      );
       return sendJson(response, 200, result);
     }
 

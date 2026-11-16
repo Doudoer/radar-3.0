@@ -65,6 +65,25 @@ interface EmployeeCallPerformance {
   avgTalkSeconds: number;
 }
 
+interface ExtensionPresenceEvent {
+  status: 'online' | 'offline';
+  reason: string | null;
+  occurredAt: string;
+}
+
+interface ExtensionPresenceRow {
+  extension: string;
+  userId: number | null;
+  userName: string;
+  liveStatus: 'online' | 'offline' | 'in_call' | 'unknown';
+  firstConnectedAt: string | null;
+  lastDisconnectedAt: string | null;
+  connectedWorkdaySeconds: number;
+  workdayElapsedSeconds: number;
+  availabilityPct: number;
+  events: ExtensionPresenceEvent[];
+}
+
 interface CallsLogViewProps {
   onSelectOrder?: (orderId: string) => void;
 }
@@ -83,6 +102,26 @@ const formatDuration = (seconds: number): string => {
   const mins = Math.floor(s / 60);
   const rem = s % 60;
   return mins > 0 ? `${mins}m ${String(rem).padStart(2, '0')}s` : `${rem}s`;
+};
+
+const formatHoursMins = (seconds: number): string => {
+  const s = Math.max(0, Math.round(seconds || 0));
+  const hrs = Math.floor(s / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  if (hrs > 0) return `${hrs}h ${String(mins).padStart(2, '0')}m`;
+  return `${mins}m`;
+};
+
+const formatTimeOnly = (iso: string | null): string => {
+  if (!iso) return '—';
+  try {
+    return new Intl.DateTimeFormat('es-VE', {
+      timeZone: VENEZUELA_TZ,
+      timeStyle: 'short',
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
 };
 
 const formatDateTime = (iso: string): string => {
@@ -155,6 +194,8 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({ onSelectOrder }) => 
   const [analyticsDays, setAnalyticsDays] = useState<DailyAnalyticsRow[]>([]);
   const [employeePerformance, setEmployeePerformance] = useState<EmployeeCallPerformance[]>([]);
   const [extensionUsers, setExtensionUsers] = useState<Record<string, string>>({});
+  const [presenceExtensions, setPresenceExtensions] = useState<ExtensionPresenceRow[]>([]);
+  const [expandedPresenceExt, setExpandedPresenceExt] = useState<string | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   const loadCalls = useCallback(async (dateOverride?: string) => {
@@ -200,9 +241,29 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({ onSelectOrder }) => 
     }
   }, []);
 
+  const loadPresence = useCallback(async (dateOverride?: string) => {
+    try {
+      const res = await apiFetch(`/pbx/presence?date=${encodeURIComponent(dateOverride || selectedDate)}`);
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(data.extensions)) {
+        setPresenceExtensions(data.extensions);
+      }
+    } catch {
+      // Ignore transient errors
+    }
+  }, [selectedDate]);
+
   useEffect(() => {
     void loadCalls();
-  }, [loadCalls]);
+    void loadPresence();
+  }, [loadCalls, loadPresence]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void loadPresence();
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [loadPresence]);
 
   useEffect(() => {
     if (tab === 'analytics') {
@@ -280,8 +341,13 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({ onSelectOrder }) => 
           <button
             type="button"
             onClick={() => {
-              if (tab === 'daily') void loadCalls();
-              else void loadAnalytics();
+              if (tab === 'daily') {
+                void loadCalls();
+                void loadPresence();
+              } else {
+                void loadAnalytics();
+                void loadPresence();
+              }
             }}
             className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] px-3 py-2 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] cursor-pointer"
           >
@@ -328,6 +394,57 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({ onSelectOrder }) => 
               )}
             </div>
           </div>
+
+          {presenceExtensions.length > 0 && (
+            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] px-4 py-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                  Estado de Extensiones (En vivo · Jornada 7 AM – 6 PM)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setTab('analytics')}
+                  className="text-[11px] font-bold text-[var(--brand-solid)] hover:underline cursor-pointer"
+                >
+                  Ver historial completo
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {presenceExtensions.filter((e) => e.userId !== null || e.liveStatus !== 'unknown').map((ext) => {
+                  const dotClass = ext.liveStatus === 'in_call'
+                    ? 'bg-amber-500'
+                    : ext.liveStatus === 'online'
+                      ? 'bg-emerald-500'
+                      : ext.liveStatus === 'offline'
+                        ? 'bg-rose-500'
+                        : 'bg-slate-400';
+                  const statusLabel = ext.liveStatus === 'in_call'
+                    ? 'En llamada'
+                    : ext.liveStatus === 'online'
+                      ? 'Conectada'
+                      : ext.liveStatus === 'offline'
+                        ? 'Desconectada'
+                        : 'Sin datos';
+                  return (
+                    <div
+                      key={ext.extension}
+                      title={`${ext.userName} (Ext. ${ext.extension}) · ${statusLabel} · ${formatHoursMins(ext.connectedWorkdaySeconds)} conectado hoy`}
+                      className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs"
+                    >
+                      <span className={`h-2 w-2 rounded-full ${dotClass}`} />
+                      <span className="font-mono font-bold text-[var(--text-heading)]">{ext.extension}</span>
+                      {ext.userId !== null && (
+                        <span className="text-[11px] font-semibold text-[var(--text-secondary)]">{ext.userName}</span>
+                      )}
+                      <span className="font-mono text-[10.5px] text-[var(--text-muted)]">
+                        {formatHoursMins(ext.connectedWorkdaySeconds)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
@@ -528,6 +645,102 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({ onSelectOrder }) => 
               <p className="mt-1 text-2xl font-black tabular-nums text-[var(--text-heading)]">{formatDuration(analyticsTotals.avgDuration)}</p>
             </div>
           </div>
+
+          {presenceExtensions.length > 0 && (
+            <div className="overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)]">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-2.5">
+                <h2 className="text-xs font-black uppercase tracking-wider text-[var(--text-heading)]">
+                  Conexión y Jornada Laboral (7:00 AM – 6:00 PM · {formatDayLabel(selectedDate)})
+                </h2>
+                <span className="text-[11px] text-[var(--text-muted)]">
+                  Haz clic en una extensión para ver su historial de conexión/desconexión
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-[var(--border-subtle)] text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                    <tr>
+                      <th className="px-4 py-2.5">Asesor</th>
+                      <th className="px-4 py-2.5">Extensión</th>
+                      <th className="px-4 py-2.5">Estado</th>
+                      <th className="px-4 py-2.5">1ra Conexión</th>
+                      <th className="px-4 py-2.5">Últ. Desconexión</th>
+                      <th className="px-4 py-2.5">Tiempo conectado</th>
+                      <th className="px-4 py-2.5 text-right">Eventos</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border-subtle)]">
+                    {presenceExtensions.map((ext) => {
+                      const isExpanded = expandedPresenceExt === ext.extension;
+                      const badge = ext.liveStatus === 'in_call'
+                        ? { label: 'En llamada', cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30' }
+                        : ext.liveStatus === 'online'
+                          ? { label: 'Conectada', cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30' }
+                          : ext.liveStatus === 'offline'
+                            ? { label: 'Desconectada', cls: 'bg-rose-500/15 text-rose-600 dark:text-rose-300 border-rose-500/30' }
+                            : { label: 'Sin datos', cls: 'bg-slate-500/15 text-slate-600 dark:text-slate-300 border-slate-500/30' };
+                      return (
+                        <React.Fragment key={ext.extension}>
+                          <tr
+                            onClick={() => setExpandedPresenceExt(isExpanded ? null : ext.extension)}
+                            className="cursor-pointer hover:bg-[var(--bg-surface)]/50"
+                          >
+                            <td className="px-4 py-2.5 font-bold text-[var(--text-heading)]">{ext.userName}</td>
+                            <td className="px-4 py-2.5 font-mono text-[var(--text-secondary)]">Ext. {ext.extension}</td>
+                            <td className="px-4 py-2.5">
+                              <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold ${badge.cls}`}>
+                                {badge.label}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 font-mono text-[var(--text-secondary)]">{formatTimeOnly(ext.firstConnectedAt)}</td>
+                            <td className="px-4 py-2.5 font-mono text-[var(--text-secondary)]">{formatTimeOnly(ext.lastDisconnectedAt)}</td>
+                            <td className="px-4 py-2.5 font-mono font-bold text-[var(--text-heading)]">
+                              {formatHoursMins(ext.connectedWorkdaySeconds)}
+                              {ext.workdayElapsedSeconds > 0 && (
+                                <span className="ml-1.5 text-[10.5px] font-normal text-[var(--text-muted)]">
+                                  ({ext.availabilityPct}%)
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-mono text-[var(--brand-solid)]">
+                              {ext.events.length} {isExpanded ? '▲' : '▼'}
+                            </td>
+                          </tr>
+                          {isExpanded && (
+                            <tr className="bg-[var(--bg-surface)]/60">
+                              <td colSpan={7} className="px-4 py-3">
+                                {ext.events.length === 0 ? (
+                                  <p className="text-[11px] text-[var(--text-muted)]">
+                                    Sin cambios de conexión registrados en este día todavía.
+                                  </p>
+                                ) : (
+                                  <div className="flex flex-wrap gap-2">
+                                    {ext.events.map((ev, idx) => (
+                                      <span
+                                        key={`${ev.occurredAt}-${idx}`}
+                                        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-mono ${
+                                          ev.status === 'online'
+                                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                                            : 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                                        }`}
+                                      >
+                                        <span className="font-bold">{formatTimeOnly(ev.occurredAt)}</span>
+                                        <span>{ev.status === 'online' ? 'Conectó' : 'Desconectó'}</span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {employeePerformance.length > 0 && (
             <div className="overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)]">

@@ -3,6 +3,7 @@ import net from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import {
+  getPbxExtensionsPresenceReport,
   getUtcRangeForPbxDate,
   isDuringPbxBusinessHours,
   listActiveIncomingCalls,
@@ -10,6 +11,7 @@ import {
   listPbxDailyAnalytics,
   normalizePhoneDigits,
   readPbxSettings,
+  recordPbxExtensionPresence,
   recordPbxHeartbeat,
   sanitizePbxSettingsForClient,
   savePbxDailySummary,
@@ -371,6 +373,18 @@ describe('pbxCalls helpers', () => {
       fakeSocket.emit('data', Buffer.from('Event: QueueCallerJoin\r\nUniqueid: q-2\r\nLinkedid: q-2\r\nQueue: 101\r\nChannel: PJSIP/Telnyx-0011\r\nCallerIDNum: +19844004618\r\nCallerIDName: Español:+19844004618\r\n\r\n'));
       fakeSocket.emit('data', Buffer.from('Event: QueueCallerAbandon\r\nUniqueid: q-2\r\nLinkedid: q-2\r\nQueue: 101\r\n\r\n'));
 
+      // Extension presence events (ContactStatus, PeerStatus, EndpointList, PeerEntry)
+      fakeSocket.emit('data', Buffer.from('Event: ContactStatus\r\nAOR: 204\r\nContactStatus: Reachable\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Event: PeerStatus\r\nPeer: SIP/1000\r\nPeerStatus: Unregistered\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Event: EndpointList\r\nObjectName: 202\r\nDeviceState: Not in use\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Event: PeerEntry\r\nObjectName: 501\r\nStatus: OK (12 ms)\r\n\r\n'));
+      expect(manager.getExtensionLiveStatuses()).toMatchObject({
+        '204': 'online',
+        '1000': 'offline',
+        '202': 'online',
+        '501': 'online',
+      });
+
       fakeSocket.emit('error', new Error('ECONNRESET'));
       fakeSocket.emit('close');
       await new Promise((r) => setTimeout(r, 20));
@@ -378,5 +392,40 @@ describe('pbxCalls helpers', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it('records extension presence changes without duplicates and computes workday availability', async () => {
+    const { pool: dedupPool, execute: dedupExec } = createMockPool((sql) => {
+      if (sql.includes('FROM pbx_extension_presence_logs')) return [{ status: 'online' }];
+      return [];
+    });
+    expect(await recordPbxExtensionPresence(dedupPool, '204', 'online', 'ContactStatus')).toBe(false);
+    expect(dedupExec).not.toHaveBeenCalled();
+
+    const { pool, execute } = createMockPool((sql) => {
+      if (sql.includes('FROM users')) {
+        return [{ id: 3, name: 'Favio Andrade', pbx_extension: '204' }];
+      }
+      if (sql.includes('WHERE occurred_at >= ? AND occurred_at < ?')) {
+        return [
+          { extension: '204', status: 'online', reason: 'ContactStatus:Reachable', occurred_at: '2026-11-15T11:00:00.000Z' }, // 07:00 VET
+          { extension: '204', status: 'offline', reason: 'ContactStatus:Removed', occurred_at: '2026-11-15T13:00:00.000Z' }, // 09:00 VET (2h)
+        ];
+      }
+      return [];
+    });
+    expect(await recordPbxExtensionPresence(pool, '204', 'online', 'ContactStatus')).toBe(true);
+    expect(execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO pbx_extension_presence_logs'), expect.any(Array));
+
+    const now = new Date('2026-11-15T15:00:00.000Z'); // 11:00 VET (4h elapsed in workday 07:00-11:00)
+    const report = await getPbxExtensionsPresenceReport(pool, '2026-11-15', { '204': 'offline' }, now);
+    expect(report.extensions[0]).toMatchObject({
+      extension: '204',
+      userName: 'Favio Andrade',
+      liveStatus: 'offline',
+      connectedWorkdaySeconds: 7200, // 2h connected out of 4h elapsed = 50%
+      workdayElapsedSeconds: 14400,
+      availabilityPct: 50,
+    });
   });
 });

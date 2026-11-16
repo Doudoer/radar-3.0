@@ -5,6 +5,7 @@ import {
   listActiveIncomingCalls,
   parseCallerLanguageAndName,
   readPbxSettings,
+  recordPbxExtensionPresence,
   recordPbxHeartbeat,
   upsertPbxCallEvent,
   type PbxCallDirection,
@@ -85,6 +86,7 @@ export const inferDirection = (ev: Record<string, string>): PbxCallDirection => 
 export interface PbxAmiManager {
   refresh: (force?: boolean) => Promise<void>;
   stop: () => void;
+  getExtensionLiveStatuses: () => Record<string, 'online' | 'offline' | 'in_call'>;
 }
 
 export const createPbxAmiManager = (
@@ -98,6 +100,18 @@ export const createPbxAmiManager = (
   let currentKey = '';
   const activeCalls = new Map<string, TrackedCall>();
   const busyExtensions = new Set<string>();
+  const extensionStates = new Map<string, 'online' | 'offline'>();
+
+  const updateExtensionPresence = (rawExt: string | undefined, status: 'online' | 'offline', reason: string) => {
+    if (!rawExt) return;
+    const cleaned = rawExt.replace(/^(?:PJSIP|SIP|IAX2)\//i, '').trim();
+    if (!/^\d{2,5}$/.test(cleaned)) return;
+    const prev = extensionStates.get(cleaned);
+    extensionStates.set(cleaned, status);
+    if (prev !== status) {
+      void recordPbxExtensionPresence(pool, cleaned, status, reason).catch(() => {});
+    }
+  };
 
   const clearTimers = () => {
     if (reconnectTimer) {
@@ -141,6 +155,51 @@ export const createPbxAmiManager = (
 
   const handleAmiEvent = (ev: Record<string, string>) => {
     const name = ev.Event;
+
+    if (name === 'ContactStatus') {
+      const ext = ev.AOR || ev.EndpointName || '';
+      const st = String(ev.ContactStatus || '').toLowerCase();
+      if (st === 'reachable' || st === 'created' || st === 'updated') {
+        updateExtensionPresence(ext, 'online', `ContactStatus:${ev.ContactStatus}`);
+      } else if (st === 'unreachable' || st === 'removed' || st === 'nonqualified') {
+        updateExtensionPresence(ext, 'offline', `ContactStatus:${ev.ContactStatus}`);
+      }
+      return;
+    }
+
+    if (name === 'PeerStatus') {
+      const ext = ev.Peer || '';
+      const st = String(ev.PeerStatus || '').toLowerCase();
+      if (st === 'registered' || st === 'reachable') {
+        updateExtensionPresence(ext, 'online', `PeerStatus:${ev.PeerStatus}`);
+      } else if (st === 'unregistered' || st === 'unreachable' || st === 'lagged') {
+        updateExtensionPresence(ext, 'offline', `PeerStatus:${ev.PeerStatus}`);
+      }
+      return;
+    }
+
+    if (name === 'EndpointList') {
+      const ext = ev.ObjectName || '';
+      const state = String(ev.DeviceState || '').toLowerCase();
+      if (state === 'unavailable' || state === 'invalid' || state === 'unknown') {
+        updateExtensionPresence(ext, 'offline', `EndpointList:${ev.DeviceState}`);
+      } else if (state) {
+        updateExtensionPresence(ext, 'online', `EndpointList:${ev.DeviceState}`);
+      }
+      return;
+    }
+
+    if (name === 'PeerEntry') {
+      const ext = ev.ObjectName || '';
+      const statusText = String(ev.Status || '').toUpperCase();
+      if (statusText.startsWith('OK')) {
+        updateExtensionPresence(ext, 'online', `PeerEntry:${ev.Status}`);
+      } else if (statusText.includes('UNREACHABLE') || statusText.includes('UNKNOWN')) {
+        updateExtensionPresence(ext, 'offline', `PeerEntry:${ev.Status}`);
+      }
+      return;
+    }
+
     const uniqueid = ev.Linkedid || ev.Uniqueid;
     if (!uniqueid) return;
 
@@ -439,8 +498,20 @@ export const createPbxAmiManager = (
             loggedIn = true;
             void recordPbxHeartbeat(pool, { status: 'online' });
             void closeOrphanedPbxCalls(pool).catch(() => {});
+            if (!client.destroyed) {
+              client.write('Action: PJSIPShowEndpoints\r\n\r\n');
+              client.write('Action: SIPpeers\r\n\r\n');
+            }
+            let tickCount = 0;
             heartbeatTimer = setInterval(() => {
-              if (!client.destroyed) client.write('Action: Ping\r\n\r\n');
+              tickCount += 1;
+              if (!client.destroyed) {
+                client.write('Action: Ping\r\n\r\n');
+                if (tickCount % 2 === 0) {
+                  client.write('Action: PJSIPShowEndpoints\r\n\r\n');
+                  client.write('Action: SIPpeers\r\n\r\n');
+                }
+              }
               void recordPbxHeartbeat(pool, { status: 'online' });
             }, 30000);
           } else if (!loggedIn && parsed.Response === 'Error') {
@@ -483,6 +554,16 @@ export const createPbxAmiManager = (
     stop: () => {
       stopped = true;
       disconnectSocket();
+    },
+    getExtensionLiveStatuses: () => {
+      const result: Record<string, 'online' | 'offline' | 'in_call'> = {};
+      for (const [ext, st] of extensionStates.entries()) {
+        result[ext] = busyExtensions.has(ext) ? 'in_call' : st;
+      }
+      for (const ext of busyExtensions) {
+        result[ext] = 'in_call';
+      }
+      return result;
     },
   };
 };
