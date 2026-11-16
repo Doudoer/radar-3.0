@@ -29,17 +29,37 @@ export const parseAmiBlock = (raw: string): Record<string, string> => {
   return data;
 };
 
+const isRealEndpointChannel = (channel: string | undefined): boolean => {
+  if (!channel) return false;
+  const upper = channel.toUpperCase();
+  if (upper.startsWith('LOCAL/')) return false;
+  return upper.startsWith('PJSIP/') || upper.startsWith('SIP/') || upper.startsWith('IAX2/') || upper.startsWith('DAHDI/');
+};
+
+const digitsLen = (value: string | undefined): number => (value ? value.replace(/\D+/g, '').length : 0);
+
 export const inferDirection = (ev: Record<string, string>): PbxCallDirection => {
   const ctx = String(ev.Context || '').toLowerCase();
   const destChan = String(ev.DestChannel || '').toLowerCase();
-  const chan = String(ev.Channel || '').toLowerCase();
-  if (ctx.includes('from-trunk') || ctx.includes('from-pstn') || ctx.includes('ext-did')) return 'inbound';
+  const callerLen = digitsLen(ev.CallerIDNum);
+  const destNum = ev.DestCallerIDNum || ev.Exten || '';
+  const destLen = digitsLen(destNum);
+
+  if (ctx.includes('from-trunk') || ctx.includes('from-pstn') || ctx.includes('ext-did') || ctx.includes('from-sip-external')) {
+    return 'inbound';
+  }
+  if (ctx.includes('macro-dialout') || ctx.includes('outrt-')) {
+    return 'outbound';
+  }
+  if (callerLen > 0 && callerLen <= 5 && destLen >= 7) {
+    return 'outbound';
+  }
+  if (callerLen >= 7 && destLen > 0 && destLen <= 5) {
+    return 'inbound';
+  }
   if (ctx.includes('from-internal')) {
-    if (destChan.includes('trunk') || destChan.includes('dahdi') || (ev.DestCallerIDNum && ev.DestCallerIDNum.length >= 7)) {
+    if (destChan.includes('trunk') || destChan.includes('dahdi') || destLen >= 7) {
       return 'outbound';
-    }
-    if (chan.startsWith('pjsip/') || chan.startsWith('sip/')) {
-      return ev.DestCallerIDNum && ev.DestCallerIDNum.length >= 7 ? 'outbound' : 'internal';
     }
     return 'internal';
   }
@@ -101,10 +121,11 @@ export const createPbxAmiManager = (
     if (!uniqueid) return;
 
     if (name === 'DialBegin') {
-      const direction = inferDirection(ev);
-      const caller = ev.CallerIDNum || 'Desconocido';
+      const existing = activeCalls.get(uniqueid);
+      const direction = existing?.direction || inferDirection(ev);
+      const caller = existing?.caller_number || ev.CallerIDNum || 'Desconocido';
       const dest = ev.DestCallerIDNum || ev.Exten || ev.DialString || '';
-      const tracked: TrackedCall = {
+      const tracked: TrackedCall = existing || {
         uniqueid,
         direction,
         caller_number: caller,
@@ -112,24 +133,32 @@ export const createPbxAmiManager = (
         destination: dest || null,
         answered: false,
       };
+      if (dest && digitsLen(dest) <= 5) {
+        tracked.destination = dest;
+      }
       activeCalls.set(uniqueid, tracked);
-      void emitEvent({
-        uniqueid,
-        event: 'ringing',
-        direction,
-        caller_number: tracked.caller_number,
-        caller_name: tracked.caller_name,
-        destination: tracked.destination,
-        timestamp: new Date().toISOString(),
-      });
+      if (!existing && !tracked.answered) {
+        void emitEvent({
+          uniqueid,
+          event: 'ringing',
+          direction,
+          caller_number: tracked.caller_number,
+          caller_name: tracked.caller_name,
+          destination: tracked.destination,
+          timestamp: new Date().toISOString(),
+        });
+      }
       return;
     }
 
-    if (name === 'BridgeEnter' || (name === 'DialEnd' && ev.DialStatus === 'ANSWER')) {
+    if (
+      (name === 'DialEnd' && ev.DialStatus === 'ANSWER' && isRealEndpointChannel(ev.DestChannel))
+      || (name === 'BridgeEnter' && ev.BridgeType !== 'holding' && Number(ev.BridgeNumChannels || 0) >= 2 && isRealEndpointChannel(ev.Channel))
+    ) {
       const existing = activeCalls.get(uniqueid);
       if (!existing || existing.answered) return;
       existing.answered = true;
-      const ext = ev.DestCallerIDNum || ev.ConnectedLineNum || existing.destination || null;
+      const ext = ev.DestCallerIDNum || ev.ConnectedLineNum || ev.CallerIDNum || existing.destination || null;
       void emitEvent({
         uniqueid,
         event: 'answered',
@@ -145,7 +174,9 @@ export const createPbxAmiManager = (
 
     if (name === 'DialEnd' && ev.DialStatus && ev.DialStatus !== 'ANSWER') {
       const existing = activeCalls.get(uniqueid);
+      // Solo marcar perdida si el canal principal cancela o falla y no hay otro leg activo
       if (!existing || existing.answered || existing.closed) return;
+      if (ev.Uniqueid && ev.Uniqueid !== uniqueid) return;
       existing.closed = true;
       void emitEvent({
         uniqueid,
@@ -162,6 +193,8 @@ export const createPbxAmiManager = (
     if (name === 'Hangup') {
       const existing = activeCalls.get(uniqueid);
       if (!existing || existing.closed) return;
+      // Solo cerrar la alerta cuando cuelga el canal raíz (Linkedid === Uniqueid), no un leg secundario/IVR
+      if (ev.Uniqueid && ev.Uniqueid !== uniqueid) return;
       existing.closed = true;
       void emitEvent({
         uniqueid,
