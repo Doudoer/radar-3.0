@@ -281,11 +281,12 @@ export const createPbxAmiManager = (
     }
 
     // Operator rejection detection: DialStatus BUSY or Hangup Cause 17 (User Busy) / 21 (Call Rejected) on extension leg
+    // Ignore instant (< 2s) BUSY/Cause 17/21 responses from DND or unregistered/auto-busy devices
     const isRejectedDial = name === 'DialEnd' && ev.DialStatus === 'BUSY' && isRealEndpointChannel(ev.DestChannel);
     const isRejectedHangup = name === 'Hangup' && (ev.Cause === '17' || ev.Cause === '21') && isRealEndpointChannel(ev.Channel) && ev.Uniqueid !== uniqueid;
     if (isRejectedDial || isRejectedHangup) {
       const existing = activeCalls.get(uniqueid);
-      if (existing && !existing.answered && !existing.closed) {
+      if (existing && !existing.answered && !existing.closed && Date.now() - existing.startedAtMs >= 2000) {
         const rejExt = extractExtFromChannel(isRejectedDial ? ev.DestChannel : ev.Channel);
         if (rejExt && !busyExtensions.has(rejExt) && !existing.rejectedExts.has(rejExt)) {
           existing.rejectedExts.add(rejExt);
