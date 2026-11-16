@@ -390,7 +390,7 @@ const server = createServer(async (request, response) => {
         return sendJson(response, 403, { code: 'ORIGIN_REJECTED', message: 'Origen no autorizado' });
       }
       if (request.method === 'OPTIONS') return response.writeHead(204).end();
-      if (isUnsafeMethod(request.method) && pathname !== '/api/pbx/events' && pathname !== '/api/pbx/heartbeat' && !validCsrfToken(request)) {
+      if (isUnsafeMethod(request.method) && pathname !== '/api/pbx/events' && pathname !== '/api/pbx/heartbeat' && pathname !== '/api/pbx/monitor-auth' && pathname !== '/api/pbx/monitor-logout' && !validCsrfToken(request)) {
         if (rateLimit(`csrf-alert:${ipAddress}`, 1, 60_000) === 0) {
           void recordAuditLog(pool, { action: 'SECURITY_ALERT_TRIGGERED', resourceType: 'http', details: { reason: 'CSRF_REJECTED' }, ipAddress });
         }
@@ -677,9 +677,67 @@ const server = createServer(async (request, response) => {
       return sendJson(response, 200, { ok: true, call, activeCount: active.length });
     }
 
+    const verifyPbxMonitorToken = (req: IncomingMessage): boolean => {
+      if (!jwtSecret) return false;
+      const authHeader = String(req.headers.authorization || '');
+      const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+      const cookieToken = (req.headers.cookie || '')
+        .split(';')
+        .map(part => part.trim())
+        .find(part => part.startsWith('radar_monitor_token='))
+        ?.slice('radar_monitor_token='.length) || '';
+      const token = bearer || cookieToken;
+      if (!token) return false;
+      try {
+        const decoded = jwt.verify(token, jwtSecret) as { scope?: string };
+        return decoded?.scope === 'pbx_monitor';
+      } catch {
+        return false;
+      }
+    };
+
+    if (request.method === 'GET' && pathname === '/api/pbx/monitor-session') {
+      return sendJson(response, 200, { authenticated: verifyPbxMonitorToken(request) });
+    }
+
+    if (request.method === 'POST' && pathname === '/api/pbx/monitor-logout') {
+      const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+      response.setHeader('Set-Cookie', `radar_monitor_token=; Path=/api; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
+      return sendJson(response, 200, { ok: true });
+    }
+
+    if (request.method === 'POST' && pathname === '/api/pbx/monitor-auth') {
+      if (!jwtSecret) return sendJson(response, 503, { message: 'Autenticacion no configurada' });
+      const body = z.object({ code: z.string().trim().min(1).max(64) }).parse(await readBody(request));
+      const [rows] = await pool.query<RowDataPacket[]>(
+        "SELECT setting_value FROM app_settings WHERE setting_key='pbx.monitor_code_hash' LIMIT 1",
+      );
+      const hash = String(rows[0]?.setting_value || '');
+      if (!hash) {
+        return sendJson(response, 403, { message: 'El código de acceso al monitor no ha sido configurado en Configuración del Sistema.' });
+      }
+      const valid = await bcrypt.compare(body.code, hash);
+      if (!valid) {
+        return sendJson(response, 401, { message: 'Código de acceso incorrecto.' });
+      }
+      const token = jwt.sign({ scope: 'pbx_monitor' }, jwtSecret, { expiresIn: '24h' });
+      const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+      response.setHeader('Set-Cookie', `radar_monitor_token=${token}; Path=/api; HttpOnly; SameSite=Lax; Max-Age=86400${secure}`);
+      return sendJson(response, 200, { ok: true, token });
+    }
+
+    const PBX_MONITOR_READ_PATHS = new Set([
+      '/api/pbx/calls/active',
+      '/api/pbx/calls',
+      '/api/pbx/analytics',
+      '/api/pbx/presence',
+      '/api/pbx/stream',
+      '/api/pbx/widget-summary',
+    ]);
     const protectedPath = pathname.startsWith('/api/') || pathname.startsWith('/uploads/');
     const authenticatedClaims = protectedPath ? verifyToken(request) as Claims | null : null;
-    if (protectedPath && !authenticatedClaims) {
+    const hasMonitorAccess = !authenticatedClaims && request.method === 'GET' && PBX_MONITOR_READ_PATHS.has(pathname) && verifyPbxMonitorToken(request);
+    if (protectedPath && !authenticatedClaims && !hasMonitorAccess) {
       return sendJson(response, 401, { message: 'Autenticación requerida' });
     }
 
@@ -4028,6 +4086,27 @@ const server = createServer(async (request, response) => {
       return sendJson(response, 200, sanitizePbxSettingsForClient(snapshot));
     }
 
+    if (request.method === 'GET' && pathname === '/api/settings/pbx/monitor-code') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const [rows] = await pool.query<RowDataPacket[]>(
+        "SELECT setting_value FROM app_settings WHERE setting_key='pbx.monitor_code_hash' LIMIT 1",
+      );
+      return sendJson(response, 200, { hasMonitorCode: Boolean(rows[0]?.setting_value) });
+    }
+
+    if (request.method === 'PUT' && pathname === '/api/settings/pbx/monitor-code') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const body = z.object({ code: z.string().trim().min(4, 'El código debe tener al menos 4 caracteres.').max(64) }).parse(await readBody(request));
+      const hash = await bcrypt.hash(body.code, 12);
+      await pool.execute(
+        `INSERT INTO app_settings (setting_key, setting_value, updated_by)
+         VALUES ('pbx.monitor_code_hash', ?, ?)
+         ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value), updated_by=VALUES(updated_by)`,
+        [hash, Number(authenticatedClaims?.sub || 0) || null],
+      );
+      return sendJson(response, 200, { ok: true, hasMonitorCode: true });
+    }
+
     if (request.method === 'POST' && pathname === '/api/settings/pbx/test') {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
       const settings = await readPbxSettings(pool);
@@ -4092,6 +4171,46 @@ const server = createServer(async (request, response) => {
         pbxAmiManager.getExtensionLiveStatuses(),
       );
       return sendJson(response, 200, result);
+    }
+
+    if (request.method === 'GET' && pathname === '/api/pbx/widget-summary') {
+      const [settings, presence, analytics] = await Promise.all([
+        readPbxSettings(pool),
+        getPbxExtensionsPresenceReport(pool, undefined, pbxAmiManager.getExtensionLiveStatuses()),
+        listPbxDailyAnalytics(pool, 1),
+      ]);
+      const active = settings.enabled ? await listActiveIncomingCalls(pool) : [];
+      const todayRow = analytics.days?.[0] || null;
+      return sendJson(response, 200, {
+        enabled: settings.enabled,
+        updatedAt: new Date().toISOString(),
+        extensions: (presence.extensions || []).map(ext => ({
+          extension: ext.extension,
+          operatorName: ext.userName || `Ext. ${ext.extension}`,
+          status: ext.liveStatus || 'offline',
+          connectedMinutesToday: Math.round((ext.connectedWorkdaySeconds || 0) / 60),
+        })),
+        activeCalls: active.map(call => ({
+          id: call.id,
+          callerNumber: call.callerNumber,
+          callerName: call.callerName,
+          extension: call.answeredByExt || call.destination || null,
+          operatorName: null,
+          status: call.status,
+          startedAt: call.startedAt,
+        })),
+        todaySummary: todayRow ? {
+          totalCalls: Number(todayRow.totalCalls || 0),
+          answeredCalls: Number(todayRow.answeredCalls || 0),
+          missedCalls: Number(todayRow.missedCalls || 0),
+          answerRate: Number(todayRow.answerRate || 0),
+        } : {
+          totalCalls: 0,
+          answeredCalls: 0,
+          missedCalls: 0,
+          answerRate: 0,
+        },
+      });
     }
 
     if (request.method === 'GET' && pathname === '/api/pbx/stream') {

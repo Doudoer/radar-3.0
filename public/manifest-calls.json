@@ -1,0 +1,29 @@
+{
+  "name": "RADAR · Monitor de Llamadas",
+  "short_name": "Llamadas",
+  "description": "Monitor en vivo de llamadas PBX y extensiones de RADAR",
+  "start_url": "/llamadas",
+  "scope": "/llamadas",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#070c18",
+  "theme_color": "#070c18",
+  "icons": [
+    {
+      "src": "/icon-yard-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-yard-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-yard-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

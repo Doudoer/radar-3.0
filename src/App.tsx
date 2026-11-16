@@ -19,6 +19,8 @@ import { YardLoginView } from './components/YardLoginView';
 import { YardPortalView } from './components/YardPortalView';
 import { YardAccessNotice } from './components/YardAccessNotice';
 import { canAccessYardPortal, stripYardPortalFromUrl } from './utils/yardPortal';
+import { CallsMonitorPortalView } from './components/CallsMonitorPortalView';
+import { isCallsPortalUrl } from './utils/callsPortal';
 import { useAuthSession } from './hooks/useAuthSession';
 import { ordersApi } from './services/ordersApi';
 
@@ -79,6 +81,10 @@ export default function App() {
     }
     setYardPortalActive(false);
   }, []);
+  const [callsPortalActive] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return isCallsPortalUrl(window.location.href);
+  });
   const [currentScreen, setCurrentScreen] = useState<NavScreen>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [claimsFocusOrderId, setClaimsFocusOrderId] = useState<string | null>(null);
@@ -105,7 +111,7 @@ export default function App() {
     isSearchingYard,
     loadMoreYardOrders,
     searchYardOrders,
-  } = useRadarData(authenticated && !authChecking, authUser?.role);
+  } = useRadarData(authenticated && !authChecking && !callsPortalActive, authUser?.role);
   const isYardRole = userRole === 'vendedor_yarda';
   const canUseYardPortal = canAccessYardPortal(userRole);
   const { createOrder, updateOrder, updateOrderStatus, createOrderClaim } = useOrderActions({
@@ -185,7 +191,7 @@ export default function App() {
   }, [setDatabaseMessage]);
 
   useEffect(() => {
-    if (authenticated && authUser && userRole !== 'vendedor_yarda' && !authChecking) {
+    if (authenticated && authUser && userRole !== 'vendedor_yarda' && !callsPortalActive && !authChecking) {
       if (lastCheckedAuthUserIdRef.current !== authUser.id) {
         lastCheckedAuthUserIdRef.current = authUser.id;
         void fetchPendingFollowups(true);
@@ -495,6 +501,10 @@ export default function App() {
     setEditingOrder(null);
     return savedOrder;
   }, [handleUpdateOrder]);
+
+  if (callsPortalActive) {
+    return <CallsMonitorPortalView />;
+  }
 
   if (authChecking) return <LoadingOverlay visible label="Validando sesión" />;
   if (!authenticated || !authUser) {

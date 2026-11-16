@@ -46,9 +46,10 @@ describe('VaultUnlockModal & Disaster Recovery Vault Gate', () => {
 
   it('renders disaster recovery header and backup controls for super admin', () => {
     const html = renderToStaticMarkup(
-      <SystemSettingsView userRole="admin" />
+      <SystemSettingsView userRole="admin" initialTab="backups" />
     );
 
+    expect(html).toContain('role="tablist"');
     expect(html).toContain('Centro de Respaldos &amp; Rollback (Disaster Recovery)');
     expect(html).toContain('Crear Respaldo Ahora');
     expect(html).toContain('Descarga Directa');

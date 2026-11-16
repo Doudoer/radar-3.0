@@ -26,9 +26,12 @@ interface RestoreResult {
   timestamp?: string;
 }
 
+export type SystemSettingsTab = 'general' | 'whatsapp' | 'pbx' | 'penalties' | 'backups';
+
 interface SystemSettingsViewProps {
   userRole?: 'admin' | 'operador';
   onOpenChangePassword?: () => void;
+  initialTab?: SystemSettingsTab;
 }
 
 const formatWasenderTimestamp = (iso: string): string => {
@@ -44,9 +47,16 @@ const formatWasenderTimestamp = (iso: string): string => {
 export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   userRole,
   onOpenChangePassword,
+  initialTab = 'general',
 }) => {
   const { theme, setTheme } = useTheme();
   const isSuperAdmin = userRole === 'admin';
+  const [activeTab, setActiveTab] = useState<SystemSettingsTab>(() => {
+    if (!isSuperAdmin && (initialTab === 'pbx' || initialTab === 'penalties' || initialTab === 'backups')) {
+      return 'general';
+    }
+    return initialTab;
+  });
 
   // Backups state
   const [backups, setBackups] = useState<BackupItem[]>([]);
@@ -128,6 +138,9 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     liveAlertsEnabled: true,
     webhookSecret: '',
   });
+  const [monitorCode, setMonitorCode] = useState('');
+  const [hasMonitorCode, setHasMonitorCode] = useState(false);
+  const [monitorCodeSaving, setMonitorCodeSaving] = useState(false);
   const [showPbxGuide, setShowPbxGuide] = useState(false);
   const [pbxSaving, setPbxSaving] = useState(false);
   const [pbxRefreshing, setPbxRefreshing] = useState(false);
@@ -331,7 +344,12 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   const fetchPbxSettings = useCallback(async () => {
     if (!isSuperAdmin) return;
     try {
-      const response = await apiFetch('/settings/pbx');
+      const [response, codeRes] = await Promise.all([
+        apiFetch('/settings/pbx'),
+        apiFetch('/settings/pbx/monitor-code'),
+      ]);
+      const codePayload = await codeRes.json().catch(() => ({}));
+      if (codeRes.ok) setHasMonitorCode(Boolean(codePayload.hasMonitorCode));
       const payload = await response.json().catch(() => ({}));
       if (response.ok) {
         setPbxSettings(payload);
@@ -452,6 +470,33 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       setPbxMessage({ type: 'error', text: error instanceof Error ? error.message : 'Error al probar PBX.' });
     } finally {
       setPbxTesting(false);
+    }
+  };
+
+  const saveMonitorCode = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (monitorCodeSaving) return;
+    const cleaned = monitorCode.trim();
+    if (cleaned.length < 4) {
+      setPbxMessage({ type: 'error', text: 'El código del monitor debe tener al menos 4 caracteres.' });
+      return;
+    }
+    setMonitorCodeSaving(true);
+    setPbxMessage(null);
+    try {
+      const response = await apiFetch('/settings/pbx/monitor-code', {
+        method: 'PUT',
+        body: JSON.stringify({ code: cleaned }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'No se pudo guardar el código.');
+      setHasMonitorCode(true);
+      setMonitorCode('');
+      setPbxMessage({ type: 'success', text: 'Código de acceso al Monitor de Llamadas (/llamadas y App macOS) guardado.' });
+    } catch (error) {
+      setPbxMessage({ type: 'error', text: error instanceof Error ? error.message : 'Error al guardar el código.' });
+    } finally {
+      setMonitorCodeSaving(false);
     }
   };
 
@@ -672,7 +717,57 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
         </div>
       </div>
 
-      {isSuperAdmin && (
+      {/* Section Tabs */}
+      <div
+        role="tablist"
+        aria-label="Secciones de configuración del sistema"
+        className="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-2 shadow-[var(--card-shadow)]"
+      >
+        {[
+          { id: 'general' as const, label: 'General y Apariencia', icon: 'tune', show: true },
+          { id: 'whatsapp' as const, label: 'WhatsApp y Notificaciones', icon: 'send', show: true, dot: wasenderStatus ? (wasenderStatus.configured ? 'bg-emerald-400' : 'bg-amber-400') : undefined },
+          { id: 'pbx' as const, label: 'Central PBX y Llamadas', icon: 'call', show: isSuperAdmin, dot: pbxSettings?.healthStatus === 'online' ? 'bg-emerald-400' : pbxSettings?.healthStatus === 'error' ? 'bg-rose-400' : undefined },
+          { id: 'penalties' as const, label: 'Amonestaciones', icon: 'notifications_active', show: isSuperAdmin, badge: evidenceItems.length > 0 ? evidenceItems.length : undefined },
+          { id: 'backups' as const, label: 'Respaldos y Rollback', icon: 'database', show: isSuperAdmin },
+        ]
+          .filter((tab) => tab.show)
+          .map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition-all cursor-pointer ${
+                  isActive
+                    ? 'bg-[var(--brand-solid)] text-white shadow-[0_0_16px_rgba(6,182,212,0.3)]'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-heading)]'
+                }`}
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[17px]">
+                  {tab.icon}
+                </span>
+                <span>{tab.label}</span>
+                {tab.dot && (
+                  <span className={`w-2 h-2 rounded-full ${tab.dot}`} />
+                )}
+                {tab.badge !== undefined && (
+                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-black leading-none ${
+                    isActive
+                      ? 'bg-white/20 text-white'
+                      : 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
+                  }`}>
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+      </div>
+
+      {activeTab === 'penalties' && isSuperAdmin && (
         <div className="relative overflow-hidden rounded-3xl border border-cyan-500/25 bg-[#070c18]/90 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.6)] backdrop-blur-2xl md:p-6">
           <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-amber-300 to-transparent" />
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -810,7 +905,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       )}
 
       {/* SUPER ADMIN: Issabel PBX Monitor Configuration */}
-      {isSuperAdmin && (
+      {activeTab === 'pbx' && isSuperAdmin && (
         <div className="relative overflow-hidden rounded-3xl border border-cyan-500/25 bg-[#070c18]/90 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.6)] backdrop-blur-2xl md:p-6">
           <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-cyan-400" />
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -1025,6 +1120,42 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
             </div>
           </form>
 
+          <form onSubmit={(e) => { void saveMonitorCode(e); }} className="mt-4 rounded-xl border border-cyan-500/30 bg-[var(--bg-card-subtle)] p-3.5 flex flex-wrap items-end justify-between gap-3">
+            <div className="min-w-[240px] flex-1 space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs font-bold text-[var(--text-primary)]">
+                  Código de acceso · Monitor de Llamadas (/llamadas y App macOS)
+                </span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                  hasMonitorCode
+                    ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500'
+                    : 'bg-amber-500/15 border-amber-500/35 text-amber-500'
+                }`}>
+                  {hasMonitorCode ? 'Configurado' : 'Sin configurar'}
+                </span>
+              </div>
+              <p className="text-[11px] text-[var(--text-secondary)]">
+                Código exclusivo para ver el monitoreo de llamadas en vivo sin usar una cuenta de usuario del ERP.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="password"
+                value={monitorCode}
+                onChange={(e) => setMonitorCode(e.target.value)}
+                placeholder={hasMonitorCode ? 'Nuevo código (mín. 4 caracteres)' : 'Define código (mín. 4 caracteres)'}
+                className="w-56 rounded-xl border border-cyan-500/35 bg-[var(--bg-surface)] px-3 py-2 font-mono text-xs text-[var(--text-primary)] outline-none focus:border-cyan-500"
+              />
+              <button
+                type="submit"
+                disabled={monitorCodeSaving || monitorCode.trim().length < 4}
+                className="rounded-xl bg-[var(--brand-solid)] px-3.5 py-2 font-mono text-[11px] font-bold text-white hover:opacity-90 disabled:opacity-50 cursor-pointer"
+              >
+                {monitorCodeSaving ? 'Guardando…' : 'Guardar código'}
+              </button>
+            </div>
+          </form>
+
           <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-cyan-500/15 pt-3.5">
             <p className="font-mono text-[11px] text-slate-400">
               Endpoint: <span className="text-cyan-300">{pbxSettings?.webhookPath || '/api/pbx/events'}</span> · Puente en VPS Issabel: <span className="text-slate-200">scripts/issabel-ami-bridge.mjs</span>
@@ -1069,7 +1200,7 @@ node scripts/issabel-ami-bridge.mjs`}
       )}
 
       {/* SUPER ADMIN: Disaster Recovery & Backup Center */}
-      {isSuperAdmin && (
+      {activeTab === 'backups' && isSuperAdmin && (
         <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col gap-6">
           <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-emerald-400 shadow-[0_0_12px_#22d3ee]" />
 
@@ -1656,6 +1787,7 @@ node scripts/issabel-ami-bridge.mjs`}
       )}
 
       {/* Grid: Server status & Security Info */}
+      {activeTab === 'general' && (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Database & Server Health */}
         <div className="relative rounded-3xl bg-[#070c18]/90 backdrop-blur-2xl border border-cyan-500/25 p-5 md:p-6 shadow-[0_10px_30px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col gap-4">
@@ -1792,8 +1924,12 @@ node scripts/issabel-ami-bridge.mjs`}
             </button>
           </div>
         </div>
+      </div>
+      )}
 
-        {/* Integrations: Wasender Gateway */}
+      {/* Integrations: Wasender Gateway & Notifications */}
+      {activeTab === 'whatsapp' && (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div className="relative rounded-3xl bg-[var(--bg-card)] backdrop-blur-2xl border border-[var(--border-subtle)] p-5 md:p-6 shadow-[var(--card-shadow)] overflow-hidden flex flex-col gap-5 md:col-span-2">
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-subtle)] pb-4">
@@ -1959,6 +2095,7 @@ node scripts/issabel-ami-bridge.mjs`}
           <WasenderNotificationsManager userRole={userRole} />
         </div>
       </div>
+      )}
 
       {/* Vault Unlock 2FA Modal */}
       <VaultUnlockModal
