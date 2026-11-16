@@ -1270,11 +1270,16 @@ export async function handleWorkflowRequest(
       const pending = workflowTasks(order, events, today).filter(task => {
         if (match) return true;
         const assigneeId = workflowTaskAssignee(order, task.task).userId;
-        // "Mi trabajo de hoy": para operadores, solo Reclamos (incident), Listas para entregar (prepare) y Seguimiento post entrega (post_*)
-        const isAllowedQueue = task.task === 'incident' || task.task === 'prepare' || task.task.startsWith('post_');
-        if (requestedOperatorId) return isAllowedQueue && assigneeId === requestedOperatorId;
-        if (claims.role === 'admin') return true;
+        // "Mi trabajo de hoy": solo Post-entrega (activas/vencidas), Pieza lista, Listo para entregar/enviar y Reclamos
+        const isAllowedQueue =
+          task.task.startsWith('post_')
+          || Boolean(order.yardPieceReady)
+          || order.status === 'listo_retiro'
+          || order.status === 'listo_despacho'
+          || task.task === 'incident';
         if (!isAllowedQueue) return false;
+        if (requestedOperatorId) return assigneeId === requestedOperatorId;
+        if (claims.role === 'admin') return true;
         return assigneeId === Number(claims.sub);
       });
       if (match) {

@@ -77,11 +77,15 @@ describe('workflow API transactional enforcement', () => {
       expect(JSON.parse(String(end.mock.calls[0][0])).tasks).toHaveLength(expected);
     }
   });
-  it('scopes the admin profile queue to post-entrega, reclamos and piezas listas para entregar for one operator', async () => {
+  it('scopes Mi Trabajo Hoy to post-entrega, yard piece ready, listo_retiro/listo_despacho and reclamos', async () => {
     for (const [claims, url, extra, expected] of [
       [{ sub: '7', role: 'operator' }, '/api/workflow/tasks?operatorId=7', {}, 0],
       [{ sub: '1', role: 'admin' }, '/api/workflow/tasks?operatorId=7', {}, 0],
-      [{ sub: '1', role: 'admin' }, '/api/workflow/tasks', {}, 1],
+      [{ sub: '1', role: 'admin' }, '/api/workflow/tasks', {}, 0],
+      [{ sub: '1', role: 'admin' }, '/api/workflow/tasks', { yard_piece_ready: 1 }, 1],
+      [{ sub: '1', role: 'admin' }, '/api/workflow/tasks', { status: 'Listo para Retiro' }, 1],
+      [{ sub: '1', role: 'admin' }, '/api/workflow/tasks', { status: 'Listo para Despacho' }, 1],
+      [{ sub: '7', role: 'operator' }, '/api/workflow/tasks', { status: 'Listo para Retiro' }, 1],
       [{ sub: '1', role: 'admin' }, '/api/workflow/tasks?operatorId=9', { status: 'Entregado', delivered_at: '2026-11-01T16:00:00Z', followup_user_id: 9 }, 1],
       [{ sub: '1', role: 'admin' }, '/api/workflow/tasks?operatorId=7', { status: 'Entregado', delivered_at: '2026-11-01T16:00:00Z', followup_user_id: 9 }, 0],
       [{ sub: '7', role: 'operator' }, '/api/workflow/tasks?operatorId=9', { status: 'Entregado', delivered_at: '2026-11-01T16:00:00Z', followup_user_id: 9 }, 0],
@@ -236,7 +240,7 @@ describe('workflow API transactional enforcement', () => {
     expect(broadcast).not.toHaveBeenCalled();
   });
   it('filters the operator queue by authenticated ID, not an advisor name', async () => {
-    const { database, connection } = setup({ status: 'En Preparación', workflow_step: 2 }, acknowledged);
+    const { database, connection } = setup({ status: 'En Preparación', workflow_step: 2, yard_piece_ready: 1 }, acknowledged);
     const { req, res, end } = request('GET');
     await handleWorkflowRequest(req, res, '/api/workflow/tasks', { sub: '7', role: 'operator' }, database, vi.fn());
     expect(connection.query.mock.calls[0][0]).toContain('o.user_id=?');
@@ -255,7 +259,7 @@ describe('workflow API transactional enforcement', () => {
   });
   it('exposes supervisor objectives separately from attempts and external blocks', async () => {
     vi.setSystemTime(new Date('2026-11-05T16:00:00Z'));
-    const { database } = setup({}, [{
+    const { database } = setup({ yard_piece_ready: 1 }, [{
       id: 1, order_id: 901, task: 'quote', outcome: 'completed', actor_id: 7, actor_name: 'Actor',
       created_at: new Date('2026-10-22T16:00:00Z'), task_due_date: new Date('2026-10-22T00:00:00Z'),
       notes: 'Confirmed', evidence: 'Reference',

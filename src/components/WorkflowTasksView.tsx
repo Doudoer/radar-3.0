@@ -111,20 +111,30 @@ const buckets = {
 const categories = {
   all: { label: 'Todas las tareas', icon: 'dashboard', color: 'cyan' },
   incident: { label: 'Reclamos e Incidencias', icon: 'report_problem', color: 'amber' },
-  ready_to_deliver: { label: 'Listas para Entregar', icon: 'event_available', color: 'amber' },
+  ready_to_deliver: { label: 'Pieza Lista / p/ Entregar', icon: 'event_available', color: 'amber' },
   post_delivery: { label: 'Seguimiento Post-Entrega', icon: 'support_agent', color: 'emerald' },
 } as const;
 
-const getTaskCategory = (taskKey: string): keyof typeof categories => {
-  if (taskKey === 'incident') return 'incident';
-  if (taskKey === 'prepare') return 'ready_to_deliver';
-  if (taskKey.startsWith('post_')) return 'post_delivery';
+const isAllowedTodayTask = (task: WorkflowTask): boolean =>
+  task.task.startsWith('post_')
+  || Boolean(task.order.yardPieceReady)
+  || task.order.status === 'listo_retiro'
+  || task.order.status === 'listo_despacho'
+  || task.task === 'incident';
+
+const getTaskCategory = (task: WorkflowTask): keyof typeof categories => {
+  if (task.task === 'incident') return 'incident';
+  if (task.task.startsWith('post_')) return 'post_delivery';
+  if (task.order.yardPieceReady || task.order.status === 'listo_retiro' || task.order.status === 'listo_despacho') {
+    return 'ready_to_deliver';
+  }
   return 'all';
 };
 
 const getTaskCategoryIcon = (taskKey: string): string => {
   if (taskKey === 'incident') return 'report_problem';
   if (taskKey === 'prepare') return 'event_available';
+  if (taskKey === 'delivery') return 'local_shipping';
   if (taskKey === 'post_3') return 'inventory';
   if (taskKey === 'post_7') return 'build_circle';
   if (taskKey === 'post_14') return 'verified_user';
@@ -219,10 +229,11 @@ export const WorkflowTasksView: React.FC<{
     };
   }, [selected?.order.id]);
 
-  const tasks = (queue?.tasks || []).filter((task) => {
+  const allowedTasks = (queue?.tasks || []).filter(isAllowedTodayTask);
+  const tasks = allowedTasks.filter((task) => {
     const matchesBucket =
       filter === 'all' || (filter === 'overdue' ? task.overdue && task.bucket !== 'blocked' : task.bucket === filter);
-    const matchesCategory = categoryFilter === 'all' || getTaskCategory(task.task) === categoryFilter;
+    const matchesCategory = categoryFilter === 'all' || getTaskCategory(task) === categoryFilter;
     const matchesOperator =
       operator === 'all' || String(workflowTaskAssignee(task.order, task.task).userId) === operator;
     return matchesBucket && matchesCategory && matchesOperator;
@@ -327,7 +338,7 @@ export const WorkflowTasksView: React.FC<{
                 <span className="text-xs font-bold text-amber-400 block uppercase tracking-wider">Listas p/ Entregar</span>
                 <div className="mt-1 flex items-baseline gap-1.5">
                   <strong className="text-2xl font-black text-amber-300 tabular-nums">
-                    {queue.tasks.filter((t) => t.task === 'prepare').length}
+                    {allowedTasks.filter((t) => getTaskCategory(t) === 'ready_to_deliver').length}
                   </strong>
                   <span className="text-[11px] font-semibold text-amber-400">cierre pendiente</span>
                 </div>
@@ -392,8 +403,8 @@ export const WorkflowTasksView: React.FC<{
                   ([key, meta]) => {
                     const count =
                       key === 'all'
-                        ? queue.tasks.length
-                        : queue.tasks.filter((t) => getTaskCategory(t.task) === key).length;
+                        ? allowedTasks.length
+                        : allowedTasks.filter((t) => getTaskCategory(t) === key).length;
                     const active = categoryFilter === key;
                     return (
                       <button
