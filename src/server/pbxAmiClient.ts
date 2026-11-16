@@ -509,29 +509,44 @@ export const createPbxAmiManager = (
             loggedIn = true;
             void recordPbxHeartbeat(pool, { status: 'online' });
             void closeOrphanedPbxCalls(pool).catch(() => {});
-            if (!client.destroyed) {
+            const pollPresence = () => {
+              if (client.destroyed) return;
               client.write('Action: DeviceStateList\r\n\r\n');
               client.write('Action: PJSIPShowContacts\r\n\r\n');
               client.write('Action: PJSIPShowEndpoints\r\n\r\n');
               client.write('Action: SIPpeers\r\n\r\n');
-            }
+              void pool.query<import('mysql2/promise').RowDataPacket[]>(
+                "SELECT DISTINCT pbx_extension FROM users WHERE deleted_at IS NULL AND pbx_extension IS NOT NULL AND TRIM(pbx_extension) <> ''",
+              ).then(([extRows]) => {
+                if (client.destroyed) return;
+                for (const r of extRows) {
+                  const ext = String(r.pbx_extension || '').trim();
+                  if (/^\d{2,5}$/.test(ext)) {
+                    client.write(`Action: ExtensionState\r\nExten: ${ext}\r\nContext: from-internal\r\nActionID: extstate-${ext}\r\n\r\n`);
+                  }
+                }
+              }).catch(() => {});
+            };
+            pollPresence();
             let tickCount = 0;
             heartbeatTimer = setInterval(() => {
               tickCount += 1;
               if (!client.destroyed) {
                 client.write('Action: Ping\r\n\r\n');
-                if (tickCount % 2 === 0) {
-                  client.write('Action: DeviceStateList\r\n\r\n');
-                  client.write('Action: PJSIPShowContacts\r\n\r\n');
-                  client.write('Action: PJSIPShowEndpoints\r\n\r\n');
-                  client.write('Action: SIPpeers\r\n\r\n');
-                }
+                if (tickCount % 2 === 0) pollPresence();
               }
               void recordPbxHeartbeat(pool, { status: 'online' });
             }, 30000);
           } else if (!loggedIn && parsed.Response === 'Error') {
             const msg = parsed.Message || 'Autenticación AMI rechazada por Issabel';
             void recordPbxHeartbeat(pool, { status: 'error', error: msg });
+          } else if (parsed.Response === 'Success' && parsed.Exten && parsed.Status !== undefined) {
+            const code = Number(parsed.Status);
+            if ([0, 1, 2, 8, 9, 16].includes(code)) {
+              updateExtensionPresence(parsed.Exten, 'online', `ExtensionState:${parsed.StatusText || code}`);
+            } else if (code === 4) {
+              updateExtensionPresence(parsed.Exten, 'offline', `ExtensionState:${parsed.StatusText || code}`);
+            }
           } else if (parsed.Event) {
             handleAmiEvent(parsed);
           }
