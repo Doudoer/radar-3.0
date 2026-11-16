@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { WorkflowActionForm, workflowResponse } from './OrderWorkflowPanel';
+import { WorkflowActionForm, WorkflowFilesGallery, workflowResponse, type WorkflowDetail } from './OrderWorkflowPanel';
 import { workflowTaskAssignee, type WorkflowTask } from '../utils/orderWorkflow';
 import { formatYardReadyElapsed, yardReadyAgeMinutes } from '../utils/yardAlerts';
 import { apiFetch } from '../services/apiFetch';
@@ -172,6 +172,7 @@ export const WorkflowTasksView: React.FC<{
   const [categoryFilter, setCategoryFilter] = useState<keyof typeof categories>('all');
   const [operator, setOperator] = useState('all');
   const [selected, setSelected] = useState<WorkflowTask | null>(null);
+  const [selectedDetail, setSelectedDetail] = useState<WorkflowDetail | null>(null);
   const generation = useRef(0);
   const dialog = useRef<HTMLDivElement | null>(null);
 
@@ -199,7 +200,18 @@ export const WorkflowTasksView: React.FC<{
   }, [reload]);
 
   useEffect(() => {
-    if (!selected) return;
+    if (!selected) {
+      setSelectedDetail(null);
+      return;
+    }
+    let cancelled = false;
+    setSelectedDetail(null);
+    void apiFetch(`/orders/${selected.order.id}/workflow`)
+      .then((res) => workflowResponse<WorkflowDetail>(res))
+      .then((detail) => {
+        if (!cancelled) setSelectedDetail(detail);
+      })
+      .catch(() => {});
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const panel: HTMLDivElement | null = dialog.current;
     panel?.querySelector<HTMLElement>('select, input, textarea, button')?.focus();
@@ -224,6 +236,7 @@ export const WorkflowTasksView: React.FC<{
     };
     document.addEventListener('keydown', keyboard);
     return () => {
+      cancelled = true;
       document.removeEventListener('keydown', keyboard);
       previous?.focus();
     };
@@ -958,8 +971,38 @@ export const WorkflowTasksView: React.FC<{
         >
           <div
             ref={dialog}
-            className="relative w-full max-w-3xl my-auto rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] p-5 md:p-6 shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
+            className="relative w-full max-w-3xl my-auto rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] p-5 md:p-6 shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto space-y-4"
           >
+            {selectedDetail && (
+              <details className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)]/50 p-3.5">
+                <summary className="cursor-pointer text-xs font-bold text-cyan-400 flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[16px]">folder_open</span>
+                    <span>Verificar pasos anteriores y archivos cargados ({selectedDetail.events.length} etapas)</span>
+                  </span>
+                  <span className="text-[11px] font-normal text-[var(--text-secondary)]">Expandir / Ocultar</span>
+                </summary>
+                <div className="mt-3 space-y-3">
+                  <WorkflowFilesGallery detail={selectedDetail} />
+                  {selectedDetail.events.length > 0 && (
+                    <div className="space-y-2">
+                      {[...selectedDetail.events].reverse().map((ev) => (
+                        <div key={ev.id} className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-2.5 text-xs space-y-1">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <strong className="text-[var(--text-primary)]">{ev.task} · {ev.outcome}</strong>
+                            <span className="text-[11px] text-[var(--text-secondary)]">
+                              {ev.actorName || 'Operador'} · {new Date(ev.createdAt).toLocaleString('es-VE', { timeZone: 'America/Caracas', dateStyle: 'short', timeStyle: 'short' })}
+                            </span>
+                          </div>
+                          {ev.notes && <p className="text-[var(--text-secondary)] whitespace-pre-wrap">{ev.notes}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </details>
+            )}
+
             <WorkflowActionForm
               key={`${selected.order.id}-${selected.order.version}`}
               task={selected}

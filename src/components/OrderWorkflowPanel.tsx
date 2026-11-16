@@ -29,6 +29,163 @@ export const workflowResponse = async <T,>(response: Response): Promise<T> => {
   if (!response.ok) throw new Error(data.message || 'No se pudo cargar el flujo de órdenes.');
   return data;
 };
+
+interface CollectedWorkflowFile {
+  url: string;
+  stageLabel: string;
+  kindLabel: string;
+  actorName: string;
+  createdAt: string | null;
+  isAudio?: boolean;
+}
+
+const STAGE_LABELS_MAP: Record<string, string> = {
+  quote: 'Cotización inicial',
+  ack: 'Confirmación de abono',
+  prepare: 'Preparación y cita',
+  delivery: 'Entrega física',
+  post_3: 'Post-entrega · Día 3',
+  post_7: 'Post-entrega · Día 7',
+  post_14: 'Post-entrega · Día 14',
+  incident: 'Reclamo / Incidencia',
+};
+
+export const collectWorkflowFiles = (detail: WorkflowDetail): CollectedWorkflowFile[] => {
+  const files: CollectedWorkflowFile[] = [];
+  const seen = new Set<string>();
+  const pushFile = (item: CollectedWorkflowFile) => {
+    const clean = item.url.trim();
+    if (!clean || seen.has(clean)) return;
+    seen.add(clean);
+    files.push({ ...item, url: clean });
+  };
+
+  for (const event of detail.events) {
+    const stageLabel = STAGE_LABELS_MAP[event.task] || event.task;
+    const actorName = event.actorName || 'Operador';
+    if (Array.isArray(event.downpayment)) {
+      event.downpayment.forEach((p, idx) => {
+        if (p.receipt) {
+          pushFile({ url: p.receipt, stageLabel, kindLabel: `Comprobante de abono ${idx + 1}`, actorName, createdAt: event.createdAt });
+        }
+      });
+    }
+    if (event.preparation?.screenshots?.length) {
+      event.preparation.screenshots.forEach((url, idx) => {
+        pushFile({ url, stageLabel, kindLabel: `Captura de preparación ${idx + 1}`, actorName, createdAt: event.createdAt });
+      });
+    }
+    if (event.task === 'delivery') {
+      readDeliveryPhotos(event.evidence).forEach((url, idx) => {
+        pushFile({ url, stageLabel, kindLabel: `Foto de entrega ${idx + 1}`, actorName, createdAt: event.createdAt });
+      });
+    }
+    const contact = decodeCommunicationEvidence(event.evidence);
+    if (contact?.communication.screenshots?.length) {
+      contact.communication.screenshots.forEach((url, idx) => {
+        pushFile({ url, stageLabel, kindLabel: `Captura de conversación ${idx + 1}`, actorName, createdAt: event.createdAt });
+      });
+    }
+    if (contact?.communication.audio?.length) {
+      contact.communication.audio.forEach((url, idx) => {
+        pushFile({ url, stageLabel, kindLabel: `Audio de llamada ${idx + 1}`, actorName, createdAt: event.createdAt, isAudio: true });
+      });
+    }
+    if (event.evidence && (/^\/uploads\//i.test(event.evidence) || /^https?:\/\//i.test(event.evidence))) {
+      pushFile({ url: event.evidence, stageLabel, kindLabel: 'Evidencia adjunta', actorName, createdAt: event.createdAt });
+    }
+  }
+
+  if (detail.order.preparation?.screenshots?.length) {
+    detail.order.preparation.screenshots.forEach((url, idx) => {
+      pushFile({
+        url,
+        stageLabel: 'Preparación y cita',
+        kindLabel: `Captura de preparación ${idx + 1}`,
+        actorName: detail.order.advisor || 'Operador',
+        createdAt: null,
+      });
+    });
+  }
+
+  return files;
+};
+
+export const WorkflowFilesGallery: React.FC<{ detail: WorkflowDetail }> = ({ detail }) => {
+  const files = collectWorkflowFiles(detail);
+  return (
+    <div className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)]/50 p-4 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-cyan-400">folder_open</span>
+          <strong className="text-xs sm:text-sm font-bold text-[var(--text-primary)]">
+            Archivos cargados en el flujo ({files.length})
+          </strong>
+        </div>
+        <span className="text-[11px] text-[var(--text-secondary)]">
+          Comprobantes, capturas de preparación, fotos de entrega y audios
+        </span>
+      </div>
+      {files.length === 0 ? (
+        <p className="text-xs text-[var(--text-secondary)]">
+          Aún no hay archivos cargados en las etapas del flujo de esta orden.
+        </p>
+      ) : (
+        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+          {files.map((file, idx) => {
+            const isPdf = /\.pdf($|\?)/i.test(file.url);
+            return (
+              <div
+                key={`${file.url}-${idx}`}
+                className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-2.5 space-y-2 text-xs"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="rounded-md bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 text-[10px] font-bold text-cyan-400 truncate">
+                    {file.stageLabel}
+                  </span>
+                  <span className="text-[10px] text-[var(--text-secondary)] truncate">{file.actorName}</span>
+                </div>
+                {file.isAudio ? (
+                  <audio controls preload="metadata" src={file.url} className="w-full h-8" aria-label={file.kindLabel} />
+                ) : isPdf ? (
+                  <a
+                    href={file.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-center gap-2 h-24 rounded-lg border border-dashed border-[var(--border-color)] bg-[var(--bg-card-subtle)] text-cyan-400 font-semibold hover:border-cyan-500/50"
+                  >
+                    <span aria-hidden="true" className="material-symbols-outlined text-[24px]">picture_as_pdf</span>
+                    <span>Abrir PDF</span>
+                  </a>
+                ) : (
+                  <a href={file.url} target="_blank" rel="noreferrer" className="block group overflow-hidden rounded-lg border border-[var(--border-color)] bg-black/20">
+                    <img
+                      src={file.url}
+                      alt={file.kindLabel}
+                      loading="lazy"
+                      className="h-24 w-full object-cover transition-transform group-hover:scale-105"
+                    />
+                  </a>
+                )}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-[var(--text-primary)] truncate">{file.kindLabel}</span>
+                  <a
+                    href={file.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[11px] font-bold text-cyan-400 hover:underline shrink-0"
+                  >
+                    Abrir
+                  </a>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 export const HistoricalWorkflowStage: React.FC<{ order: WorkflowOrder; stage: Exclude<WorkflowStage, 'quote'> }> = ({ order, stage }) => {
   const history = order.historicalDelivery;
   if (!history) return null;
@@ -1614,6 +1771,8 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                 </div>
               </div>
             )}
+
+            <WorkflowFilesGallery detail={detail} />
 
             {detail.events.length > 0 && (
               <div className="space-y-3">
