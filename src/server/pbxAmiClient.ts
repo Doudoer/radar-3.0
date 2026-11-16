@@ -156,13 +156,24 @@ export const createPbxAmiManager = (
   const handleAmiEvent = (ev: Record<string, string>) => {
     const name = ev.Event;
 
-    if (name === 'ContactStatus') {
-      const ext = ev.AOR || ev.EndpointName || '';
-      const st = String(ev.ContactStatus || '').toLowerCase();
-      if (st === 'reachable' || st === 'created' || st === 'updated') {
-        updateExtensionPresence(ext, 'online', `ContactStatus:${ev.ContactStatus}`);
-      } else if (st === 'unreachable' || st === 'removed' || st === 'nonqualified') {
-        updateExtensionPresence(ext, 'offline', `ContactStatus:${ev.ContactStatus}`);
+    if (name === 'DeviceStateChange') {
+      const ext = ev.Device || '';
+      const state = String(ev.State || '').toUpperCase().replace(/\s+/g, '_');
+      if (state === 'NOT_INUSE' || state === 'INUSE' || state === 'BUSY' || state === 'RINGING' || state === 'RINGINUSE' || state === 'ONHOLD') {
+        updateExtensionPresence(ext, 'online', `DeviceState:${ev.State}`);
+      } else if (state === 'UNAVAILABLE' || state === 'INVALID' || state === 'UNKNOWN') {
+        updateExtensionPresence(ext, 'offline', `DeviceState:${ev.State}`);
+      }
+      return;
+    }
+
+    if (name === 'ContactStatus' || name === 'ContactList') {
+      const ext = ev.AOR || ev.Endpoint || ev.EndpointName || '';
+      const st = String(ev.ContactStatus || ev.Status || '').toLowerCase();
+      if (st === 'reachable' || st === 'created' || st === 'updated' || st === 'nonqualified') {
+        updateExtensionPresence(ext, 'online', `${name}:${ev.ContactStatus || ev.Status}`);
+      } else if (st === 'unreachable' || st === 'removed') {
+        updateExtensionPresence(ext, 'offline', `${name}:${ev.ContactStatus || ev.Status}`);
       }
       return;
     }
@@ -499,6 +510,8 @@ export const createPbxAmiManager = (
             void recordPbxHeartbeat(pool, { status: 'online' });
             void closeOrphanedPbxCalls(pool).catch(() => {});
             if (!client.destroyed) {
+              client.write('Action: DeviceStateList\r\n\r\n');
+              client.write('Action: PJSIPShowContacts\r\n\r\n');
               client.write('Action: PJSIPShowEndpoints\r\n\r\n');
               client.write('Action: SIPpeers\r\n\r\n');
             }
@@ -508,6 +521,8 @@ export const createPbxAmiManager = (
               if (!client.destroyed) {
                 client.write('Action: Ping\r\n\r\n');
                 if (tickCount % 2 === 0) {
+                  client.write('Action: DeviceStateList\r\n\r\n');
+                  client.write('Action: PJSIPShowContacts\r\n\r\n');
                   client.write('Action: PJSIPShowEndpoints\r\n\r\n');
                   client.write('Action: SIPpeers\r\n\r\n');
                 }

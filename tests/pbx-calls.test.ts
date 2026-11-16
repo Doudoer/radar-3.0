@@ -373,13 +373,17 @@ describe('pbxCalls helpers', () => {
       fakeSocket.emit('data', Buffer.from('Event: QueueCallerJoin\r\nUniqueid: q-2\r\nLinkedid: q-2\r\nQueue: 101\r\nChannel: PJSIP/Telnyx-0011\r\nCallerIDNum: +19844004618\r\nCallerIDName: Español:+19844004618\r\n\r\n'));
       fakeSocket.emit('data', Buffer.from('Event: QueueCallerAbandon\r\nUniqueid: q-2\r\nLinkedid: q-2\r\nQueue: 101\r\n\r\n'));
 
-      // Extension presence events (ContactStatus, PeerStatus, EndpointList, PeerEntry)
+      // Extension presence events (ContactStatus, ContactList, DeviceStateChange, PeerStatus, EndpointList, PeerEntry)
       fakeSocket.emit('data', Buffer.from('Event: ContactStatus\r\nAOR: 204\r\nContactStatus: Reachable\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Event: ContactList\r\nEndpoint: 203\r\nStatus: Reachable\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Event: DeviceStateChange\r\nDevice: PJSIP/301\r\nState: UNAVAILABLE\r\n\r\n'));
       fakeSocket.emit('data', Buffer.from('Event: PeerStatus\r\nPeer: SIP/1000\r\nPeerStatus: Unregistered\r\n\r\n'));
       fakeSocket.emit('data', Buffer.from('Event: EndpointList\r\nObjectName: 202\r\nDeviceState: Not in use\r\n\r\n'));
       fakeSocket.emit('data', Buffer.from('Event: PeerEntry\r\nObjectName: 501\r\nStatus: OK (12 ms)\r\n\r\n'));
       expect(manager.getExtensionLiveStatuses()).toMatchObject({
         '204': 'online',
+        '203': 'online',
+        '301': 'offline',
         '1000': 'offline',
         '202': 'online',
         '501': 'online',
