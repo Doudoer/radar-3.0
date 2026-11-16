@@ -13,6 +13,8 @@ describe('followup communication rules', () => {
       expect(communicationSchema.safeParse({ channel: 'sms', warrantyWarningGiven: false, screenshots }).success).toBe(false);
     }
     expect(communicationSchema.safeParse({ channel: 'call', warrantyWarningGiven: false, screenshots: ['/uploads/image.png'] }).success).toBe(false);
+    expect(communicationSchema.safeParse({ channel: 'call', warrantyWarningGiven: false, audioUnavailable: true, screenshots: ['/uploads/image.png'] }).success).toBe(true);
+    expect(communicationSchema.safeParse({ channel: 'sms', warrantyWarningGiven: false, audioUnavailable: true }).success).toBe(false);
     expect(communicationSchema.safeParse({ channel: 'call', warrantyWarningGiven: false, audio: ['/uploads/call.mp4'] }).success).toBe(false);
     expect(communicationSchema.safeParse({ channel: 'call', warrantyWarningGiven: false, audio: Array(11).fill('/uploads/call.mp3') }).success).toBe(false);
     expect(communicationSchema.safeParse({ channel: 'call', warrantyWarningGiven: false, audio: ['/uploads/call.mp3'] }).success).toBe(true);
@@ -23,6 +25,8 @@ describe('followup communication rules', () => {
     expect(validateCommunication({ channel: 'call', warrantyWarningGiven: false }, 'sms_replied', 'not_installed', 'completed')).toMatch(/canal/);
     expect(validateCommunication({ channel: 'sms', warrantyWarningGiven: false }, 'sms_replied', 'not_installed', 'completed')).toMatch(/captura/);
     expect(validateCommunication({ channel: 'call', warrantyWarningGiven: false }, 'answered', 'not_installed', 'completed')).toMatch(/audio/);
+    expect(validateCommunication({ channel: 'call', warrantyWarningGiven: false, audioUnavailable: true }, 'answered', 'not_installed', 'completed')).toMatch(/screenshot/);
+    expect(validateCommunication({ channel: 'call', warrantyWarningGiven: true, audioUnavailable: true, screenshots: ['/uploads/call.png'] }, 'answered', 'not_installed', 'completed')).toBeNull();
     expect(validateCommunication({ channel: 'sms', warrantyWarningGiven: false, screenshots: ['/uploads/chat.png'] }, 'sms_replied', 'not_installed', 'completed')).toMatch(/garantía/);
     expect(validateCommunication({ channel: 'call', warrantyWarningGiven: true, audio: ['/uploads/call.mp3'] }, 'answered', 'not_installed', 'blocked')).toBeNull();
     expect(validateCommunication({ channel: 'whatsapp', warrantyWarningGiven: false, screenshots: ['/uploads/chat.png'] }, 'sms_replied', 'installed_ok', 'completed')).toBeNull();

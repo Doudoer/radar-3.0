@@ -384,6 +384,7 @@ const WorkflowManagementForm: React.FC<{
   const [deliveryPhotos, setDeliveryPhotos] = useState<string[]>([]);
   const [screenshots, setScreenshots] = useState<string[]>([]);
   const [callAudio, setCallAudio] = useState<string[]>([]);
+  const [audioUnavailable, setAudioUnavailable] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [nextAction, setNextAction] = useState('');
   const [nextDueDate, setNextDueDate] = useState(addWorkingDays(today, 1));
@@ -503,7 +504,18 @@ const WorkflowManagementForm: React.FC<{
     saving.current = true; setBusy(true); setError('');
     try {
       if (postDelivery) {
-        const communicationError = validateCommunication({ channel, warrantyWarningGiven, screenshots, audio: callAudio }, contactResult, directContact ? partStatus : null, outcome);
+        const communicationError = validateCommunication(
+          {
+            channel,
+            warrantyWarningGiven,
+            audioUnavailable: channel === 'call' ? audioUnavailable : undefined,
+            screenshots,
+            audio: callAudio,
+          },
+          contactResult,
+          directContact ? partStatus : null,
+          outcome,
+        );
         if (communicationError) throw new Error(communicationError);
       }
       let verifiedSettlement: Settlement | undefined;
@@ -532,7 +544,11 @@ const WorkflowManagementForm: React.FC<{
         partStatus: postDelivery && directContact ? partStatus : undefined,
         communication: postDelivery ? {
           channel, warrantyWarningGiven: directContact && warrantyWarningGiven,
-          ...(channel === 'call' ? (callAudio.length ? { audio: callAudio } : {}) : (screenshots.length ? { screenshots } : {})),
+          ...(channel === 'call'
+            ? (audioUnavailable
+                ? { audioUnavailable: true, ...(screenshots.length ? { screenshots } : {}) }
+                : (callAudio.length ? { audio: callAudio } : {}))
+            : (screenshots.length ? { screenshots } : {})),
         } : undefined,
         settlement: verifiedSettlement,
         preparation: verifiedPreparation,
@@ -595,6 +611,7 @@ const WorkflowManagementForm: React.FC<{
                     setChannel(next);
                     setScreenshots([]);
                     setCallAudio([]);
+                    setAudioUnavailable(false);
                     changeContact(next === 'call' ? 'answered' : 'sms_replied');
                     setCopied(false);
                   }}
@@ -618,6 +635,7 @@ const WorkflowManagementForm: React.FC<{
                         setChannel(item.id);
                         setScreenshots([]);
                         setCallAudio([]);
+                        setAudioUnavailable(false);
                         changeContact(item.id === 'call' ? 'answered' : 'sms_replied');
                         setCopied(false);
                       }}
@@ -714,14 +732,54 @@ const WorkflowManagementForm: React.FC<{
           )}
 
           {channel === 'call' && (
-            <FollowupAudioFields
-              orderId={task.order.id}
-              audio={callAudio}
-              onChange={setCallAudio}
-              disabled={busy}
-              required={directContact}
-              onUploadingChange={value => { uploadInFlight.current = value; setUploading(value); }}
-            />
+            <div className="space-y-3">
+              <label className="flex items-start gap-2.5 rounded-xl border border-amber-500/35 bg-amber-500/10 px-3.5 py-2.5 text-xs font-semibold text-[var(--text-primary)] cursor-pointer hover:border-amber-500/60">
+                <input
+                  type="checkbox"
+                  checked={audioUnavailable}
+                  disabled={busy || uploading}
+                  onChange={event => {
+                    const checked = event.target.checked;
+                    setAudioUnavailable(checked);
+                    if (checked) {
+                      setCallAudio([]);
+                    } else {
+                      setScreenshots([]);
+                    }
+                  }}
+                  className="mt-0.5 h-4 w-4 rounded border-[var(--border-color)] text-amber-500 focus:ring-amber-500"
+                />
+                <span className="leading-snug">
+                  No se puede subir el audio de la llamada
+                  <span className="block text-[11px] font-normal text-[var(--text-secondary)]">
+                    Marca esta opción si la grabación no está disponible para adjuntar un screenshot de la llamada con el cliente.
+                  </span>
+                </span>
+              </label>
+
+              {!audioUnavailable ? (
+                <FollowupAudioFields
+                  orderId={task.order.id}
+                  audio={callAudio}
+                  onChange={setCallAudio}
+                  disabled={busy}
+                  required={directContact}
+                  onUploadingChange={value => { uploadInFlight.current = value; setUploading(value); }}
+                />
+              ) : (
+                <OrderImageFields
+                  onUpload={file => uploadDownpaymentReceipt(task.order.id, file)}
+                  photos={screenshots}
+                  onChange={setScreenshots}
+                  label={directContact ? 'Screenshot de la llamada (obligatorio sin audio)' : 'Screenshot de la llamada (opcional)'}
+                  description={directContact ? 'Adjunta la captura de pantalla de la llamada con el cliente para demostrar el contacto.' : 'Puedes registrar el intento sin captura o adjuntar un screenshot de la llamada.'}
+                  imageLabel="Ver screenshot de llamada"
+                  disabled={busy}
+                  required={directContact}
+                  onUploadingChange={value => { uploadInFlight.current = value; setUploading(value); }}
+                />
+              )}
+            </div>
           )}
 
           {channel !== 'call' && (
@@ -1868,6 +1926,11 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                               🛡️ Advertencia de garantía comunicada {contact.communication.channel === 'call' ? 'verbalmente' : 'por escrito'}.
                             </p>
                           )}
+                          {contact.communication.audioUnavailable && (
+                            <p className="text-[var(--text-secondary)]">
+                              📵 Audio de llamada no disponible · Evidencia registrada con screenshot.
+                            </p>
+                          )}
                           {Boolean(contact.communication.screenshots?.length) && (
                             <div className="flex flex-wrap gap-2 pt-1">
                               {contact.communication.screenshots?.map((url, index) => (
@@ -1879,7 +1942,7 @@ export const OrderWorkflowPanel: React.FC<{ orderId: string; view?: 'workflow' |
                                   rel="noreferrer"
                                 >
                                   <span aria-hidden="true" className="material-symbols-outlined text-[14px]">image</span>
-                                  <span>Ver captura de conversación {index + 1}</span>
+                                  <span>{contact.communication.channel === 'call' ? `Ver screenshot de llamada ${index + 1}` : `Ver captura de conversación ${index + 1}`}</span>
                                 </a>
                               ))}
                             </div>

@@ -8,11 +8,13 @@ export const followupAudioSchema = z.array(audioEvidenceSchema).min(1, 'Adjunta 
 export const communicationSchema = z.object({
   channel: z.enum(['call', 'sms', 'whatsapp']),
   warrantyWarningGiven: z.boolean(),
+  audioUnavailable: z.boolean().optional(),
   screenshots: deliveryPhotosSchema.optional(),
   audio: followupAudioSchema.optional(),
 }).strict()
   .refine(value => value.channel === 'call' || !value.audio?.length, 'El audio solo corresponde a una llamada.')
-  .refine(value => value.channel !== 'call' || !value.screenshots?.length, 'Las capturas de conversación no corresponden a una llamada.');
+  .refine(value => value.channel === 'call' || !value.audioUnavailable, 'La excepción de audio solo corresponde a una llamada.')
+  .refine(value => value.channel !== 'call' || value.audioUnavailable || !value.screenshots?.length, 'Las capturas de llamada solo se permiten cuando no es posible subir el audio.');
 export type FollowupCommunication = z.infer<typeof communicationSchema>;
 export const hasContactResponse = (result?: string | null) => result === 'answered' || result === 'sms_replied';
 export function validateCommunication(communication: FollowupCommunication, result: string | null | undefined, part: string | null | undefined, outcome: string) {
@@ -25,7 +27,13 @@ export function validateCommunication(communication: FollowupCommunication, resu
     if (outcome === 'completed') return 'Necesitas una respuesta real del cliente para completar el objetivo.';
   } else {
     if (outcome === 'no_response') return 'La respuesta del cliente contradice una gestión sin respuesta.';
-    if (communication.channel === 'call' && !communication.audio?.length) return 'Adjunta el audio de la llamada para demostrar el contacto con el cliente.';
+    if (communication.channel === 'call') {
+      if (communication.audioUnavailable) {
+        if (!communication.screenshots?.length) return 'Adjunta un screenshot de la llamada con el cliente cuando no es posible subir el audio.';
+      } else if (!communication.audio?.length) {
+        return 'Adjunta el audio de la llamada para demostrar el contacto con el cliente.';
+      }
+    }
     if (communication.channel !== 'call' && !communication.screenshots?.length) return 'Adjunta la captura de la conversación para demostrar el contacto con el cliente.';
     if (!part) return 'Registra el estado de la pieza confirmado por el cliente.';
     if (part === 'not_installed' && !communication.warrantyWarningGiven) return 'Confirma que advertiste al cliente que la garantía continúa corriendo.';
