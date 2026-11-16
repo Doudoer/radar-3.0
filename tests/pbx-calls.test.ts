@@ -3,12 +3,16 @@ import net from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import {
+  getUtcRangeForPbxDate,
+  isDuringPbxBusinessHours,
   listActiveIncomingCalls,
   listPbxCallLogs,
+  listPbxDailyAnalytics,
   normalizePhoneDigits,
   readPbxSettings,
   recordPbxHeartbeat,
   sanitizePbxSettingsForClient,
+  savePbxDailySummary,
   upsertPbxCallEvent,
   verifyPbxWebhookSecret,
   writePbxEnabled,
@@ -105,22 +109,77 @@ describe('pbxCalls helpers', () => {
     expect(active[0].callerNumber).toBe('88881111');
   });
 
-  it('returns call log list and summary totals', async () => {
+  it('returns call log list and daily summary totals with business hours breakdown', async () => {
     const { pool } = createMockPool((sql) => {
-      if (sql.includes('COUNT(*) AS total')) {
-        return [{ total: 10, inbound: 6, outbound: 4, missed: 2, answered: 8 }];
+      if (sql.includes('SELECT direction, status, billsec_seconds')) {
+        return [
+          { direction: 'inbound', status: 'ended', billsec_seconds: 90, duration_seconds: 95, started_at: '2026-11-15T15:00:00.000Z' }, // 10:00 AM ET
+          { direction: 'outbound', status: 'missed', billsec_seconds: 0, duration_seconds: 10, started_at: '2026-11-16T00:30:00.000Z' }, // 7:30 PM ET (after hours)
+        ];
       }
       return [];
     });
 
-    const result = await listPbxCallLogs(pool, { direction: 'inbound', limit: 50 });
+    const result = await listPbxCallLogs(pool, { direction: 'inbound', date: '2026-11-15', limit: 50 });
+    expect(result.date).toBe('2026-11-15');
     expect(result.summary).toEqual({
-      total: 10,
-      inbound: 6,
-      outbound: 4,
-      missed: 2,
-      answered: 8,
+      total: 2,
+      inbound: 1,
+      outbound: 1,
+      internal: 0,
+      missed: 1,
+      answered: 1,
+      businessHoursCalls: 1,
+      businessHoursAnswered: 1,
+      businessHoursMissed: 0,
+      afterHoursCalls: 1,
+      totalBillsecSeconds: 90,
+      avgBillsecSeconds: 90,
     });
+  });
+
+  it('detects 7am-6pm ET business hours and persists daily summaries for analytics', async () => {
+    expect(isDuringPbxBusinessHours('2026-11-15T12:00:00.000Z')).toBe(true); // 07:00 ET
+    expect(isDuringPbxBusinessHours('2026-11-15T22:59:00.000Z')).toBe(true); // 17:59 ET
+    expect(isDuringPbxBusinessHours('2026-11-15T23:00:00.000Z')).toBe(false); // 18:00 ET
+    const range = getUtcRangeForPbxDate('2026-11-15');
+    expect(range.startUtc).toBe('2026-11-15 05:00:00');
+    expect(range.endUtc).toBe('2026-11-16 05:00:00');
+
+    const { pool, execute } = createMockPool((sql) => {
+      if (sql.includes('FROM pbx_daily_summaries')) {
+        return [{
+          summary_date: '2026-11-14',
+          total_calls: 5,
+          inbound_calls: 4,
+          outbound_calls: 1,
+          internal_calls: 0,
+          answered_calls: 4,
+          missed_calls: 1,
+          business_hours_calls: 4,
+          business_hours_answered: 4,
+          business_hours_missed: 0,
+          after_hours_calls: 1,
+          total_billsec_seconds: 240,
+          avg_billsec_seconds: 60,
+        }];
+      }
+      if (sql.includes('SELECT direction, status, billsec_seconds')) {
+        return [
+          { direction: 'inbound', status: 'ended', billsec_seconds: 40, duration_seconds: 45, started_at: '2026-11-15T16:00:00.000Z' },
+        ];
+      }
+      return [];
+    });
+
+    const saved = await savePbxDailySummary(pool, '2026-11-15');
+    expect(saved.totalCalls).toBe(1);
+    expect(saved.isClosed).toBe(true);
+    expect(execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO pbx_daily_summaries'), expect.any(Array));
+
+    const analytics = await listPbxDailyAnalytics(pool, 7);
+    expect(analytics.businessHours).toEqual({ start: '07:00', end: '18:00', timeZone: 'America/New_York' });
+    expect(analytics.days.length).toBeGreaterThanOrEqual(2);
   });
 
   it('computes PBX health status for online, error, and disabled states', async () => {

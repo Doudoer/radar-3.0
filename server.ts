@@ -24,7 +24,7 @@ import { matchOrderInventory } from './src/utils/inventoryMatching';
 import { filterInventory, inventoryCsv } from './src/utils/inventoryExport';
 import { financeVaultExpiry, lockFinanceVault, revokeFinanceVaults, unlockFinanceVault } from './src/server/financeVault';
 import { businessDate, businessDaysBetween, isEligibleForDeliveryFollowup } from './src/server/businessTime';
-import { getExpectedPbxWebhookSecret, listActiveIncomingCalls, listPbxCallLogs, readPbxSettings, recordPbxHeartbeat, sanitizePbxSettingsForClient, upsertPbxCallEvent, verifyPbxWebhookSecret, writePbxSettings } from './src/server/pbxCalls';
+import { getExpectedPbxWebhookSecret, listActiveIncomingCalls, listPbxCallLogs, listPbxDailyAnalytics, readPbxSettings, recordPbxHeartbeat, sanitizePbxSettingsForClient, startPbxDailyRolloverScheduler, upsertPbxCallEvent, verifyPbxWebhookSecret, writePbxSettings } from './src/server/pbxCalls';
 import { createPbxAmiManager } from './src/server/pbxAmiClient';
 import { startNotificationOutbox } from './src/server/outbox';
 import { clearSessionCookie, isLoginRateLimited, isPinInUse, recordLoginFailure, resetLoginAttempts, requireRole, roleIs, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
@@ -4066,8 +4066,15 @@ const server = createServer(async (request, response) => {
         direction: url.searchParams.get('direction') || undefined,
         status: url.searchParams.get('status') || undefined,
         search: url.searchParams.get('search') || undefined,
+        date: url.searchParams.get('date') || undefined,
         limit: Number(url.searchParams.get('limit') || 100),
       });
+      return sendJson(response, 200, result);
+    }
+
+    if (request.method === 'GET' && pathname === '/api/pbx/analytics') {
+      const url = new URL(request.url || '/', 'http://localhost');
+      const result = await listPbxDailyAnalytics(pool, Number(url.searchParams.get('days') || 30));
       return sendJson(response, 200, result);
     }
 
@@ -5337,6 +5344,7 @@ async function startServer() {
     startDailyClaimsReportScheduler(pool, wasender);
     startDailyBackupScheduler(pool, wasender);
     startNotificationOutbox(pool, wasender);
+    startPbxDailyRolloverScheduler(pool);
     void pbxAmiManager.refresh();
   });
 }

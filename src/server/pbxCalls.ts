@@ -48,8 +48,33 @@ export interface PbxCallSummary {
   total: number;
   inbound: number;
   outbound: number;
+  internal: number;
   missed: number;
   answered: number;
+  businessHoursCalls: number;
+  businessHoursAnswered: number;
+  businessHoursMissed: number;
+  afterHoursCalls: number;
+  totalBillsecSeconds: number;
+  avgBillsecSeconds: number;
+}
+
+export interface PbxDailyAnalyticsRow {
+  date: string;
+  totalCalls: number;
+  inboundCalls: number;
+  outboundCalls: number;
+  internalCalls: number;
+  answeredCalls: number;
+  missedCalls: number;
+  answerRate: number;
+  businessHoursCalls: number;
+  businessHoursAnswered: number;
+  businessHoursMissed: number;
+  afterHoursCalls: number;
+  totalBillsecSeconds: number;
+  avgBillsecSeconds: number;
+  isClosed: boolean;
 }
 
 export type PbxHealthStatus = 'online' | 'error' | 'offline' | 'waiting' | 'disabled' | 'misconfigured';
@@ -432,13 +457,143 @@ export const listActiveIncomingCalls = async (pool: Pool): Promise<PbxCallRecord
   return rows.map(mapCallRow);
 };
 
+export const PBX_BUSINESS_TIMEZONE = 'America/New_York';
+export const PBX_BUSINESS_START_HOUR = 7;
+export const PBX_BUSINESS_END_HOUR = 18;
+
+const getTimeZoneParts = (date: Date, timeZone = PBX_BUSINESS_TIMEZONE) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || '00';
+  const rawHour = Number(get('hour'));
+  const hour = rawHour === 24 ? 0 : rawHour;
+  return {
+    dateStr: `${get('year')}-${get('month')}-${get('day')}`,
+    year: Number(get('year')),
+    month: Number(get('month')),
+    day: Number(get('day')),
+    hour,
+    minute: Number(get('minute')),
+    second: Number(get('second')),
+  };
+};
+
+export const getPbxBusinessDate = (value: Date | string = new Date()): string =>
+  getTimeZoneParts(typeof value === 'string' ? new Date(value) : value).dateStr;
+
+export const isDuringPbxBusinessHours = (value: Date | string): boolean => {
+  const { hour } = getTimeZoneParts(typeof value === 'string' ? new Date(value) : value);
+  return hour >= PBX_BUSINESS_START_HOUR && hour < PBX_BUSINESS_END_HOUR;
+};
+
+const tzOffsetMinutesAt = (utcMs: number): number => {
+  const p = getTimeZoneParts(new Date(utcMs));
+  const localAsUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  return Math.round((localAsUtc - utcMs) / 60000);
+};
+
+export const getUtcRangeForPbxDate = (dateStr: string): { startUtc: string; endUtc: string } => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const startGuess = Date.UTC(y, m - 1, d, 5, 0, 0);
+  const startUtcMs = Date.UTC(y, m - 1, d, 0, 0, 0) - tzOffsetMinutesAt(startGuess) * 60000;
+  const endGuess = Date.UTC(y, m - 1, d + 1, 5, 0, 0);
+  const endUtcMs = Date.UTC(y, m - 1, d + 1, 0, 0, 0) - tzOffsetMinutesAt(endGuess) * 60000;
+  return {
+    startUtc: new Date(startUtcMs).toISOString().slice(0, 19).replace('T', ' '),
+    endUtc: new Date(endUtcMs).toISOString().slice(0, 19).replace('T', ' '),
+  };
+};
+
+const shiftPbxDate = (dateStr: string, deltaDays: number): string => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + deltaDays, 12, 0, 0));
+  return dt.toISOString().slice(0, 10);
+};
+
+const summarizeCallRows = (rows: RowDataPacket[]): PbxCallSummary => {
+  let total = 0;
+  let inbound = 0;
+  let outbound = 0;
+  let internal = 0;
+  let missed = 0;
+  let answered = 0;
+  let businessHoursCalls = 0;
+  let businessHoursAnswered = 0;
+  let businessHoursMissed = 0;
+  let afterHoursCalls = 0;
+  let totalBillsecSeconds = 0;
+
+  for (const row of rows) {
+    total += 1;
+    const dir = String(row.direction || 'inbound');
+    const st = String(row.status || 'ringing');
+    if (dir === 'inbound') inbound += 1;
+    else if (dir === 'outbound') outbound += 1;
+    else internal += 1;
+
+    const isAnswered = st === 'answered' || st === 'ended';
+    const isMissed = st === 'missed';
+    if (isAnswered) {
+      answered += 1;
+      totalBillsecSeconds += Math.max(0, Number(row.billsec_seconds || row.duration_seconds || 0));
+    } else if (isMissed) {
+      missed += 1;
+    }
+
+    const inHours = row.started_at ? isDuringPbxBusinessHours(new Date(row.started_at)) : false;
+    if (inHours) {
+      businessHoursCalls += 1;
+      if (isAnswered) businessHoursAnswered += 1;
+      else if (isMissed) businessHoursMissed += 1;
+    } else {
+      afterHoursCalls += 1;
+    }
+  }
+
+  return {
+    total,
+    inbound,
+    outbound,
+    internal,
+    missed,
+    answered,
+    businessHoursCalls,
+    businessHoursAnswered,
+    businessHoursMissed,
+    afterHoursCalls,
+    totalBillsecSeconds,
+    avgBillsecSeconds: answered > 0 ? Math.round(totalBillsecSeconds / answered) : 0,
+  };
+};
+
 export const listPbxCallLogs = async (
   pool: Pool,
-  filters: { direction?: string; status?: string; search?: string; limit?: number } = {},
-): Promise<{ calls: PbxCallRecord[]; summary: PbxCallSummary }> => {
+  filters: { direction?: string; status?: string; search?: string; date?: string; limit?: number } = {},
+): Promise<{ calls: PbxCallRecord[]; summary: PbxCallSummary; date: string }> => {
   const limit = Math.min(200, Math.max(1, Number(filters.limit || 100)));
+  const rawDate = (filters.date || '').trim();
+  const targetDate = rawDate === 'all' ? 'all' : /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : getPbxBusinessDate();
+
   const where: string[] = [];
   const params: Array<string | number> = [];
+
+  const dateWhere: string[] = [];
+  const dateParams: Array<string | number> = [];
+  if (targetDate !== 'all') {
+    const { startUtc, endUtc } = getUtcRangeForPbxDate(targetDate);
+    where.push('started_at >= ? AND started_at < ?');
+    params.push(startUtc, endUtc);
+    dateWhere.push('started_at >= ? AND started_at < ?');
+    dateParams.push(startUtc, endUtc);
+  }
 
   if (filters.direction && ['inbound', 'outbound', 'internal'].includes(filters.direction)) {
     where.push('direction = ?');
@@ -460,25 +615,214 @@ export const listPbxCallLogs = async (
     [...params, limit],
   );
 
+  const dateWhereSql = dateWhere.length ? `WHERE ${dateWhere.join(' AND ')}` : '';
   const [summaryRows] = await pool.query<RowDataPacket[]>(
-    `SELECT
-       COUNT(*) AS total,
-       SUM(CASE WHEN direction = 'inbound' THEN 1 ELSE 0 END) AS inbound,
-       SUM(CASE WHEN direction = 'outbound' THEN 1 ELSE 0 END) AS outbound,
-       SUM(CASE WHEN status = 'missed' THEN 1 ELSE 0 END) AS missed,
-       SUM(CASE WHEN status IN ('answered', 'ended') THEN 1 ELSE 0 END) AS answered
-     FROM pbx_call_logs`,
+    `SELECT direction, status, billsec_seconds, duration_seconds, started_at
+     FROM pbx_call_logs ${dateWhereSql}`,
+    dateParams,
   );
 
-  const s = (summaryRows[0] || {}) as Partial<Record<string, unknown>>;
   return {
     calls: rows.map(mapCallRow),
-    summary: {
-      total: Number(s.total || 0),
-      inbound: Number(s.inbound || 0),
-      outbound: Number(s.outbound || 0),
-      missed: Number(s.missed || 0),
-      answered: Number(s.answered || 0),
-    },
+    summary: summarizeCallRows(summaryRows),
+    date: targetDate,
+  };
+};
+
+export const savePbxDailySummary = async (
+  pool: Pool,
+  dateStr: string,
+): Promise<PbxDailyAnalyticsRow> => {
+  const { startUtc, endUtc } = getUtcRangeForPbxDate(dateStr);
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT direction, status, billsec_seconds, duration_seconds, started_at
+     FROM pbx_call_logs
+     WHERE started_at >= ? AND started_at < ?`,
+    [startUtc, endUtc],
+  );
+  const s = summarizeCallRows(rows);
+
+  await pool.execute(
+    `INSERT INTO pbx_daily_summaries (
+      summary_date, total_calls, inbound_calls, outbound_calls, internal_calls,
+      answered_calls, missed_calls, business_hours_calls, business_hours_answered,
+      business_hours_missed, after_hours_calls, total_billsec_seconds, avg_billsec_seconds, closed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())
+    ON DUPLICATE KEY UPDATE
+      total_calls = VALUES(total_calls),
+      inbound_calls = VALUES(inbound_calls),
+      outbound_calls = VALUES(outbound_calls),
+      internal_calls = VALUES(internal_calls),
+      answered_calls = VALUES(answered_calls),
+      missed_calls = VALUES(missed_calls),
+      business_hours_calls = VALUES(business_hours_calls),
+      business_hours_answered = VALUES(business_hours_answered),
+      business_hours_missed = VALUES(business_hours_missed),
+      after_hours_calls = VALUES(after_hours_calls),
+      total_billsec_seconds = VALUES(total_billsec_seconds),
+      avg_billsec_seconds = VALUES(avg_billsec_seconds),
+      closed_at = UTC_TIMESTAMP()`,
+    [
+      dateStr,
+      s.total,
+      s.inbound,
+      s.outbound,
+      s.internal,
+      s.answered,
+      s.missed,
+      s.businessHoursCalls,
+      s.businessHoursAnswered,
+      s.businessHoursMissed,
+      s.afterHoursCalls,
+      s.totalBillsecSeconds,
+      s.avgBillsecSeconds,
+    ],
+  );
+
+  return {
+    date: dateStr,
+    totalCalls: s.total,
+    inboundCalls: s.inbound,
+    outboundCalls: s.outbound,
+    internalCalls: s.internal,
+    answeredCalls: s.answered,
+    missedCalls: s.missed,
+    answerRate: s.total > 0 ? Math.round((s.answered / s.total) * 100) : 0,
+    businessHoursCalls: s.businessHoursCalls,
+    businessHoursAnswered: s.businessHoursAnswered,
+    businessHoursMissed: s.businessHoursMissed,
+    afterHoursCalls: s.afterHoursCalls,
+    totalBillsecSeconds: s.totalBillsecSeconds,
+    avgBillsecSeconds: s.avgBillsecSeconds,
+    isClosed: true,
+  };
+};
+
+export const listPbxDailyAnalytics = async (
+  pool: Pool,
+  days = 30,
+): Promise<{
+  today: string;
+  businessHours: { start: string; end: string; timeZone: string };
+  days: PbxDailyAnalyticsRow[];
+}> => {
+  const safeDays = Math.min(90, Math.max(1, Math.round(days || 30)));
+  const today = getPbxBusinessDate();
+  const startDate = shiftPbxDate(today, -(safeDays - 1));
+
+  // Ensure any past days with calls that haven't been closed yet are persisted
+  const [savedRows] = await pool.query<RowDataPacket[]>(
+    `SELECT * FROM pbx_daily_summaries WHERE summary_date >= ? AND summary_date < ? ORDER BY summary_date DESC`,
+    [startDate, today],
+  );
+  const byDate = new Map<string, PbxDailyAnalyticsRow>();
+  for (const r of savedRows) {
+    const dateKey = r.summary_date instanceof Date
+      ? r.summary_date.toISOString().slice(0, 10)
+      : String(r.summary_date).slice(0, 10);
+    const totalCalls = Number(r.total_calls || 0);
+    const answeredCalls = Number(r.answered_calls || 0);
+    byDate.set(dateKey, {
+      date: dateKey,
+      totalCalls,
+      inboundCalls: Number(r.inbound_calls || 0),
+      outboundCalls: Number(r.outbound_calls || 0),
+      internalCalls: Number(r.internal_calls || 0),
+      answeredCalls,
+      missedCalls: Number(r.missed_calls || 0),
+      answerRate: totalCalls > 0 ? Math.round((answeredCalls / totalCalls) * 100) : 0,
+      businessHoursCalls: Number(r.business_hours_calls || 0),
+      businessHoursAnswered: Number(r.business_hours_answered || 0),
+      businessHoursMissed: Number(r.business_hours_missed || 0),
+      afterHoursCalls: Number(r.after_hours_calls || 0),
+      totalBillsecSeconds: Number(r.total_billsec_seconds || 0),
+      avgBillsecSeconds: Number(r.avg_billsec_seconds || 0),
+      isClosed: true,
+    });
+  }
+
+  // Backfill any past day in range that has calls in pbx_call_logs but wasn't saved yet
+  const { startUtc: rangeStartUtc } = getUtcRangeForPbxDate(startDate);
+  const { startUtc: todayStartUtc } = getUtcRangeForPbxDate(today);
+  const [pastRawRows] = await pool.query<RowDataPacket[]>(
+    `SELECT started_at FROM pbx_call_logs WHERE started_at >= ? AND started_at < ?`,
+    [rangeStartUtc, todayStartUtc],
+  );
+  const missingDates = new Set<string>();
+  for (const r of pastRawRows) {
+    if (!r.started_at) continue;
+    const d = getPbxBusinessDate(new Date(r.started_at));
+    if (d < today && !byDate.has(d)) missingDates.add(d);
+  }
+  for (const missing of missingDates) {
+    const saved = await savePbxDailySummary(pool, missing);
+    byDate.set(missing, saved);
+  }
+
+  // Live summary for today
+  const { startUtc: tStart, endUtc: tEnd } = getUtcRangeForPbxDate(today);
+  const [todayRows] = await pool.query<RowDataPacket[]>(
+    `SELECT direction, status, billsec_seconds, duration_seconds, started_at
+     FROM pbx_call_logs WHERE started_at >= ? AND started_at < ?`,
+    [tStart, tEnd],
+  );
+  const todaySum = summarizeCallRows(todayRows);
+  byDate.set(today, {
+    date: today,
+    totalCalls: todaySum.total,
+    inboundCalls: todaySum.inbound,
+    outboundCalls: todaySum.outbound,
+    internalCalls: todaySum.internal,
+    answeredCalls: todaySum.answered,
+    missedCalls: todaySum.missed,
+    answerRate: todaySum.total > 0 ? Math.round((todaySum.answered / todaySum.total) * 100) : 0,
+    businessHoursCalls: todaySum.businessHoursCalls,
+    businessHoursAnswered: todaySum.businessHoursAnswered,
+    businessHoursMissed: todaySum.businessHoursMissed,
+    afterHoursCalls: todaySum.afterHoursCalls,
+    totalBillsecSeconds: todaySum.totalBillsecSeconds,
+    avgBillsecSeconds: todaySum.avgBillsecSeconds,
+    isClosed: false,
+  });
+
+  const sorted = [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
+  return {
+    today,
+    businessHours: { start: '07:00', end: '18:00', timeZone: PBX_BUSINESS_TIMEZONE },
+    days: sorted,
+  };
+};
+
+export const startPbxDailyRolloverScheduler = (pool: Pool): { stop: () => void } => {
+  let lastCheckedBusinessDate = getPbxBusinessDate();
+
+  const runRolloverCheck = async () => {
+    try {
+      const currentDate = getPbxBusinessDate();
+      const yesterday = shiftPbxDate(currentDate, -1);
+      if (currentDate !== lastCheckedBusinessDate) {
+        lastCheckedBusinessDate = currentDate;
+      }
+      const [existing] = await pool.query<RowDataPacket[]>(
+        'SELECT summary_date FROM pbx_daily_summaries WHERE summary_date = ? LIMIT 1',
+        [yesterday],
+      );
+      if (!existing.length) {
+        await savePbxDailySummary(pool, yesterday);
+        console.log(`[PBX Daily] Cierre automático guardado para ${yesterday}`);
+      }
+    } catch (err) {
+      console.error('[PBX Daily] Error en cierre automático diario:', err);
+    }
+  };
+
+  void runRolloverCheck();
+  const timer = setInterval(() => {
+    void runRolloverCheck();
+  }, 60_000);
+  timer.unref?.();
+
+  return {
+    stop: () => clearInterval(timer),
   };
 };
