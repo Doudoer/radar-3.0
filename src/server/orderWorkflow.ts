@@ -1439,7 +1439,9 @@ export async function handleWorkflowRequest(
       eventId = String(insert.insertId);
       if (action.task.startsWith('post_') && action.communication && hasContactResponse(action.contactResult)) {
         const evidenceRows = action.communication.channel === 'call'
-          ? (action.communication.audio || []).map(file => ({ kind: 'call_audio' as const, channel: 'call' as const, file }))
+          ? (action.communication.audioUnavailable
+              ? (action.communication.screenshots || []).map(file => ({ kind: 'call_screenshot' as const, channel: 'call' as const, file }))
+              : (action.communication.audio || []).map(file => ({ kind: 'call_audio' as const, channel: 'call' as const, file })))
           : (action.communication.screenshots || []).map(file => ({ kind: 'message_screenshot' as const, channel: action.communication!.channel, file }));
         for (const evidence of evidenceRows) {
           await connection.execute(
