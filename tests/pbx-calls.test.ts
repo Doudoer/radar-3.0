@@ -277,7 +277,10 @@ describe('pbxCalls helpers', () => {
 
     const fakeSocket = new FakeSocket();
     const spy = vi.spyOn(net, 'createConnection').mockImplementation(((_opts: unknown, cb?: () => void) => {
-      queueMicrotask(() => cb?.());
+      queueMicrotask(() => {
+        fakeSocket.emit('connect');
+        cb?.();
+      });
       return fakeSocket as unknown as net.Socket;
     }) as typeof net.createConnection);
 
@@ -336,6 +339,17 @@ describe('pbxCalls helpers', () => {
       fakeSocket.emit('data', Buffer.from('Event: DialBegin\r\nUniqueid: u-2\r\nContext: from-trunk\r\nCallerIDNum: 88881111\r\nExten: 502\r\n\r\n'));
       fakeSocket.emit('data', Buffer.from('Event: DialEnd\r\nUniqueid: u-2\r\nDialStatus: CANCEL\r\n\r\n'));
       fakeSocket.emit('data', Buffer.from('Event: Hangup\r\nUniqueid: u-2\r\nLinkedid: u-2\r\n\r\n'));
+
+      // Issabel Queue 101 Ring-All flow: QueueCallerJoin -> ext 201 rejects (Cause 17) -> ext 204 AgentConnect -> ext Hangup
+      fakeSocket.emit('data', Buffer.from('Event: QueueCallerJoin\r\nUniqueid: q-1\r\nLinkedid: q-1\r\nQueue: 101\r\nChannel: PJSIP/Telnyx-0010\r\nCallerIDNum: +19844004618\r\nCallerIDName: English:+19844004618\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Event: DialBegin\r\nUniqueid: q-1-201\r\nLinkedid: q-1\r\nDestChannel: PJSIP/201-0001\r\nDestCallerIDNum: 201\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Event: Hangup\r\nUniqueid: q-1-201\r\nLinkedid: q-1\r\nChannel: PJSIP/201-0001\r\nCause: 17\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Event: AgentConnect\r\nUniqueid: q-1-204\r\nLinkedid: q-1\r\nInterface: PJSIP/204-0002\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Event: Hangup\r\nUniqueid: q-1-204\r\nLinkedid: q-1\r\nChannel: PJSIP/204-0002\r\n\r\n'));
+
+      // Issabel Queue 101 abandoned call -> missed with queue 101 (never 501)
+      fakeSocket.emit('data', Buffer.from('Event: QueueCallerJoin\r\nUniqueid: q-2\r\nLinkedid: q-2\r\nQueue: 101\r\nChannel: PJSIP/Telnyx-0011\r\nCallerIDNum: +19844004618\r\nCallerIDName: Español:+19844004618\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Event: QueueCallerAbandon\r\nUniqueid: q-2\r\nLinkedid: q-2\r\nQueue: 101\r\n\r\n'));
 
       fakeSocket.emit('error', new Error('ECONNRESET'));
       fakeSocket.emit('close');

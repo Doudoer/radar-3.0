@@ -10,8 +10,11 @@ export interface PbxCallEventInput {
   direction?: PbxCallDirection;
   caller_number: string;
   caller_name?: string | null;
+  ivr_language?: string | null;
   destination?: string | null;
+  queue_name?: string | null;
   answered_by_ext?: string | null;
+  rejected_by_exts?: string[] | null;
   duration_seconds?: number;
   billsec_seconds?: number;
   timestamp?: string | null;
@@ -31,8 +34,11 @@ export interface PbxCallRecord {
   status: PbxCallStatus;
   callerNumber: string;
   callerName: string | null;
+  ivrLanguage: string | null;
   destination: string | null;
+  queueName: string | null;
   answeredByExt: string | null;
+  rejectedByExts: string[];
   clientId: number | null;
   clientName: string | null;
   orderId: string | null;
@@ -336,25 +342,53 @@ export const matchClientAndOrderByPhone = async (
   };
 };
 
-const mapCallRow = (row: RowDataPacket): PbxCallRecord => ({
-  id: Number(row.id),
-  uniqueid: String(row.uniqueid),
-  direction: (row.direction || 'inbound') as PbxCallDirection,
-  status: (row.status || 'ringing') as PbxCallStatus,
-  callerNumber: String(row.caller_number || ''),
-  callerName: row.caller_name ? String(row.caller_name) : null,
-  destination: row.destination ? String(row.destination) : null,
-  answeredByExt: row.answered_by_ext ? String(row.answered_by_ext) : null,
-  clientId: row.client_id != null ? Number(row.client_id) : null,
-  clientName: row.client_name ? String(row.client_name) : null,
-  orderId: row.order_id ? String(row.order_id) : null,
-  orderCode: row.order_code ? String(row.order_code) : null,
-  durationSeconds: Number(row.duration_seconds || 0),
-  billsecSeconds: Number(row.billsec_seconds || 0),
-  startedAt: row.started_at ? new Date(row.started_at).toISOString() : new Date().toISOString(),
-  answeredAt: row.answered_at ? new Date(row.answered_at).toISOString() : null,
-  endedAt: row.ended_at ? new Date(row.ended_at).toISOString() : null,
-});
+export const parseCallerLanguageAndName = (
+  callerNumber: string,
+  callerName: string | null | undefined,
+): { cleanName: string | null; ivrLanguage: string | null } => {
+  const raw = (callerName || '').trim();
+  if (!raw || raw === '<unknown>') return { cleanName: null, ivrLanguage: null };
+  const match = raw.match(/^(English|Español|Espanol)\s*:\s*(.*)$/i);
+  if (!match) return { cleanName: raw.slice(0, 120), ivrLanguage: null };
+  const lang = match[1].toLowerCase().startsWith('eng') ? 'English' : 'Español';
+  const rest = match[2].trim();
+  const numDigits = normalizePhoneDigits(callerNumber);
+  const restDigits = normalizePhoneDigits(rest);
+  const cleanName = !rest || (numDigits && restDigits === numDigits) ? null : rest.slice(0, 120);
+  return { cleanName, ivrLanguage: lang };
+};
+
+const parseRejectedExts = (raw: unknown): string[] => {
+  if (!raw) return [];
+  return [...new Set(String(raw).split(',').map((s) => s.trim()).filter(Boolean))];
+};
+
+const mapCallRow = (row: RowDataPacket): PbxCallRecord => {
+  const callerNumber = String(row.caller_number || '');
+  const parsed = parseCallerLanguageAndName(callerNumber, row.caller_name ? String(row.caller_name) : null);
+  return {
+    id: Number(row.id),
+    uniqueid: String(row.uniqueid),
+    direction: (row.direction || 'inbound') as PbxCallDirection,
+    status: (row.status || 'ringing') as PbxCallStatus,
+    callerNumber,
+    callerName: parsed.cleanName,
+    ivrLanguage: row.ivr_language ? String(row.ivr_language) : parsed.ivrLanguage,
+    destination: row.destination ? String(row.destination) : null,
+    queueName: row.queue_name ? String(row.queue_name) : null,
+    answeredByExt: row.status === 'missed' ? null : (row.answered_by_ext ? String(row.answered_by_ext) : null),
+    rejectedByExts: parseRejectedExts(row.rejected_by_exts),
+    clientId: row.client_id != null ? Number(row.client_id) : null,
+    clientName: row.client_name ? String(row.client_name) : null,
+    orderId: row.order_id ? String(row.order_id) : null,
+    orderCode: row.order_code ? String(row.order_code) : null,
+    durationSeconds: Number(row.duration_seconds || 0),
+    billsecSeconds: Number(row.billsec_seconds || 0),
+    startedAt: row.started_at ? new Date(row.started_at).toISOString() : new Date().toISOString(),
+    answeredAt: row.answered_at ? new Date(row.answered_at).toISOString() : null,
+    endedAt: row.ended_at ? new Date(row.ended_at).toISOString() : null,
+  };
+};
 
 export const upsertPbxCallEvent = async (
   pool: Pool,
@@ -363,9 +397,17 @@ export const upsertPbxCallEvent = async (
   const uniqueid = input.uniqueid.trim().slice(0, 64);
   const direction: PbxCallDirection = input.direction || 'inbound';
   const callerNumber = input.caller_number.trim().slice(0, 64) || 'Desconocido';
-  const callerName = input.caller_name ? input.caller_name.trim().slice(0, 120) : null;
+  const parsedCaller = parseCallerLanguageAndName(callerNumber, input.caller_name);
+  const callerName = parsedCaller.cleanName;
+  const ivrLanguage = (input.ivr_language || parsedCaller.ivrLanguage || '').trim().slice(0, 24) || null;
   const destination = input.destination ? input.destination.trim().slice(0, 64) : null;
-  const answeredByExt = input.answered_by_ext ? input.answered_by_ext.trim().slice(0, 32) : null;
+  const queueName = input.queue_name ? input.queue_name.trim().slice(0, 32) : null;
+  const answeredByExt = input.event === 'missed'
+    ? null
+    : (input.answered_by_ext ? input.answered_by_ext.trim().slice(0, 32) : null);
+  const rejectedCsv = Array.isArray(input.rejected_by_exts) && input.rejected_by_exts.length
+    ? [...new Set(input.rejected_by_exts.map((s) => s.trim()).filter(Boolean))].join(',').slice(0, 255)
+    : null;
   const durationSeconds = Math.max(0, Math.round(Number(input.duration_seconds || 0)));
   const billsecSeconds = Math.max(0, Math.round(Number(input.billsec_seconds || 0)));
   const eventAt = toMysqlDatetime(input.timestamp);
@@ -378,10 +420,10 @@ export const upsertPbxCallEvent = async (
 
   await pool.execute(
     `INSERT INTO pbx_call_logs (
-      uniqueid, direction, status, caller_number, caller_name, destination, answered_by_ext,
-      client_id, client_name, order_id, order_code, duration_seconds, billsec_seconds,
-      started_at, answered_at, ended_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      uniqueid, direction, status, caller_number, caller_name, ivr_language, destination, queue_name,
+      answered_by_ext, rejected_by_exts, client_id, client_name, order_id, order_code,
+      duration_seconds, billsec_seconds, started_at, answered_at, ended_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       status = CASE
         WHEN VALUES(status) = 'ringing' AND status IN ('answered', 'missed', 'ended') THEN status
@@ -389,8 +431,14 @@ export const upsertPbxCallEvent = async (
         ELSE VALUES(status)
       END,
       caller_name = COALESCE(VALUES(caller_name), caller_name),
+      ivr_language = COALESCE(VALUES(ivr_language), ivr_language),
       destination = COALESCE(VALUES(destination), destination),
-      answered_by_ext = COALESCE(VALUES(answered_by_ext), answered_by_ext),
+      queue_name = COALESCE(VALUES(queue_name), queue_name),
+      answered_by_ext = CASE
+        WHEN VALUES(status) = 'missed' THEN NULL
+        ELSE COALESCE(VALUES(answered_by_ext), answered_by_ext)
+      END,
+      rejected_by_exts = COALESCE(VALUES(rejected_by_exts), rejected_by_exts),
       client_id = COALESCE(client_id, VALUES(client_id)),
       client_name = COALESCE(client_name, VALUES(client_name)),
       order_id = COALESCE(order_id, VALUES(order_id)),
@@ -413,8 +461,11 @@ export const upsertPbxCallEvent = async (
       input.event,
       callerNumber,
       callerName,
+      ivrLanguage,
       destination,
+      queueName,
       answeredByExt,
+      rejectedCsv,
       match?.clientId ?? null,
       match?.clientName ?? null,
       match?.orderId ?? null,
@@ -438,14 +489,29 @@ export const upsertPbxCallEvent = async (
   return mapCallRow(rows[0]);
 };
 
-export const listActiveIncomingCalls = async (pool: Pool): Promise<PbxCallRecord[]> => {
+export const closeOrphanedPbxCalls = async (pool: Pool): Promise<void> => {
   await pool.execute(
     `UPDATE pbx_call_logs
-     SET status = 'missed', ended_at = COALESCE(ended_at, UTC_TIMESTAMP())
+     SET status = 'missed',
+         answered_by_ext = NULL,
+         ended_at = COALESCE(ended_at, UTC_TIMESTAMP())
      WHERE status = 'ringing'
        AND started_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? SECOND)`,
     [STALE_RINGING_SECONDS],
   );
+  await pool.execute(
+    `UPDATE pbx_call_logs
+     SET status = 'ended',
+         ended_at = COALESCE(ended_at, UTC_TIMESTAMP()),
+         duration_seconds = GREATEST(duration_seconds, GREATEST(0, TIMESTAMPDIFF(SECOND, started_at, UTC_TIMESTAMP()))),
+         billsec_seconds = GREATEST(billsec_seconds, CASE WHEN answered_at IS NOT NULL THEN GREATEST(0, TIMESTAMPDIFF(SECOND, answered_at, UTC_TIMESTAMP())) ELSE 0 END)
+     WHERE status = 'answered'
+       AND COALESCE(answered_at, started_at) < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 2 HOUR)`,
+  );
+};
+
+export const listActiveIncomingCalls = async (pool: Pool): Promise<PbxCallRecord[]> => {
+  await closeOrphanedPbxCalls(pool);
 
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT *

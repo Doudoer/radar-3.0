@@ -8,8 +8,11 @@ interface CallLogRow {
   status: 'ringing' | 'answered' | 'missed' | 'ended';
   callerNumber: string;
   callerName: string | null;
+  ivrLanguage?: string | null;
   destination: string | null;
+  queueName?: string | null;
   answeredByExt: string | null;
+  rejectedByExts?: string[];
   clientId: number | null;
   clientName: string | null;
   orderId: string | null;
@@ -415,18 +418,43 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({ onSelectOrder }) => 
                             </span>
                           </td>
                           <td className="px-4 py-3">
-                            <p className="font-bold text-[var(--text-heading)]">
-                              {call.clientName || call.callerName || call.callerNumber}
-                            </p>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <p className="font-bold text-[var(--text-heading)]">
+                                {call.clientName || call.callerName || call.callerNumber}
+                              </p>
+                              {call.ivrLanguage && (
+                                <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-0.5 text-[10px] font-bold text-[var(--text-secondary)]">
+                                  {call.ivrLanguage}
+                                </span>
+                              )}
+                            </div>
                             <p className="font-mono text-[11px] text-[var(--text-muted)]">{call.callerNumber}</p>
                           </td>
                           <td className="px-4 py-3 font-mono text-[var(--text-secondary)]">
-                            {call.answeredByExt || call.destination || '—'}
+                            {call.status === 'missed' || call.status === 'ringing' ? (
+                              <span>{call.queueName ? `Cola ${call.queueName}` : (call.destination || '—')}</span>
+                            ) : (
+                              <div>
+                                <span className="font-bold text-[var(--text-heading)]">
+                                  {call.answeredByExt ? `Ext. ${call.answeredByExt}` : (call.queueName ? `Cola ${call.queueName}` : call.destination || '—')}
+                                </span>
+                                {call.queueName && call.answeredByExt && (
+                                  <p className="text-[10px] text-[var(--text-muted)]">Cola {call.queueName}</p>
+                                )}
+                              </div>
+                            )}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
-                            <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[10.5px] font-bold ${badge.className}`}>
-                              {badge.label}
-                            </span>
+                            <div className="flex flex-col items-start gap-1">
+                              <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[10.5px] font-bold ${badge.className}`}>
+                                {badge.label}
+                              </span>
+                              {Array.isArray(call.rejectedByExts) && call.rejectedByExts.length > 0 && (
+                                <span className="inline-flex rounded-full border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                                  Rechazó: {call.rejectedByExts.join(', ')}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-4 py-3 font-mono tabular-nums text-[var(--text-secondary)]">
                             {call.status === 'answered' && !call.billsecSeconds && !call.durationSeconds

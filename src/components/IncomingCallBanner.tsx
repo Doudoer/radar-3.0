@@ -8,7 +8,9 @@ export interface ActiveIncomingCall {
   status: 'ringing' | 'answered' | 'missed' | 'ended';
   callerNumber: string;
   callerName: string | null;
+  ivrLanguage?: string | null;
   destination: string | null;
+  queueName?: string | null;
   clientId: number | null;
   clientName: string | null;
   orderId: string | null;
@@ -120,9 +122,14 @@ export const IncomingCallBanner: React.FC<IncomingCallBannerProps> = ({
                     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-300">
                       Llamada entrante · {elapsed}s
                     </span>
-                    {call.destination && (
+                    {(call.queueName || call.destination) && (
                       <span className="text-[11px] font-mono text-[var(--text-muted)]">
-                        Ext. {call.destination}
+                        {call.queueName ? `Cola ${call.queueName}` : `Ext. ${call.destination}`}
+                      </span>
+                    )}
+                    {call.ivrLanguage && (
+                      <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-0.5 text-[10px] font-bold text-[var(--text-secondary)]">
+                        {call.ivrLanguage}
                       </span>
                     )}
                   </div>
