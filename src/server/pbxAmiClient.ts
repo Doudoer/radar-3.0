@@ -17,6 +17,8 @@ interface TrackedCall {
   destination: string | null;
   answered: boolean;
   closed?: boolean;
+  startedAtMs: number;
+  answeredAtMs?: number;
 }
 
 export const parseAmiBlock = (raw: string): Record<string, string> => {
@@ -132,6 +134,7 @@ export const createPbxAmiManager = (
         caller_name: ev.CallerIDName && ev.CallerIDName !== '<unknown>' ? ev.CallerIDName : null,
         destination: dest || null,
         answered: false,
+        startedAtMs: Date.now(),
       };
       if (dest && digitsLen(dest) <= 5) {
         tracked.destination = dest;
@@ -158,6 +161,7 @@ export const createPbxAmiManager = (
       const existing = activeCalls.get(uniqueid);
       if (!existing || existing.answered) return;
       existing.answered = true;
+      existing.answeredAtMs = Date.now();
       const ext = ev.DestCallerIDNum || ev.ConnectedLineNum || ev.CallerIDNum || existing.destination || null;
       void emitEvent({
         uniqueid,
@@ -196,6 +200,9 @@ export const createPbxAmiManager = (
       // Solo cerrar la alerta cuando cuelga el canal raíz (Linkedid === Uniqueid), no un leg secundario/IVR
       if (ev.Uniqueid && ev.Uniqueid !== uniqueid) return;
       existing.closed = true;
+      const nowMs = Date.now();
+      const durationSeconds = Math.max(0, Math.round((nowMs - existing.startedAtMs) / 1000));
+      const billsecSeconds = existing.answeredAtMs ? Math.max(0, Math.round((nowMs - existing.answeredAtMs) / 1000)) : 0;
       void emitEvent({
         uniqueid,
         event: existing.answered ? 'ended' : 'missed',
@@ -203,7 +210,9 @@ export const createPbxAmiManager = (
         caller_number: existing.caller_number,
         caller_name: existing.caller_name,
         destination: existing.destination,
-        timestamp: new Date().toISOString(),
+        duration_seconds: durationSeconds,
+        billsec_seconds: billsecSeconds,
+        timestamp: new Date(nowMs).toISOString(),
       });
       return;
     }

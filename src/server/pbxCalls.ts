@@ -370,8 +370,16 @@ export const upsertPbxCallEvent = async (
       client_name = COALESCE(client_name, VALUES(client_name)),
       order_id = COALESCE(order_id, VALUES(order_id)),
       order_code = COALESCE(order_code, VALUES(order_code)),
-      duration_seconds = GREATEST(duration_seconds, VALUES(duration_seconds)),
-      billsec_seconds = GREATEST(billsec_seconds, VALUES(billsec_seconds)),
+      duration_seconds = GREATEST(
+        duration_seconds,
+        VALUES(duration_seconds),
+        CASE WHEN VALUES(ended_at) IS NOT NULL THEN GREATEST(0, TIMESTAMPDIFF(SECOND, started_at, VALUES(ended_at))) ELSE 0 END
+      ),
+      billsec_seconds = GREATEST(
+        billsec_seconds,
+        VALUES(billsec_seconds),
+        CASE WHEN VALUES(ended_at) IS NOT NULL AND answered_at IS NOT NULL THEN GREATEST(0, TIMESTAMPDIFF(SECOND, answered_at, VALUES(ended_at))) ELSE 0 END
+      ),
       answered_at = COALESCE(answered_at, VALUES(answered_at)),
       ended_at = COALESCE(VALUES(ended_at), ended_at)`,
     [

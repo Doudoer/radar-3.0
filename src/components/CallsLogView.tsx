@@ -230,7 +230,9 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({ onSelectOrder }) => 
                         </span>
                       </td>
                       <td className="px-4 py-3 font-mono tabular-nums text-[var(--text-secondary)]">
-                        {formatDuration(call.billsecSeconds || call.durationSeconds)}
+                        {call.status === 'answered' && !call.billsecSeconds && !call.durationSeconds
+                          ? 'En curso'
+                          : formatDuration(call.billsecSeconds || call.durationSeconds)}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-[var(--text-muted)]">
                         {formatDateTime(call.startedAt)}
