@@ -518,7 +518,7 @@ export const WorkflowTasksView: React.FC<{
               const assignee = workflowTaskAssignee(task.order, task.task);
               const isUnassigned = assignee.userId === null;
               const isOverdue = task.overdue && task.bucket !== 'blocked';
-              const category = getTaskCategory(task.task);
+              const category = getTaskCategory(task);
               const categoryIcon = getTaskCategoryIcon(task.task);
               const dueInfo = formatDueDate(task.dueDate, queue.today);
               const isPostDelivery = category === 'post_delivery';
