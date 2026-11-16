@@ -154,9 +154,20 @@ export const createPbxAmiManager = (
       return;
     }
 
+    const isExtensionBridgeEnter = (
+      name === 'BridgeEnter'
+      && ev.BridgeType !== 'holding'
+      && Number(ev.BridgeNumChannels || 0) >= 2
+      && isRealEndpointChannel(ev.Channel)
+      && Boolean(ev.Uniqueid && ev.Uniqueid !== uniqueid)
+      && digitsLen(ev.CallerIDNum) > 0
+      && digitsLen(ev.CallerIDNum) <= 5
+    );
+
     if (
       (name === 'DialEnd' && ev.DialStatus === 'ANSWER' && isRealEndpointChannel(ev.DestChannel))
-      || (name === 'BridgeEnter' && ev.BridgeType !== 'holding' && Number(ev.BridgeNumChannels || 0) >= 2 && isRealEndpointChannel(ev.Channel))
+      || (name === 'AgentConnect' && isRealEndpointChannel(ev.Interface || ev.MemberName))
+      || isExtensionBridgeEnter
     ) {
       const existing = activeCalls.get(uniqueid);
       if (!existing || existing.answered) return;
@@ -171,24 +182,6 @@ export const createPbxAmiManager = (
         caller_name: existing.caller_name,
         destination: existing.destination,
         answered_by_ext: ext,
-        timestamp: new Date().toISOString(),
-      });
-      return;
-    }
-
-    if (name === 'DialEnd' && ev.DialStatus && ev.DialStatus !== 'ANSWER') {
-      const existing = activeCalls.get(uniqueid);
-      // Solo marcar perdida si el canal principal cancela o falla y no hay otro leg activo
-      if (!existing || existing.answered || existing.closed) return;
-      if (ev.Uniqueid && ev.Uniqueid !== uniqueid) return;
-      existing.closed = true;
-      void emitEvent({
-        uniqueid,
-        event: 'missed',
-        direction: existing.direction,
-        caller_number: existing.caller_number,
-        caller_name: existing.caller_name,
-        destination: existing.destination,
         timestamp: new Date().toISOString(),
       });
       return;

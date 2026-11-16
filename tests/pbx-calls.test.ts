@@ -265,16 +265,18 @@ describe('pbxCalls helpers', () => {
       fakeSocket.emit('data', Buffer.from('Response: Success\r\nMessage: Authentication accepted\r\n\r\n'));
       fakeSocket.emit('data', Buffer.from('Response: Error\r\nMessage: Bad auth\r\n\r\n'));
 
-      // Call lifecycle: DialBegin -> secondary Local Hangup (ignored) -> BridgeEnter (real 2-party) -> root Hangup -> Cdr
+      // Call lifecycle: DialBegin -> root trunk BridgeEnter (ignored) -> secondary Local Hangup (ignored) -> extension BridgeEnter (real 2-party) -> root Hangup -> Cdr
       fakeSocket.emit('data', Buffer.from('Event: DialBegin\r\nUniqueid: u-1\r\nLinkedid: u-1\r\nContext: from-trunk\r\nCallerIDNum: 99990000\r\nExten: 501\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Event: BridgeEnter\r\nUniqueid: u-1\r\nLinkedid: u-1\r\nChannel: PJSIP/Telnyx-0001\r\nBridgeNumChannels: 2\r\nCallerIDNum: 99990000\r\n\r\n'));
       fakeSocket.emit('data', Buffer.from('Event: Hangup\r\nUniqueid: u-1-local\r\nLinkedid: u-1\r\n\r\n'));
-      fakeSocket.emit('data', Buffer.from('Event: BridgeEnter\r\nUniqueid: u-1\r\nLinkedid: u-1\r\nChannel: PJSIP/501\r\nBridgeNumChannels: 2\r\nDestCallerIDNum: 501\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Event: BridgeEnter\r\nUniqueid: u-1-ext\r\nLinkedid: u-1\r\nChannel: PJSIP/501-0002\r\nBridgeNumChannels: 2\r\nCallerIDNum: 501\r\n\r\n'));
       fakeSocket.emit('data', Buffer.from('Event: Hangup\r\nUniqueid: u-1\r\nLinkedid: u-1\r\n\r\n'));
       fakeSocket.emit('data', Buffer.from('Event: Cdr\r\nUniqueid: u-1\r\nLinkedid: u-1\r\nDisposition: ANSWERED\r\nDuration: 20\r\nBillableSeconds: 15\r\n\r\n'));
 
-      // Missed call via DialEnd
+      // Missed call via root Hangup (DialEnd CANCEL alone does not close before Hangup)
       fakeSocket.emit('data', Buffer.from('Event: DialBegin\r\nUniqueid: u-2\r\nContext: from-trunk\r\nCallerIDNum: 88881111\r\nExten: 502\r\n\r\n'));
       fakeSocket.emit('data', Buffer.from('Event: DialEnd\r\nUniqueid: u-2\r\nDialStatus: CANCEL\r\n\r\n'));
+      fakeSocket.emit('data', Buffer.from('Event: Hangup\r\nUniqueid: u-2\r\nLinkedid: u-2\r\n\r\n'));
 
       fakeSocket.emit('error', new Error('ECONNRESET'));
       fakeSocket.emit('close');
