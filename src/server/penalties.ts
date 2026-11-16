@@ -9,7 +9,7 @@ import {
   summarizePenalties,
   type PenaltyPause,
 } from '../utils/penalties';
-import { POST_DELIVERY_FOLLOWUP_CUTOFF } from '../utils/orderWorkflow';
+import { ACK_NOTIFICATION_CUTOFF, POST_DELIVERY_FOLLOWUP_CUTOFF } from '../utils/orderWorkflow';
 
 const LOOKBACK_DAYS = 90;
 const OPEN_CLAIM_STATUSES = ['Pending', 'In Process'];
@@ -23,7 +23,7 @@ export interface PenaltySettings {
 }
 
 export interface PenaltySourceSummary {
-  source: 'post_delivery' | 'ready_piece' | 'claim';
+  source: 'post_delivery' | 'ready_piece' | 'ack_notification' | 'claim';
   units: number;
   percent: number;
   amount: number;
@@ -281,6 +281,50 @@ export const syncPenalties = async (pool: Pool, now = new Date()): Promise<void>
     });
   }
 
+  const [ackRows] = await pool.query<RowDataPacket[]>(
+    `SELECT o.id AS order_id, o.order_code, o.user_id, o.created_at, o.downpayment_verified_at,
+            o.followup_closed_at, f.advisor_id AS followup_user_id, c.first_name, c.last_name
+       FROM orders o
+       LEFT JOIN order_followup_assignments f ON f.order_id=o.id
+       LEFT JOIN customers c ON c.id=o.customer_id
+      WHERE o.deleted_at IS NULL
+        AND o.created_at >= ?
+        AND o.followup_closed_at IS NULL
+        AND COALESCE(o.confirmation_policy, 'documented') <> 'preapproved'
+        AND (o.downpayment_verified = 1 OR LOWER(TRIM(o.status)) IN ('pagado', 'espera de confirmación', 'espera de confirmacion'))
+        AND NOT EXISTS (
+          SELECT 1 FROM order_workflow_events e
+           WHERE e.order_id=o.id AND e.task='ack' AND e.outcome='completed' AND e.evidence LIKE '%ack-notification-v1%'
+        )`,
+    [toSqlDate(new Date(ACK_NOTIFICATION_CUTOFF))],
+  );
+  for (const row of ackRows) {
+    const userId = Number(row.followup_user_id || row.user_id || 0);
+    if (!userId) continue;
+    const paidAt = parseDate(row.downpayment_verified_at) || parseDate(row.created_at);
+    if (!paidAt) continue;
+    const start = new Date(paidAt).getTime() > accrualStart.getTime() ? paidAt : accrualStart.toISOString();
+    const units = readyPieceAccrual({
+      startedAt: start,
+      asOf: now,
+      closedAt: parseDate(row.followup_closed_at),
+      paused: pauses.get(`${Number(row.order_id)}:ack_notification`),
+      graceHours: 24,
+    });
+    if (!units) continue;
+    cases.push({
+      orderId: Number(row.order_id),
+      orderCode: String(row.order_code || ''),
+      customerName: customerName(row),
+      source: 'ack_notification',
+      referenceKey: `ack_notification-${localDateKey(new Date(paidAt))}`,
+      units,
+      userId,
+      date: paidAt,
+      nextDueDate: null,
+    });
+  }
+
   const [claimRows] = await pool.query<RowDataPacket[]>(
     `SELECT cl.id AS claim_id, cl.assigned_user_id, cl.resolved_at,
             o.id AS order_id, o.order_code, o.user_id, o.workflow_data, o.followup_closed_at,
@@ -388,7 +432,7 @@ export const getUserPenaltySnapshot = async (pool: Pool, userId: number, now = n
         nextDueDate: null,
       };
     });
-  const open = summarizePenalties(salary, rate, (['post_delivery', 'ready_piece', 'claim'] as const).map(source => ({
+  const open = summarizePenalties(salary, rate, (['post_delivery', 'ready_piece', 'ack_notification', 'claim'] as const).map(source => ({
     source,
     units: details.filter(line => line.source === source).reduce((total, line) => total + line.units, 0),
   })));

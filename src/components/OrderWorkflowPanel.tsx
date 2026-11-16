@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../services/apiFetch';
 import {
-  addWorkingDays, completedWorkflowStages, confirmationPreapproved, shiftWorkflowDate, WORKFLOW_STAGES, workflowDate, workflowTaskAssignee,
+  ackNotificationRequired, ackNotificationTemplate, addWorkingDays, completedWorkflowStages, confirmationPreapproved, decodeAckNotificationEvidence, shiftWorkflowDate, WORKFLOW_STAGES, workflowDate, workflowTaskAssignee,
   type WorkflowAction, type WorkflowEvent, type WorkflowOrder, type WorkflowTask, type WorkflowStage,
 } from '../utils/orderWorkflow';
 import { ORDER_STATUS_LABELS } from '../utils/orderStatusRules';
@@ -68,6 +68,12 @@ export const collectWorkflowFiles = (detail: WorkflowDetail): CollectedWorkflowF
         if (p.receipt) {
           pushFile({ url: p.receipt, stageLabel, kindLabel: `Comprobante de abono ${idx + 1}`, actorName, createdAt: event.createdAt });
         }
+      });
+    }
+    const ackNotifications = event.notificationScreenshots?.length ? event.notificationScreenshots : decodeAckNotificationEvidence(event.evidence);
+    if (ackNotifications.length) {
+      ackNotifications.forEach((url, idx) => {
+        pushFile({ url, stageLabel, kindLabel: `Notificación al cliente ${idx + 1}`, actorName, createdAt: event.createdAt });
       });
     }
     if (event.preparation?.screenshots?.length) {
@@ -318,6 +324,9 @@ const DownpaymentConfirmationForm: React.FC<{
 }> = ({ task, onSaved, onCancel }) => {
   const { confirm } = useFeedback();
   const [lines, setLines] = useState<DownpaymentLine[]>([{ method: 'cash', amount: task.order.paid, receivedBy: '', receipt: null }]);
+  const [notificationScreenshots, setNotificationScreenshots] = useState<string[]>([]);
+  const [templateLanguage, setTemplateLanguage] = useState<'es' | 'en'>(task.order.customerLanguage === 'en' ? 'en' : 'es');
+  const [copied, setCopied] = useState(false);
   const [uploading, setUploading] = useState(false);
   const uploadInFlight = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -326,17 +335,41 @@ const DownpaymentConfirmationForm: React.FC<{
   const exemptingRef = useRef(false);
   const [vaultPrompt, setVaultPrompt] = useState(false);
   const vaultRetryRef = useRef<null | (() => void)>(null);
+  const requiresAckNotification = ackNotificationRequired(task.order.createdAt);
+  const paymentAlreadyVerified = requiresAckNotification && Boolean(
+    task.order.downpaymentVerified || task.order.status === 'pagado' || task.order.status === 'espera_confirmacion',
+  );
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (saving.current || uploadInFlight.current) return;
     saving.current = true; setBusy(true); setError('');
     try {
-      const parsed = downpaymentSchema.safeParse(lines);
-      if (!parsed.success) throw new Error(parsed.error.issues[0]?.message || 'Revisa los datos del downpayment.');
-      const downpayment = parsed.data;
-      validateDownpayment(task.order.paid, downpayment);
+      let body: Record<string, unknown>;
+      if (paymentAlreadyVerified) {
+        if (!notificationScreenshots.length) {
+          throw new Error('Adjunta el capture de la notificación al cliente para avanzar a Preparación y cita.');
+        }
+        body = {
+          task: 'ack',
+          outcome: 'completed',
+          version: task.order.version,
+          notificationScreenshots,
+        };
+      } else {
+        const parsed = downpaymentSchema.safeParse(lines);
+        if (!parsed.success) throw new Error(parsed.error.issues[0]?.message || 'Revisa los datos del downpayment.');
+        const downpayment = parsed.data;
+        validateDownpayment(task.order.paid, downpayment);
+        body = {
+          task: 'ack',
+          outcome: 'completed',
+          version: task.order.version,
+          downpayment,
+          ...(requiresAckNotification && notificationScreenshots.length ? { notificationScreenshots } : {}),
+        };
+      }
       const saved = await workflowResponse<{ version: number; eventId: string }>(await apiFetch(`/orders/${task.order.id}/workflow`, {
-        method: 'POST', body: JSON.stringify({ task: 'ack', outcome: 'completed', version: task.order.version, downpayment }),
+        method: 'POST', body: JSON.stringify(body),
       }));
       if (saved.version !== task.order.version + 1 || !saved.eventId) throw new Error('Respuesta inválida; recarga para comprobar antes de reintentar.');
       window.dispatchEvent(new Event('radar:data-changed'));
@@ -385,28 +418,104 @@ const DownpaymentConfirmationForm: React.FC<{
   return <>
   <form onSubmit={submit} className="horizon-workflow-form space-y-4">
     <h3 className="text-lg font-bold">Confirmación · {task.order.code}</h3>
-    <DownpaymentFields paid={task.order.paid} value={lines} onChange={setLines} disabled={busy}
-      onUpload={file => uploadDownpaymentReceipt(task.order.id, file)} onUploadingChange={value => { uploadInFlight.current = value; setUploading(value); }} />
-    {task.order.paid <= 0 && (
-      <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs space-y-2">
-        <p role="alert" className="text-amber-400 font-semibold flex items-center gap-1.5">
-          <span aria-hidden="true" className="material-symbols-outlined text-[16px]">info</span>
-          Sin abono registrado ($0.00). Primero registra el abono desde Registrar cobro.
-        </p>
-        <button
-          type="button"
-          disabled={busy || uploading}
-          onClick={() => void exemptAsAdmin()}
-          className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer"
-        >
-          <span aria-hidden="true" className="material-symbols-outlined text-[16px]">handshake</span>
-          <span>Exonerar Anticipo como Administrador (Cobro Contra Entrega)</span>
-        </button>
+    {paymentAlreadyVerified ? (
+      <div className="rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-3.5 text-xs flex items-start gap-2.5">
+        <span aria-hidden="true" className="material-symbols-outlined text-emerald-500 text-[18px] shrink-0">check_circle</span>
+        <div className="space-y-0.5">
+          <strong className="text-emerald-400 font-bold block">
+            Pago verificado · Estatus actual: {ORDER_STATUS_LABELS[task.order.status]}
+          </strong>
+          <p className="text-[var(--text-secondary)] leading-relaxed">
+            Falta únicamente adjuntar el capture del mensaje enviado al cliente (datos del pedido, montos y métodos de pago en yarda) para avanzar a <strong>Preparación y cita</strong>.
+          </p>
+        </div>
+      </div>
+    ) : (
+      <>
+        <DownpaymentFields paid={task.order.paid} value={lines} onChange={setLines} disabled={busy}
+          onUpload={file => uploadDownpaymentReceipt(task.order.id, file)} onUploadingChange={value => { uploadInFlight.current = value; setUploading(value); }} />
+        {task.order.paid <= 0 && (
+          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs space-y-2">
+            <p role="alert" className="text-amber-400 font-semibold flex items-center gap-1.5">
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">info</span>
+              Sin abono registrado ($0.00). Primero registra el abono desde Registrar cobro.
+            </p>
+            <button
+              type="button"
+              disabled={busy || uploading}
+              onClick={() => void exemptAsAdmin()}
+              className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">handshake</span>
+              <span>Exonerar Anticipo como Administrador (Cobro Contra Entrega)</span>
+            </button>
+          </div>
+        )}
+      </>
+    )}
+    {requiresAckNotification && (
+      <div className="space-y-3">
+        <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3.5 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5">
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-400">description</span>
+              <span>Plantilla de mensaje para el cliente</span>
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => { setTemplateLanguage('es'); setCopied(false); }}
+                className={`px-2 py-0.5 rounded-lg text-[11px] font-bold border ${
+                  templateLanguage === 'es' ? 'bg-cyan-500/20 border-cyan-500 text-cyan-400' : 'border-[var(--border-color)] text-[var(--text-secondary)]'
+                }`}
+              >
+                ES
+              </button>
+              <button
+                type="button"
+                onClick={() => { setTemplateLanguage('en'); setCopied(false); }}
+                className={`px-2 py-0.5 rounded-lg text-[11px] font-bold border ${
+                  templateLanguage === 'en' ? 'bg-cyan-500/20 border-cyan-500 text-cyan-400' : 'border-[var(--border-color)] text-[var(--text-secondary)]'
+                }`}
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                className="cyber-btn-secondary px-2.5 py-1 text-xs font-semibold flex items-center gap-1"
+                onClick={() => {
+                  const text = ackNotificationTemplate(task.order, templateLanguage);
+                  void navigator.clipboard.writeText(text).then(() => setCopied(true)).catch(() => setError('No se pudo copiar la plantilla. Selecciona el texto y cópialo manualmente.'));
+                }}
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">{copied ? 'check' : 'content_copy'}</span>
+                <span>{copied ? 'Copiado' : 'Copiar mensaje'}</span>
+              </button>
+            </div>
+          </div>
+          <p className="text-xs text-[var(--text-secondary)] whitespace-pre-wrap leading-relaxed bg-[var(--bg-card-subtle)] p-3 rounded-lg border border-[var(--border-color)] select-all">
+            {ackNotificationTemplate(task.order, templateLanguage)}
+          </p>
+        </div>
+
+        <OrderImageFields
+          onUpload={file => uploadDownpaymentReceipt(task.order.id, file)}
+          photos={notificationScreenshots}
+          onChange={setNotificationScreenshots}
+          label={paymentAlreadyVerified ? 'Capture de notificación al cliente (obligatorio para avanzar)' : 'Capture de notificación al cliente (requerido para pasar a Preparación y cita)'}
+          description="Adjunta el capture del mensaje enviado al cliente con datos del pedido, montos y métodos de pago aceptados en yarda."
+          imageLabel="Ver captura de notificación"
+          disabled={busy}
+          required={paymentAlreadyVerified}
+          onUploadingChange={value => { uploadInFlight.current = value; setUploading(value); }}
+        />
       </div>
     )}
     {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
     <div className="flex flex-wrap gap-3">
-      <button type="submit" className="cyber-btn-primary px-4 py-3" disabled={busy || uploading || task.order.paid <= 0}>{busy ? 'Guardando…' : 'Guardar confirmación'}</button>
+      <button type="submit" className="cyber-btn-primary px-4 py-3" disabled={busy || uploading || (!paymentAlreadyVerified && task.order.paid <= 0)}>
+        {busy ? 'Guardando…' : paymentAlreadyVerified ? 'Guardar notificación y avanzar a Preparación' : 'Guardar confirmación'}
+      </button>
       {onCancel && <button type="button" className="cyber-btn-secondary px-4 py-3" disabled={busy || uploading} onClick={onCancel}>Cancelar</button>}
     </div>
   </form>

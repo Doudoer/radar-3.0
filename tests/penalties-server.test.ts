@@ -101,6 +101,7 @@ describe('sincronización de penalizaciones', () => {
       { order_id: 912, order_code: 'ORD-912', user_id: 0, yard_piece_ready_at: '2026-11-16T16:00:00Z' },
       { order_id: 913, order_code: 'ORD-913', user_id: 7, yard_piece_ready_at: '2026-11-16T16:00:00Z', yard_piece_ready_ack_at: '2026-11-17T00:00:00Z' },
     ]],
+    [/downpayment_verified = 1/, []],
     [/FROM claims cl/, [
       { claim_id: 50, assigned_user_id: 12, order_id: 920, order_code: 'ORD-920', user_id: 7, workflow_data: '{"claimPieceReady":true,"claimPieceReadyAt":"2026-11-16T16:00:00Z"}' },
       { claim_id: 51, assigned_user_id: null, order_id: 921, order_code: 'ORD-921', user_id: 8, workflow_data: '{"claimPieceReady":true,"claimPieceReadyAt":"2026-11-16T16:00:00Z"}' },

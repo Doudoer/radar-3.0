@@ -723,12 +723,14 @@ export const WorkflowTasksView: React.FC<{
                         </div>
                       )
                     )}
-                    {task.task.startsWith('post_') && task.overdue && (
+                    {(task.task.startsWith('post_') || (task.task === 'ack' && (task.penaltyPoints || 0) < 0)) && task.overdue && (
                       <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs font-bold flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-rose-400 shrink-0">gavel</span>
                           <span>
-                            Retraso en seguimiento: {task.daysOverdue || 1} día(s) vencido
+                            {task.task === 'ack'
+                              ? `Retraso en capture de notificación: ${task.daysOverdue || 1} día(s) vencido`
+                              : `Retraso en seguimiento: ${task.daysOverdue || 1} día(s) vencido`}
                           </span>
                         </div>
                         <span className="px-2 py-0.5 rounded-md bg-rose-950/80 border border-rose-500/60 text-rose-300 font-mono text-[11px] font-black">

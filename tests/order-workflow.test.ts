@@ -261,4 +261,34 @@ describe('verifiable order workflow', () => {
     expect(overdueTasks[0].daysOverdue).toBe(3);
     expect(overdueTasks[0].penaltyPoints).toBe(-3);
   });
+
+  it('keeps orders created after ACK_NOTIFICATION_CUTOFF in ack until customer notification screenshot is uploaded and accrues penalty points', () => {
+    const newOrder = {
+      ...order,
+      createdAt: '2026-11-16T20:00:00Z',
+      status: 'pagado' as const,
+      downpaymentVerified: true,
+      downpaymentVerifiedAt: '2026-11-16T20:05:00Z',
+    };
+    const ackOnlyPayment = event('ack', { downpayment: [{ method: 'cash', amount: 150, receivedBy: 'Yarda' }] });
+    // Still in ack (due 2026-11-17), overdue on 2026-11-19 -> -2 pts
+    const pendingNotify = workflowTasks(newOrder, [ackOnlyPayment], '2026-11-19');
+    expect(pendingNotify[0].task).toBe('ack');
+    expect(pendingNotify[0].overdue).toBe(true);
+    expect(pendingNotify[0].daysOverdue).toBe(2);
+    expect(pendingNotify[0].penaltyPoints).toBe(-2);
+
+    // Requires notificationScreenshots when payment already verified
+    expect(() => validateWorkflowAction(newOrder, [ackOnlyPayment], {
+      task: 'ack', outcome: 'completed', notes: '',
+    }, '2026-11-17')).toThrow(/notificación al cliente/);
+
+    // Advances to prepare once notification screenshot is recorded
+    const withNotification = event('ack', {
+      evidence: JSON.stringify({ format: 'ack-notification-v1', screenshots: ['/uploads/notify.png'] }),
+      notificationScreenshots: ['/uploads/notify.png'],
+    });
+    const nextTasks = workflowTasks(newOrder, [ackOnlyPayment, withNotification], '2026-11-17');
+    expect(nextTasks[0].task).toBe('prepare');
+  });
 });

@@ -22,7 +22,7 @@ import { communicationSchema, hasContactResponse } from '../utils/followupCommun
 import { wasender } from '../integrations/wasender/client';
 import { YARD_ACTION_STATUSES, YARD_REVERT_STATUSES } from '../utils/yardStatuses';
 import {
-  addWorkingDays, completedWorkflowStages, validateWorkflowAction, workflowDate, workflowRequired, workflowTasks, workflowTaskAssignee,
+  ackNotificationRequired, addWorkingDays, completedWorkflowStages, decodeAckNotificationEvidence, validateWorkflowAction, workflowDate, workflowRequired, workflowTasks, workflowTaskAssignee,
   type WorkflowAction, type WorkflowEvent, type WorkflowOrder, type WorkflowTask, type WorkflowTaskKey,
 } from '../utils/orderWorkflow';
 
@@ -39,6 +39,7 @@ export const workflowActionSchema = z.object({
   notes: z.string().trim().max(5000).default(''),
   evidence: z.string().trim().max(5000).optional(),
   deliveryPhotos: deliveryPhotosSchema.optional(),
+  notificationScreenshots: deliveryPhotosSchema.optional(),
   confirmed: z.boolean().optional(),
   nextDueDate: dateSchema.optional().nullable(),
   nextAction: z.string().trim().max(1000).optional().nullable(),
@@ -62,6 +63,8 @@ export const workflowActionSchema = z.object({
     'Los datos del downpayment solo corresponden a Confirmación.')
   .refine(value => !value.exemptDownpayment || value.task === 'ack' && value.outcome === 'completed',
     'La exoneración del downpayment solo corresponde a Confirmación.')
+  .refine(value => value.notificationScreenshots === undefined || (value.task === 'ack' && value.outcome === 'completed'),
+    'Las capturas de notificación al cliente solo corresponden a Confirmación.')
   .refine(value => !value.preparation || value.task === 'prepare' && value.outcome === 'completed',
     'Los datos de preparación solo corresponden a Preparación y cita completada.')
   .refine(value => !value.completion || value.task === 'delivery' && value.outcome === 'completed' && Boolean(value.settlement) && !value.downpayment && !value.preparation,
@@ -106,6 +109,10 @@ export const workflowOrderFromRow = (row: RowDataPacket): WorkflowOrder => {
   followupAdvisor: row.followup_advisor || null,
   customerName: [row.first_name, row.last_name].filter(Boolean).join(' ').trim(),
   customerLanguage: (row.customer_language || row.customer_crm_language) === 'en' ? 'en' : 'es',
+  vehicleYear: row.year ? Number(row.year) : null,
+  vehicleMake: row.brand || null,
+  vehicleModel: row.model || null,
+  partType: row.product_type || null,
   warrantyTerms: warrantyFromRow(row),
   advisor: row.advisor || 'Sin asignar', version: Number(row.version),
   createdAt: new Date(row.created_at).toISOString(), status,
@@ -152,6 +159,10 @@ export const workflowEventFromRow = (row: RowDataPacket): WorkflowEvent => ({
     }
   })(),
   preparation: row.preparation_details ? preparationSchema.parse(typeof row.preparation_details === 'string' ? JSON.parse(row.preparation_details) : row.preparation_details) : null,
+  notificationScreenshots: (() => {
+    const list = decodeAckNotificationEvidence(row.evidence);
+    return list.length ? list : null;
+  })(),
 });
 export async function loadWorkflowEvents(connection: Pool | PoolConnection, orderId: string | number) {
   const [rows] = await connection.query<RowDataPacket[]>('SELECT * FROM order_workflow_events WHERE order_id=? ORDER BY id', [orderId]);
@@ -1376,7 +1387,13 @@ export async function handleWorkflowRequest(
       const validationOrder = action.task === 'ack' && original.paid > 0 ? { ...order, paid: original.paid } : order;
       try { validateWorkflowAction(validationOrder, events, action); }
       catch (error) { fail(409, error instanceof Error ? error.message : 'Gestión inválida'); }
-      const images = [...(action.downpayment?.flatMap(payment => payment.receipt ? [payment.receipt] : []) || []), ...(action.preparation?.screenshots || []), ...(action.deliveryPhotos || []), ...(action.communication?.screenshots || [])];
+      const images = [
+        ...(action.downpayment?.flatMap(payment => payment.receipt ? [payment.receipt] : []) || []),
+        ...(action.notificationScreenshots || []),
+        ...(action.preparation?.screenshots || []),
+        ...(action.deliveryPhotos || []),
+        ...(action.communication?.screenshots || []),
+      ];
       await assertPaymentImages(connection, order.id, images, claims);
       await assertUploadedOrderAudio(connection, order.id, action.communication?.audio || [], claims);
       const [actors] = await connection.query<RowDataPacket[]>('SELECT name FROM users WHERE id=?', [Number(claims.sub)]);
@@ -1392,12 +1409,16 @@ export async function handleWorkflowRequest(
             nextStatus = statusToDatabase.pagado;
             await connection.execute("UPDATE orders SET downpayment_verified=1,downpayment_verified_at=CURRENT_TIMESTAMP,downpayment_verified_by=? WHERE id=?",
               [Number(claims.sub), order.id]);
-          } else {
-            const hasP2P = action.downpayment?.some(p => ['zelle', 'cashapp'].includes(p.method));
+          } else if (action.downpayment?.length) {
+            const hasP2P = action.downpayment.some(p => ['zelle', 'cashapp'].includes(p.method));
             if (hasP2P && claims.role !== 'admin' && !order.downpaymentVerified) {
               nextStatus = statusToDatabase.espera_confirmacion;
             } else {
               nextStatus = statusToDatabase.pagado;
+              if (ackNotificationRequired(order.createdAt)) {
+                await connection.execute("UPDATE orders SET downpayment_verified=1,downpayment_verified_at=COALESCE(downpayment_verified_at,CURRENT_TIMESTAMP),downpayment_verified_by=COALESCE(downpayment_verified_by,?) WHERE id=?",
+                  [Number(claims.sub), order.id]);
+              }
             }
           }
         }
@@ -1427,8 +1448,13 @@ export async function handleWorkflowRequest(
         `INSERT INTO order_workflow_events (order_id,task,outcome,actor_id,actor_name,notes,evidence,task_due_date,next_due_date,next_action,blocked_by,scheduled_at,contact_result,part_status,downpayment_details,preparation_details)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [order.id, action.task, action.outcome, Number(claims.sub), actorName,
-        action.exemptDownpayment ? (action.notes || 'Anticipo exonerado por Administrador. Cobro del 100% acordado contra entrega al cliente.') : action.downpayment ? 'Downpayment existente documentado; no se agregó dinero al acumulado.' : action.preparation ? action.preparation.channel === 'in_person' ? 'Preparación verificada con el cliente presente para entrega inmediata en yarda; sin llamada ni cita futura.' : 'Preparación y cita verificadas con el cliente; sin registrar cobros ni recepción del core.' : action.notes,
-        action.downpayment ? '' : action.communication ? JSON.stringify({ format: 'followup-contact-v1', reference: action.evidence || '', communication: action.communication })
+        action.exemptDownpayment ? (action.notes || 'Anticipo exonerado por Administrador. Cobro del 100% acordado contra entrega al cliente.')
+          : action.downpayment && action.notificationScreenshots?.length ? 'Downpayment documentado y capture de notificación al cliente registrado.'
+          : action.downpayment ? 'Downpayment existente documentado; no se agregó dinero al acumulado.'
+          : action.notificationScreenshots?.length ? 'Capture de notificación al cliente registrado; etapa de Confirmación completada.'
+          : action.preparation ? action.preparation.channel === 'in_person' ? 'Preparación verificada con el cliente presente para entrega inmediata en yarda; sin llamada ni cita futura.' : 'Preparación y cita verificadas con el cliente; sin registrar cobros ni recepción del core.' : action.notes,
+        action.notificationScreenshots?.length ? JSON.stringify({ format: 'ack-notification-v1', screenshots: action.notificationScreenshots })
+          : action.downpayment ? '' : action.communication ? JSON.stringify({ format: 'followup-contact-v1', reference: action.evidence || '', communication: action.communication })
           : action.evidence || '', workflowTasks(order, events)[0]?.objectiveDueDate || null,
         action.nextDueDate || null, action.nextAction || null, action.blockedBy || null,
         action.outcome === 'completed' ? toMysqlDateTime(action.scheduledAt) : null,
@@ -1505,7 +1531,8 @@ export async function handleWorkflowRequest(
         [Number(claims.sub), actorName, order.id, JSON.stringify({ eventId: insert.insertId, ...action })],
       );
     }
-    const stageIndex = ['quote', 'ack', 'prepare', 'delivery'].indexOf(requestAction.task);
+    const ackIncomplete = requestAction.task === 'ack' && ackNotificationRequired(original.createdAt) && !requestAction.notificationScreenshots?.length;
+    const stageIndex = ackIncomplete ? -1 : ['quote', 'ack', 'prepare', 'delivery'].indexOf(requestAction.task);
     await connection.execute(
       'UPDATE orders SET version=version+1,workflow_step=IF(? >= 0,?,workflow_step) WHERE id=?',
       [requestAction.outcome === 'completed' ? stageIndex : -1, Math.min(4, stageIndex + 2), original.id],

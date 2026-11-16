@@ -29,7 +29,7 @@ interface ProfileInfo {
 }
 
 export interface PenaltySourceLine {
-  source: 'post_delivery' | 'ready_piece' | 'claim';
+  source: 'post_delivery' | 'ready_piece' | 'ack_notification' | 'claim';
   units: number;
   percent: number;
   amount: number;
@@ -225,6 +225,7 @@ const PENALTY_SOURCE_LABELS: Record<PenaltySourceLine['source'], { label: string
   post_delivery: { label: 'Post-entrega', icon: 'home_repair_service' },
   claim: { label: 'Reclamos', icon: 'assignment_late' },
   ready_piece: { label: 'Piezas listas', icon: 'inventory_2' },
+  ack_notification: { label: 'Notificación al cliente', icon: 'mark_chat_unread' },
 };
 
 const formatPercent = (value: number) => `${Number(value || 0).toFixed(2)}%`;
@@ -236,7 +237,7 @@ export const PenaltyCard: React.FC<{
   penalties: PenaltySnapshot;
   tone: Tone;
 }> = ({ penalties, tone }) => {
-  const sourceRows = (['post_delivery', 'claim', 'ready_piece'] as const).map(source => {
+  const sourceRows = (['post_delivery', 'claim', 'ready_piece', 'ack_notification'] as const).map(source => {
     const lines = penalties.open.lines.filter(line => line.source === source);
     return {
       source,

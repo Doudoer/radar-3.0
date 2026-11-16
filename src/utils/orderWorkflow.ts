@@ -6,6 +6,63 @@ import { communicationSchema, validateCommunication } from './followupCommunicat
 
 export const WORKFLOW_CUTOFF = '2026-10-21';
 export const POST_DELIVERY_FOLLOWUP_CUTOFF = '2026-11-07T20:05:52.000Z';
+export const ACK_NOTIFICATION_CUTOFF = '2026-11-16T19:00:00.000Z';
+export const ackNotificationRequired = (createdAt?: string | null) => {
+  if (!createdAt) return false;
+  const time = Date.parse(createdAt);
+  return Number.isFinite(time) && time >= Date.parse(ACK_NOTIFICATION_CUTOFF);
+};
+export function ackNotificationTemplate(order: WorkflowOrder, language: 'es' | 'en' = 'es'): string {
+  const customer = order.customerName?.trim() || (language === 'en' ? 'Customer' : 'Cliente');
+  const vehicle = [order.vehicleYear, order.vehicleMake, order.vehicleModel].filter(Boolean).join(' ') || (language === 'en' ? 'Not specified' : 'No especificado');
+  const part = order.partType?.trim() || (language === 'en' ? 'Not specified' : 'No especificado');
+  const total = Number(order.total || 0).toFixed(2);
+  const paid = Number(order.paid || 0).toFixed(2);
+  const remaining = Math.max(0, Number(order.total || 0) - Number(order.paid || 0)).toFixed(2);
+
+  if (language === 'en') {
+    return [
+      `Hello ${customer}, here are the details of your order:`,
+      `• Order Number: #${order.code}`,
+      `• Customer: ${customer}`,
+      `• Vehicle: ${vehicle}`,
+      `• Part Type: ${part}`,
+      `• Total Balance: $${total}`,
+      `• Deposit Paid: $${paid}`,
+      `• Remaining Balance: $${remaining}`,
+      ``,
+      `Yard Payment Policy: We only accept Cash, Zelle, or Cash App. We do NOT accept credit or debit cards at pickup.`,
+      ``,
+      `Thank you for your purchase! Please keep in mind that we will notify you by text message or phone call as soon as your part is ready for pickup.`,
+    ].join('\n');
+  }
+
+  return [
+    `Hola ${customer}, te compartimos los detalles de tu pedido:`,
+    `• Número de orden: #${order.code}`,
+    `• Cliente: ${customer}`,
+    `• Vehículo: ${vehicle}`,
+    `• Tipo de parte: ${part}`,
+    `• Balance total: $${total}`,
+    `• Abonado: $${paid}`,
+    `• Balance restante: $${remaining}`,
+    ``,
+    `Políticas de pago en yarda: Solo aceptamos Cash, Zelle o Cash App. No aceptamos tarjetas de crédito o débito al momento de retirar.`,
+    ``,
+    `¡Muchas gracias por tu compra! Te confirmamos que te notificaremos por mensaje o llamada en cuanto tu pieza esté lista para retiro.`,
+  ].join('\n');
+}
+
+export function decodeAckNotificationEvidence(evidence?: string | null): string[] {
+  if (!evidence || !evidence.startsWith('{')) return [];
+  try {
+    const parsed = JSON.parse(evidence) as { format?: string; screenshots?: unknown };
+    if (parsed?.format === 'ack-notification-v1' && Array.isArray(parsed.screenshots)) {
+      return parsed.screenshots.filter((item): item is string => typeof item === 'string');
+    }
+  } catch { /* ignore */ }
+  return [];
+}
 export const WORKFLOW_STAGES = [
   { id: 'quote', title: 'Cotización', requirement: 'Cotización registrada al crear la orden.' },
   { id: 'ack', title: 'Confirmación', requirement: 'Documentar el downpayment ya registrado: métodos, montos, receptor solo en cash e imágenes de comprobantes para los demás métodos.' },
@@ -22,6 +79,10 @@ export interface WorkflowOrder {
   warrantyTerms?: import('./aftersales').WarrantyTerms | null;
   customerLanguage?: 'es' | 'en';
   customerName?: string;
+  vehicleYear?: number | null;
+  vehicleMake?: string | null;
+  vehicleModel?: string | null;
+  partType?: string | null;
   id: string; code: string; userId: number | null; advisor: string; version: number;
   createdAt: string; status: OrderStatus; deliveredAt: string | null;
   scheduledPickupAt: string | null; total: number; paid: number; core?: number;
@@ -49,10 +110,12 @@ export interface WorkflowEvent {
   taskDueDate?: string | null;
   downpayment?: DownpaymentLine[] | null;
   preparation?: Preparation | null;
+  notificationScreenshots?: string[] | null;
 }
 export interface WorkflowAction {
   communication?: import('./followupCommunication').FollowupCommunication;
   deliveryPhotos?: string[];
+  notificationScreenshots?: string[];
   task: WorkflowTaskKey; outcome: WorkflowOutcome; notes: string; evidence?: string; confirmed?: boolean;
   nextDueDate?: string | null; nextAction?: string | null; blockedBy?: string | null;
   scheduledAt?: string | null; contactResult?: FollowupCallResult | null; partStatus?: FollowupPartStatus | null;
@@ -109,11 +172,40 @@ const effectiveWorkflowEvents = (events: WorkflowEvent[]) => {
   return events.filter((event, i) => i >= index || WORKFLOW_STAGES.findIndex(stage => stage.id === event.task) >= 0 &&
     WORKFLOW_STAGES.findIndex(stage => stage.id === event.task) < stageIndex);
 };
+export const hasAckPayment = (events: WorkflowEvent[], order?: WorkflowOrder) => {
+  const effective = effectiveWorkflowEvents(events);
+  return Boolean(
+    order?.downpaymentVerified
+    || order?.status === 'pagado'
+    || order?.status === 'espera_confirmacion'
+    || effective.some(event => event.task === 'ack' && (event.outcome === 'completed' || Boolean(event.downpayment?.length))),
+  );
+};
+
+export const hasAckNotification = (events: WorkflowEvent[], order?: WorkflowOrder) => {
+  if (!order || !ackNotificationRequired(order.createdAt)) return true;
+  const effective = effectiveWorkflowEvents(events);
+  return effective.some(event =>
+    event.task === 'ack'
+    && event.outcome === 'completed'
+    && (Boolean(event.notificationScreenshots?.length) || decodeAckNotificationEvidence(event.evidence).length > 0),
+  );
+};
+
 export const confirmationPreapproved = (order: WorkflowOrder | undefined, events: WorkflowEvent[]) =>
   order?.confirmationPolicy === 'preapproved' && !events.some(event => event.outcome === 'reopened' && ['quote', 'ack'].includes(event.task));
 export const completedWorkflowStages = (events: WorkflowEvent[], order?: WorkflowOrder) =>
-  WORKFLOW_STAGES.filter(stage => order?.status === 'entregado' && order.historicalDelivery || stage.id === 'quote' || stage.id === 'ack' && confirmationPreapproved(order, events) ||
-    effectiveWorkflowEvents(events).some(event => event.task === stage.id && event.outcome === 'completed')).map(stage => stage.id);
+  WORKFLOW_STAGES.filter(stage => {
+    if (order?.status === 'entregado' && order.historicalDelivery) return true;
+    if (stage.id === 'quote') return true;
+    if (stage.id === 'ack') {
+      if (confirmationPreapproved(order, events)) return true;
+      const ackCompleted = effectiveWorkflowEvents(events).some(event => event.task === 'ack' && event.outcome === 'completed');
+      if (!order || !ackNotificationRequired(order.createdAt)) return ackCompleted;
+      return hasAckPayment(events, order) && hasAckNotification(events, order);
+    }
+    return effectiveWorkflowEvents(events).some(event => event.task === stage.id && event.outcome === 'completed');
+  }).map(stage => stage.id);
 
 export function workflowTasks(order: WorkflowOrder, events: WorkflowEvent[], today = workflowDate(new Date())): WorkflowTask[] {
   if (!workflowRequired(order.createdAt) || ['cancelado', 'reembolsado', 'archivado'].includes(order.status)) return [];
@@ -131,15 +223,25 @@ export function workflowTasks(order: WorkflowOrder, events: WorkflowEvent[], tod
     dueDate = order.incidentNextDueDate || addWorkingDays(workflowDate(order.incidentCreatedAt || order.createdAt), 1);
   } else if (stage) {
     task = stage.id; title = stage.title; requirement = stage.requirement;
+    if (task === 'ack' && ackNotificationRequired(order.createdAt)) {
+      if (hasAckPayment(events, order) && !hasAckNotification(events, order)) {
+        title = 'Confirmación · Capture de notificación al cliente';
+        requirement = 'Pago verificado (Pagado). Adjunta la captura del mensaje enviado al cliente con datos del pedido, montos y métodos de pago en yarda para avanzar a Preparación y cita.';
+      } else {
+        requirement = 'Documenta el pago para pasar a Pagado y adjunta el capture del mensaje enviado al cliente (datos del pedido, montos y métodos de pago en yarda) para avanzar a Preparación y cita.';
+      }
+    }
     if (task === 'prepare' && order.yardPieceReady) {
       title = 'Pieza lista en patio · Notificar cliente y pasar a Listo para Retiro';
       requirement = 'Administración reportó pieza lista. Comunícate con el cliente para agendar retiro/despacho y pasar la orden a Listo para Retiro.';
     }
     const index = WORKFLOW_STAGES.indexOf(stage);
     const previous = index > 1 ? [...events].reverse().find(event => event.task === WORKFLOW_STAGES[index - 1].id && event.outcome === 'completed') : undefined;
+    const ackPaymentEvent = task === 'ack' ? [...events].reverse().find(event => event.task === 'ack' && Boolean(event.downpayment?.length)) : undefined;
     dueDate = previous?.nextDueDate || (task === 'delivery' && previous?.preparation
       ? previous.preparation.dateFrom : task === 'delivery' && previous?.scheduledAt
       ? workflowDate(previous.scheduledAt) : addWorkingDays(workflowDate(previous?.createdAt ||
+        (task === 'ack' && hasAckPayment(events, order) ? (order.downpaymentVerifiedAt || ackPaymentEvent?.createdAt || order.createdAt) : null) ||
         (task === 'prepare' && confirmationPreapproved(order, events) ? order.confirmationPolicyAt : null) || order.createdAt), 1));
   } else {
     const installedOk = events.some(event => event.task.startsWith('post_') && event.outcome === 'completed' && event.partStatus === 'installed_ok');
@@ -165,7 +267,8 @@ export function workflowTasks(order: WorkflowOrder, events: WorkflowEvent[], tod
 
   let daysOverdue = 0;
   let penaltyPoints = 0;
-  if (task.startsWith('post_') && overdue) {
+  const tracksAckPenalty = task === 'ack' && ackNotificationRequired(order.createdAt) && hasAckPayment(events, order) && !hasAckNotification(events, order);
+  if ((task.startsWith('post_') || tracksAckPenalty) && overdue) {
     const dueTime = new Date(`${dueDate}T00:00:00Z`).getTime();
     const todayTime = new Date(`${today}T00:00:00Z`).getTime();
     daysOverdue = Math.max(0, Math.round((todayTime - dueTime) / 86400000));
@@ -188,14 +291,22 @@ export function validateWorkflowAction(order: WorkflowOrder, events: WorkflowEve
   if (action.downpayment && (action.task !== 'ack' || action.outcome !== 'completed')) throw new Error('Los datos del depósito solo corresponden a una confirmación completada.');
   if (action.preparation && (action.task !== 'prepare' || action.outcome !== 'completed')) throw new Error('La preparación solo se adjunta al completar Preparación y cita.');
   if (action.task === 'ack' && action.outcome === 'completed') {
+    if (action.nextDueDate || action.scheduledAt) throw new Error('La fecha de confirmación se registra automáticamente.');
+    if (action.notificationScreenshots !== undefined) {
+      deliveryPhotosSchema.min(1, 'Adjunta al menos una captura de la notificación al cliente.').parse(action.notificationScreenshots);
+    }
+    if (ackNotificationRequired(order.createdAt) && hasAckPayment(events, order) && !action.downpayment?.length && !action.exemptDownpayment) {
+      if (!action.notificationScreenshots?.length) {
+        throw new Error('Adjunta la captura de la notificación al cliente para avanzar a Preparación y cita.');
+      }
+      return;
+    }
     if (action.exemptDownpayment) {
-      if (action.nextDueDate || action.scheduledAt) throw new Error('La fecha de confirmación se registra automáticamente.');
       return;
     }
     const parsed = downpaymentSchema.safeParse(action.downpayment);
     if (!parsed.success) throw new Error(parsed.error.issues[0]?.message || 'Revisa los datos del downpayment.');
     validateDownpayment(order.paid, parsed.data);
-    if (action.nextDueDate || action.scheduledAt) throw new Error('La fecha de confirmación se registra automáticamente.');
     return;
   }
   if (action.task === 'prepare' && action.outcome === 'completed') {
