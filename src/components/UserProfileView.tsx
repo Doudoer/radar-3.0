@@ -15,6 +15,7 @@ interface ProfileInfo {
   name: string;
   email: string;
   phone: string;
+  pbxExtension?: string;
   avatarUrl: string;
   role: string;
   active: boolean;
@@ -1400,9 +1401,10 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
             </>
           )}
         </div>
-        <div className={`grid gap-2 rounded-2xl px-3 py-2.5 text-[11.5px] sm:grid-cols-3 ${tone.subtle}`}>
+        <div className={`grid gap-2 rounded-2xl px-3 py-2.5 text-[11.5px] sm:grid-cols-4 ${tone.subtle}`}>
           <span><span className={tone.muted}>Correo: </span>{profile.email || '—'}</span>
           <span><span className={tone.muted}>Teléfono: </span>{profile.phone || '—'}</span>
+          <span><span className={tone.muted}>Extensión PBX: </span>{profile.pbxExtension || '—'}</span>
           <span><span className={tone.muted}>Acceso Yarda: </span>{profile.hasPin ? 'PIN configurado' : 'Sin PIN'}</span>
         </div>
         <div className="flex justify-end">

@@ -11,6 +11,7 @@ export type ManagedUser = {
   name: string;
   email: string;
   phone?: string;
+  pbx_extension?: string | null;
   avatar_url?: string;
   role: string;
   permissions: string[];
@@ -130,6 +131,7 @@ const UserEditModal: React.FC<UserEditModalProps> = React.memo(({
     name: user.name,
     email: user.email,
     phone: user.phone || '',
+    pbx_extension: user.pbx_extension || '',
     avatar_url: user.avatar_url || '',
     password: '',
     pin: '',
@@ -181,6 +183,7 @@ const UserEditModal: React.FC<UserEditModalProps> = React.memo(({
         name: draft.name.trim(),
         email: draft.email.trim().toLowerCase(),
         phone: draft.phone.trim() || null,
+        pbx_extension: draft.pbx_extension.trim() || null,
         avatar_url: draft.avatar_url.trim() || null,
         role: draft.role,
         active: draft.active,
@@ -341,6 +344,17 @@ const UserEditModal: React.FC<UserEditModalProps> = React.memo(({
               </label>
 
               <label className="text-xs text-slate-300 font-mono uppercase text-[10px] block">
+                Extensión PBX (Issabel / PortSIP)
+                <input
+                  type="text"
+                  value={draft.pbx_extension}
+                  onChange={(e) => setDraft({ ...draft, pbx_extension: e.target.value.replace(/[^0-9]/g, '').slice(0, 8) })}
+                  placeholder="Ej. 501, 202, 204"
+                  className="mt-1 w-full rounded-xl border border-cyan-500/30 bg-[#040814] px-3.5 py-2 text-sm text-white outline-none focus:border-cyan-400 font-mono"
+                />
+              </label>
+
+              <label className="text-xs text-slate-300 font-mono uppercase text-[10px] block">
                 Restablecer Contraseña (opcional)
                 <input
                   type="password"
@@ -496,6 +510,7 @@ const UserCreateModal: React.FC<UserCreateModalProps> = React.memo(({
     name: '',
     email: '',
     phone: '',
+    pbx_extension: '',
     avatar_url: '',
     password: '',
     pin: '',
@@ -566,6 +581,7 @@ const UserCreateModal: React.FC<UserCreateModalProps> = React.memo(({
           name: draft.name.trim(),
           email: draft.email.trim().toLowerCase(),
           phone: draft.phone.trim() || null,
+          pbx_extension: draft.pbx_extension.trim() || null,
           avatar_url: draft.avatar_url.trim() || null,
           password: draft.password,
           role: draft.role,
@@ -701,6 +717,17 @@ const UserCreateModal: React.FC<UserCreateModalProps> = React.memo(({
               value={draft.phone}
               onChange={(e) => setDraft({ ...draft, phone: e.target.value })}
               placeholder="+1 (919) 555-0122"
+              className="mt-1 w-full rounded-xl border border-cyan-500/30 bg-[#040814] px-3.5 py-2 text-sm text-white outline-none focus:border-cyan-400 font-mono"
+            />
+          </label>
+
+          <label className="text-xs text-slate-300 font-mono uppercase text-[10px]">
+            Extensión PBX (Issabel / PortSIP)
+            <input
+              type="text"
+              value={draft.pbx_extension}
+              onChange={(e) => setDraft({ ...draft, pbx_extension: e.target.value.replace(/[^0-9]/g, '').slice(0, 8) })}
+              placeholder="Ej. 501, 202, 204"
               className="mt-1 w-full rounded-xl border border-cyan-500/30 bg-[#040814] px-3.5 py-2 text-sm text-white outline-none focus:border-cyan-400 font-mono"
             />
           </label>
@@ -1286,6 +1313,11 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
                         <div className="font-mono text-[11.5px] text-cyan-300 flex items-center gap-1">
                           <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-cyan-400">phone</span>
                           <span>{user.phone || 'Sin registrar'}</span>
+                          {user.pbx_extension && (
+                            <span className="ml-1 rounded-md border border-emerald-500/30 bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-300">
+                              PBX {user.pbx_extension}
+                            </span>
+                          )}
                         </div>
                         <div className="font-mono text-[10.5px] text-slate-400">{user.email}</div>
                       </div>

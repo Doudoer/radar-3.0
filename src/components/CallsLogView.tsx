@@ -55,12 +55,24 @@ interface DailyAnalyticsRow {
   isClosed: boolean;
 }
 
+interface EmployeeCallPerformance {
+  userId: number | null;
+  userName: string;
+  pbxExtension: string;
+  answeredCount: number;
+  rejectedCount: number;
+  totalTalkSeconds: number;
+  avgTalkSeconds: number;
+}
+
 interface CallsLogViewProps {
   onSelectOrder?: (orderId: string) => void;
 }
 
+const VENEZUELA_TZ = 'America/Caracas';
+
 const getBusinessToday = (): string => new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'America/New_York',
+  timeZone: VENEZUELA_TZ,
   year: 'numeric',
   month: '2-digit',
   day: '2-digit',
@@ -75,8 +87,8 @@ const formatDuration = (seconds: number): string => {
 
 const formatDateTime = (iso: string): string => {
   try {
-    return new Intl.DateTimeFormat('es-HN', {
-      timeZone: 'America/New_York',
+    return new Intl.DateTimeFormat('es-VE', {
+      timeZone: VENEZUELA_TZ,
       dateStyle: 'short',
       timeStyle: 'short',
     }).format(new Date(iso));
@@ -141,6 +153,8 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({ onSelectOrder }) => 
   const [error, setError] = useState<string | null>(null);
 
   const [analyticsDays, setAnalyticsDays] = useState<DailyAnalyticsRow[]>([]);
+  const [employeePerformance, setEmployeePerformance] = useState<EmployeeCallPerformance[]>([]);
+  const [extensionUsers, setExtensionUsers] = useState<Record<string, string>>({});
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   const loadCalls = useCallback(async (dateOverride?: string) => {
@@ -159,6 +173,9 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({ onSelectOrder }) => 
       if (!res.ok) throw new Error(data.message || 'No se pudo cargar el registro de llamadas.');
       setCalls(Array.isArray(data.calls) ? data.calls : []);
       if (data.summary) setSummary({ ...EMPTY_SUMMARY, ...data.summary });
+      if (data.extensionUsers && typeof data.extensionUsers === 'object') {
+        setExtensionUsers(data.extensionUsers);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar llamadas.');
     } finally {
@@ -173,6 +190,9 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({ onSelectOrder }) => 
       const data = await res.json().catch(() => ({}));
       if (res.ok && Array.isArray(data.days)) {
         setAnalyticsDays(data.days);
+        if (Array.isArray(data.employeePerformance)) {
+          setEmployeePerformance(data.employeePerformance);
+        }
         if (typeof data.today === 'string') setTodayDate(data.today);
       }
     } finally {
@@ -228,7 +248,7 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({ onSelectOrder }) => 
         <div>
           <h1 className="text-xl font-black text-[var(--text-heading)]">Registro de Llamadas (Issabel PBX)</h1>
           <p className="text-xs text-[var(--text-muted)]">
-            Registro diario con corte automático a las 12:00 AM (ET) · Horario de atención: 7:00 AM – 6:00 PM.
+            Registro diario con corte automático a las 12:00 AM (Venezuela) · Horario de atención: 7:00 AM – 6:00 PM.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -436,7 +456,9 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({ onSelectOrder }) => 
                             ) : (
                               <div>
                                 <span className="font-bold text-[var(--text-heading)]">
-                                  {call.answeredByExt ? `Ext. ${call.answeredByExt}` : (call.queueName ? `Cola ${call.queueName}` : call.destination || '—')}
+                                  {call.answeredByExt
+                                    ? `Ext. ${call.answeredByExt}${extensionUsers[call.answeredByExt] ? ` · ${extensionUsers[call.answeredByExt]}` : ''}`
+                                    : (call.queueName ? `Cola ${call.queueName}` : call.destination || '—')}
                                 </span>
                                 {call.queueName && call.answeredByExt && (
                                   <p className="text-[10px] text-[var(--text-muted)]">Cola {call.queueName}</p>
@@ -451,7 +473,7 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({ onSelectOrder }) => 
                               </span>
                               {Array.isArray(call.rejectedByExts) && call.rejectedByExts.length > 0 && (
                                 <span className="inline-flex rounded-full border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300">
-                                  Rechazó: {call.rejectedByExts.join(', ')}
+                                  Rechazó: {call.rejectedByExts.map((ext) => extensionUsers[ext] ? `${ext} (${extensionUsers[ext]})` : ext).join(', ')}
                                 </span>
                               )}
                             </div>
@@ -506,6 +528,42 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({ onSelectOrder }) => 
               <p className="mt-1 text-2xl font-black tabular-nums text-[var(--text-heading)]">{formatDuration(analyticsTotals.avgDuration)}</p>
             </div>
           </div>
+
+          {employeePerformance.length > 0 && (
+            <div className="overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)]">
+              <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-2.5">
+                <h2 className="text-xs font-black uppercase tracking-wider text-[var(--text-heading)]">
+                  Rendimiento por Asesor (PBX · Últimos 30 días)
+                </h2>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-[var(--border-subtle)] text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                    <tr>
+                      <th className="px-4 py-2.5">Asesor</th>
+                      <th className="px-4 py-2.5">Extensión</th>
+                      <th className="px-4 py-2.5">Contestadas</th>
+                      <th className="px-4 py-2.5">Rechazadas</th>
+                      <th className="px-4 py-2.5">Tiempo total</th>
+                      <th className="px-4 py-2.5 text-right">Prom. conversación</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border-subtle)]">
+                    {employeePerformance.map((emp) => (
+                      <tr key={emp.pbxExtension} className="hover:bg-[var(--bg-surface)]/50">
+                        <td className="px-4 py-2.5 font-bold text-[var(--text-heading)]">{emp.userName}</td>
+                        <td className="px-4 py-2.5 font-mono text-[var(--text-secondary)]">Ext. {emp.pbxExtension}</td>
+                        <td className="px-4 py-2.5 font-mono font-bold text-emerald-600 dark:text-emerald-400">{emp.answeredCount}</td>
+                        <td className="px-4 py-2.5 font-mono font-bold text-amber-600 dark:text-amber-400">{emp.rejectedCount}</td>
+                        <td className="px-4 py-2.5 font-mono text-[var(--text-secondary)]">{formatDuration(emp.totalTalkSeconds)}</td>
+                        <td className="px-4 py-2.5 text-right font-mono text-[var(--text-secondary)]">{formatDuration(emp.avgTalkSeconds)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div className="overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)]">
             <div className="overflow-x-auto">

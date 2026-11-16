@@ -83,6 +83,16 @@ export interface PbxDailyAnalyticsRow {
   isClosed: boolean;
 }
 
+export interface PbxEmployeeCallPerformance {
+  userId: number | null;
+  userName: string;
+  pbxExtension: string;
+  answeredCount: number;
+  rejectedCount: number;
+  totalTalkSeconds: number;
+  avgTalkSeconds: number;
+}
+
 export type PbxHealthStatus = 'online' | 'error' | 'offline' | 'waiting' | 'disabled' | 'misconfigured';
 
 export interface PbxSettingsSnapshot {
@@ -523,7 +533,7 @@ export const listActiveIncomingCalls = async (pool: Pool): Promise<PbxCallRecord
   return rows.map(mapCallRow);
 };
 
-export const PBX_BUSINESS_TIMEZONE = 'America/New_York';
+export const PBX_BUSINESS_TIMEZONE = 'America/Caracas';
 export const PBX_BUSINESS_START_HOUR = 7;
 export const PBX_BUSINESS_END_HOUR = 18;
 
@@ -640,10 +650,32 @@ const summarizeCallRows = (rows: RowDataPacket[]): PbxCallSummary => {
   };
 };
 
+const loadPbxExtensionDirectory = async (
+  pool: Pool,
+): Promise<{ byExt: Record<string, { userId: number; name: string }>; namesByExt: Record<string, string> }> => {
+  try {
+    const [rows] = await pool.query<RowDataPacket[]>(
+      "SELECT id, name, pbx_extension FROM users WHERE deleted_at IS NULL AND pbx_extension IS NOT NULL AND TRIM(pbx_extension) <> ''",
+    );
+    const byExt: Record<string, { userId: number; name: string }> = {};
+    const namesByExt: Record<string, string> = {};
+    for (const r of rows) {
+      const ext = String(r.pbx_extension || '').trim();
+      const name = String(r.name || '').trim();
+      if (!ext || !name) continue;
+      byExt[ext] = { userId: Number(r.id), name };
+      namesByExt[ext] = name;
+    }
+    return { byExt, namesByExt };
+  } catch {
+    return { byExt: {}, namesByExt: {} };
+  }
+};
+
 export const listPbxCallLogs = async (
   pool: Pool,
   filters: { direction?: string; status?: string; search?: string; date?: string; limit?: number } = {},
-): Promise<{ calls: PbxCallRecord[]; summary: PbxCallSummary; date: string }> => {
+): Promise<{ calls: PbxCallRecord[]; summary: PbxCallSummary; date: string; extensionUsers: Record<string, string> }> => {
   const limit = Math.min(200, Math.max(1, Number(filters.limit || 100)));
   const rawDate = (filters.date || '').trim();
   const targetDate = rawDate === 'all' ? 'all' : /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : getPbxBusinessDate();
@@ -688,10 +720,13 @@ export const listPbxCallLogs = async (
     dateParams,
   );
 
+  const { namesByExt } = await loadPbxExtensionDirectory(pool);
+
   return {
     calls: rows.map(mapCallRow),
     summary: summarizeCallRows(summaryRows),
     date: targetDate,
+    extensionUsers: namesByExt,
   };
 };
 
@@ -771,6 +806,7 @@ export const listPbxDailyAnalytics = async (
   today: string;
   businessHours: { start: string; end: string; timeZone: string };
   days: PbxDailyAnalyticsRow[];
+  employeePerformance: PbxEmployeeCallPerformance[];
 }> => {
   const safeDays = Math.min(90, Math.max(1, Math.round(days || 30)));
   const today = getPbxBusinessDate();
@@ -851,11 +887,67 @@ export const listPbxDailyAnalytics = async (
     isClosed: false,
   });
 
+  const { byExt } = await loadPbxExtensionDirectory(pool);
+  const { endUtc: todayEndUtc } = getUtcRangeForPbxDate(today);
+  const [perfCallRows] = await pool.query<RowDataPacket[]>(
+    `SELECT status, answered_by_ext, rejected_by_exts, billsec_seconds, duration_seconds
+     FROM pbx_call_logs
+     WHERE started_at >= ? AND started_at < ?`,
+    [rangeStartUtc, todayEndUtc],
+  ).catch(() => [[] as RowDataPacket[]]);
+
+  const perfMap = new Map<string, PbxEmployeeCallPerformance>();
+  for (const [ext, info] of Object.entries(byExt)) {
+    perfMap.set(ext, {
+      userId: info.userId,
+      userName: info.name,
+      pbxExtension: ext,
+      answeredCount: 0,
+      rejectedCount: 0,
+      totalTalkSeconds: 0,
+      avgTalkSeconds: 0,
+    });
+  }
+  const ensurePerf = (ext: string): PbxEmployeeCallPerformance => {
+    const existing = perfMap.get(ext);
+    if (existing) return existing;
+    const created: PbxEmployeeCallPerformance = {
+      userId: byExt[ext]?.userId ?? null,
+      userName: byExt[ext]?.name || `Ext. ${ext}`,
+      pbxExtension: ext,
+      answeredCount: 0,
+      rejectedCount: 0,
+      totalTalkSeconds: 0,
+      avgTalkSeconds: 0,
+    };
+    perfMap.set(ext, created);
+    return created;
+  };
+  for (const row of perfCallRows) {
+    const st = String(row.status || '');
+    const ext = row.answered_by_ext ? String(row.answered_by_ext).trim() : '';
+    if (ext && (st === 'answered' || st === 'ended')) {
+      const p = ensurePerf(ext);
+      p.answeredCount += 1;
+      p.totalTalkSeconds += Math.max(0, Number(row.billsec_seconds || row.duration_seconds || 0));
+    }
+    for (const rej of parseRejectedExts(row.rejected_by_exts)) {
+      ensurePerf(rej).rejectedCount += 1;
+    }
+  }
+  const employeePerformance = [...perfMap.values()]
+    .map((p) => ({
+      ...p,
+      avgTalkSeconds: p.answeredCount > 0 ? Math.round(p.totalTalkSeconds / p.answeredCount) : 0,
+    }))
+    .sort((a, b) => b.answeredCount - a.answeredCount || b.rejectedCount - a.rejectedCount || a.pbxExtension.localeCompare(b.pbxExtension));
+
   const sorted = [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
   return {
     today,
     businessHours: { start: '07:00', end: '18:00', timeZone: PBX_BUSINESS_TIMEZONE },
     days: sorted,
+    employeePerformance,
   };
 };
 

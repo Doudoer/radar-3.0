@@ -1203,6 +1203,7 @@ const server = createServer(async (request, response) => {
         payload.name,
         payload.email.toLowerCase(),
         payload.phone ? payload.phone.trim() : null,
+        payload.pbx_extension !== undefined ? (payload.pbx_extension ? payload.pbx_extension.trim() : null) : null,
         payload.avatar_url ? payload.avatar_url.trim() : null,
       ];
 
@@ -1217,7 +1218,7 @@ const server = createServer(async (request, response) => {
       params.push(currentUserId);
 
       await pool.execute(
-        `UPDATE users SET name = ?, email = ?, phone = ?, avatar_url = ? ${passwordClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`,
+        `UPDATE users SET name = ?, email = ?, phone = ?, pbx_extension = COALESCE(?, pbx_extension), avatar_url = ? ${passwordClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`,
         params
       );
       if (revokeSessions) {
@@ -1232,7 +1233,7 @@ const server = createServer(async (request, response) => {
       }
 
       const [rows] = await pool.query<RowDataPacket[]>(
-        'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, created_at, updated_at FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        'SELECT id, name, email, phone, pbx_extension, avatar_url, role, permissions, theme, active, created_at, updated_at FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
         [currentUserId]
       );
       if (!rows[0]) return sendJson(response, 404, { message: 'Usuario no encontrado' });
@@ -3579,7 +3580,7 @@ const server = createServer(async (request, response) => {
     if (request.method === 'GET' && pathname === '/api/users') {
       if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) return;
       const [rows] = await pool.query<RowDataPacket[]>(
-        'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, created_at, updated_at, weekly_salary, (pin_hash IS NOT NULL) AS has_pin FROM users WHERE deleted_at IS NULL ORDER BY name'
+        'SELECT id, name, email, phone, pbx_extension, avatar_url, role, permissions, theme, active, created_at, updated_at, weekly_salary, (pin_hash IS NOT NULL) AS has_pin FROM users WHERE deleted_at IS NULL ORDER BY name'
       );
       const isAdmin = roleIs(authenticatedClaims, 'admin');
       return sendJson(
@@ -3589,6 +3590,7 @@ const server = createServer(async (request, response) => {
           ? {
               ...row,
               phone: row.phone || '',
+              pbx_extension: row.pbx_extension || '',
               avatar_url: row.avatar_url || '',
               permissions: parsePermissions(row.permissions),
               hasPin: Boolean(has_pin),
@@ -3598,6 +3600,7 @@ const server = createServer(async (request, response) => {
               id: row.id,
               name: row.name,
               email: row.email,
+              pbx_extension: row.pbx_extension || '',
               avatar_url: row.avatar_url || '',
               role: row.role,
               theme: row.theme,
@@ -3621,12 +3624,13 @@ const server = createServer(async (request, response) => {
       }
       try {
         const [result] = await pool.execute<ResultSetHeader>(
-          `INSERT INTO users (name, email, phone, avatar_url, password, pin_hash, role, permissions, active)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO users (name, email, phone, pbx_extension, avatar_url, password, pin_hash, role, permissions, active)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             userData.name,
             userData.email.toLowerCase(),
             userData.phone ? userData.phone.trim() : null,
+            userData.pbx_extension ? userData.pbx_extension.trim() : null,
             userData.avatar_url ? userData.avatar_url.trim() : null,
             passwordHash,
             pinHash,
@@ -3636,7 +3640,7 @@ const server = createServer(async (request, response) => {
           ]
         );
         const [rows] = await pool.query<RowDataPacket[]>(
-          'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, created_at, updated_at, (pin_hash IS NOT NULL) AS has_pin FROM users WHERE id = ? LIMIT 1',
+          'SELECT id, name, email, phone, pbx_extension, avatar_url, role, permissions, theme, active, created_at, updated_at, (pin_hash IS NOT NULL) AS has_pin FROM users WHERE id = ? LIMIT 1',
           [result.insertId]
         );
         void recordAuditLog(pool, {
@@ -3681,6 +3685,7 @@ const server = createServer(async (request, response) => {
           user.name,
           user.email.toLowerCase(),
           user.phone ? user.phone.trim() : null,
+          user.pbx_extension ? user.pbx_extension.trim() : null,
           user.avatar_url ? user.avatar_url.trim() : null,
           user.role,
           JSON.stringify(user.permissions),
@@ -3703,7 +3708,7 @@ const server = createServer(async (request, response) => {
         params.push(userId);
 
         await pool.execute(
-          `UPDATE users SET name = ?, email = ?, phone = ?, avatar_url = ?, role = ?, permissions = ?, active = ? ${passwordUpdateClause}${pinUpdateClause}, session_version=session_version+1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`,
+          `UPDATE users SET name = ?, email = ?, phone = ?, pbx_extension = ?, avatar_url = ?, role = ?, permissions = ?, active = ? ${passwordUpdateClause}${pinUpdateClause}, session_version=session_version+1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`,
           params
         );
       } catch (error) {
@@ -3722,7 +3727,7 @@ const server = createServer(async (request, response) => {
       }
 
       const [rows] = await pool.query<RowDataPacket[]>(
-        'SELECT id, name, email, phone, avatar_url, role, permissions, theme, active, created_at, updated_at, (pin_hash IS NOT NULL) AS has_pin FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        'SELECT id, name, email, phone, pbx_extension, avatar_url, role, permissions, theme, active, created_at, updated_at, (pin_hash IS NOT NULL) AS has_pin FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
         [userId]
       );
       if (!rows[0]) return sendJson(response, 404, { message: 'Usuario no encontrado' });
@@ -3789,7 +3794,7 @@ const server = createServer(async (request, response) => {
         return sendJson(response, 403, { message: 'Solo puedes ver tu propio perfil' });
       }
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT id, name, email, phone, avatar_url, role, active, created_at,
+        `SELECT id, name, email, phone, pbx_extension, avatar_url, role, active, created_at,
                 DATE_FORMAT(hired_on, '%Y-%m-%d') AS hired_on,
                 address, emergency_contact_name, emergency_contact_phone, weekly_salary,
                 (pin_hash IS NOT NULL) AS has_pin
@@ -3846,6 +3851,7 @@ const server = createServer(async (request, response) => {
           name: rows[0].name,
           email: rows[0].email,
           phone: rows[0].phone || '',
+          pbxExtension: rows[0].pbx_extension || '',
           avatarUrl: rows[0].avatar_url || '',
           role: rows[0].role,
           active: Boolean(rows[0].active),
