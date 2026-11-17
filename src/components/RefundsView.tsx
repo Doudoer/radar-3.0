@@ -40,6 +40,24 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
   const busyRef = useRef(false);
   const generation = useRef(0);
   const [scopeFilter, setScopeFilter] = useState<'all' | 'purchase' | 'core'>('all');
+  const [view, setView] = useState<'board' | 'list'>(() => {
+    try {
+      const saved = typeof window !== 'undefined' ? window.localStorage.getItem('radar.refunds.view') : null;
+      return saved === 'list' ? 'list' : 'board';
+    } catch {
+      return 'board';
+    }
+  });
+
+  const changeView = (next: 'board' | 'list') => {
+    setView(next);
+    if (next === 'board') setStatus('all');
+    try {
+      window.localStorage.setItem('radar.refunds.view', next);
+    } catch {
+      // optional
+    }
+  };
 
   const load = useCallback(async () => {
     const requestId = ++generation.current;
@@ -95,13 +113,18 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
 
   const stats = useMemo(() => {
     const pendingList = refunds.filter((r) => r.status === 'pending');
+    const requestedList = pendingList.filter((r) => !r.reviewStage || r.reviewStage === 'requested' || r.reviewStage === 'pending');
+    const inReviewList = pendingList.filter((r) => r.reviewStage === 'review' || r.reviewStage === 'approved');
     const completedList = refunds.filter((r) => r.status === 'completed');
-    const pendingAmount = pendingList.reduce((acc, r) => acc + Number(r.amount || 0), 0);
+    const requestedAmount = requestedList.reduce((acc, r) => acc + Number(r.amount || 0), 0);
+    const inReviewAmount = inReviewList.reduce((acc, r) => acc + Number(r.amount || 0), 0);
     const completedAmount = completedList.reduce((acc, r) => acc + Number(r.amount || 0), 0);
     return {
       totalCount: refunds.length,
-      pendingCount: pendingList.length,
-      pendingAmount,
+      requestedCount: requestedList.length,
+      requestedAmount,
+      inReviewCount: inReviewList.length,
+      inReviewAmount,
       completedCount: completedList.length,
       completedAmount,
     };
@@ -156,14 +179,42 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          className="horizon-primary rounded-xl px-4 py-2 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
-          onClick={() => setCreating(true)}
-        >
-          <span aria-hidden="true" className="material-symbols-outlined text-[16px]">add_circle</span>
-          <span>Nueva solicitud</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] p-0.5">
+            <button
+              type="button"
+              onClick={() => changeView('board')}
+              className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
+                view === 'board'
+                  ? 'bg-[var(--bg-card)] text-[var(--text-primary)] shadow-sm'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <span aria-hidden="true" className="material-symbols-outlined text-[15px]">view_kanban</span>
+              <span>Tablero</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => changeView('list')}
+              className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
+                view === 'list'
+                  ? 'bg-[var(--bg-card)] text-[var(--text-primary)] shadow-sm'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <span aria-hidden="true" className="material-symbols-outlined text-[15px]">view_list</span>
+              <span>Lista</span>
+            </button>
+          </div>
+          <button
+            type="button"
+            className="horizon-primary rounded-xl px-4 py-2 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
+            onClick={() => setCreating(true)}
+          >
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">add_circle</span>
+            <span>Nueva solicitud</span>
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -178,39 +229,51 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
       )}
 
       {/* KPI Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="horizon-view-card p-4 flex items-center justify-between gap-3">
-          <div>
-            <span className="text-xs text-[var(--text-secondary)] block">Solicitudes pendientes</span>
-            <strong className="text-xl sm:text-2xl font-black text-[var(--state-urgency-text)] tabular-nums">
-              {stats.pendingCount} · ${stats.pendingAmount.toFixed(2)}
+          <div className="min-w-0">
+            <span className="text-xs text-[var(--text-secondary)] block truncate">Solicitados</span>
+            <strong className="text-lg sm:text-xl font-black text-[var(--state-urgency-text)] tabular-nums">
+              {stats.requestedCount} · ${stats.requestedAmount.toFixed(0)}
             </strong>
           </div>
-          <span className="w-10 h-10 rounded-xl bg-[var(--state-urgency-tint)] border border-[var(--state-urgency-border)] text-[var(--state-urgency-text)] flex items-center justify-center">
+          <span className="w-10 h-10 rounded-xl bg-[var(--state-urgency-tint)] border border-[var(--state-urgency-border)] text-[var(--state-urgency-text)] flex items-center justify-center shrink-0">
             <span aria-hidden="true" className="material-symbols-outlined text-[20px]">hourglass_top</span>
           </span>
         </div>
 
         <div className="horizon-view-card p-4 flex items-center justify-between gap-3">
-          <div>
-            <span className="text-xs text-[var(--text-secondary)] block">Reembolsos completados</span>
-            <strong className="text-xl sm:text-2xl font-black text-[var(--positive)] tabular-nums">
-              {stats.completedCount} · ${stats.completedAmount.toFixed(2)}
+          <div className="min-w-0">
+            <span className="text-xs text-[var(--text-secondary)] block truncate">En revisión / Aprob.</span>
+            <strong className="text-lg sm:text-xl font-black text-[var(--brand)] tabular-nums">
+              {stats.inReviewCount} · ${stats.inReviewAmount.toFixed(0)}
             </strong>
           </div>
-          <span className="w-10 h-10 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--positive)] text-[var(--positive)] flex items-center justify-center">
+          <span className="w-10 h-10 rounded-xl bg-[var(--brand-soft)] border border-[var(--brand)] text-[var(--brand)] flex items-center justify-center shrink-0">
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">rate_review</span>
+          </span>
+        </div>
+
+        <div className="horizon-view-card p-4 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <span className="text-xs text-[var(--text-secondary)] block truncate">Completados</span>
+            <strong className="text-lg sm:text-xl font-black text-[var(--positive)] tabular-nums">
+              {stats.completedCount} · ${stats.completedAmount.toFixed(0)}
+            </strong>
+          </div>
+          <span className="w-10 h-10 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--positive)] text-[var(--positive)] flex items-center justify-center shrink-0">
             <span aria-hidden="true" className="material-symbols-outlined text-[20px]">paid</span>
           </span>
         </div>
 
         <div className="horizon-view-card p-4 flex items-center justify-between gap-3">
-          <div>
-            <span className="text-xs text-[var(--text-secondary)] block">Total solicitudes registradas</span>
-            <strong className="text-xl sm:text-2xl font-black text-[var(--text-primary)] tabular-nums">
+          <div className="min-w-0">
+            <span className="text-xs text-[var(--text-secondary)] block truncate">Total registrados</span>
+            <strong className="text-lg sm:text-xl font-black text-[var(--text-primary)] tabular-nums">
               {stats.totalCount}
             </strong>
           </div>
-          <span className="w-10 h-10 rounded-xl bg-[var(--brand-soft)] border border-[var(--border-color)] text-[var(--brand)] flex items-center justify-center">
+          <span className="w-10 h-10 rounded-xl bg-[var(--brand-soft)] border border-[var(--border-color)] text-[var(--brand)] flex items-center justify-center shrink-0">
             <span aria-hidden="true" className="material-symbols-outlined text-[20px]">receipt_long</span>
           </span>
         </div>
@@ -226,43 +289,19 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
-          <select
-            className={fieldClass}
-            aria-label="Estado del reembolso"
-            value={status}
-            onChange={(event) => setStatus(event.target.value)}
-          >
-            <option value="all">Todos</option>
-            <option value="pending">Pendientes</option>
-            <option value="completed">Completados</option>
-            <option value="cancelled">Cancelados</option>
-          </select>
-        </div>
-
-        {/* 1-Click Filter Pills */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[var(--border-color)]">
-          <div className="flex flex-wrap items-center gap-1.5">
-            {[
-              { id: 'all', label: 'Todos los estados' },
-              { id: 'pending', label: '⏳ Pendientes' },
-              { id: 'completed', label: '✅ Completados' },
-              { id: 'cancelled', label: '🚫 Cancelados' },
-            ].map((pill) => (
-              <button
-                key={pill.id}
-                type="button"
-                onClick={() => setStatus(pill.id)}
-                className={`rounded-lg border px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${
-                  status === pill.id
-                    ? 'bg-[var(--brand-soft)] border-[var(--brand)] text-[var(--brand)] shadow-sm'
-                    : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                }`}
-              >
-                {pill.label}
-              </button>
-            ))}
-          </div>
-
+          {view === 'list' && (
+            <select
+              className={fieldClass}
+              aria-label="Estado del reembolso"
+              value={status}
+              onChange={(event) => setStatus(event.target.value)}
+            >
+              <option value="all">Todos</option>
+              <option value="pending">Pendientes</option>
+              <option value="completed">Completados</option>
+              <option value="cancelled">Cancelados</option>
+            </select>
+          )}
           <div className="flex flex-wrap items-center gap-1.5">
             {(
               [
@@ -275,7 +314,7 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
                 key={sc.id}
                 type="button"
                 onClick={() => setScopeFilter(sc.id)}
-                className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition-all cursor-pointer ${
+                className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
                   scopeFilter === sc.id
                     ? 'bg-[var(--bg-card-subtle)] border-[var(--positive)] text-[var(--positive)]'
                     : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -286,9 +325,160 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
             ))}
           </div>
         </div>
+
+        {/* 1-Click Status Filter Pills (List Mode) */}
+        {view === 'list' && (
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[var(--border-color)]">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                { id: 'all', label: 'Todos los estados' },
+                { id: 'pending', label: '⏳ Pendientes' },
+                { id: 'completed', label: '✅ Completados' },
+                { id: 'cancelled', label: '🚫 Cancelados' },
+              ].map((pill) => (
+                <button
+                  key={pill.id}
+                  type="button"
+                  onClick={() => setStatus(pill.id)}
+                  className={`rounded-lg border px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${
+                    status === pill.id
+                      ? 'bg-[var(--brand-soft)] border-[var(--brand)] text-[var(--brand)] shadow-sm'
+                      : 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                >
+                  {pill.label}
+                </button>
+              ))}
+            </div>
+            <span className="text-[11px] font-semibold text-[var(--text-secondary)] tabular-nums">
+              {filtered.length} de {refunds.length}
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Refund Cards List */}
+      {/* Refund Board or Cards List */}
+      {view === 'board' ? (
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          {[
+            {
+              id: 'requested',
+              label: 'Solicitados',
+              icon: 'pending_actions',
+              match: (r: RefundRequest) =>
+                r.status === 'pending' && (!r.reviewStage || r.reviewStage === 'requested' || r.reviewStage === 'pending'),
+            },
+            {
+              id: 'in_review',
+              label: 'En revisión / Aprobados',
+              icon: 'rate_review',
+              match: (r: RefundRequest) =>
+                r.status === 'pending' && (r.reviewStage === 'review' || r.reviewStage === 'approved'),
+            },
+            {
+              id: 'closed',
+              label: 'Completados / Cerrados',
+              icon: 'task_alt',
+              match: (r: RefundRequest) => r.status !== 'pending',
+            },
+          ].map((column) => {
+            const items = filtered.filter(column.match);
+            return (
+              <section
+                key={column.id}
+                className="flex min-h-[220px] flex-col rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)]"
+              >
+                <header className="flex items-center justify-between gap-2 border-b border-[var(--border-color)] px-3.5 py-2.5">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[17px] text-[var(--brand)]">{column.icon}</span>
+                    <h2 className="truncate text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">{column.label}</h2>
+                    <span className="rounded-full border border-[var(--border-color)] bg-[var(--bg-card)] px-1.5 py-0.5 text-[10.5px] font-bold tabular-nums text-[var(--text-primary)]">
+                      {items.length}
+                    </span>
+                  </div>
+                </header>
+                <div className="flex flex-1 flex-col gap-2 p-2.5">
+                  {items.map((refund) => {
+                    const isCore = refund.refundScope === 'core';
+                    const stageKey = refund.reviewStage || refund.status;
+                    const badge = STAGE_BADGES[stageKey] || {
+                      label: stageKey,
+                      cls: 'bg-[var(--bg-card-subtle)] border-[var(--border-color)] text-[var(--text-secondary)]',
+                    };
+                    return (
+                      <article
+                        key={refund.id}
+                        className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-3 space-y-2 shadow-sm hover:border-[var(--brand)]/60 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <strong className="font-mono text-xs font-black text-[var(--brand)]">
+                                {refund.id} · {refund.orderCode}
+                              </strong>
+                              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                                isCore
+                                  ? 'bg-purple-500/15 border-purple-500/35 text-purple-400'
+                                  : 'bg-[var(--brand-soft)] border-[var(--brand)] text-[var(--brand)]'
+                              }`}>
+                                {isCore ? 'Core' : 'Compra'}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs font-bold text-[var(--text-primary)] truncate">
+                              {refund.customerName}
+                            </p>
+                            <p className="text-[11px] text-[var(--text-secondary)] truncate">
+                              {refund.vehicle} · {refund.part}
+                            </p>
+                          </div>
+                          <span className="font-mono text-sm font-black text-[var(--text-primary)] tabular-nums shrink-0">
+                            ${Number(refund.amount).toFixed(2)}
+                          </span>
+                        </div>
+
+                        <p className="text-[11px] text-[var(--text-secondary)] line-clamp-2">
+                          {refund.reason}
+                        </p>
+
+                        <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-[var(--border-color)]">
+                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${badge.cls}`}>
+                            {badge.label}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {onSelectOrder && (
+                              <button
+                                type="button"
+                                className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-card-subtle)] px-2 py-1 text-[10.5px] font-bold text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+                                onClick={() => onSelectOrder(String(refund.orderId))}
+                              >
+                                Ver orden
+                              </button>
+                            )}
+                            {userRole === 'admin' && refund.status === 'pending' && (
+                              <button
+                                type="button"
+                                className="horizon-primary rounded-lg px-2.5 py-1 text-[10.5px] font-bold cursor-pointer"
+                                onClick={() => setManagingId(String(refund.orderId))}
+                              >
+                                Gestionar revisión, aprobación y devolución
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                  {!items.length && (
+                    <p className="px-2 py-10 text-center text-[11px] text-[var(--text-secondary)]">
+                      Sin solicitudes en esta etapa.
+                    </p>
+                  )}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      ) : (
       <div className="space-y-3">
         {filtered.map((refund) => {
           const isCore = refund.refundScope === 'core';
@@ -392,6 +582,7 @@ export const RefundsView: React.FC<RefundsViewProps> = ({ orders, userRole = 'op
           </div>
         )}
       </div>
+      )}
 
       {/* Legacy Informative Accordion */}
       {hasLoaded && (status === 'all' || status === 'completed') && legacyOrders.length > 0 && (

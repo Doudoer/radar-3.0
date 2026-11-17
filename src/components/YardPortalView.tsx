@@ -7,6 +7,7 @@ import { YardPhotoGallery } from './YardPhotoGallery';
 import { YardCustomerBlock } from './YardCustomerBlock';
 import { expandYearRangesInText } from '../utils/compatibilityFormat';
 import { yardQueueCountsFromOrders, type YardQueueCounts, type YardQueueTab } from '../utils/yardQueue';
+import { downloadYardPendingPdf } from '../utils/yardPendingPdf';
 
 const YardProfileSheet = React.lazy(() => import('./UserProfileView').then((m) => ({ default: m.UserProfileView })));
 
@@ -411,6 +412,17 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
   const localCounts = useMemo(() => yardQueueCountsFromOrders(eligibleOrders), [eligibleOrders]);
   const counts = serverCounts ?? localCounts;
   const activeTab = YARD_TAB_META[filterTab];
+  const [generatingPendingPdf, setGeneratingPendingPdf] = useState(false);
+
+  const handleDownloadPendingPdf = async () => {
+    if (generatingPendingPdf) return;
+    setGeneratingPendingPdf(true);
+    try {
+      await downloadYardPendingPdf(eligibleOrders, currentUser?.name);
+    } finally {
+      setGeneratingPendingPdf(false);
+    }
+  };
 
   // La búsqueda server-side espera a que el operador deje de escribir
   useEffect(() => {
@@ -743,6 +755,21 @@ export const YardPortalView: React.FC<YardPortalViewProps> = ({
             </div>
 
             <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                disabled={generatingPendingPdf}
+                onClick={() => {
+                  triggerHaptic(10);
+                  void handleDownloadPendingPdf();
+                }}
+                title="Descargar PDF de piezas pendientes"
+                aria-label="Descargar PDF de piezas pendientes"
+                className="yard-icon-btn disabled:opacity-50"
+              >
+                <span aria-hidden="true" className={`material-symbols-outlined text-[21px] ${generatingPendingPdf ? 'animate-pulse text-cyan-400' : ''}`}>
+                  picture_as_pdf
+                </span>
+              </button>
               {currentUser?.id && (
                 <button
                   type="button"
