@@ -122,12 +122,36 @@ interface CallsLogViewProps {
 
 const VENEZUELA_TZ = 'America/Caracas';
 
+const NC_TZ = 'America/New_York';
+
 const getBusinessToday = (): string => new Intl.DateTimeFormat('en-CA', {
-  timeZone: VENEZUELA_TZ,
+  timeZone: NC_TZ,
   year: 'numeric',
   month: '2-digit',
   day: '2-digit',
 }).format(new Date());
+
+const getNcAndVenezuelaSchedule = (dateStr?: string): { ncRange: string; veRange: string; veShort: string } => {
+  const ref = dateStr ? new Date(`${dateStr}T12:00:00Z`) : new Date();
+  const safeRef = Number.isNaN(ref.getTime()) ? new Date() : ref;
+  const getHour = (tz: string) => {
+    const h = Number(
+      new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', hour12: false }).format(safeRef),
+    );
+    return h === 24 ? 0 : h;
+  };
+  const diffHours = getHour(VENEZUELA_TZ) - getHour(NC_TZ);
+  const offset = diffHours === 0 ? 0 : 1;
+  const veStart = 8 + offset;
+  const veEnd = 17 + offset;
+  const fmt = (h: number) => `${h > 12 ? h - 12 : h}:00 ${h >= 12 ? 'PM' : 'AM'}`;
+  const fmtShort = (h: number) => `${h > 12 ? h - 12 : h}${h >= 12 ? 'PM' : 'AM'}`;
+  return {
+    ncRange: '8:00 AM – 5:00 PM',
+    veRange: `${fmt(veStart)} – ${fmt(veEnd)}`,
+    veShort: `${fmtShort(veStart)}–${fmtShort(veEnd)}`,
+  };
+};
 
 const formatDuration = (seconds: number): string => {
   const s = Math.max(0, Math.round(seconds || 0));
@@ -539,6 +563,7 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
   }, [analyticsDays]);
 
   const isViewingToday = selectedDate === todayDate;
+  const schedule = useMemo(() => getNcAndVenezuelaSchedule(selectedDate), [selectedDate]);
 
   return (
     <div className={mobileAppMode ? 'space-y-3' : 'space-y-4'}>
@@ -547,7 +572,7 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
           <div>
             <h1 className="text-xl font-black text-[var(--text-heading)]">Registro de Llamadas (Issabel PBX)</h1>
             <p className="text-xs text-[var(--text-muted)]">
-              Registro diario con corte automático a las 12:00 AM (Venezuela) · Horario de atención: 7:00 AM – 6:00 PM.
+              Corte diario 12:00 AM (Carolina del Norte) · Horario laboral: <strong>{schedule.ncRange} NC</strong> (<strong>{schedule.veRange} Venezuela</strong>).
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -795,7 +820,7 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
 
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-2 text-[11px] text-[var(--text-secondary)]">
                 <span>
-                  <strong>Horario 7:00 AM – 6:00 PM:</strong> {summary.businessHoursCalls} llamadas ({summary.businessHoursAnswered} contestadas · {summary.businessHoursMissed} perdidas)
+                  <strong>Horario {schedule.ncRange} NC ({schedule.veRange} VE):</strong> {summary.businessHoursCalls} llamadas ({summary.businessHoursAnswered} contestadas · {summary.businessHoursMissed} perdidas)
                 </span>
                 <span>
                   <strong>Fuera de horario:</strong> {summary.afterHoursCalls} · <strong>Promedio hablado:</strong> {formatDuration(summary.avgBillsecSeconds)}
@@ -1158,7 +1183,7 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
                 <p className="mt-0.5 text-lg font-black tabular-nums text-cyan-600 dark:text-cyan-400">{analyticsTotals.total}</p>
               </div>
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">7AM–6PM</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">8AM–5PM NC</p>
                 <p className="mt-0.5 text-lg font-black tabular-nums text-emerald-600 dark:text-emerald-400">{analyticsTotals.bhAnswerRate}%</p>
               </div>
               <div>
@@ -1179,7 +1204,7 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
                 <p className="mt-1 text-2xl font-black tabular-nums text-cyan-600 dark:text-cyan-400">{analyticsTotals.total}</p>
               </div>
               <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Atención 7AM–6PM</p>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Atención 8AM–5PM NC ({schedule.veShort} VE)</p>
                 <p className="mt-1 text-2xl font-black tabular-nums text-emerald-600 dark:text-emerald-400">{analyticsTotals.bhAnswerRate}%</p>
               </div>
               <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
@@ -1439,7 +1464,7 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
                     <th className="px-4 py-3">Salientes</th>
                     <th className="px-4 py-3">Contestadas</th>
                     <th className="px-4 py-3">Perdidas</th>
-                    <th className="px-4 py-3">7AM–6PM</th>
+                    <th className="px-4 py-3">8AM–5PM NC ({schedule.veShort} VE)</th>
                     <th className="px-4 py-3">Fuera horario</th>
                     <th className="px-4 py-3">Prom.</th>
                     <th className="px-4 py-3 text-right">Cierre</th>

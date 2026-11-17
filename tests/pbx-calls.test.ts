@@ -140,13 +140,14 @@ describe('pbxCalls helpers', () => {
     });
   });
 
-  it('detects 7am-6pm Venezuela (America/Caracas) business hours and persists daily summaries for analytics', async () => {
-    expect(isDuringPbxBusinessHours('2026-11-15T11:00:00.000Z')).toBe(true); // 07:00 VET (UTC-4)
-    expect(isDuringPbxBusinessHours('2026-11-15T21:59:00.000Z')).toBe(true); // 17:59 VET (UTC-4)
-    expect(isDuringPbxBusinessHours('2026-11-15T22:00:00.000Z')).toBe(false); // 18:00 VET (UTC-4)
+  it('detects 8am-5pm North Carolina (America/New_York) business hours and persists daily summaries for analytics', async () => {
+    expect(isDuringPbxBusinessHours('2026-11-15T12:59:00.000Z')).toBe(false); // 07:59 EST
+    expect(isDuringPbxBusinessHours('2026-11-15T13:00:00.000Z')).toBe(true); // 08:00 EST
+    expect(isDuringPbxBusinessHours('2026-11-15T21:59:00.000Z')).toBe(true); // 16:59 EST
+    expect(isDuringPbxBusinessHours('2026-11-15T22:00:00.000Z')).toBe(false); // 17:00 EST
     const range = getUtcRangeForPbxDate('2026-11-15');
-    expect(range.startUtc).toBe('2026-11-15 04:00:00');
-    expect(range.endUtc).toBe('2026-11-16 04:00:00');
+    expect(range.startUtc).toBe('2026-11-15 05:00:00');
+    expect(range.endUtc).toBe('2026-11-16 05:00:00');
 
     const { pool, execute } = createMockPool((sql) => {
       if (sql.includes('FROM users')) {
@@ -192,7 +193,7 @@ describe('pbxCalls helpers', () => {
     expect(execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO pbx_daily_summaries'), expect.any(Array));
 
     const analytics = await listPbxDailyAnalytics(pool, 7);
-    expect(analytics.businessHours).toEqual({ start: '07:00', end: '18:00', timeZone: 'America/Caracas' });
+    expect(analytics.businessHours).toEqual({ start: '08:00', end: '17:00', timeZone: 'America/New_York' });
     expect(analytics.days.length).toBeGreaterThanOrEqual(2);
     expect(analytics.employeePerformance.find((e) => e.pbxExtension === '204')).toMatchObject({
       userName: 'Darrel Machado',
@@ -413,8 +414,8 @@ describe('pbxCalls helpers', () => {
       }
       if (sql.includes('WHERE occurred_at >= ? AND occurred_at < ?')) {
         return [
-          { extension: '204', status: 'online', reason: 'ContactStatus:Reachable', occurred_at: '2026-11-15T11:00:00.000Z' }, // 07:00 VET
-          { extension: '204', status: 'offline', reason: 'ContactStatus:Removed', occurred_at: '2026-11-15T13:00:00.000Z' }, // 09:00 VET (2h)
+          { extension: '204', status: 'online', reason: 'ContactStatus:Reachable', occurred_at: '2026-11-15T13:00:00.000Z' }, // 08:00 EST
+          { extension: '204', status: 'offline', reason: 'ContactStatus:Removed', occurred_at: '2026-11-15T15:00:00.000Z' }, // 10:00 EST (2h)
         ];
       }
       return [];
@@ -422,7 +423,7 @@ describe('pbxCalls helpers', () => {
     expect(await recordPbxExtensionPresence(pool, '204', 'online', 'ContactStatus')).toBe(true);
     expect(execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO pbx_extension_presence_logs'), expect.any(Array));
 
-    const now = new Date('2026-11-15T15:00:00.000Z'); // 11:00 VET (4h elapsed in workday 07:00-11:00)
+    const now = new Date('2026-11-15T17:00:00.000Z'); // 12:00 EST (4h elapsed in workday 08:00-12:00)
     const report = await getPbxExtensionsPresenceReport(pool, '2026-11-15', { '204': 'offline' }, now);
     expect(report.extensions[0]).toMatchObject({
       extension: '204',

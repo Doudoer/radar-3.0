@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../services/apiFetch';
 import { CallsLogView } from './CallsLogView';
 
@@ -7,10 +7,13 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
+const KEYPAD_DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+
 export const CallsMonitorPortalView: React.FC = () => {
   const [checking, setChecking] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const [code, setCode] = useState('');
+  const [useTextInput, setUseTextInput] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -77,9 +80,8 @@ export const CallsMonitorPortalView: React.FC = () => {
     return () => { active = false; };
   }, []);
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const cleaned = code.trim();
+  const submitCode = useCallback(async (rawCode: string) => {
+    const cleaned = rawCode.trim();
     if (!cleaned) {
       setError('Ingresa el código de acceso.');
       return;
@@ -102,7 +104,47 @@ export const CallsMonitorPortalView: React.FC = () => {
     } finally {
       setBusy(false);
     }
+  }, []);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    await submitCode(code);
   };
+
+  const pressDigit = useCallback((digit: string) => {
+    if (busy) return;
+    setError('');
+    setCode((prev) => (prev.length >= 12 ? prev : `${prev}${digit}`));
+  }, [busy]);
+
+  const pressBackspace = useCallback(() => {
+    if (busy) return;
+    setError('');
+    setCode((prev) => prev.slice(0, -1));
+  }, [busy]);
+
+  useEffect(() => {
+    if (checking || authenticated || useTextInput) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (/^[0-9]$/.test(event.key)) {
+        event.preventDefault();
+        pressDigit(event.key);
+      } else if (event.key === 'Backspace') {
+        event.preventDefault();
+        pressBackspace();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        setCode('');
+        setError('');
+      } else if (event.key === 'Enter' && code.trim().length > 0) {
+        event.preventDefault();
+        void submitCode(code);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [checking, authenticated, useTextInput, code, pressDigit, pressBackspace, submitCode]);
 
   const logout = async () => {
     try {
@@ -120,58 +162,150 @@ export const CallsMonitorPortalView: React.FC = () => {
   }
 
   if (!authenticated) {
+    const dotCount = Math.max(4, code.length);
     return (
       <div className="min-h-screen w-full flex items-center justify-center bg-[var(--bg-primary)] text-[var(--text-primary)] p-4">
-        <div className="w-full max-w-md rounded-3xl border border-[var(--border-color)] bg-[var(--bg-card)] p-6 sm:p-8 shadow-2xl space-y-6">
+        <div className="w-full max-w-md rounded-3xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-6 sm:p-8 shadow-2xl space-y-5">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-400 flex items-center justify-center shrink-0">
+            <div className="w-12 h-12 rounded-2xl bg-cyan-500/15 border border-cyan-500/35 text-cyan-500 flex items-center justify-center shrink-0">
               <span aria-hidden="true" className="material-symbols-outlined text-[26px]">call</span>
             </div>
             <div>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-cyan-400 block">
-                URL Dedicada · /llamadas
+              <span className="text-[11px] font-bold uppercase tracking-wider text-cyan-500 block">
+                Portal Calls · calls.radar-rsy.store
               </span>
-              <h1 className="text-xl font-black text-[var(--text-primary)]">Monitor de Llamadas</h1>
+              <h1 className="text-xl font-black text-[var(--text-heading)]">Monitor de Llamadas</h1>
             </div>
           </div>
 
-          <p className="text-xs sm:text-sm text-[var(--text-secondary)] leading-relaxed">
-            Vista exclusiva de monitoreo telefónico en vivo. Ingresa el código configurado en Configuración del Sistema.
+          <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+            Ingresa el código global de Llamadas configurado en Seguridad &amp; Control de Acceso.
           </p>
 
-          <form onSubmit={submit} className="space-y-4">
-            <label className="block space-y-1.5">
-              <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)]">
-                Código de acceso
-              </span>
-              <input
-                type="password"
-                autoFocus
-                autoComplete="one-time-code"
-                maxLength={64}
-                value={code}
-                disabled={busy}
-                onChange={event => setCode(event.target.value)}
-                placeholder="Ingresa el código del monitor"
-                className="w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-card-subtle)] px-4 py-3 text-center text-lg font-mono tracking-[0.25em] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-              />
-            </label>
-
-            {error && (
-              <p role="alert" className="rounded-xl border border-rose-500/35 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-400">
-                {error}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              disabled={busy || !code.trim()}
-              className="cyber-btn-primary w-full py-3 font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+          {error && (
+            <div
+              role="alert"
+              className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-500 dark:text-rose-300 font-mono flex items-center gap-2"
             >
-              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">lock_open</span>
-              <span>{busy ? 'Verificando código…' : 'Entrar al Monitor de Llamadas'}</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">error</span>
+              <span>{error}</span>
+            </div>
+          )}
+
+          {!useTextInput ? (
+            <div className="space-y-4">
+              <div className="text-center">
+                <p className="text-xs font-mono font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-3">
+                  Marca el código de acceso
+                </p>
+                <div className="flex items-center justify-center gap-3 flex-wrap" aria-hidden="true">
+                  {Array.from({ length: dotCount }).map((_, index) => (
+                    <span
+                      key={index}
+                      className={`h-4 w-4 rounded-full border-2 transition-all ${
+                        index < code.length
+                          ? 'border-[var(--brand-solid)] bg-[var(--brand-solid)] shadow-[0_0_10px_rgba(79,70,229,0.45)]'
+                          : 'border-[var(--border-subtle)] bg-transparent'
+                      }`}
+                    />
+                  ))}
+                </div>
+                <p role="status" aria-live="polite" className="sr-only">
+                  {code.length} dígitos ingresados
+                </p>
+              </div>
+
+              <div role="group" aria-label="Teclado numérico del código de llamadas" className="grid grid-cols-3 gap-2.5">
+                {KEYPAD_DIGITS.map((digit) => (
+                  <button
+                    key={digit}
+                    type="button"
+                    onClick={() => pressDigit(digit)}
+                    disabled={busy}
+                    aria-label={`Dígito ${digit}`}
+                    className="h-14 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-xl font-mono font-bold text-[var(--text-heading)] transition-all active:scale-[0.97] hover:border-[var(--brand-solid)] focus:outline-none disabled:opacity-50 cursor-pointer"
+                  >
+                    {digit}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => { setCode(''); setError(''); }}
+                  disabled={busy || code.length === 0}
+                  aria-label="Borrar todo el código"
+                  className="h-14 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] transition-all active:scale-[0.97] hover:border-[var(--brand-solid)] focus:outline-none disabled:opacity-40 cursor-pointer flex items-center justify-center"
+                >
+                  <span aria-hidden="true" className="material-symbols-outlined text-[20px]">delete_sweep</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => pressDigit('0')}
+                  disabled={busy}
+                  aria-label="Dígito 0"
+                  className="h-14 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-xl font-mono font-bold text-[var(--text-heading)] transition-all active:scale-[0.97] hover:border-[var(--brand-solid)] focus:outline-none disabled:opacity-50 cursor-pointer"
+                >
+                  0
+                </button>
+                <button
+                  type="button"
+                  onClick={pressBackspace}
+                  disabled={busy || code.length === 0}
+                  aria-label="Borrar el último dígito"
+                  className="h-14 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] transition-all active:scale-[0.97] hover:border-[var(--brand-solid)] focus:outline-none disabled:opacity-40 cursor-pointer flex items-center justify-center"
+                >
+                  <span aria-hidden="true" className="material-symbols-outlined text-[20px]">backspace</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => { void submitCode(code); }}
+                disabled={busy || code.trim().length < 4}
+                className="w-full rounded-xl bg-[var(--brand-solid)] hover:bg-[var(--brand-hover)] !text-white font-bold py-3 text-sm flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">lock_open</span>
+                <span>{busy ? 'Verificando código…' : 'Entrar al Monitor de Llamadas'}</span>
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={submit} className="space-y-4">
+              <label className="block space-y-1.5">
+                <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)]">
+                  Código de acceso
+                </span>
+                <input
+                  type="password"
+                  autoFocus
+                  autoComplete="one-time-code"
+                  maxLength={64}
+                  value={code}
+                  disabled={busy}
+                  onChange={event => setCode(event.target.value)}
+                  placeholder="Ingresa el código del monitor"
+                  className="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 text-center text-lg font-mono tracking-[0.25em] text-[var(--text-heading)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-solid)]/40"
+                />
+              </label>
+
+              <button
+                type="submit"
+                disabled={busy || !code.trim()}
+                className="w-full rounded-xl bg-[var(--brand-solid)] hover:bg-[var(--brand-hover)] !text-white font-bold py-3 text-sm flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">lock_open</span>
+                <span>{busy ? 'Verificando código…' : 'Entrar al Monitor de Llamadas'}</span>
+              </button>
+            </form>
+          )}
+
+          <div className="pt-1 text-center">
+            <button
+              type="button"
+              onClick={() => { setUseTextInput((v) => !v); setCode(''); setError(''); }}
+              className="text-[11px] font-semibold text-[var(--text-muted)] hover:text-[var(--text-heading)] underline-offset-2 hover:underline cursor-pointer"
+            >
+              {useTextInput ? 'Usar pad numérico' : '¿Código con letras? Usar teclado completo'}
             </button>
-          </form>
+          </div>
         </div>
       </div>
     );

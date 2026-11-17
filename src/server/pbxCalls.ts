@@ -625,9 +625,9 @@ export const listActiveIncomingCalls = async (pool: Pool): Promise<PbxCallRecord
   return rows.map(mapCallRow);
 };
 
-export const PBX_BUSINESS_TIMEZONE = 'America/Caracas';
-export const PBX_BUSINESS_START_HOUR = 7;
-export const PBX_BUSINESS_END_HOUR = 18;
+export const PBX_BUSINESS_TIMEZONE = 'America/New_York';
+export const PBX_BUSINESS_START_HOUR = 8;
+export const PBX_BUSINESS_END_HOUR = 17;
 
 const getTimeZoneParts = (date: Date, timeZone = PBX_BUSINESS_TIMEZONE) => {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -1037,7 +1037,7 @@ export const listPbxDailyAnalytics = async (
   const sorted = [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
   return {
     today,
-    businessHours: { start: '07:00', end: '18:00', timeZone: PBX_BUSINESS_TIMEZONE },
+    businessHours: { start: '08:00', end: '17:00', timeZone: PBX_BUSINESS_TIMEZONE },
     days: sorted,
     employeePerformance,
   };
