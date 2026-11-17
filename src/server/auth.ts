@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { jwtSecret, pool } from './config';
 
-export type Claims = jwt.JwtPayload & { role?: string; sub?: string | number };
+export type Claims = jwt.JwtPayload & { role?: string; sub?: string | number; scope?: string };
 
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 
@@ -94,6 +94,20 @@ export const isPinInUse = async (pin: string, excludeUserId?: number) => {
 export const userIsActive = async (claims: Claims) => {
   if (!claims.sub) return false;
   try {
+    if (claims.scope === 'yard_global') {
+      const [settingRows] = await pool.query<RowDataPacket[]>(
+        "SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN ('yard.global_access_code_hash', 'yard.global_code_version')",
+      );
+      const map = new Map(settingRows.map((r) => [String(r.setting_key), String(r.setting_value ?? '')]));
+      const hash = (map.get('yard.global_access_code_hash') || '').trim();
+      if (!hash) return false;
+      const version = Number(map.get('yard.global_code_version') || 1) || 1;
+      if (claims.sessionVersion !== undefined && Number(claims.sessionVersion) !== version) return false;
+      claims.sessionVersion = version;
+      claims.role = 'vendedor_yarda';
+      return true;
+    }
+
     const [rows] = await pool.query<RowDataPacket[]>(
       'SELECT * FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
       [claims.sub]

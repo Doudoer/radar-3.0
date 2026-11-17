@@ -552,8 +552,41 @@ const server = createServer(async (request, response) => {
           }
         }
         if (!user) {
+          // Si no coincide con ningún PIN de empleado, verifica si existe un código global de Yarda.
+          const [yardCodeRows] = await pool.query<RowDataPacket[]>(
+            "SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN ('yard.global_access_code_hash', 'yard.global_code_version')",
+          );
+          const yardMap = new Map(yardCodeRows.map((r) => [String(r.setting_key), String(r.setting_value ?? '')]));
+          const globalHash = (yardMap.get('yard.global_access_code_hash') || '').trim();
+          const globalVersion = Number(yardMap.get('yard.global_code_version') || 1) || 1;
+          if (globalHash && await bcrypt.compare(pin, globalHash)) {
+            const token = jwt.sign(
+              { sub: 'yard-global', role: 'vendedor_yarda', email: 'yard@radar.local', scope: 'yard_global', sessionVersion: globalVersion },
+              jwtSecret,
+              { expiresIn: '30d' },
+            );
+            setSessionCookie(response, token, 30 * 24 * 60 * 60);
+            void recordAuditLog(pool, {
+              username: 'yard@radar.local',
+              action: 'LOGIN_SUCCESS',
+              resourceType: 'auth',
+              details: { role: 'vendedor_yarda', method: 'yard_global_code' },
+              ipAddress: ip,
+              userAgent,
+            });
+            return sendJson(response, 200, {
+              user: {
+                id: 0,
+                name: 'Personal de Patio',
+                email: 'yard@radar.local',
+                phone: '',
+                avatar_url: '',
+                role: 'vendedor_yarda',
+              },
+            });
+          }
           // Equipara el tiempo de respuesta cuando no hay usuarios con PIN configurado.
-          if (rows.length === 0) await bcrypt.compare(pin, '$2b$12$6FGd3C7kJQ65reUTNa78ne9FCUG1I0zigqJFGA3oVQD3bBRXMrFkW');
+          if (rows.length === 0 && !globalHash) await bcrypt.compare(pin, '$2b$12$6FGd3C7kJQ65reUTNa78ne9FCUG1I0zigqJFGA3oVQD3bBRXMrFkW');
           void recordAuditLog(pool, {
             action: 'LOGIN_FAILED',
             resourceType: 'auth',
@@ -561,7 +594,7 @@ const server = createServer(async (request, response) => {
             ipAddress: ip,
             userAgent,
           });
-          return sendJson(response, 401, { message: 'PIN incorrecto' });
+          return sendJson(response, 401, { message: 'PIN o código incorrecto' });
         }
         const sessionVersion = Number(user.session_version ?? 1) || 1;
         const token = jwt.sign({ sub: user.id, role: user.role, email: user.email, sessionVersion }, jwtSecret, { expiresIn: '30d' });
@@ -596,6 +629,61 @@ const server = createServer(async (request, response) => {
       }
     }
 
+    if (request.method === 'POST' && pathname === '/api/auth/yard-code') {
+      try {
+        if (!jwtSecret) return sendJson(response, 503, { message: 'JWT_SECRET no está configurado' });
+        const ip = clientAddress(request);
+        const userAgent = request.headers['user-agent'] || null;
+        const retryAfter = Math.max(
+          rateLimit(`pin-login:ip:${ip}`, 5, 15 * 60_000),
+          rateLimit('pin-login:global', 40, 15 * 60_000),
+        );
+        if (retryAfter > 0) {
+          response.setHeader('Retry-After', String(retryAfter));
+          return sendJson(response, 429, { message: 'Demasiados intentos. Espera unos minutos e intenta de nuevo.' });
+        }
+        const { code } = z.object({ code: z.string().trim().min(4, 'El código debe tener al menos 4 caracteres.').max(64) }).parse(await readBody(request));
+        const [yardCodeRows] = await pool.query<RowDataPacket[]>(
+          "SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN ('yard.global_access_code_hash', 'yard.global_code_version')",
+        );
+        const yardMap = new Map(yardCodeRows.map((r) => [String(r.setting_key), String(r.setting_value ?? '')]));
+        const globalHash = (yardMap.get('yard.global_access_code_hash') || '').trim();
+        const globalVersion = Number(yardMap.get('yard.global_code_version') || 1) || 1;
+        if (!globalHash || !(await bcrypt.compare(code, globalHash))) {
+          return sendJson(response, 401, { message: 'Código de acceso de Yarda incorrecto.' });
+        }
+        const token = jwt.sign(
+          { sub: 'yard-global', role: 'vendedor_yarda', email: 'yard@radar.local', scope: 'yard_global', sessionVersion: globalVersion },
+          jwtSecret,
+          { expiresIn: '30d' },
+        );
+        setSessionCookie(response, token, 30 * 24 * 60 * 60);
+        void recordAuditLog(pool, {
+          username: 'yard@radar.local',
+          action: 'LOGIN_SUCCESS',
+          resourceType: 'auth',
+          details: { role: 'vendedor_yarda', method: 'yard_global_code' },
+          ipAddress: ip,
+          userAgent,
+        });
+        return sendJson(response, 200, {
+          user: {
+            id: 0,
+            name: 'Personal de Patio',
+            email: 'yard@radar.local',
+            phone: '',
+            avatar_url: '',
+            role: 'vendedor_yarda',
+          },
+        });
+      } catch (err) {
+        if (err instanceof z.ZodError) {
+          return sendJson(response, 400, { message: err.issues[0]?.message || 'Código inválido.' });
+        }
+        throw err;
+      }
+    }
+
     if (request.method === 'POST' && pathname === '/api/auth/logout') {
       const maybeClaims = verifyToken(request);
       if (maybeClaims?.sub && await userIsActive(maybeClaims)) {
@@ -619,6 +707,19 @@ const server = createServer(async (request, response) => {
       const claims = verifyToken(request);
       if (!claims?.sub) return sendJson(response, 401, { message: 'Sesión no válida' });
       if (!await userIsActive(claims)) return sendJson(response, 401, { message: 'Sesión revocada' });
+      if (claims.scope === 'yard_global') {
+        return sendJson(response, 200, {
+          user: {
+            id: 0,
+            name: 'Personal de Patio',
+            email: 'yard@radar.local',
+            phone: '',
+            avatar_url: '',
+            role: 'vendedor_yarda',
+            theme: 'light',
+          },
+        });
+      }
       const [rows] = await pool.query<RowDataPacket[]>(
         'SELECT * FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
         [claims.sub]
@@ -4124,6 +4225,47 @@ const server = createServer(async (request, response) => {
         [hash, Number(authenticatedClaims?.sub || 0) || null],
       );
       return sendJson(response, 200, { ok: true, hasMonitorCode: true });
+    }
+
+    if (request.method === 'GET' && pathname === '/api/settings/yard/access-code') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const [rows] = await pool.query<RowDataPacket[]>(
+        "SELECT setting_value FROM app_settings WHERE setting_key='yard.global_access_code_hash' LIMIT 1",
+      );
+      return sendJson(response, 200, { hasGlobalCode: Boolean(rows[0]?.setting_value) });
+    }
+
+    if (request.method === 'PUT' && pathname === '/api/settings/yard/access-code') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const body = z.object({ code: z.string().trim().max(64) }).parse(await readBody(request));
+      const updatedBy = Number(authenticatedClaims?.sub || 0) || null;
+      if (!body.code) {
+        await pool.execute("DELETE FROM app_settings WHERE setting_key='yard.global_access_code_hash'");
+        await pool.execute(
+          `INSERT INTO app_settings (setting_key, setting_value, updated_by)
+           VALUES ('yard.global_code_version', '2', ?)
+           ON DUPLICATE KEY UPDATE setting_value=CAST(CAST(setting_value AS UNSIGNED)+1 AS CHAR), updated_by=VALUES(updated_by)`,
+          [updatedBy],
+        );
+        return sendJson(response, 200, { ok: true, hasGlobalCode: false });
+      }
+      if (body.code.length < 4) {
+        return sendJson(response, 400, { message: 'El código global de Yarda debe tener al menos 4 caracteres.' });
+      }
+      const hash = await bcrypt.hash(body.code, 12);
+      await pool.execute(
+        `INSERT INTO app_settings (setting_key, setting_value, updated_by)
+         VALUES ('yard.global_access_code_hash', ?, ?)
+         ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value), updated_by=VALUES(updated_by)`,
+        [hash, updatedBy],
+      );
+      await pool.execute(
+        `INSERT INTO app_settings (setting_key, setting_value, updated_by)
+         VALUES ('yard.global_code_version', '2', ?)
+         ON DUPLICATE KEY UPDATE setting_value=CAST(CAST(setting_value AS UNSIGNED)+1 AS CHAR), updated_by=VALUES(updated_by)`,
+        [updatedBy],
+      );
+      return sendJson(response, 200, { ok: true, hasGlobalCode: true });
     }
 
     if (request.method === 'POST' && pathname === '/api/settings/pbx/test') {

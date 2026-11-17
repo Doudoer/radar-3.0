@@ -144,6 +144,10 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   const [monitorCode, setMonitorCode] = useState('');
   const [hasMonitorCode, setHasMonitorCode] = useState(false);
   const [monitorCodeSaving, setMonitorCodeSaving] = useState(false);
+  const [yardGlobalCode, setYardGlobalCode] = useState('');
+  const [hasYardGlobalCode, setHasYardGlobalCode] = useState(false);
+  const [yardCodeSaving, setYardCodeSaving] = useState(false);
+  const [yardCodeMessage, setYardCodeMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showPbxGuide, setShowPbxGuide] = useState(false);
   const [pbxSaving, setPbxSaving] = useState(false);
   const [pbxRefreshing, setPbxRefreshing] = useState(false);
@@ -347,12 +351,15 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   const fetchPbxSettings = useCallback(async () => {
     if (!isSuperAdmin) return;
     try {
-      const [response, codeRes] = await Promise.all([
+      const [response, codeRes, yardCodeRes] = await Promise.all([
         apiFetch('/settings/pbx'),
         apiFetch('/settings/pbx/monitor-code'),
+        apiFetch('/settings/yard/access-code'),
       ]);
       const codePayload = await codeRes.json().catch(() => ({}));
       if (codeRes.ok) setHasMonitorCode(Boolean(codePayload.hasMonitorCode));
+      const yardCodePayload = await yardCodeRes.json().catch(() => ({}));
+      if (yardCodeRes.ok) setHasYardGlobalCode(Boolean(yardCodePayload.hasGlobalCode));
       const payload = await response.json().catch(() => ({}));
       if (response.ok) {
         setPbxSettings(payload);
@@ -503,6 +510,38 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       setPbxMessage({ type: 'error', text: error instanceof Error ? error.message : 'Error al guardar el código.' });
     } finally {
       setMonitorCodeSaving(false);
+    }
+  };
+
+  const saveYardGlobalCode = async (event: React.FormEvent, clear = false) => {
+    event.preventDefault();
+    if (yardCodeSaving) return;
+    const cleaned = clear ? '' : yardGlobalCode.trim();
+    if (!clear && cleaned.length < 4) {
+      setYardCodeMessage({ type: 'error', text: 'El código global de Yarda debe tener al menos 4 caracteres.' });
+      return;
+    }
+    setYardCodeSaving(true);
+    setYardCodeMessage(null);
+    try {
+      const response = await apiFetch('/settings/yard/access-code', {
+        method: 'PUT',
+        body: JSON.stringify({ code: cleaned }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'No se pudo actualizar el código de Yarda.');
+      setHasYardGlobalCode(Boolean(payload.hasGlobalCode));
+      setYardGlobalCode('');
+      setYardCodeMessage({
+        type: 'success',
+        text: payload.hasGlobalCode
+          ? 'Código global de acceso a Yarda guardado.'
+          : 'Código global de Yarda desactivado (solo PIN de empleado o clave).',
+      });
+    } catch (error) {
+      setYardCodeMessage({ type: 'error', text: error instanceof Error ? error.message : 'Error al guardar el código.' });
+    } finally {
+      setYardCodeSaving(false);
     }
   };
 
@@ -1873,6 +1912,57 @@ node scripts/issabel-ami-bridge.mjs`}
               <span className="text-slate-400 font-mono">Protección de Respaldos</span>
               <span className="text-emerald-400 font-mono font-bold">Exclusivo Super Administrador</span>
             </div>
+
+            {isSuperAdmin && (
+              <form onSubmit={(e) => { void saveYardGlobalCode(e, false); }} className="pt-2 space-y-2 border-t border-cyan-500/15">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-mono font-bold text-slate-200">
+                    Código Global · Acceso a Yarda
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                    hasYardGlobalCode
+                      ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                      : 'border-slate-500/35 bg-slate-500/10 text-slate-300'
+                  }`}>
+                    {hasYardGlobalCode ? 'Activo (Global + PIN)' : 'Solo PIN de empleado'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Permite entrar al portal de Yarda con un código único global sin asignar usuario, además de los PIN individuales por empleado.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="password"
+                    value={yardGlobalCode}
+                    onChange={(e) => setYardGlobalCode(e.target.value)}
+                    placeholder={hasYardGlobalCode ? 'Nuevo código global (deja vacío para conservar)' : 'Ej. 2026 o clave de 4+ dígitos'}
+                    className="flex-1 min-w-[180px] rounded-xl border border-cyan-500/25 bg-[var(--bg-surface)] px-3 py-2 font-mono text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                  />
+                  <button
+                    type="submit"
+                    disabled={yardCodeSaving || !yardGlobalCode.trim()}
+                    className="rounded-xl bg-[var(--brand-solid)] px-3.5 py-2 font-mono text-[11px] font-bold text-white hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                  >
+                    {yardCodeSaving ? 'Guardando…' : 'Guardar código'}
+                  </button>
+                  {hasYardGlobalCode && (
+                    <button
+                      type="button"
+                      disabled={yardCodeSaving}
+                      onClick={(e) => { void saveYardGlobalCode(e, true); }}
+                      className="rounded-xl border border-rose-500/35 bg-rose-500/10 px-3 py-2 font-mono text-[11px] font-bold text-rose-300 hover:bg-rose-500/20 disabled:opacity-50 cursor-pointer"
+                    >
+                      Desactivar
+                    </button>
+                  )}
+                </div>
+                {yardCodeMessage && (
+                  <p className={`text-[11px] font-mono ${yardCodeMessage.type === 'success' ? 'text-emerald-300' : 'text-rose-300'}`}>
+                    {yardCodeMessage.text}
+                  </p>
+                )}
+              </form>
+            )}
             {onOpenChangePassword && (
               <div className="pt-2">
                 <button
