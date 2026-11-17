@@ -838,7 +838,9 @@ const server = createServer(async (request, response) => {
       '/api/pbx/widget-summary',
     ]);
     const protectedPath = pathname.startsWith('/api/') || pathname.startsWith('/uploads/');
-    const authenticatedClaims = protectedPath ? verifyToken(request) as Claims | null : null;
+    const rawClaims = protectedPath ? verifyToken(request) as Claims | null : null;
+    const rawClaimsRevoked = Boolean(rawClaims?.sub && !(await userIsActive(rawClaims)));
+    const authenticatedClaims = rawClaims && !rawClaimsRevoked ? rawClaims : null;
     const isMonitorCallAudioRoute =
       /^\/api\/pbx\/calls\/[^/]+\/(recording|qa)$/.test(pathname) &&
       (request.method === 'GET' || request.method === 'POST');
@@ -847,11 +849,9 @@ const server = createServer(async (request, response) => {
       ((request.method === 'GET' && PBX_MONITOR_READ_PATHS.has(pathname)) || isMonitorCallAudioRoute) &&
       verifyPbxMonitorToken(request);
     if (protectedPath && !authenticatedClaims && !hasMonitorAccess) {
-      return sendJson(response, 401, { message: 'Autenticación requerida' });
-    }
-
-    if (authenticatedClaims?.sub) {
-      if (!await userIsActive(authenticatedClaims)) return sendJson(response, 401, { message: 'Sesión no válida o revocada' });
+      return sendJson(response, 401, {
+        message: rawClaimsRevoked ? 'Sesión no válida o revocada' : 'Autenticación requerida',
+      });
     }
     if (['GET', 'HEAD'].includes(request.method || '') && pathname.startsWith('/uploads/backups/')) {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
