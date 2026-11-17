@@ -26,6 +26,7 @@ import { financeVaultExpiry, lockFinanceVault, revokeFinanceVaults, unlockFinanc
 import { businessDate, businessDaysBetween, isEligibleForDeliveryFollowup } from './src/server/businessTime';
 import { getExpectedPbxWebhookSecret, getPbxExtensionsPresenceReport, listActiveIncomingCalls, listPbxCallLogs, listPbxDailyAnalytics, readPbxSettings, recordPbxHeartbeat, sanitizePbxSettingsForClient, startPbxDailyRolloverScheduler, upsertPbxCallEvent, verifyPbxWebhookSecret, writePbxSettings } from './src/server/pbxCalls';
 import { getPbxCallRecordingDiskInfo, runPbxCallQaByUniqueId, savePbxCallRecordingAndAnalyze } from './src/server/pbxAudioQa';
+import { evaluateAndSendVpsAlerts, getStorageStats, getVpsStats, purgeOrderFiles, readMaintenanceSettings, runMaintenanceCleanup, startMaintenanceScheduler, writeMaintenanceSettings } from './src/server/maintenance';
 import { createPbxAmiManager } from './src/server/pbxAmiClient';
 import { startNotificationOutbox } from './src/server/outbox';
 import { clearSessionCookie, isLoginRateLimited, isPinInUse, recordLoginFailure, resetLoginAttempts, requireRole, roleIs, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
@@ -2761,6 +2762,9 @@ const server = createServer(async (request, response) => {
 
         await connection.commit();
         activeCancelOrderOtps.delete(targetOrderId);
+        void purgeOrderFiles(pool, targetOrderId).catch((err) => {
+          console.error('[Maintenance] Error limpiando archivos de orden cancelada:', err);
+        });
 
         broadcastRealtimeEvent('order:updated', {
           orderId: targetOrderId,
@@ -3049,6 +3053,11 @@ const server = createServer(async (request, response) => {
         await connection.commit();
         const orders = await getOrders({ id: Number(orderId), limit: 1 });
         const updatedOrder = orders.find((currentOrder) => currentOrder.id === orderId);
+        if (updatedOrder?.status === 'cancelado') {
+          void purgeOrderFiles(pool, Number(orderId)).catch((err) => {
+            console.error('[Maintenance] Error limpiando archivos de orden cancelada:', err);
+          });
+        }
 
         broadcastRealtimeEvent('order:updated', {
           orderId: Number(orderId),
@@ -4266,6 +4275,70 @@ const server = createServer(async (request, response) => {
         [updatedBy],
       );
       return sendJson(response, 200, { ok: true, hasGlobalCode: true });
+    }
+
+    if (request.method === 'GET' && pathname === '/api/settings/maintenance') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const [settings, storage, vps] = await Promise.all([
+        readMaintenanceSettings(pool),
+        getStorageStats(),
+        getVpsStats(),
+      ]);
+      return sendJson(response, 200, { settings, storage, vps });
+    }
+
+    if (request.method === 'PUT' && pathname === '/api/settings/maintenance') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const payload = z.object({
+        autoEnabled: z.boolean().optional(),
+        deliveredGraceDays: z.coerce.number().int().min(0).max(365).optional(),
+        refundedRetentionDays: z.coerce.number().int().min(1).max(3650).optional(),
+        pbxAudioRetentionDays: z.coerce.number().int().min(1).max(3650).optional(),
+        alertsEnabled: z.boolean().optional(),
+        ramAlertThresholdPct: z.coerce.number().int().min(50).max(99).optional(),
+        diskAlertThresholdPct: z.coerce.number().int().min(50).max(99).optional(),
+        cpuAlertThresholdPct: z.coerce.number().int().min(50).max(100).optional(),
+      }).parse(await readBody(request));
+      const settings = await writeMaintenanceSettings(pool, payload, Number(authenticatedClaims?.sub || 0));
+      const [storage, vps] = await Promise.all([getStorageStats(), getVpsStats()]);
+      return sendJson(response, 200, { settings, storage, vps });
+    }
+
+    if (request.method === 'POST' && pathname === '/api/settings/maintenance/preview') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const report = await runMaintenanceCleanup(pool, { dryRun: true });
+      const [storage, vps] = await Promise.all([getStorageStats(), getVpsStats()]);
+      return sendJson(response, 200, { report, storage, vps });
+    }
+
+    if (request.method === 'POST' && pathname === '/api/settings/maintenance/run') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const userId = Number(authenticatedClaims?.sub || 0);
+      const report = await runMaintenanceCleanup(pool, {
+        dryRun: false,
+        triggeredByUserId: userId,
+      });
+      const [settings, storage, vps] = await Promise.all([
+        readMaintenanceSettings(pool),
+        getStorageStats(),
+        getVpsStats(),
+      ]);
+      void recordAuditLog(pool, {
+        userId,
+        username: authenticatedClaims?.email,
+        action: 'MAINTENANCE_CLEANUP_RUN',
+        resourceType: 'system',
+        details: { ...report },
+        ipAddress: request.socket.remoteAddress || 'unknown',
+        userAgent: request.headers['user-agent'] || null,
+      });
+      return sendJson(response, 200, { report, settings, storage, vps });
+    }
+
+    if (request.method === 'POST' && pathname === '/api/settings/maintenance/test-alert') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const result = await evaluateAndSendVpsAlerts(pool, wasender, { forceTest: true });
+      return sendJson(response, 200, result);
     }
 
     if (request.method === 'POST' && pathname === '/api/settings/pbx/test') {
@@ -5727,6 +5800,7 @@ async function startServer() {
     startDailyBackupScheduler(pool, wasender);
     startNotificationOutbox(pool, wasender);
     startPbxDailyRolloverScheduler(pool);
+    startMaintenanceScheduler(pool, wasender);
     void pbxAmiManager.refresh();
   });
 }

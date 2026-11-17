@@ -26,7 +26,7 @@ interface RestoreResult {
   timestamp?: string;
 }
 
-export type SystemSettingsTab = 'general' | 'whatsapp' | 'pbx' | 'penalties' | 'backups';
+export type SystemSettingsTab = 'general' | 'whatsapp' | 'pbx' | 'penalties' | 'backups' | 'maintenance';
 
 interface SystemSettingsViewProps {
   userRole?: 'admin' | 'operador';
@@ -52,7 +52,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   const { theme, setTheme } = useTheme();
   const isSuperAdmin = userRole === 'admin';
   const [activeTab, setActiveTab] = useState<SystemSettingsTab>(() => {
-    if (!isSuperAdmin && (initialTab === 'pbx' || initialTab === 'penalties' || initialTab === 'backups')) {
+    if (!isSuperAdmin && (initialTab === 'pbx' || initialTab === 'penalties' || initialTab === 'backups' || initialTab === 'maintenance')) {
       return 'general';
     }
     return initialTab;
@@ -148,6 +148,59 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   const [hasYardGlobalCode, setHasYardGlobalCode] = useState(false);
   const [yardCodeSaving, setYardCodeSaving] = useState(false);
   const [yardCodeMessage, setYardCodeMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [maintenanceStorage, setMaintenanceStorage] = useState<{
+    orderFilesCount: number;
+    orderBytes: number;
+    pbxAudioCount: number;
+    pbxAudioBytes: number;
+    totalBytes: number;
+  } | null>(null);
+  const [vpsStats, setVpsStats] = useState<{
+    hostname: string;
+    platform: string;
+    uptimeSeconds: number;
+    cpuCount: number;
+    cpuModel: string;
+    loadAvg1m: number;
+    loadAvg5m: number;
+    loadAvg15m: number;
+    cpuLoadPct: number;
+    ramTotalBytes: number;
+    ramUsedBytes: number;
+    ramFreeBytes: number;
+    ramUsedPct: number;
+    processRssBytes: number;
+    diskTotalBytes: number;
+    diskUsedBytes: number;
+    diskFreeBytes: number;
+    diskUsedPct: number;
+    sampledAt: string;
+  } | null>(null);
+  const [maintenanceDraft, setMaintenanceDraft] = useState({
+    autoEnabled: false,
+    deliveredGraceDays: '0',
+    refundedRetentionDays: '30',
+    pbxAudioRetentionDays: '30',
+    alertsEnabled: true,
+    ramAlertThresholdPct: '85',
+    diskAlertThresholdPct: '85',
+    cpuAlertThresholdPct: '90',
+    lastRunAt: null as string | null,
+    lastAlertAt: null as string | null,
+  });
+  const [maintenanceReport, setMaintenanceReport] = useState<{
+    dryRun: boolean;
+    executedAt: string;
+    deliveredExpired: { ordersCount: number; filesCount: number; bytes: number };
+    refundedExpired: { ordersCount: number; filesCount: number; bytes: number };
+    cancelledImmediate: { ordersCount: number; filesCount: number; bytes: number };
+    pbxAudios: { ordersCount: number; filesCount: number; bytes: number };
+    orphans: { ordersCount: number; filesCount: number; bytes: number };
+    totalFiles: number;
+    totalBytesFreed: number;
+  } | null>(null);
+  const [maintenanceBusy, setMaintenanceBusy] = useState<'loading' | 'saving' | 'preview' | 'run' | null>(null);
+  const [maintenanceMessage, setMaintenanceMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showPbxGuide, setShowPbxGuide] = useState(false);
   const [pbxSaving, setPbxSaving] = useState(false);
   const [pbxRefreshing, setPbxRefreshing] = useState(false);
@@ -340,6 +393,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     void fetchDbHealth();
     void fetchPendingEvidence();
     void fetchPbxSettings();
+    void fetchMaintenance();
     void apiFetch('/settings')
       .then(async response => {
         const payload = await response.json().catch(() => ({}));
@@ -347,6 +401,128 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       })
       .catch(() => setPenaltiesEnabled(null));
   }, [checkVaultStatus, fetchBackups, fetchWasenderStatus, fetchDbHealth, fetchPendingEvidence]);
+
+  const fetchMaintenance = useCallback(async () => {
+    if (!isSuperAdmin) return;
+    try {
+      const response = await apiFetch('/settings/maintenance');
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok && payload.settings) {
+        setMaintenanceStorage(payload.storage || null);
+        setVpsStats(payload.vps || null);
+        setMaintenanceDraft({
+          autoEnabled: Boolean(payload.settings.autoEnabled),
+          deliveredGraceDays: String(payload.settings.deliveredGraceDays ?? 0),
+          refundedRetentionDays: String(payload.settings.refundedRetentionDays ?? 30),
+          pbxAudioRetentionDays: String(payload.settings.pbxAudioRetentionDays ?? 30),
+          alertsEnabled: payload.settings.alertsEnabled !== false,
+          ramAlertThresholdPct: String(payload.settings.ramAlertThresholdPct ?? 85),
+          diskAlertThresholdPct: String(payload.settings.diskAlertThresholdPct ?? 85),
+          cpuAlertThresholdPct: String(payload.settings.cpuAlertThresholdPct ?? 90),
+          lastRunAt: payload.settings.lastRunAt || null,
+          lastAlertAt: payload.settings.lastAlertAt || null,
+        });
+        if (payload.settings.lastSummary) {
+          setMaintenanceReport(payload.settings.lastSummary);
+        }
+      }
+    } catch {
+      // Ignore transient load error
+    }
+  }, [isSuperAdmin]);
+
+  const formatBytesLabel = (bytes: number): string => {
+    if (!bytes) return '0 B';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  };
+
+  const saveMaintenanceSettings = async (
+    event?: React.FormEvent,
+    overrides?: { autoEnabled?: boolean; alertsEnabled?: boolean },
+  ) => {
+    event?.preventDefault();
+    if (maintenanceBusy) return;
+    setMaintenanceBusy('saving');
+    setMaintenanceMessage(null);
+    try {
+      const response = await apiFetch('/settings/maintenance', {
+        method: 'PUT',
+        body: JSON.stringify({
+          autoEnabled: overrides?.autoEnabled ?? maintenanceDraft.autoEnabled,
+          deliveredGraceDays: Number(maintenanceDraft.deliveredGraceDays) || 0,
+          refundedRetentionDays: Number(maintenanceDraft.refundedRetentionDays) || 30,
+          pbxAudioRetentionDays: Number(maintenanceDraft.pbxAudioRetentionDays) || 30,
+          alertsEnabled: overrides?.alertsEnabled ?? maintenanceDraft.alertsEnabled,
+          ramAlertThresholdPct: Number(maintenanceDraft.ramAlertThresholdPct) || 85,
+          diskAlertThresholdPct: Number(maintenanceDraft.diskAlertThresholdPct) || 85,
+          cpuAlertThresholdPct: Number(maintenanceDraft.cpuAlertThresholdPct) || 90,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'No se pudo guardar la política de mantenimiento.');
+      setMaintenanceStorage(payload.storage || null);
+      if (payload.vps) setVpsStats(payload.vps);
+      setMaintenanceDraft((prev) => ({
+        ...prev,
+        autoEnabled: Boolean(payload.settings?.autoEnabled),
+        deliveredGraceDays: String(payload.settings?.deliveredGraceDays ?? prev.deliveredGraceDays),
+        refundedRetentionDays: String(payload.settings?.refundedRetentionDays ?? prev.refundedRetentionDays),
+        pbxAudioRetentionDays: String(payload.settings?.pbxAudioRetentionDays ?? prev.pbxAudioRetentionDays),
+        alertsEnabled: payload.settings?.alertsEnabled !== false,
+        ramAlertThresholdPct: String(payload.settings?.ramAlertThresholdPct ?? prev.ramAlertThresholdPct),
+        diskAlertThresholdPct: String(payload.settings?.diskAlertThresholdPct ?? prev.diskAlertThresholdPct),
+        cpuAlertThresholdPct: String(payload.settings?.cpuAlertThresholdPct ?? prev.cpuAlertThresholdPct),
+      }));
+      setMaintenanceMessage({ type: 'success', text: 'Políticas de mantenimiento y alertas guardadas correctamente.' });
+    } catch (error) {
+      setMaintenanceMessage({ type: 'error', text: error instanceof Error ? error.message : 'Error al guardar mantenimiento.' });
+    } finally {
+      setMaintenanceBusy(null);
+    }
+  };
+
+  const runMaintenanceAction = async (mode: 'preview' | 'run' | 'test-alert') => {
+    if (maintenanceBusy) return;
+    if (mode === 'run' && typeof window !== 'undefined' && !window.confirm('¿Confirmas eliminar permanentemente los archivos vencidos según las reglas de retención? Los registros de órdenes y llamadas se conservan.')) {
+      return;
+    }
+    setMaintenanceBusy(mode === 'test-alert' ? 'saving' : mode);
+    setMaintenanceMessage(null);
+    try {
+      const response = await apiFetch(`/settings/maintenance/${mode}`, { method: 'POST' });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'No se pudo ejecutar la operación.');
+      if (mode === 'test-alert') {
+        if (payload.vps) setVpsStats(payload.vps);
+        setMaintenanceMessage({
+          type: payload.sent ? 'success' : 'error',
+          text: payload.sent
+            ? 'Alerta de prueba enviada por WhatsApp (Wasender) al Super Administrador.'
+            : 'No se pudo enviar la alerta (verifica que Wasender esté activo y el Super Admin tenga teléfono registrado).',
+        });
+      } else {
+        setMaintenanceReport(payload.report || null);
+        setMaintenanceStorage(payload.storage || null);
+        if (payload.vps) setVpsStats(payload.vps);
+        if (payload.settings?.lastRunAt) {
+          setMaintenanceDraft((prev) => ({ ...prev, lastRunAt: payload.settings.lastRunAt }));
+        }
+        setMaintenanceMessage({
+          type: 'success',
+          text: mode === 'preview'
+            ? `Análisis completado: ${payload.report?.totalFiles || 0} archivos (${formatBytesLabel(payload.report?.totalBytesFreed || 0)}) listos para liberar.`
+            : `Limpieza completada: ${payload.report?.totalFiles || 0} archivos eliminados (${formatBytesLabel(payload.report?.totalBytesFreed || 0)} liberados).`,
+        });
+      }
+    } catch (error) {
+      setMaintenanceMessage({ type: 'error', text: error instanceof Error ? error.message : 'Error en mantenimiento.' });
+    } finally {
+      setMaintenanceBusy(null);
+    }
+  };
 
   const fetchPbxSettings = useCallback(async () => {
     if (!isSuperAdmin) return;
@@ -782,6 +958,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
           { id: 'pbx' as const, label: 'Central PBX y Llamadas', icon: 'call', show: isSuperAdmin, dot: pbxSettings?.healthStatus === 'online' ? 'bg-emerald-400' : pbxSettings?.healthStatus === 'error' ? 'bg-rose-400' : undefined },
           { id: 'penalties' as const, label: 'Amonestaciones', icon: 'notifications_active', show: isSuperAdmin, badge: evidenceItems.length > 0 ? evidenceItems.length : undefined },
           { id: 'backups' as const, label: 'Respaldos y Rollback', icon: 'database', show: isSuperAdmin },
+          { id: 'maintenance' as const, label: 'Mantenimiento', icon: 'cleaning_services', show: isSuperAdmin },
         ]
           .filter((tab) => tab.show)
           .map((tab) => {
@@ -1258,6 +1435,353 @@ RADAR_WEBHOOK_URL=${typeof window !== 'undefined' ? `${window.location.origin}/a
 PBX_WEBHOOK_SECRET=${pbxDraft.webhookSecret || '<TU_PBX_WEBHOOK_SECRET>'} \\
 node scripts/issabel-ami-bridge.mjs`}
             </pre>
+          )}
+        </div>
+      )}
+
+      {/* SUPER ADMIN: Automatic Storage Maintenance & File Retention */}
+      {activeTab === 'maintenance' && isSuperAdmin && (
+        <div className="relative overflow-hidden rounded-3xl border border-cyan-500/25 bg-[#070c18]/90 p-5 shadow-[0_10px_30px_rgba(0,0,0,0.6)] backdrop-blur-2xl md:p-6 space-y-5">
+          <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-emerald-400 to-cyan-400" />
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between border-b border-cyan-500/15 pb-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-cyan-500/35 bg-cyan-500/10 text-cyan-300">
+                <span aria-hidden="true" className="material-symbols-outlined text-[22px]">cleaning_services</span>
+              </div>
+              <div>
+                <h2 className="font-mono text-sm font-black uppercase tracking-wider text-white">
+                  Mantenimiento Automático y Limpieza de Archivos
+                </h2>
+                <p className="mt-1 max-w-2xl text-xs text-slate-400">
+                  Libera espacio en disco eliminando imágenes, PDFs y audios vencidos sin borrar los registros contables ni el historial de la base de datos.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 shrink-0">
+              <span className={`rounded-full px-2.5 py-0.5 font-mono text-[10px] font-bold uppercase border ${
+                maintenanceDraft.autoEnabled
+                  ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                  : 'border-slate-500/35 bg-slate-500/10 text-slate-300'
+              }`}>
+                {maintenanceDraft.autoEnabled ? 'Automático ON' : 'Manual'}
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={maintenanceDraft.autoEnabled}
+                aria-label="Activar mantenimiento automático diario"
+                disabled={maintenanceBusy !== null}
+                onClick={() => {
+                  const next = !maintenanceDraft.autoEnabled;
+                  setMaintenanceDraft((prev) => ({ ...prev, autoEnabled: next }));
+                  void saveMaintenanceSettings(undefined, { autoEnabled: next });
+                }}
+                className={`relative inline-flex h-7 w-12 items-center rounded-full border transition cursor-pointer ${
+                  maintenanceDraft.autoEnabled
+                    ? 'border-emerald-400 bg-emerald-500/30'
+                    : 'border-slate-600 bg-slate-800'
+                }`}
+              >
+                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                  maintenanceDraft.autoEnabled ? 'translate-x-6' : 'translate-x-1'
+                }`} />
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-cyan-500/20 bg-[var(--bg-surface)] p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wider text-[var(--text-heading)] flex items-center gap-1.5">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-400">monitoring</span>
+                  <span>Estado del Servidor VPS en Tiempo Real</span>
+                </h3>
+                {vpsStats && (
+                  <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                    {vpsStats.hostname} · {vpsStats.cpuCount} núcleos · Uptime {Math.floor(vpsStats.uptimeSeconds / 3600)}h {Math.floor((vpsStats.uptimeSeconds % 3600) / 60)}m
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => { void fetchMaintenance(); }}
+                className="rounded-xl border border-cyan-500/30 bg-[var(--bg-card)] px-3 py-1.5 font-mono text-[11px] font-bold text-cyan-300 hover:border-cyan-400 cursor-pointer flex items-center gap-1"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">refresh</span>
+                <span>Actualizar</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {[
+                {
+                  label: 'Procesador (CPU)',
+                  pct: vpsStats?.cpuLoadPct ?? 0,
+                  threshold: Number(maintenanceDraft.cpuAlertThresholdPct) || 90,
+                  sub: vpsStats ? `Load ${vpsStats.loadAvg1m} / ${vpsStats.loadAvg5m} · ${vpsStats.cpuCount} cores` : 'Cargando…',
+                  icon: 'memory',
+                },
+                {
+                  label: 'Memoria RAM',
+                  pct: vpsStats?.ramUsedPct ?? 0,
+                  threshold: Number(maintenanceDraft.ramAlertThresholdPct) || 85,
+                  sub: vpsStats ? `${formatBytesLabel(vpsStats.ramUsedBytes)} / ${formatBytesLabel(vpsStats.ramTotalBytes)} (App ${formatBytesLabel(vpsStats.processRssBytes)})` : 'Cargando…',
+                  icon: 'developer_board',
+                },
+                {
+                  label: 'Almacenamiento (Disco)',
+                  pct: vpsStats?.diskUsedPct ?? 0,
+                  threshold: Number(maintenanceDraft.diskAlertThresholdPct) || 85,
+                  sub: vpsStats ? `${formatBytesLabel(vpsStats.diskUsedBytes)} / ${formatBytesLabel(vpsStats.diskTotalBytes)} · Libre ${formatBytesLabel(vpsStats.diskFreeBytes)}` : 'Cargando…',
+                  icon: 'hard_drive',
+                },
+              ].map((metric) => {
+                const isCrit = metric.pct >= metric.threshold;
+                const isWarn = !isCrit && metric.pct >= 70;
+                const barCls = isCrit ? 'bg-rose-500' : isWarn ? 'bg-amber-400' : 'bg-emerald-400';
+                const txtCls = isCrit ? 'text-rose-400' : isWarn ? 'text-amber-300' : 'text-emerald-400';
+                return (
+                  <div key={metric.label} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3.5 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
+                        <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-cyan-400">{metric.icon}</span>
+                        {metric.label}
+                      </span>
+                      <span className={`font-mono text-base font-black tabular-nums ${txtCls}`}>
+                        {vpsStats ? `${metric.pct}%` : '—'}
+                      </span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
+                      <div className={`h-full rounded-full transition-all ${barCls}`} style={{ width: `${Math.min(100, metric.pct)}%` }} />
+                    </div>
+                    <p className="text-[11px] text-[var(--text-muted)] truncate">{metric.sub}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-end justify-between gap-3 pt-2 border-t border-cyan-500/15 text-xs">
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="inline-flex items-center gap-2 cursor-pointer font-bold text-[var(--text-heading)]">
+                  <input
+                    type="checkbox"
+                    checked={maintenanceDraft.alertsEnabled}
+                    onChange={(e) => {
+                      const next = e.target.checked;
+                      setMaintenanceDraft((prev) => ({ ...prev, alertsEnabled: next }));
+                      void saveMaintenanceSettings(undefined, { alertsEnabled: next });
+                    }}
+                    className="rounded border-cyan-500/40"
+                  />
+                  <span>Alertas de colapso por WhatsApp (Wasender) al Super Admin</span>
+                </label>
+                <div className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
+                  <span>Umbrales:</span>
+                  <label className="inline-flex items-center gap-1">
+                    <span>RAM%</span>
+                    <input
+                      type="number"
+                      min={50}
+                      max={99}
+                      value={maintenanceDraft.ramAlertThresholdPct}
+                      onChange={(e) => setMaintenanceDraft((prev) => ({ ...prev, ramAlertThresholdPct: e.target.value }))}
+                      className="w-14 rounded-lg border border-cyan-500/25 bg-[var(--bg-card)] px-2 py-1 font-mono text-xs text-[var(--text-primary)]"
+                    />
+                  </label>
+                  <label className="inline-flex items-center gap-1">
+                    <span>Disco%</span>
+                    <input
+                      type="number"
+                      min={50}
+                      max={99}
+                      value={maintenanceDraft.diskAlertThresholdPct}
+                      onChange={(e) => setMaintenanceDraft((prev) => ({ ...prev, diskAlertThresholdPct: e.target.value }))}
+                      className="w-14 rounded-lg border border-cyan-500/25 bg-[var(--bg-card)] px-2 py-1 font-mono text-xs text-[var(--text-primary)]"
+                    />
+                  </label>
+                  <label className="inline-flex items-center gap-1">
+                    <span>CPU%</span>
+                    <input
+                      type="number"
+                      min={50}
+                      max={100}
+                      value={maintenanceDraft.cpuAlertThresholdPct}
+                      onChange={(e) => setMaintenanceDraft((prev) => ({ ...prev, cpuAlertThresholdPct: e.target.value }))}
+                      className="w-14 rounded-lg border border-cyan-500/25 bg-[var(--bg-card)] px-2 py-1 font-mono text-xs text-[var(--text-primary)]"
+                    />
+                  </label>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={maintenanceBusy !== null}
+                onClick={() => { void runMaintenanceAction('test-alert'); }}
+                className="rounded-xl border border-emerald-500/35 bg-emerald-500/10 px-3 py-1.5 font-mono text-[11px] font-bold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50 cursor-pointer"
+              >
+                Probar alerta WhatsApp
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-2xl border border-cyan-500/20 bg-[var(--bg-surface)] p-4">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Archivos de Órdenes</p>
+              <p className="mt-1 text-xl font-black text-[var(--text-heading)] tabular-nums">
+                {maintenanceStorage ? formatBytesLabel(maintenanceStorage.orderBytes) : '—'}
+              </p>
+              <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                {maintenanceStorage ? `${maintenanceStorage.orderFilesCount} archivos (imágenes / PDFs)` : 'Calculando…'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-cyan-500/20 bg-[var(--bg-surface)] p-4">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Audios de Llamadas PBX</p>
+              <p className="mt-1 text-xl font-black text-cyan-400 tabular-nums">
+                {maintenanceStorage ? formatBytesLabel(maintenanceStorage.pbxAudioBytes) : '—'}
+              </p>
+              <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                {maintenanceStorage ? `${maintenanceStorage.pbxAudioCount} grabaciones (.wav/.mp3)` : 'Calculando…'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-cyan-500/20 bg-[var(--bg-surface)] p-4">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Espacio Total en Uploads</p>
+              <p className="mt-1 text-xl font-black text-emerald-400 tabular-nums">
+                {maintenanceStorage ? formatBytesLabel(maintenanceStorage.totalBytes) : '—'}
+              </p>
+              <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                {maintenanceDraft.lastRunAt ? `Última limpieza: ${new Date(maintenanceDraft.lastRunAt).toLocaleString('es-VE')}` : 'Sin ejecuciones previas'}
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={(e) => { void saveMaintenanceSettings(e); }} className="rounded-2xl border border-cyan-500/20 bg-[var(--bg-surface)] p-4 space-y-4">
+            <h3 className="text-xs font-black uppercase tracking-wider text-[var(--text-heading)]">
+              Reglas de Retención Configuradas
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3 space-y-1.5">
+                <span className="font-bold text-[var(--text-heading)] block">Órdenes Entregadas</span>
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  Se borran al <strong>expirar la garantía</strong> (sin reclamos abiertos). Días extra opcionales:
+                </p>
+                <input
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={maintenanceDraft.deliveredGraceDays}
+                  onChange={(e) => setMaintenanceDraft((prev) => ({ ...prev, deliveredGraceDays: e.target.value }))}
+                  className="w-full rounded-lg border border-cyan-500/25 bg-[var(--bg-surface)] px-2.5 py-1.5 font-mono text-xs text-[var(--text-primary)] outline-none"
+                />
+              </div>
+
+              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3 space-y-1.5">
+                <span className="font-bold text-[var(--text-heading)] block">Órdenes Reembolsadas</span>
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  Días de conservación tras el reembolso antes de borrar archivos:
+                </p>
+                <input
+                  type="number"
+                  min={1}
+                  max={3650}
+                  value={maintenanceDraft.refundedRetentionDays}
+                  onChange={(e) => setMaintenanceDraft((prev) => ({ ...prev, refundedRetentionDays: e.target.value }))}
+                  className="w-full rounded-lg border border-cyan-500/25 bg-[var(--bg-surface)] px-2.5 py-1.5 font-mono text-xs text-[var(--text-primary)] outline-none"
+                />
+              </div>
+
+              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3 space-y-1.5">
+                <span className="font-bold text-[var(--text-heading)] block">Órdenes Canceladas</span>
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  Sus archivos se eliminan <strong>inmediatamente</strong> al cancelarse (y en cada barrido).
+                </p>
+                <span className="inline-flex rounded-full border border-amber-500/35 bg-amber-500/15 px-2.5 py-1 text-[10px] font-bold text-amber-300">
+                  Inmediato (0 días)
+                </span>
+              </div>
+
+              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3 space-y-1.5">
+                <span className="font-bold text-[var(--text-heading)] block">Audios de Llamadas PBX</span>
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  Días antes de borrar el audio (conserva puntaje IA y transcripción):
+                </p>
+                <input
+                  type="number"
+                  min={1}
+                  max={3650}
+                  value={maintenanceDraft.pbxAudioRetentionDays}
+                  onChange={(e) => setMaintenanceDraft((prev) => ({ ...prev, pbxAudioRetentionDays: e.target.value }))}
+                  className="w-full rounded-lg border border-cyan-500/25 bg-[var(--bg-surface)] px-2.5 py-1.5 font-mono text-xs text-[var(--text-primary)] outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-cyan-500/15">
+              <button
+                type="submit"
+                disabled={maintenanceBusy !== null}
+                className="rounded-xl bg-[var(--brand-solid)] px-4 py-2 font-mono text-xs font-bold text-white hover:opacity-90 disabled:opacity-50 cursor-pointer"
+              >
+                {maintenanceBusy === 'saving' ? 'Guardando…' : 'Guardar reglas'}
+              </button>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={maintenanceBusy !== null}
+                  onClick={() => { void runMaintenanceAction('preview'); }}
+                  className="rounded-xl border border-cyan-500/35 bg-cyan-500/10 px-3.5 py-2 font-mono text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50 cursor-pointer"
+                >
+                  {maintenanceBusy === 'preview' ? 'Analizando…' : 'Analizar espacio recuperable'}
+                </button>
+                <button
+                  type="button"
+                  disabled={maintenanceBusy !== null}
+                  onClick={() => { void runMaintenanceAction('run'); }}
+                  className="rounded-xl border border-rose-500/40 bg-rose-500/15 px-3.5 py-2 font-mono text-xs font-bold text-rose-300 hover:bg-rose-500/25 disabled:opacity-50 cursor-pointer"
+                >
+                  {maintenanceBusy === 'run' ? 'Limpiando…' : 'Ejecutar limpieza ahora'}
+                </button>
+              </div>
+            </div>
+          </form>
+
+          {maintenanceMessage && (
+            <p className={`rounded-xl px-3 py-2 text-xs font-mono ${
+              maintenanceMessage.type === 'success'
+                ? 'border border-emerald-500/40 bg-emerald-950/40 text-emerald-300'
+                : 'border border-rose-500/40 bg-rose-950/40 text-rose-300'
+            }`}>
+              {maintenanceMessage.text}
+            </p>
+          )}
+
+          {maintenanceReport && (
+            <div className="rounded-2xl border border-cyan-500/20 bg-[var(--bg-surface)] p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-xs font-black uppercase tracking-wider text-[var(--text-heading)]">
+                  {maintenanceReport.dryRun ? 'Vista Previa (Simulación sin borrar)' : 'Resultado de la Limpieza'}
+                </h3>
+                <span className="font-mono text-xs font-bold text-emerald-400">
+                  {maintenanceReport.totalFiles} archivos · {formatBytesLabel(maintenanceReport.totalBytesFreed)}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 text-xs">
+                {[
+                  { label: 'Entregadas (garantía exp.)', data: maintenanceReport.deliveredExpired },
+                  { label: 'Reembolsadas (> retención)', data: maintenanceReport.refundedExpired },
+                  { label: 'Canceladas (inmediato)', data: maintenanceReport.cancelledImmediate },
+                  { label: 'Audios PBX antiguos', data: maintenanceReport.pbxAudios },
+                  { label: 'Archivos huérfanos', data: maintenanceReport.orphans },
+                ].map((cat) => (
+                  <div key={cat.label} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-2.5">
+                    <p className="text-[10.5px] font-bold text-[var(--text-muted)]">{cat.label}</p>
+                    <p className="mt-1 font-mono font-black text-[var(--text-heading)]">
+                      {cat.data.filesCount} arch. · {formatBytesLabel(cat.data.bytes)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       )}
