@@ -101,3 +101,10 @@ SHA exacto, rechazo de traversal/enlaces/credenciales, inventario de migraciones
 y nuevas lineas en variables. El ensayo SQL y el despliegue real son evidencia
 operativa adicional; las pruebas unitarias no demuestran por si solas
 recuperacion ante perdida total del VPS o fallos de disco.
+
+## Mantenimiento, monitoreo VPS y limpieza de releases
+
+- **Limpieza interna de RADAR (`src/server/maintenance.ts`):** desde **Sistema → Mantenimiento** se configuran las reglas de retención para órdenes entregadas (tras expirar garantía y sin reclamos abiertos), reembolsadas (`30` días por defecto), canceladas (inmediato), audios PBX (`30` días conservando puntaje IA y transcripción) y respaldos SQL antiguos (conservando siempre al menos los 5 más recientes).
+- **Monitoreo y alertas VPS:** reporta uso de CPU, RAM y disco en el panel y envía alertas por WhatsApp (Wasender) al Super Administrador al superar los umbrales configurados.
+- **Agente de limpieza en el host (`scripts/vps-docker-prune-agent.py`):** servicio `systemd` (`radar-vps-prune.service`) ejecutado con Python 3 en el VPS (`http://172.18.0.1:9898`, accesible solo desde la red interna de Docker, nunca desde internet). Limpia imágenes y caché de build Docker (`> 7` días, sin tocar volúmenes) y carpetas antiguas en `/root/radar-releases/` conservando siempre las 5 más recientes.
+- **Credenciales del agente:** el secreto (`MAINTENANCE_SECRET`) se almacena únicamente en `/etc/systemd/system/radar-vps-prune.service` en el VPS y en la tabla `app_settings` de RADAR (`maintenance.docker_prune_secret`), nunca en Git.
