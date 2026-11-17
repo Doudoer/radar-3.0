@@ -1,6 +1,7 @@
 import React, { FormEvent, useEffect, useState } from 'react';
 import { apiFetch } from '../services/apiFetch';
 import { useTheme } from '../hooks/useTheme';
+import { loadRememberedCredentials, saveRememberedCredentials } from '../utils/rememberCredentials';
 
 interface LoginViewProps {
   onAuthenticated: (user: { role: string }) => void;
@@ -8,8 +9,10 @@ interface LoginViewProps {
 
 export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
   const { isDark, toggleTheme } = useTheme();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [initialCreds] = useState(() => loadRememberedCredentials('main'));
+  const [email, setEmail] = useState(initialCreds.email);
+  const [password, setPassword] = useState(initialCreds.password);
+  const [rememberMe, setRememberMe] = useState(initialCreds.remember);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -44,6 +47,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message || 'No se pudo iniciar sesión.');
+      saveRememberedCredentials('main', rememberMe, email, password);
       sessionStorage.setItem('radar_authenticated', 'true');
       onAuthenticated(payload.user);
     } catch (loginError) {
@@ -211,6 +215,20 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
               </button>
             </div>
           </div>
+
+          <label className="mb-4 flex items-center gap-2.5 text-xs text-slate-300 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setRememberMe(checked);
+                if (!checked) saveRememberedCredentials('main', false, '', '');
+              }}
+              className="h-4 w-4 rounded border-cyan-500/40 bg-[#040814] text-cyan-400 focus:ring-cyan-400/40 cursor-pointer"
+            />
+            <span>Recordar contraseña</span>
+          </label>
 
           {/* Error Banner */}
           {error && (

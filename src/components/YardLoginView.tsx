@@ -1,5 +1,6 @@
 import React, { FormEvent, useEffect, useState } from 'react';
 import { apiFetch } from '../services/apiFetch';
+import { loadRememberedCredentials, saveRememberedCredentials } from '../utils/rememberCredentials';
 
 interface YardLoginViewProps {
   onAuthenticated: (user: { role: string; name?: string; email?: string }) => void;
@@ -11,8 +12,10 @@ const keypadDigits = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
 export const YardLoginView: React.FC<YardLoginViewProps> = ({ onAuthenticated }) => {
   const [mode, setMode] = useState<'pin' | 'password'>('pin');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [initialCreds] = useState(() => loadRememberedCredentials('yard'));
+  const [email, setEmail] = useState(initialCreds.email);
+  const [password, setPassword] = useState(initialCreds.password);
+  const [rememberMe, setRememberMe] = useState(initialCreds.remember);
   const [showPassword, setShowPassword] = useState(false);
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
@@ -80,6 +83,7 @@ export const YardLoginView: React.FC<YardLoginViewProps> = ({ onAuthenticated })
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.message || 'Credenciales incorrectas.');
+      saveRememberedCredentials('yard', rememberMe, email.trim(), password);
       sessionStorage.setItem('radar_authenticated', 'true');
       onAuthenticated(payload.user);
     } catch (err) {
@@ -286,6 +290,20 @@ export const YardLoginView: React.FC<YardLoginViewProps> = ({ onAuthenticated })
                   </button>
                 </div>
               </div>
+
+              <label className="flex items-center gap-2.5 text-xs font-mono text-slate-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setRememberMe(checked);
+                    if (!checked) saveRememberedCredentials('yard', false, '', '');
+                  }}
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-amber-400 focus:ring-amber-500/40 cursor-pointer"
+                />
+                <span>Recordar contraseña</span>
+              </label>
 
               <button
                 type="submit"
