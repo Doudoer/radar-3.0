@@ -348,6 +348,30 @@ export const analyzeAudioBufferWithGemini = async (
   }
 };
 
+let recordingColumnsEnsured = false;
+
+export const ensurePbxRecordingColumns = async (pool: Pool): Promise<void> => {
+  if (recordingColumnsEnsured) return;
+  try {
+    await pool.execute(
+      `ALTER TABLE pbx_call_logs
+       ADD COLUMN IF NOT EXISTS recording_url VARCHAR(512) NULL,
+       ADD COLUMN IF NOT EXISTS recording_mime_type VARCHAR(128) NULL,
+       ADD COLUMN IF NOT EXISTS recording_uploaded_at DATETIME NULL,
+       ADD COLUMN IF NOT EXISTS qa_status VARCHAR(24) NULL,
+       ADD COLUMN IF NOT EXISTS qa_score INT NULL,
+       ADD COLUMN IF NOT EXISTS qa_result LONGTEXT NULL,
+       ADD COLUMN IF NOT EXISTS qa_analyzed_at DATETIME NULL`,
+    );
+    recordingColumnsEnsured = true;
+  } catch (err: any) {
+    // If columns already exist or user lacks ALTER privilege, let the actual query decide
+    if (err?.code === 'ER_DUP_FIELDNAME') {
+      recordingColumnsEnsured = true;
+    }
+  }
+};
+
 export const savePbxCallRecordingAndAnalyze = async (
   pool: Pool,
   params: {
@@ -357,6 +381,7 @@ export const savePbxCallRecordingAndAnalyze = async (
     mimeType?: string | null;
   },
 ): Promise<{ call: PbxCallRecord; qaError?: string }> => {
+  await ensurePbxRecordingColumns(pool);
   const existing = await getPbxCallByUniqueId(pool, params.uniqueid);
   if (!existing) {
     throw new Error('Llamada no encontrada.');
@@ -396,6 +421,7 @@ export const getPbxCallRecordingDiskInfo = async (
   pool: Pool,
   uniqueid: string,
 ): Promise<{ filePath: string; mimeType: string } | null> => {
+  await ensurePbxRecordingColumns(pool);
   const [rows] = await pool.query<RowDataPacket[]>(
     'SELECT recording_url, recording_mime_type FROM pbx_call_logs WHERE uniqueid = ? LIMIT 1',
     [uniqueid],
@@ -417,6 +443,7 @@ export const runPbxCallQaByUniqueId = async (
   bufferOverride?: Buffer,
   mimeTypeOverride?: string,
 ): Promise<{ call: PbxCallRecord; qaError?: string }> => {
+  await ensurePbxRecordingColumns(pool);
   const apiKey = await getGeminiApiKey(pool);
   if (!apiKey) {
     await pool.execute(
