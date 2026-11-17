@@ -47,11 +47,13 @@ services:
       WASENDER_ENABLED: "false"
       LOCAL_OTP_DEVCODE: "true"
       PBX_WEBHOOK_SECRET: radar-desktop-pbx-test-secret
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     volumes:
       - uploads:/app/uploads
       - app_backups:/app/backups
     networks:
       - isolated
+      - ingress
     depends_on:
       db:
         condition: service_healthy
@@ -67,6 +69,7 @@ services:
     command: []
     networks:
       - isolated
+      - ingress
     depends_on:
       db:
         condition: service_healthy
@@ -103,10 +106,12 @@ configs:
       http {
         server {
           listen 80;
-          client_max_body_size 15m;
+          client_max_body_size 70m;
           server_tokens off;
           location / {
             proxy_pass http://app:3000;
+            proxy_read_timeout 180s;
+            proxy_send_timeout 180s;
             proxy_set_header Host $$http_host;
             proxy_set_header X-Real-IP $$remote_addr;
             proxy_set_header X-Forwarded-For $$remote_addr;

@@ -1,6 +1,27 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../services/apiFetch';
 
+interface CallQaChecklistItem {
+  passed: boolean | null;
+  note: string;
+}
+
+interface CallQaResult {
+  verdict: 'correcta' | 'incorrecta';
+  score: number;
+  summary: string;
+  failureReasons: string[];
+  checklist: {
+    officialGreeting: CallQaChecklistItem;
+    askedNeed: CallQaChecklistItem;
+    realInventorySearch: CallQaChecklistItem;
+    priceAndMilesIfAvailable: CallQaChecklistItem;
+    courteousGoodbye: CallQaChecklistItem;
+  };
+  transcript: string;
+  model?: string;
+}
+
 interface CallLogRow {
   id: number;
   uniqueid: string;
@@ -20,6 +41,13 @@ interface CallLogRow {
   durationSeconds: number;
   billsecSeconds: number;
   startedAt: string;
+  recordingUrl?: string | null;
+  recordingMimeType?: string | null;
+  recordingUploadedAt?: string | null;
+  qaStatus?: 'pending' | 'correct' | 'incorrect' | 'error' | null;
+  qaScore?: number | null;
+  qaResult?: CallQaResult | null;
+  qaAnalyzedAt?: string | null;
 }
 
 interface CallSummary {
@@ -212,6 +240,157 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
   const [presenceExtensions, setPresenceExtensions] = useState<ExtensionPresenceRow[]>([]);
   const [expandedPresenceExt, setExpandedPresenceExt] = useState<string | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [uploadingUniqueId, setUploadingUniqueId] = useState<string | null>(null);
+  const [analyzingUniqueId, setAnalyzingUniqueId] = useState<string | null>(null);
+  const [qaModalCall, setQaModalCall] = useState<CallLogRow | null>(null);
+  const [qaActionError, setQaActionError] = useState<string | null>(null);
+
+  const readFileAsDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('No se pudo leer el archivo de audio.'));
+    reader.readAsDataURL(file);
+  });
+
+  const patchCallInList = (updated: CallLogRow) => {
+    setCalls((prev) => prev.map((item) => (item.uniqueid === updated.uniqueid ? { ...item, ...updated } : item)));
+    setQaModalCall((prev) => (prev && prev.uniqueid === updated.uniqueid ? { ...prev, ...updated } : prev));
+  };
+
+  const handleUploadCallAudio = async (call: CallLogRow, file: File) => {
+    setUploadingUniqueId(call.uniqueid);
+    setQaActionError(null);
+    try {
+      const base64 = await readFileAsDataUrl(file);
+      const res = await apiFetch(`/pbx/calls/${encodeURIComponent(call.uniqueid)}/recording`, {
+        method: 'POST',
+        body: JSON.stringify({
+          fileName: file.name,
+          mimeType: file.type || undefined,
+          base64,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || 'No se pudo subir o analizar el audio.');
+      }
+      if (data.call) {
+        patchCallInList(data.call);
+        if (data.call.qaStatus === 'incorrect') {
+          setQaModalCall(data.call);
+        }
+      }
+      if (data.qaError) {
+        setQaActionError(String(data.qaError));
+      }
+    } catch (err) {
+      setQaActionError(err instanceof Error ? err.message : 'Error al subir el audio.');
+    } finally {
+      setUploadingUniqueId(null);
+    }
+  };
+
+  const handleReanalyzeCall = async (call: CallLogRow) => {
+    setAnalyzingUniqueId(call.uniqueid);
+    setQaActionError(null);
+    try {
+      const res = await apiFetch(`/pbx/calls/${encodeURIComponent(call.uniqueid)}/qa`, {
+        method: 'POST',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || 'No se pudo analizar el audio con Gemini.');
+      }
+      if (data.call) {
+        patchCallInList(data.call);
+        if (data.call.qaStatus === 'incorrect') {
+          setQaModalCall(data.call);
+        }
+      }
+      if (data.qaError) {
+        setQaActionError(String(data.qaError));
+      }
+    } catch (err) {
+      setQaActionError(err instanceof Error ? err.message : 'Error al analizar con IA.');
+    } finally {
+      setAnalyzingUniqueId(null);
+    }
+  };
+
+  const renderAudioQaControls = (call: CallLogRow, compact = false) => {
+    const isBusy = uploadingUniqueId === call.uniqueid || analyzingUniqueId === call.uniqueid;
+    const inputId = `call-audio-${compact ? 'm' : 'd'}-${call.uniqueid.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    return (
+      <div className={compact ? 'mt-2 space-y-1.5' : 'flex flex-col gap-1.5 min-w-[210px]'}>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <input
+            id={inputId}
+            type="file"
+            accept="audio/*,.wav,.mp3,.m4a,.ogg,.webm"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (file) void handleUploadCallAudio(call, file);
+            }}
+          />
+          <label
+            htmlFor={inputId}
+            className={`inline-flex items-center gap-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-1 text-[10.5px] font-bold text-[var(--text-secondary)] hover:text-[var(--text-heading)] cursor-pointer transition ${
+              isBusy ? 'opacity-50 pointer-events-none' : ''
+            }`}
+          >
+            <span aria-hidden="true" className="material-symbols-outlined text-[14px]">
+              {isBusy ? 'hourglass_top' : call.recordingUrl ? 'swap_horiz' : 'upload_file'}
+            </span>
+            <span>{isBusy ? 'Analizando…' : call.recordingUrl ? 'Otro audio' : 'Subir audio'}</span>
+          </label>
+
+          {call.qaStatus === 'correct' && (
+            <button
+              type="button"
+              onClick={() => setQaModalCall(call)}
+              className="inline-flex items-center gap-1 rounded-full border border-emerald-500/35 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 cursor-pointer"
+            >
+              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">check_circle</span>
+              <span>Correcta {call.qaScore != null ? `(${call.qaScore}%)` : ''}</span>
+            </button>
+          )}
+
+          {call.qaStatus === 'incorrect' && (
+            <button
+              type="button"
+              onClick={() => setQaModalCall(call)}
+              className="inline-flex items-center gap-1 rounded-full border border-rose-500/40 bg-rose-500/15 px-2 py-0.5 text-[10px] font-bold text-rose-600 dark:text-rose-300 cursor-pointer animate-pulse"
+            >
+              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">warning</span>
+              <span>No correcta {call.qaScore != null ? `(${call.qaScore}%)` : ''}</span>
+            </button>
+          )}
+
+          {call.recordingUrl && (call.qaStatus === 'error' || call.qaStatus === 'pending' || !call.qaStatus) && !isBusy && (
+            <button
+              type="button"
+              onClick={() => { void handleReanalyzeCall(call); }}
+              className="inline-flex items-center gap-1 rounded-full border border-amber-500/35 bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-300 cursor-pointer"
+            >
+              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">psychology</span>
+              <span>{call.qaStatus === 'error' ? 'Reintentar IA' : 'Analizar IA'}</span>
+            </button>
+          )}
+        </div>
+
+        {call.recordingUrl && (
+          <audio
+            controls
+            preload="none"
+            src={call.recordingUrl}
+            className="h-8 w-full max-w-[260px]"
+          />
+        )}
+      </div>
+    );
+  };
 
   const loadCalls = useCallback(async (dateOverride?: string) => {
     setLoading(true);
@@ -673,6 +852,19 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
             </div>
           )}
 
+          {qaActionError && (
+            <div role="alert" className="flex items-center justify-between gap-2 rounded-2xl border border-amber-500/35 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
+              <span>{qaActionError}</span>
+              <button
+                type="button"
+                onClick={() => setQaActionError(null)}
+                className="font-bold underline cursor-pointer shrink-0"
+              >
+                Cerrar
+              </button>
+            </div>
+          )}
+
           <div className="md:hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] overflow-hidden divide-y divide-[var(--border-subtle)]">
             {loading && !calls.length ? (
               <div className="px-4 py-8 text-center text-xs text-[var(--text-muted)]">
@@ -769,6 +961,8 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
                           )}
                         </div>
                       )}
+
+                      {renderAudioQaControls(call, true)}
                     </div>
                   </div>
                 );
@@ -787,19 +981,20 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
                     <th className="px-4 py-3">Estado</th>
                     <th className="px-4 py-3">Duración</th>
                     <th className="px-4 py-3">Fecha y hora</th>
+                    <th className="px-4 py-3">Audio / Auditoría IA</th>
                     <th className="px-4 py-3 text-right">Orden</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border-subtle)]">
                   {loading && !calls.length ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-[var(--text-muted)]">
+                      <td colSpan={8} className="px-4 py-8 text-center text-[var(--text-muted)]">
                         Cargando registro de llamadas…
                       </td>
                     </tr>
                   ) : !calls.length ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-[var(--text-muted)]">
+                      <td colSpan={8} className="px-4 py-8 text-center text-[var(--text-muted)]">
                         No hay llamadas registradas para {formatDayLabel(selectedDate)}.
                       </td>
                     </tr>
@@ -865,6 +1060,9 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-[var(--text-muted)]">
                             {formatDateTime(call.startedAt)}
+                          </td>
+                          <td className="px-4 py-3">
+                            {renderAudioQaControls(call)}
                           </td>
                           <td className="px-4 py-3 text-right whitespace-nowrap">
                             {call.orderId && onSelectOrder ? (
@@ -1234,6 +1432,150 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {qaModalCall && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Auditoría IA de llamada"
+          className="horizon-modal fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-3 sm:p-4"
+        >
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl border border-[var(--border-subtle)] bg-[var(--bg-card)] shadow-2xl">
+            <div className={`flex items-start justify-between gap-3 border-b px-5 py-4 ${
+              qaModalCall.qaStatus === 'incorrect'
+                ? 'border-rose-500/30 bg-rose-500/10'
+                : 'border-emerald-500/30 bg-emerald-500/10'
+            }`}>
+              <div className="flex items-start gap-3 min-w-0">
+                <div className={`w-10 h-10 rounded-2xl border flex items-center justify-center shrink-0 ${
+                  qaModalCall.qaStatus === 'incorrect'
+                    ? 'border-rose-500/40 bg-rose-500/15 text-rose-500'
+                    : 'border-emerald-500/40 bg-emerald-500/15 text-emerald-500'
+                }`}>
+                  <span aria-hidden="true" className="material-symbols-outlined text-[22px]">
+                    {qaModalCall.qaStatus === 'incorrect' ? 'warning' : 'verified'}
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <span className={`text-[10.5px] font-black uppercase tracking-wider ${
+                    qaModalCall.qaStatus === 'incorrect' ? 'text-rose-500' : 'text-emerald-500'
+                  }`}>
+                    {qaModalCall.qaStatus === 'incorrect' ? 'Alerta: Llamada No Correcta' : 'Llamada Aprobada por IA'}
+                    {qaModalCall.qaScore != null ? ` · Puntaje ${qaModalCall.qaScore}/100` : ''}
+                  </span>
+                  <h3 className="text-base font-black text-[var(--text-heading)] truncate">
+                    {qaModalCall.clientName || qaModalCall.callerName || qaModalCall.callerNumber}
+                  </h3>
+                  <p className="text-[11px] font-mono text-[var(--text-muted)]">
+                    {qaModalCall.callerNumber}
+                    {qaModalCall.answeredByExt ? ` · Ext. ${qaModalCall.answeredByExt}${extensionUsers[qaModalCall.answeredByExt] ? ` (${extensionUsers[qaModalCall.answeredByExt]})` : ''}` : ''}
+                    {' · '}{formatDateTime(qaModalCall.startedAt)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQaModalCall(null)}
+                aria-label="Cerrar alerta de llamada"
+                className="w-8 h-8 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-heading)] flex items-center justify-center shrink-0 cursor-pointer"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              {qaModalCall.recordingUrl && (
+                <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 space-y-1.5">
+                  <span className="text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-muted)] block">
+                    Grabación de la llamada
+                  </span>
+                  <audio controls src={qaModalCall.recordingUrl} className="w-full h-9" />
+                </div>
+              )}
+
+              {qaModalCall.qaResult && (
+                <>
+                  <div className={`rounded-2xl border p-3.5 space-y-2 ${
+                    qaModalCall.qaStatus === 'incorrect'
+                      ? 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-200'
+                      : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                  }`}>
+                    <p className="font-bold text-sm">{qaModalCall.qaResult.summary}</p>
+                    {qaModalCall.qaResult.failureReasons.length > 0 && (
+                      <ul className="list-disc pl-4 space-y-1 text-xs">
+                        {qaModalCall.qaResult.failureReasons.map((reason, idx) => (
+                          <li key={idx}>{reason}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <h4 className="text-[11px] font-black uppercase tracking-wider text-[var(--text-muted)]">
+                      Evaluación del protocolo (Rodriguez Salvage Yard)
+                    </h4>
+                    <div className="divide-y divide-[var(--border-subtle)] rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-hidden">
+                      {[
+                        { label: '1. Saludo oficial (Rodriguez Salvage Yard)', item: qaModalCall.qaResult.checklist.officialGreeting },
+                        { label: '2. Preguntó pieza y vehículo', item: qaModalCall.qaResult.checklist.askedNeed },
+                        { label: '3. Búsqueda real en inventario / Car-Part', item: qaModalCall.qaResult.checklist.realInventorySearch },
+                        { label: '4. Precio y millas (si había existencia)', item: qaModalCall.qaResult.checklist.priceAndMilesIfAvailable },
+                        { label: '5. Despedida cordial', item: qaModalCall.qaResult.checklist.courteousGoodbye },
+                      ].map((row) => (
+                        <div key={row.label} className="px-3.5 py-2.5 flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-bold text-[var(--text-heading)]">{row.label}</p>
+                            <p className="text-[11px] text-[var(--text-muted)] mt-0.5">{row.item.note}</p>
+                          </div>
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold shrink-0 ${
+                            row.item.passed === true
+                              ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300'
+                              : row.item.passed === false
+                                ? 'bg-rose-500/15 text-rose-600 dark:text-rose-300'
+                                : 'bg-slate-500/15 text-slate-500'
+                          }`}>
+                            {row.item.passed === true ? 'Cumplió' : row.item.passed === false ? 'Falló' : 'N/A'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {qaModalCall.qaResult.transcript && (
+                    <div className="space-y-1.5">
+                      <h4 className="text-[11px] font-black uppercase tracking-wider text-[var(--text-muted)]">
+                        Transcripción detectada
+                      </h4>
+                      <pre className="whitespace-pre-wrap rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 font-sans text-xs text-[var(--text-secondary)] leading-relaxed">
+                        {qaModalCall.qaResult.transcript}
+                      </pre>
+                    </div>
+                  )}
+                </>
+              )}
+
+              <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-[var(--border-subtle)]">
+                <button
+                  type="button"
+                  disabled={analyzingUniqueId === qaModalCall.uniqueid}
+                  onClick={() => { void handleReanalyzeCall(qaModalCall); }}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3.5 py-2 text-xs font-bold text-[var(--text-heading)] hover:bg-[var(--bg-card)] disabled:opacity-50 cursor-pointer"
+                >
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">psychology</span>
+                  <span>{analyzingUniqueId === qaModalCall.uniqueid ? 'Analizando…' : 'Re-analizar con IA'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQaModalCall(null)}
+                  className="rounded-xl bg-[var(--brand-solid)] px-4 py-2 text-xs font-bold text-white cursor-pointer"
+                >
+                  Entendido
+                </button>
+              </div>
             </div>
           </div>
         </div>

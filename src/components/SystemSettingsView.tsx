@@ -62,6 +62,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   const [backups, setBackups] = useState<BackupItem[]>([]);
   const [loadingBackups, setLoadingBackups] = useState(false);
   const [creatingBackup, setCreatingBackup] = useState(false);
+  const [downloadingBackup, setDownloadingBackup] = useState<string | null>(null);
   const [backupMessage, setBackupMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isVaultLocked, setIsVaultLocked] = useState(false);
   const [vaultExpiresAt, setVaultExpiresAt] = useState(0);
@@ -115,6 +116,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     liveAlertsEnabled: boolean;
     secretConfigured: boolean;
     amiSecretConfigured?: boolean;
+    geminiApiKeyConfigured?: boolean;
     secretSource: 'db' | 'env' | 'none';
     webhookPath: string;
     amiHost: string;
@@ -137,6 +139,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     ringTimeoutSeconds: '120',
     liveAlertsEnabled: true,
     webhookSecret: '',
+    geminiApiKey: '',
   });
   const [monitorCode, setMonitorCode] = useState('');
   const [hasMonitorCode, setHasMonitorCode] = useState(false);
@@ -408,6 +411,9 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       if (pbxDraft.webhookSecret.trim()) {
         body.webhookSecret = pbxDraft.webhookSecret.trim();
       }
+      if (pbxDraft.geminiApiKey.trim()) {
+        body.geminiApiKey = pbxDraft.geminiApiKey.trim();
+      }
       const response = await apiFetch('/settings/pbx', {
         method: 'PUT',
         body: JSON.stringify(body),
@@ -415,7 +421,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.message || 'No se pudo guardar la configuración PBX.');
       setPbxSettings(payload);
-      setPbxDraft((prev) => ({ ...prev, amiSecret: '', webhookSecret: '' }));
+      setPbxDraft((prev) => ({ ...prev, amiSecret: '', webhookSecret: '', geminiApiKey: '' }));
       setPbxMessage({
         type: 'success',
         text: 'Configuración de Issabel PBX guardada correctamente.',
@@ -567,13 +573,16 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       setIsUnlockModalOpen(true);
       return;
     }
+    const downloadKey = filename || '__direct__';
+    setDownloadingBackup(downloadKey);
+    setBackupMessage(null);
     try {
       const url = filename
         ? `/system/backup/download?file=${encodeURIComponent(filename)}`
         : '/system/backup';
       const response = await apiFetch(url);
       if (!response.ok) {
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
         if (data.code === 'FINANCE_LOCKED' || response.status === 403) {
           setIsVaultLocked(true);
           setPendingAction(() => () => void handleDownloadBackup(filename));
@@ -584,15 +593,20 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       }
       const blob = await response.blob();
       const objectUrl = URL.createObjectURL(blob);
+      const headerName = response.headers.get('content-disposition')?.match(/filename="([^"]+)"/)?.[1];
+      const fallbackName = filename ? filename.replace(/\.gz$/i, '') : 'radar-backup.sql';
       const link = document.createElement('a');
       link.href = objectUrl;
-      link.download = filename || response.headers.get('content-disposition')?.match(/filename="([^"]+)"/)?.[1] || 'radar-backup.sql';
+      link.download = headerName || fallbackName;
+      link.style.display = 'none';
       document.body.appendChild(link);
       link.click();
       link.remove();
-      URL.revokeObjectURL(objectUrl);
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 15_000);
     } catch (error) {
       setBackupMessage({ type: 'error', text: error instanceof Error ? error.message : 'Error al descargar el archivo de respaldo.' });
+    } finally {
+      setDownloadingBackup(null);
     }
   };
 
@@ -1118,6 +1132,16 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                 {pbxSaving ? 'Guardando…' : 'Guardar configuración'}
               </button>
             </div>
+            <label className="block text-[11px] font-bold text-[var(--text-muted)]">
+              Gemini API Key (Auditoría IA de Grabaciones)
+              <input
+                type="password"
+                value={pbxDraft.geminiApiKey}
+                onChange={(e) => setPbxDraft((prev) => ({ ...prev, geminiApiKey: e.target.value }))}
+                placeholder={pbxSettings?.geminiApiKeyConfigured ? 'Configurada (deja vacío para conservar la actual)' : 'Pega aquí tu GEMINI_API_KEY'}
+                className="mt-1 w-full rounded-xl border border-cyan-500/25 bg-[var(--bg-surface)] px-3 py-2 font-mono text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+              />
+            </label>
           </form>
 
           <form onSubmit={(e) => { void saveMonitorCode(e); }} className="mt-4 rounded-xl border border-cyan-500/30 bg-[var(--bg-card-subtle)] p-3.5 flex flex-wrap items-end justify-between gap-3">
@@ -1256,12 +1280,15 @@ node scripts/issabel-ami-bridge.mjs`}
 
               <button
                 type="button"
+                disabled={downloadingBackup !== null}
                 onClick={() => void handleDownloadBackup()}
-                className="cyber-btn-secondary px-3.5 py-2.5 text-xs font-bold flex items-center gap-1.5"
+                className="cyber-btn-secondary px-3.5 py-2.5 text-xs font-bold flex items-center gap-1.5 disabled:opacity-50"
                 title="Descargar volcado dinámico SQL actual"
               >
-                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">download</span>
-                <span className="hidden sm:inline">Descarga Directa</span>
+                <span aria-hidden="true" className={`material-symbols-outlined text-[18px] ${downloadingBackup === '__direct__' ? 'animate-spin' : ''}`}>
+                  {downloadingBackup === '__direct__' ? 'sync' : 'download'}
+                </span>
+                <span className="hidden sm:inline">{downloadingBackup === '__direct__' ? 'Descargando…' : 'Descarga Directa'}</span>
               </button>
             </div>
           </div>
@@ -1497,12 +1524,15 @@ node scripts/issabel-ami-bridge.mjs`}
                         <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
                           <button
                             type="button"
+                            disabled={downloadingBackup !== null}
                             onClick={() => void handleDownloadBackup(item.filename)}
-                            className="p-1.5 rounded-lg bg-[#040814] border border-cyan-500/20 hover:border-cyan-400 text-slate-300 hover:text-white transition-all text-xs flex items-center gap-1 cursor-pointer"
+                            className="p-1.5 rounded-lg bg-[#040814] border border-cyan-500/20 hover:border-cyan-400 text-slate-300 hover:text-white transition-all text-xs flex items-center gap-1 cursor-pointer disabled:opacity-50"
                             title="Descargar archivo .sql"
                           >
-                            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">download</span>
-                            <span className="text-[10px] font-mono">Descargar</span>
+                            <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${downloadingBackup === item.filename ? 'animate-spin' : ''}`}>
+                              {downloadingBackup === item.filename ? 'sync' : 'download'}
+                            </span>
+                            <span className="text-[10px] font-mono">{downloadingBackup === item.filename ? 'Bajando…' : 'Descargar'}</span>
                           </button>
 
                           <button

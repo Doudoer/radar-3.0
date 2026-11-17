@@ -3,6 +3,28 @@ import type { Pool, RowDataPacket } from 'mysql2/promise';
 
 export type PbxCallDirection = 'inbound' | 'outbound' | 'internal';
 export type PbxCallStatus = 'ringing' | 'answered' | 'missed' | 'ended';
+export type PbxCallQaStatus = 'pending' | 'correct' | 'incorrect' | 'error';
+
+export interface PbxCallQaChecklistItem {
+  passed: boolean | null;
+  note: string;
+}
+
+export interface PbxCallQaResult {
+  verdict: 'correcta' | 'incorrecta';
+  score: number;
+  summary: string;
+  failureReasons: string[];
+  checklist: {
+    officialGreeting: PbxCallQaChecklistItem;
+    askedNeed: PbxCallQaChecklistItem;
+    realInventorySearch: PbxCallQaChecklistItem;
+    priceAndMilesIfAvailable: PbxCallQaChecklistItem;
+    courteousGoodbye: PbxCallQaChecklistItem;
+  };
+  transcript: string;
+  model?: string;
+}
 
 export interface PbxCallEventInput {
   uniqueid: string;
@@ -48,6 +70,13 @@ export interface PbxCallRecord {
   startedAt: string;
   answeredAt: string | null;
   endedAt: string | null;
+  recordingUrl: string | null;
+  recordingMimeType: string | null;
+  recordingUploadedAt: string | null;
+  qaStatus: PbxCallQaStatus | null;
+  qaScore: number | null;
+  qaResult: PbxCallQaResult | null;
+  qaAnalyzedAt: string | null;
 }
 
 export interface PbxCallSummary {
@@ -119,6 +148,7 @@ export interface PbxSettingsSnapshot {
   liveAlertsEnabled: boolean;
   secretConfigured: boolean;
   amiSecretConfigured: boolean;
+  geminiApiKeyConfigured: boolean;
   amiSecretValue?: string;
   secretSource: 'db' | 'env' | 'none';
   webhookPath: string;
@@ -143,6 +173,7 @@ export interface PbxSettingsUpdateInput {
   amiUser?: string;
   amiSecret?: string;
   webhookSecret?: string;
+  geminiApiKey?: string;
   ringTimeoutSeconds?: number;
 }
 
@@ -155,6 +186,7 @@ const PBX_SETTING_KEYS = [
   'pbx.ami_user',
   'pbx.ami_secret',
   'pbx.webhook_secret',
+  'pbx.gemini_api_key',
   'pbx.ring_timeout_seconds',
   'pbx.last_heartbeat_at',
   'pbx.last_event_at',
@@ -170,6 +202,16 @@ export const getExpectedPbxWebhookSecret = async (pool: Pool): Promise<string | 
   if (dbSecret) return dbSecret;
   const envSecret = String(process.env.PBX_WEBHOOK_SECRET ?? '').trim();
   return envSecret || undefined;
+};
+
+export const getGeminiApiKey = async (pool: Pool): Promise<string | undefined> => {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT setting_value FROM app_settings WHERE setting_key = 'pbx.gemini_api_key' LIMIT 1",
+  );
+  const dbKey = String(rows[0]?.setting_value ?? '').trim();
+  if (dbKey) return dbKey;
+  const envKey = String(process.env.GEMINI_API_KEY ?? '').trim();
+  return envKey || undefined;
 };
 
 export const readPbxSettings = async (pool: Pool, now = new Date()): Promise<PbxSettingsSnapshot> => {
@@ -195,6 +237,7 @@ export const readPbxSettings = async (pool: Pool, now = new Date()): Promise<Pbx
   const amiUser = (map.get('pbx.ami_user') || 'radar_monitor').trim();
   const amiSecretValue = (map.get('pbx.ami_secret') || process.env.PBX_AMI_SECRET || '').trim();
   const amiSecretConfigured = Boolean(amiSecretValue);
+  const geminiApiKeyConfigured = Boolean((map.get('pbx.gemini_api_key') || process.env.GEMINI_API_KEY || '').trim());
   const ringRaw = Number(map.get('pbx.ring_timeout_seconds') || STALE_RINGING_SECONDS);
   const ringTimeoutSeconds = Number.isFinite(ringRaw) && ringRaw >= 15 ? Math.min(300, Math.round(ringRaw)) : STALE_RINGING_SECONDS;
 
@@ -230,6 +273,7 @@ export const readPbxSettings = async (pool: Pool, now = new Date()): Promise<Pbx
     liveAlertsEnabled,
     secretConfigured,
     amiSecretConfigured,
+    geminiApiKeyConfigured,
     amiSecretValue: amiSecretValue || undefined,
     secretSource,
     webhookPath: '/api/pbx/events',
@@ -265,6 +309,7 @@ export const writePbxSettings = async (
   if (typeof input.amiUser === 'string' && input.amiUser.trim()) entries.push(['pbx.ami_user', input.amiUser.trim().slice(0, 64)]);
   if (typeof input.amiSecret === 'string' && input.amiSecret.trim()) entries.push(['pbx.ami_secret', input.amiSecret.trim().slice(0, 200)]);
   if (typeof input.webhookSecret === 'string' && input.webhookSecret.trim()) entries.push(['pbx.webhook_secret', input.webhookSecret.trim().slice(0, 200)]);
+  if (typeof input.geminiApiKey === 'string' && input.geminiApiKey.trim()) entries.push(['pbx.gemini_api_key', input.geminiApiKey.trim().slice(0, 255)]);
   if (typeof input.ringTimeoutSeconds === 'number' && Number.isFinite(input.ringTimeoutSeconds)) {
     entries.push(['pbx.ring_timeout_seconds', String(Math.max(15, Math.min(300, Math.round(input.ringTimeoutSeconds))))]);
   }
@@ -392,6 +437,16 @@ const parseRejectedExts = (raw: unknown): string[] => {
   return [...new Set(String(raw).split(',').map((s) => s.trim()).filter(Boolean))];
 };
 
+const parseQaResult = (raw: unknown): PbxCallQaResult | null => {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw as PbxCallQaResult;
+  try {
+    return JSON.parse(String(raw)) as PbxCallQaResult;
+  } catch {
+    return null;
+  }
+};
+
 const mapCallRow = (row: RowDataPacket): PbxCallRecord => {
   const callerNumber = String(row.caller_number || '');
   const parsed = parseCallerLanguageAndName(callerNumber, row.caller_name ? String(row.caller_name) : null);
@@ -416,7 +471,25 @@ const mapCallRow = (row: RowDataPacket): PbxCallRecord => {
     startedAt: row.started_at ? new Date(row.started_at).toISOString() : new Date().toISOString(),
     answeredAt: row.answered_at ? new Date(row.answered_at).toISOString() : null,
     endedAt: row.ended_at ? new Date(row.ended_at).toISOString() : null,
+    recordingUrl: row.recording_url ? `/api/pbx/calls/${encodeURIComponent(String(row.uniqueid))}/recording` : null,
+    recordingMimeType: row.recording_mime_type ? String(row.recording_mime_type) : null,
+    recordingUploadedAt: row.recording_uploaded_at ? new Date(row.recording_uploaded_at).toISOString() : null,
+    qaStatus: row.qa_status ? (String(row.qa_status) as PbxCallQaStatus) : null,
+    qaScore: row.qa_score != null ? Number(row.qa_score) : null,
+    qaResult: parseQaResult(row.qa_result),
+    qaAnalyzedAt: row.qa_analyzed_at ? new Date(row.qa_analyzed_at).toISOString() : null,
   };
+};
+
+export const getPbxCallByUniqueId = async (
+  pool: Pool,
+  uniqueid: string,
+): Promise<PbxCallRecord | null> => {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    'SELECT * FROM pbx_call_logs WHERE uniqueid = ? LIMIT 1',
+    [uniqueid],
+  );
+  return rows[0] ? mapCallRow(rows[0]) : null;
 };
 
 export const upsertPbxCallEvent = async (

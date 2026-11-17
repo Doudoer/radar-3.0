@@ -25,6 +25,7 @@ import { filterInventory, inventoryCsv } from './src/utils/inventoryExport';
 import { financeVaultExpiry, lockFinanceVault, revokeFinanceVaults, unlockFinanceVault } from './src/server/financeVault';
 import { businessDate, businessDaysBetween, isEligibleForDeliveryFollowup } from './src/server/businessTime';
 import { getExpectedPbxWebhookSecret, getPbxExtensionsPresenceReport, listActiveIncomingCalls, listPbxCallLogs, listPbxDailyAnalytics, readPbxSettings, recordPbxHeartbeat, sanitizePbxSettingsForClient, startPbxDailyRolloverScheduler, upsertPbxCallEvent, verifyPbxWebhookSecret, writePbxSettings } from './src/server/pbxCalls';
+import { getPbxCallRecordingDiskInfo, runPbxCallQaByUniqueId, savePbxCallRecordingAndAnalyze } from './src/server/pbxAudioQa';
 import { createPbxAmiManager } from './src/server/pbxAmiClient';
 import { startNotificationOutbox } from './src/server/outbox';
 import { clearSessionCookie, isLoginRateLimited, isPinInUse, recordLoginFailure, resetLoginAttempts, requireRole, roleIs, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
@@ -736,7 +737,13 @@ const server = createServer(async (request, response) => {
     ]);
     const protectedPath = pathname.startsWith('/api/') || pathname.startsWith('/uploads/');
     const authenticatedClaims = protectedPath ? verifyToken(request) as Claims | null : null;
-    const hasMonitorAccess = !authenticatedClaims && request.method === 'GET' && PBX_MONITOR_READ_PATHS.has(pathname) && verifyPbxMonitorToken(request);
+    const isMonitorCallAudioRoute =
+      /^\/api\/pbx\/calls\/[^/]+\/(recording|qa)$/.test(pathname) &&
+      (request.method === 'GET' || request.method === 'POST');
+    const hasMonitorAccess =
+      !authenticatedClaims &&
+      ((request.method === 'GET' && PBX_MONITOR_READ_PATHS.has(pathname)) || isMonitorCallAudioRoute) &&
+      verifyPbxMonitorToken(request);
     if (protectedPath && !authenticatedClaims && !hasMonitorAccess) {
       return sendJson(response, 401, { message: 'Autenticación requerida' });
     }
@@ -1438,26 +1445,37 @@ const server = createServer(async (request, response) => {
       const url = new URL(request.url || '/', 'http://localhost');
       const targetFile = url.searchParams.get('file');
 
-      let backupSql = '';
-      let downloadFilename = '';
+      try {
+        if (targetFile) {
+          const { sql, resolvedPath } = await getBackupFileContent(targetFile);
+          const baseName = path.basename(resolvedPath).replace(/\.gz$/i, '');
+          const buf = Buffer.from(sql, 'utf8');
+          response.writeHead(200, {
+            'Cache-Control': 'no-store',
+            'Content-Type': 'application/sql; charset=utf-8',
+            'Content-Length': String(buf.length),
+            'Content-Disposition': `attachment; filename="${baseName}"`,
+          });
+          response.end(buf);
+          return;
+        }
 
-      if (targetFile) {
-        const { sql, resolvedPath } = await getBackupFileContent(targetFile);
-        backupSql = sql;
-        downloadFilename = path.basename(resolvedPath);
-      } else {
-        backupSql = await createDatabaseBackup();
+        const backupSql = await createDatabaseBackup();
         const date = new Date().toISOString().replace(/[:.]/g, '-');
-        downloadFilename = `radar-v3-backup-${date}.sql`;
+        const downloadFilename = `radar-v3-backup-${date}.sql`;
+        const buf = Buffer.from(backupSql, 'utf8');
+        response.writeHead(200, {
+          'Cache-Control': 'no-store',
+          'Content-Type': 'application/sql; charset=utf-8',
+          'Content-Length': String(buf.length),
+          'Content-Disposition': `attachment; filename="${downloadFilename}"`,
+        });
+        response.end(buf);
+        return;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'No se pudo descargar el respaldo.';
+        return sendJson(response, 404, { message });
       }
-
-      response.writeHead(200, {
-        'Cache-Control': 'no-store',
-        'Content-Type': 'application/sql; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${downloadFilename}"`,
-      });
-      response.end(backupSql);
-      return;
     }
 
     // ==========================================
@@ -4055,6 +4073,7 @@ const server = createServer(async (request, response) => {
         amiUser: z.string().trim().min(1).max(64).optional(),
         amiSecret: z.string().trim().max(200).optional(),
         webhookSecret: z.string().trim().max(200).optional(),
+        geminiApiKey: z.string().trim().max(255).optional(),
         ringTimeoutSeconds: z.coerce.number().int().min(15).max(300).optional(),
       }).parse(await readBody(request));
       const before = await readPbxSettings(pool);
@@ -4155,6 +4174,92 @@ const server = createServer(async (request, response) => {
         limit: Number(url.searchParams.get('limit') || 100),
       });
       return sendJson(response, 200, result);
+    }
+
+    const pbxRecordingMatch = pathname.match(/^\/api\/pbx\/calls\/([^/]+)\/recording$/);
+    if (pbxRecordingMatch && request.method === 'GET') {
+      const uniqueid = decodeURIComponent(pbxRecordingMatch[1]);
+      const info = await getPbxCallRecordingDiskInfo(pool, uniqueid);
+      if (!info || !existsSync(info.filePath)) {
+        return sendJson(response, 404, { message: 'Grabación no encontrada.' });
+      }
+      const stat = statSync(info.filePath);
+      const totalSize = stat.size;
+      const rangeHeader = request.headers.range;
+      if (rangeHeader) {
+        const match = rangeHeader.match(/bytes=(\d*)-(\d*)/);
+        if (match) {
+          const start = match[1] ? Math.min(totalSize - 1, Number(match[1])) : 0;
+          const end = match[2] ? Math.min(totalSize - 1, Number(match[2])) : totalSize - 1;
+          const chunkSize = Math.max(0, end - start + 1);
+          response.writeHead(206, {
+            'Content-Range': `bytes ${start}-${end}/${totalSize}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': String(chunkSize),
+            'Content-Type': info.mimeType,
+            'Cache-Control': 'private, max-age=300',
+          });
+          createReadStream(info.filePath, { start, end }).pipe(response);
+          return;
+        }
+      }
+      response.writeHead(200, {
+        'Accept-Ranges': 'bytes',
+        'Content-Length': String(totalSize),
+        'Content-Type': info.mimeType,
+        'Cache-Control': 'private, max-age=300',
+      });
+      createReadStream(info.filePath).pipe(response);
+      return;
+    }
+
+    if (pbxRecordingMatch && request.method === 'POST') {
+      response.setTimeout(180_000);
+      const uniqueid = decodeURIComponent(pbxRecordingMatch[1]);
+      const rawChunks: Buffer[] = [];
+      let totalBytes = 0;
+      const maxJsonBytes = 70 * 1024 * 1024;
+      for await (const chunk of request) {
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        totalBytes += buf.length;
+        if (totalBytes > maxJsonBytes) {
+          return sendJson(response, 413, { message: 'El archivo de audio excede el tamaño máximo permitido (50 MB).' });
+        }
+        rawChunks.push(buf);
+      }
+      const rawText = Buffer.concat(rawChunks).toString('utf8');
+      const parsed = z.object({
+        fileName: z.string().trim().max(255).optional(),
+        mimeType: z.string().trim().max(128).optional(),
+        base64: z.string().min(1),
+      }).parse(JSON.parse(rawText));
+      const cleanBase64 = parsed.base64.replace(/^data:.*?;base64,/, '');
+      const audioBuffer = Buffer.from(cleanBase64, 'base64');
+      try {
+        const result = await savePbxCallRecordingAndAnalyze(pool, {
+          uniqueid,
+          buffer: audioBuffer,
+          fileName: parsed.fileName,
+          mimeType: parsed.mimeType,
+        });
+        return sendJson(response, 200, result);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'No se pudo guardar o analizar el audio.';
+        return sendJson(response, 400, { message });
+      }
+    }
+
+    const pbxQaMatch = pathname.match(/^\/api\/pbx\/calls\/([^/]+)\/qa$/);
+    if (pbxQaMatch && request.method === 'POST') {
+      response.setTimeout(180_000);
+      const uniqueid = decodeURIComponent(pbxQaMatch[1]);
+      try {
+        const result = await runPbxCallQaByUniqueId(pool, uniqueid);
+        return sendJson(response, 200, result);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'No se pudo analizar la llamada.';
+        return sendJson(response, 400, { message });
+      }
     }
 
     if (request.method === 'GET' && pathname === '/api/pbx/analytics') {
