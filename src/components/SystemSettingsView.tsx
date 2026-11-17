@@ -148,6 +148,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
   const [hasYardGlobalCode, setHasYardGlobalCode] = useState(false);
   const [yardCodeSaving, setYardCodeSaving] = useState(false);
   const [yardCodeMessage, setYardCodeMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [callsCodeMessage, setCallsCodeMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [maintenanceStorage, setMaintenanceStorage] = useState<{
     orderFilesCount: number;
     orderBytes: number;
@@ -690,16 +691,19 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     }
   };
 
-  const saveMonitorCode = async (event: React.FormEvent) => {
+  const saveMonitorCode = async (event: React.FormEvent, clear = false) => {
     event.preventDefault();
     if (monitorCodeSaving) return;
-    const cleaned = monitorCode.trim();
-    if (cleaned.length < 4) {
-      setPbxMessage({ type: 'error', text: 'El código del monitor debe tener al menos 4 caracteres.' });
+    const cleaned = clear ? '' : monitorCode.trim();
+    if (!clear && cleaned.length < 4) {
+      const msg = { type: 'error' as const, text: 'El código de acceso a Llamadas debe tener al menos 4 caracteres.' };
+      setPbxMessage(msg);
+      setCallsCodeMessage(msg);
       return;
     }
     setMonitorCodeSaving(true);
     setPbxMessage(null);
+    setCallsCodeMessage(null);
     try {
       const response = await apiFetch('/settings/pbx/monitor-code', {
         method: 'PUT',
@@ -707,11 +711,20 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.message || 'No se pudo guardar el código.');
-      setHasMonitorCode(true);
+      setHasMonitorCode(Boolean(payload.hasMonitorCode));
       setMonitorCode('');
-      setPbxMessage({ type: 'success', text: 'Código de acceso al Monitor de Llamadas (/llamadas y App macOS) guardado.' });
+      const msg = {
+        type: 'success' as const,
+        text: payload.hasMonitorCode
+          ? 'Código global de acceso a Llamadas (calls.radar-rsy.store / /llamadas) guardado.'
+          : 'Código global de Llamadas desactivado (solo PIN/usuario autorizado).',
+      };
+      setPbxMessage(msg);
+      setCallsCodeMessage(msg);
     } catch (error) {
-      setPbxMessage({ type: 'error', text: error instanceof Error ? error.message : 'Error al guardar el código.' });
+      const msg = { type: 'error' as const, text: error instanceof Error ? error.message : 'Error al guardar el código.' };
+      setPbxMessage(msg);
+      setCallsCodeMessage(msg);
     } finally {
       setMonitorCodeSaving(false);
     }
@@ -2621,6 +2634,56 @@ MAINTENANCE_SECRET=&lt;SECRETO&gt; HOST=172.18.0.1 PORT=9898 python3 scripts/vps
                 {yardCodeMessage && (
                   <p className={`text-[11px] font-mono ${yardCodeMessage.type === 'success' ? 'text-emerald-300' : 'text-rose-300'}`}>
                     {yardCodeMessage.text}
+                  </p>
+                )}
+              </form>
+            )}
+            {isSuperAdmin && (
+              <form onSubmit={(e) => { void saveMonitorCode(e, false); }} className="pt-3 space-y-2 border-t border-cyan-500/15">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-mono font-bold text-slate-200">
+                    Código Global · Acceso a Llamadas
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                    hasMonitorCode
+                      ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                      : 'border-slate-500/35 bg-slate-500/10 text-slate-300'
+                  }`}>
+                    {hasMonitorCode ? 'Activo (Global)' : 'Sin código global'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Permite entrar al portal de Llamadas (<code className="font-mono text-cyan-300">calls.radar-rsy.store</code> / <code className="font-mono text-cyan-300">/llamadas</code>) con un código global único sin asignar usuario.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="password"
+                    value={monitorCode}
+                    onChange={(e) => setMonitorCode(e.target.value)}
+                    placeholder={hasMonitorCode ? 'Nuevo código global (deja vacío para conservar)' : 'Ej. 2026 o clave de 4+ dígitos'}
+                    className="flex-1 min-w-[180px] rounded-xl border border-cyan-500/25 bg-[var(--bg-surface)] px-3 py-2 font-mono text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                  />
+                  <button
+                    type="submit"
+                    disabled={monitorCodeSaving || !monitorCode.trim()}
+                    className="rounded-xl bg-[var(--brand-solid)] px-3.5 py-2 font-mono text-[11px] font-bold text-white hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                  >
+                    {monitorCodeSaving ? 'Guardando…' : 'Guardar código'}
+                  </button>
+                  {hasMonitorCode && (
+                    <button
+                      type="button"
+                      disabled={monitorCodeSaving}
+                      onClick={(e) => { void saveMonitorCode(e, true); }}
+                      className="rounded-xl border border-rose-500/35 bg-rose-500/10 px-3 py-2 font-mono text-[11px] font-bold text-rose-300 hover:bg-rose-500/20 disabled:opacity-50 cursor-pointer"
+                    >
+                      Desactivar
+                    </button>
+                  )}
+                </div>
+                {callsCodeMessage && (
+                  <p className={`text-[11px] font-mono ${callsCodeMessage.type === 'success' ? 'text-emerald-300' : 'text-rose-300'}`}>
+                    {callsCodeMessage.text}
                   </p>
                 )}
               </form>

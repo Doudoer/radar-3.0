@@ -1,9 +1,12 @@
 export const isCallsPortalUrl = (rawUrl: string): boolean => {
   try {
     const url = new URL(rawUrl, 'http://localhost');
+    const hostname = url.hostname.toLowerCase();
     const pathname = url.pathname.toLowerCase();
     return (
-      pathname === '/llamadas'
+      hostname.startsWith('calls.')
+      || hostname.includes('calls.localhost')
+      || pathname === '/llamadas'
       || pathname.startsWith('/llamadas/')
       || pathname === '/calls-monitor'
       || url.searchParams.get('portal')?.toLowerCase() === 'calls'

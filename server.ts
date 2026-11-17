@@ -4225,7 +4225,14 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'PUT' && pathname === '/api/settings/pbx/monitor-code') {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
-      const body = z.object({ code: z.string().trim().min(4, 'El código debe tener al menos 4 caracteres.').max(64) }).parse(await readBody(request));
+      const body = z.object({ code: z.string().trim().max(64) }).parse(await readBody(request));
+      if (!body.code) {
+        await pool.execute("DELETE FROM app_settings WHERE setting_key='pbx.monitor_code_hash'");
+        return sendJson(response, 200, { ok: true, hasMonitorCode: false });
+      }
+      if (body.code.length < 4) {
+        return sendJson(response, 400, { message: 'El código debe tener al menos 4 caracteres.' });
+      }
       const hash = await bcrypt.hash(body.code, 12);
       await pool.execute(
         `INSERT INTO app_settings (setting_key, setting_value, updated_by)

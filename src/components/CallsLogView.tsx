@@ -211,6 +211,36 @@ const DIRECTION_LABEL: Record<CallLogRow['direction'], { label: string; icon: st
   internal: { label: 'Interna', icon: 'call_split' },
 };
 
+const ANALYTICS_PERIOD_CONFIG: Record<'day' | 'week' | 'month', {
+  days: number;
+  tabLabel: string;
+  shortLabel: string;
+  rangeTitle: string;
+  historyTitle: string;
+}> = {
+  day: {
+    days: 1,
+    tabLabel: 'Por Día',
+    shortLabel: 'Hoy',
+    rangeTitle: 'Hoy',
+    historyTitle: 'Resumen del día',
+  },
+  week: {
+    days: 7,
+    tabLabel: 'Por Semana',
+    shortLabel: '7 días',
+    rangeTitle: 'Últimos 7 días',
+    historyTitle: 'Historial semanal (7 días)',
+  },
+  month: {
+    days: 30,
+    tabLabel: 'Por Mes',
+    shortLabel: '30 días',
+    rangeTitle: 'Últimos 30 días',
+    historyTitle: 'Historial mensual (30 días)',
+  },
+};
+
 export const CallsLogView: React.FC<CallsLogViewProps> = ({
   onSelectOrder,
   mobileAppMode = false,
@@ -234,6 +264,7 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [analyticsPeriod, setAnalyticsPeriod] = useState<'day' | 'week' | 'month'>('month');
   const [analyticsDays, setAnalyticsDays] = useState<DailyAnalyticsRow[]>([]);
   const [employeePerformance, setEmployeePerformance] = useState<EmployeeCallPerformance[]>([]);
   const [extensionUsers, setExtensionUsers] = useState<Record<string, string>>({});
@@ -421,7 +452,8 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
   const loadAnalytics = useCallback(async () => {
     setAnalyticsLoading(true);
     try {
-      const res = await apiFetch('/pbx/analytics?days=30');
+      const daysParam = ANALYTICS_PERIOD_CONFIG[analyticsPeriod].days;
+      const res = await apiFetch(`/pbx/analytics?days=${daysParam}`);
       const data = await res.json().catch(() => ({}));
       if (res.ok && Array.isArray(data.days)) {
         setAnalyticsDays(data.days);
@@ -433,7 +465,7 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
     } finally {
       setAnalyticsLoading(false);
     }
-  }, []);
+  }, [analyticsPeriod]);
 
   const loadPresence = useCallback(async (dateOverride?: string) => {
     try {
@@ -519,14 +551,14 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-1">
+            <div className="inline-flex items-center gap-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-1">
               <button
                 type="button"
                 onClick={() => setTab('daily')}
-                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer focus:outline-none ${
                   tab === 'daily'
-                    ? 'bg-[var(--brand-solid)] text-white shadow-sm'
-                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]'
+                    ? 'bg-[var(--brand-solid)] !text-white shadow-sm'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-heading)]'
                 }`}
               >
                 Registro del día
@@ -534,13 +566,13 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
               <button
                 type="button"
                 onClick={() => setTab('analytics')}
-                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer focus:outline-none ${
                   tab === 'analytics'
-                    ? 'bg-[var(--brand-solid)] text-white shadow-sm'
-                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]'
+                    ? 'bg-[var(--brand-solid)] !text-white shadow-sm'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-heading)]'
                 }`}
               >
-                Historial y Analíticas Diarias
+                Historial y Analíticas
               </button>
             </div>
 
@@ -1088,6 +1120,33 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
         </>
       ) : (
         <div className="space-y-3 sm:space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] px-3.5 py-2.5">
+            <div>
+              <p className="text-xs font-black uppercase tracking-wider text-[var(--text-heading)]">
+                Período de Analíticas
+              </p>
+              <p className="text-[11px] text-[var(--text-muted)]">
+                Mostrando métricas y rendimiento de asesores para: <strong>{ANALYTICS_PERIOD_CONFIG[analyticsPeriod].rangeTitle}</strong>
+              </p>
+            </div>
+            <div className="inline-flex items-center gap-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1">
+              {(['day', 'week', 'month'] as const).map((periodKey) => (
+                <button
+                  key={periodKey}
+                  type="button"
+                  onClick={() => setAnalyticsPeriod(periodKey)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer focus:outline-none ${
+                    analyticsPeriod === periodKey
+                      ? 'bg-[var(--brand-solid)] !text-white shadow-sm'
+                      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-card)] hover:text-[var(--text-heading)]'
+                  }`}
+                >
+                  {ANALYTICS_PERIOD_CONFIG[periodKey].tabLabel}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {mobileAppMode ? (
             <div className="grid grid-cols-4 divide-x divide-[var(--border-subtle)] rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] py-2.5 text-center">
               <div>
@@ -1095,7 +1154,7 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
                 <p className="mt-0.5 text-lg font-black tabular-nums text-[var(--text-heading)]">{analyticsTotals.activeDays}</p>
               </div>
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">30 días</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">{ANALYTICS_PERIOD_CONFIG[analyticsPeriod].shortLabel}</p>
                 <p className="mt-0.5 text-lg font-black tabular-nums text-cyan-600 dark:text-cyan-400">{analyticsTotals.total}</p>
               </div>
               <div>
@@ -1114,7 +1173,9 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
                 <p className="mt-1 text-2xl font-black tabular-nums text-[var(--text-heading)]">{analyticsTotals.activeDays}</p>
               </div>
               <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Llamadas (30 días)</p>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                  Llamadas ({ANALYTICS_PERIOD_CONFIG[analyticsPeriod].shortLabel})
+                </p>
                 <p className="mt-1 text-2xl font-black tabular-nums text-cyan-600 dark:text-cyan-400">{analyticsTotals.total}</p>
               </div>
               <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
@@ -1291,7 +1352,7 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
             <div className="overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)]">
               <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-2.5">
                 <h2 className="text-xs font-black uppercase tracking-wider text-[var(--text-heading)]">
-                  Rendimiento por Asesor (PBX · Últimos 30 días)
+                  Rendimiento por Asesor (PBX · {ANALYTICS_PERIOD_CONFIG[analyticsPeriod].rangeTitle})
                 </h2>
               </div>
               <div className="overflow-x-auto">
@@ -1326,7 +1387,7 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
           <div className="md:hidden overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] divide-y divide-[var(--border-subtle)]">
             <div className="bg-[var(--bg-surface)] px-4 py-2.5">
               <h2 className="text-xs font-black uppercase tracking-wider text-[var(--text-heading)]">
-                Historial diario (30 días)
+                {ANALYTICS_PERIOD_CONFIG[analyticsPeriod].historyTitle}
               </h2>
             </div>
             {analyticsLoading && !analyticsDays.length ? (
