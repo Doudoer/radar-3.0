@@ -1253,8 +1253,13 @@ export async function handleWorkflowRequest(
     if (match) { where += ' AND o.id=?'; params.push(match[1]); }
     else { where += " AND o.created_at>='2026-10-21 04:00:00'"; }
     if (claims.role !== 'admin') {
-      where += ' AND (o.user_id=? OR (COALESCE(o.delivered_at,' + deliveredHistoryDateSql + ') IS NOT NULL AND f.advisor_id=?) OR (o.id IN (SELECT c.order_id FROM claims c WHERE c.assigned_user_id=? AND c.deleted_at IS NULL AND c.status IN (\'Pending\',\'In Process\'))))';
-      params.push(Number(claims.sub), Number(claims.sub), Number(claims.sub));
+      const numericSub = Number(claims.sub);
+      if (!Number.isFinite(numericSub) || numericSub <= 0) {
+        where += ' AND 1=0';
+      } else {
+        where += ' AND (o.user_id=? OR (COALESCE(o.delivered_at,' + deliveredHistoryDateSql + ') IS NOT NULL AND f.advisor_id=?) OR (o.id IN (SELECT c.order_id FROM claims c WHERE c.assigned_user_id=? AND c.deleted_at IS NULL AND c.status IN (\'Pending\',\'In Process\'))))';
+        params.push(numericSub, numericSub, numericSub);
+      }
     }
     const [rows] = await database.query<RowDataPacket[]>(
       `SELECT o.*, u.name AS advisor,u.role AS advisor_role,f.advisor_id AS followup_user_id,fu.name AS followup_advisor,c.first_name,c.last_name,c.language AS customer_crm_language, ${incidentDateSql}, ${confirmationPolicySql}, ${deliveryHistorySql}, ${match ? quoteCreatorSql : 'NULL AS quote_created_by'} FROM orders o LEFT JOIN users u ON u.id=o.user_id LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN order_followup_assignments f ON f.order_id=o.id LEFT JOIN users fu ON fu.id=f.advisor_id WHERE ${where}`, params,

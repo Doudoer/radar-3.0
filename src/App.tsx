@@ -163,6 +163,7 @@ export default function App() {
   }, [authenticated]);
 
   const fetchPendingFollowups = useCallback(async (autoOpenOnLogin = false) => {
+    if (!authenticated || userRole === 'vendedor_yarda' || callsPortalActive) return;
     try {
       const [response, workflow] = await Promise.all([
         apiFetch(`/orders/followups/pending?all=true&_t=${Date.now()}`),
@@ -188,7 +189,7 @@ export default function App() {
       console.error('Error fetching pending followups:', err);
       setDatabaseMessage(err instanceof Error ? err.message : 'No se pudo actualizar la bandeja de trabajo.');
     }
-  }, [setDatabaseMessage]);
+  }, [authenticated, userRole, callsPortalActive, setDatabaseMessage]);
 
   useEffect(() => {
     if (authenticated && authUser && userRole !== 'vendedor_yarda' && !callsPortalActive && !authChecking) {
