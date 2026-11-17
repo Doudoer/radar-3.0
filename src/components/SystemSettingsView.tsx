@@ -153,6 +153,8 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     orderBytes: number;
     pbxAudioCount: number;
     pbxAudioBytes: number;
+    backupsFilesCount: number;
+    backupsBytes: number;
     totalBytes: number;
   } | null>(null);
   const [vpsStats, setVpsStats] = useState<{
@@ -181,13 +183,18 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     deliveredGraceDays: '0',
     refundedRetentionDays: '30',
     pbxAudioRetentionDays: '30',
+    backupsRetentionDays: '30',
     alertsEnabled: true,
     ramAlertThresholdPct: '85',
     diskAlertThresholdPct: '85',
     cpuAlertThresholdPct: '90',
+    dockerPruneUrl: '',
+    dockerPruneSecret: '',
+    dockerPruneSecretConfigured: false,
     lastRunAt: null as string | null,
     lastAlertAt: null as string | null,
   });
+  const [showDockerGuide, setShowDockerGuide] = useState(false);
   const [maintenanceReport, setMaintenanceReport] = useState<{
     dryRun: boolean;
     executedAt: string;
@@ -195,6 +202,7 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     refundedExpired: { ordersCount: number; filesCount: number; bytes: number };
     cancelledImmediate: { ordersCount: number; filesCount: number; bytes: number };
     pbxAudios: { ordersCount: number; filesCount: number; bytes: number };
+    backupsExpired?: { ordersCount: number; filesCount: number; bytes: number };
     orphans: { ordersCount: number; filesCount: number; bytes: number };
     totalFiles: number;
     totalBytesFreed: number;
@@ -415,10 +423,14 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
           deliveredGraceDays: String(payload.settings.deliveredGraceDays ?? 0),
           refundedRetentionDays: String(payload.settings.refundedRetentionDays ?? 30),
           pbxAudioRetentionDays: String(payload.settings.pbxAudioRetentionDays ?? 30),
+          backupsRetentionDays: String(payload.settings.backupsRetentionDays ?? 30),
           alertsEnabled: payload.settings.alertsEnabled !== false,
           ramAlertThresholdPct: String(payload.settings.ramAlertThresholdPct ?? 85),
           diskAlertThresholdPct: String(payload.settings.diskAlertThresholdPct ?? 85),
           cpuAlertThresholdPct: String(payload.settings.cpuAlertThresholdPct ?? 90),
+          dockerPruneUrl: payload.settings.dockerPruneUrl || '',
+          dockerPruneSecret: '',
+          dockerPruneSecretConfigured: Boolean(payload.settings.dockerPruneSecretConfigured),
           lastRunAt: payload.settings.lastRunAt || null,
           lastAlertAt: payload.settings.lastAlertAt || null,
         });
@@ -455,10 +467,13 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
           deliveredGraceDays: Number(maintenanceDraft.deliveredGraceDays) || 0,
           refundedRetentionDays: Number(maintenanceDraft.refundedRetentionDays) || 30,
           pbxAudioRetentionDays: Number(maintenanceDraft.pbxAudioRetentionDays) || 30,
+          backupsRetentionDays: Number(maintenanceDraft.backupsRetentionDays) || 30,
           alertsEnabled: overrides?.alertsEnabled ?? maintenanceDraft.alertsEnabled,
           ramAlertThresholdPct: Number(maintenanceDraft.ramAlertThresholdPct) || 85,
           diskAlertThresholdPct: Number(maintenanceDraft.diskAlertThresholdPct) || 85,
           cpuAlertThresholdPct: Number(maintenanceDraft.cpuAlertThresholdPct) || 90,
+          dockerPruneUrl: maintenanceDraft.dockerPruneUrl.trim(),
+          ...(maintenanceDraft.dockerPruneSecret.trim() ? { dockerPruneSecret: maintenanceDraft.dockerPruneSecret.trim() } : {}),
         }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -471,10 +486,14 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
         deliveredGraceDays: String(payload.settings?.deliveredGraceDays ?? prev.deliveredGraceDays),
         refundedRetentionDays: String(payload.settings?.refundedRetentionDays ?? prev.refundedRetentionDays),
         pbxAudioRetentionDays: String(payload.settings?.pbxAudioRetentionDays ?? prev.pbxAudioRetentionDays),
+        backupsRetentionDays: String(payload.settings?.backupsRetentionDays ?? prev.backupsRetentionDays),
         alertsEnabled: payload.settings?.alertsEnabled !== false,
         ramAlertThresholdPct: String(payload.settings?.ramAlertThresholdPct ?? prev.ramAlertThresholdPct),
         diskAlertThresholdPct: String(payload.settings?.diskAlertThresholdPct ?? prev.diskAlertThresholdPct),
         cpuAlertThresholdPct: String(payload.settings?.cpuAlertThresholdPct ?? prev.cpuAlertThresholdPct),
+        dockerPruneUrl: payload.settings?.dockerPruneUrl ?? prev.dockerPruneUrl,
+        dockerPruneSecret: '',
+        dockerPruneSecretConfigured: Boolean(payload.settings?.dockerPruneSecretConfigured),
       }));
       setMaintenanceMessage({ type: 'success', text: 'Políticas de mantenimiento y alertas guardadas correctamente.' });
     } catch (error) {
@@ -484,12 +503,12 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
     }
   };
 
-  const runMaintenanceAction = async (mode: 'preview' | 'run' | 'test-alert') => {
+  const runMaintenanceAction = async (mode: 'preview' | 'run' | 'test-alert' | 'docker-prune') => {
     if (maintenanceBusy) return;
     if (mode === 'run' && typeof window !== 'undefined' && !window.confirm('¿Confirmas eliminar permanentemente los archivos vencidos según las reglas de retención? Los registros de órdenes y llamadas se conservan.')) {
       return;
     }
-    setMaintenanceBusy(mode === 'test-alert' ? 'saving' : mode);
+    setMaintenanceBusy(mode === 'test-alert' || mode === 'docker-prune' ? 'saving' : mode);
     setMaintenanceMessage(null);
     try {
       const response = await apiFetch(`/settings/maintenance/${mode}`, { method: 'POST' });
@@ -502,6 +521,15 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
           text: payload.sent
             ? 'Alerta de prueba enviada por WhatsApp (Wasender) al Super Administrador.'
             : 'No se pudo enviar la alerta (verifica que Wasender esté activo y el Super Admin tenga teléfono registrado).',
+        });
+      } else if (mode === 'docker-prune') {
+        if (payload.vps) setVpsStats(payload.vps);
+        const relCount = Number(payload.releasesRemoved || 0);
+        const relBytes = Number(payload.releasesBytesFreed || 0);
+        const relInfo = relCount > 0 ? `Releases limpiadas: ${relCount} (${formatBytesLabel(relBytes)}).` : 'Releases antiguas: al día.';
+        setMaintenanceMessage({
+          type: 'success',
+          text: `Limpieza VPS completada. ${relInfo} ${payload.imagesOutput || ''} ${payload.builderOutput || ''}`.trim(),
         });
       } else {
         setMaintenanceReport(payload.report || null);
@@ -1624,7 +1652,7 @@ node scripts/issabel-ami-bridge.mjs`}
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="rounded-2xl border border-cyan-500/20 bg-[var(--bg-surface)] p-4">
               <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Archivos de Órdenes</p>
               <p className="mt-1 text-xl font-black text-[var(--text-heading)] tabular-nums">
@@ -1644,7 +1672,16 @@ node scripts/issabel-ami-bridge.mjs`}
               </p>
             </div>
             <div className="rounded-2xl border border-cyan-500/20 bg-[var(--bg-surface)] p-4">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Espacio Total en Uploads</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Respaldos SQL</p>
+              <p className="mt-1 text-xl font-black text-violet-400 tabular-nums">
+                {maintenanceStorage ? formatBytesLabel(maintenanceStorage.backupsBytes ?? 0) : '—'}
+              </p>
+              <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                {maintenanceStorage ? `${maintenanceStorage.backupsFilesCount ?? 0} respaldos (.sql/.dump)` : 'Calculando…'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-cyan-500/20 bg-[var(--bg-surface)] p-4">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Espacio Total</p>
               <p className="mt-1 text-xl font-black text-emerald-400 tabular-nums">
                 {maintenanceStorage ? formatBytesLabel(maintenanceStorage.totalBytes) : '—'}
               </p>
@@ -1658,7 +1695,7 @@ node scripts/issabel-ami-bridge.mjs`}
             <h3 className="text-xs font-black uppercase tracking-wider text-[var(--text-heading)]">
               Reglas de Retención Configuradas
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
               <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3 space-y-1.5">
                 <span className="font-bold text-[var(--text-heading)] block">Órdenes Entregadas</span>
                 <p className="text-[11px] text-[var(--text-muted)]">
@@ -1710,6 +1747,21 @@ node scripts/issabel-ami-bridge.mjs`}
                   max={3650}
                   value={maintenanceDraft.pbxAudioRetentionDays}
                   onChange={(e) => setMaintenanceDraft((prev) => ({ ...prev, pbxAudioRetentionDays: e.target.value }))}
+                  className="w-full rounded-lg border border-cyan-500/25 bg-[var(--bg-surface)] px-2.5 py-1.5 font-mono text-xs text-[var(--text-primary)] outline-none"
+                />
+              </div>
+
+              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3 space-y-1.5">
+                <span className="font-bold text-[var(--text-heading)] block">Respaldos SQL Antiguos</span>
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  Días antes de borrar respaldos (siempre conserva los 5 más recientes):
+                </p>
+                <input
+                  type="number"
+                  min={1}
+                  max={3650}
+                  value={maintenanceDraft.backupsRetentionDays}
+                  onChange={(e) => setMaintenanceDraft((prev) => ({ ...prev, backupsRetentionDays: e.target.value }))}
                   className="w-full rounded-lg border border-cyan-500/25 bg-[var(--bg-surface)] px-2.5 py-1.5 font-mono text-xs text-[var(--text-primary)] outline-none"
                 />
               </div>
@@ -1765,12 +1817,13 @@ node scripts/issabel-ami-bridge.mjs`}
                   {maintenanceReport.totalFiles} archivos · {formatBytesLabel(maintenanceReport.totalBytesFreed)}
                 </span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2 text-xs">
                 {[
                   { label: 'Entregadas (garantía exp.)', data: maintenanceReport.deliveredExpired },
                   { label: 'Reembolsadas (> retención)', data: maintenanceReport.refundedExpired },
                   { label: 'Canceladas (inmediato)', data: maintenanceReport.cancelledImmediate },
                   { label: 'Audios PBX antiguos', data: maintenanceReport.pbxAudios },
+                  { label: 'Respaldos SQL antiguos', data: maintenanceReport.backupsExpired || { ordersCount: 0, filesCount: 0, bytes: 0 } },
                   { label: 'Archivos huérfanos', data: maintenanceReport.orphans },
                 ].map((cat) => (
                   <div key={cat.label} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-2.5">
@@ -1783,6 +1836,91 @@ node scripts/issabel-ami-bridge.mjs`}
               </div>
             </div>
           )}
+
+          {/* Limpieza de Docker en el VPS (Imágenes y caché de builds acumulados por deploys) */}
+          <div className="rounded-2xl border border-cyan-500/20 bg-[var(--bg-surface)] p-4 space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wider text-[var(--text-heading)] flex items-center gap-2">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-400">layers_clear</span>
+                  Limpieza de Docker en el VPS (Imágenes de Deploys / Dokploy)
+                </h3>
+                <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+                  Elimina imágenes Docker viejas y caché de builds (&gt; 7 días) en el servidor anfitrión sin tocar volúmenes ni la base de datos.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDockerGuide((v) => !v)}
+                className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 font-mono text-[11px] font-bold text-cyan-300 hover:bg-cyan-500/20 cursor-pointer"
+              >
+                {showDockerGuide ? 'Ocultar guía VPS' : 'Ver comando para el VPS'}
+              </button>
+            </div>
+
+            {showDockerGuide && (
+              <div className="rounded-xl border border-cyan-500/25 bg-[var(--bg-card)] p-3 space-y-2 text-[11px] text-[var(--text-muted)]">
+                <p>
+                  Por seguridad, el contenedor de RADAR no monta el socket de Docker. Para habilitar este botón en producción, inicia el agente ligero en el host del VPS:
+                </p>
+                <pre className="overflow-x-auto rounded-lg bg-black/50 p-2.5 font-mono text-[11px] text-emerald-300 select-all">
+MAINTENANCE_SECRET=&lt;SECRETO&gt; HOST=172.18.0.1 PORT=9898 python3 scripts/vps-docker-prune-agent.py
+                </pre>
+                <p>
+                  Luego ingresa la URL interna del agente (ej. <code className="font-mono text-cyan-300">http://172.18.0.1:9898</code>) y el mismo secreto abajo.
+                </p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-[var(--text-muted)] block">
+                  URL del Agente Docker en el VPS
+                </label>
+                <input
+                  type="url"
+                  placeholder="http://host.docker.internal:9898"
+                  value={maintenanceDraft.dockerPruneUrl}
+                  onChange={(e) => setMaintenanceDraft((prev) => ({ ...prev, dockerPruneUrl: e.target.value }))}
+                  className="w-full rounded-lg border border-cyan-500/25 bg-[var(--bg-card)] px-2.5 py-1.5 font-mono text-xs text-[var(--text-primary)] outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-[var(--text-muted)] block">
+                  Secreto del Agente (<code className="font-mono text-cyan-300">x-maintenance-secret</code>)
+                  {maintenanceDraft.dockerPruneSecretConfigured && (
+                    <span className="ml-2 text-emerald-400 font-normal">(configurado)</span>
+                  )}
+                </label>
+                <input
+                  type="password"
+                  placeholder={maintenanceDraft.dockerPruneSecretConfigured ? '•••••••• (dejar vacío para mantener)' : 'Ingresa el secreto configurado en el VPS'}
+                  value={maintenanceDraft.dockerPruneSecret}
+                  onChange={(e) => setMaintenanceDraft((prev) => ({ ...prev, dockerPruneSecret: e.target.value }))}
+                  className="w-full rounded-lg border border-cyan-500/25 bg-[var(--bg-card)] px-2.5 py-1.5 font-mono text-xs text-[var(--text-primary)] outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-cyan-500/15">
+              <button
+                type="button"
+                disabled={maintenanceBusy !== null}
+                onClick={() => { void saveMaintenanceSettings(); }}
+                className="rounded-xl border border-cyan-500/35 bg-cyan-500/10 px-3.5 py-2 font-mono text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50 cursor-pointer"
+              >
+                {maintenanceBusy === 'saving' ? 'Guardando…' : 'Guardar'}
+              </button>
+              <button
+                type="button"
+                disabled={maintenanceBusy !== null || !maintenanceDraft.dockerPruneUrl.trim()}
+                onClick={() => { void runMaintenanceAction('docker-prune'); }}
+                className="rounded-xl border border-amber-500/40 bg-amber-500/15 px-3.5 py-2 font-mono text-xs font-bold text-amber-300 hover:bg-amber-500/25 disabled:opacity-50 cursor-pointer"
+              >
+                {maintenanceBusy === 'docker-prune' ? 'Limpiando Docker…' : 'Limpiar Docker ahora'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

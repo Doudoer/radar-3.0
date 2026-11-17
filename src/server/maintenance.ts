@@ -5,6 +5,7 @@ import type { Pool, RowDataPacket } from 'mysql2/promise';
 import { PBX_RECORDINGS_DIR } from './pbxAudioQa';
 
 export const UPLOADS_DIR = path.resolve(process.cwd(), 'uploads');
+export const BACKUPS_DIR = path.resolve(process.cwd(), 'backups');
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ALERT_COOLDOWN_MS = 60 * 60 * 1000;
 
@@ -13,10 +14,13 @@ export interface MaintenanceSettings {
   deliveredGraceDays: number;
   refundedRetentionDays: number;
   pbxAudioRetentionDays: number;
+  backupsRetentionDays: number;
   alertsEnabled: boolean;
   ramAlertThresholdPct: number;
   diskAlertThresholdPct: number;
   cpuAlertThresholdPct: number;
+  dockerPruneUrl: string;
+  dockerPruneSecretConfigured: boolean;
   lastRunAt: string | null;
   lastAlertAt: string | null;
   lastSummary: MaintenanceRunSummary | null;
@@ -49,6 +53,8 @@ export interface StorageStats {
   orderBytes: number;
   pbxAudioCount: number;
   pbxAudioBytes: number;
+  backupsFilesCount: number;
+  backupsBytes: number;
   totalBytes: number;
 }
 
@@ -65,6 +71,7 @@ export interface MaintenanceRunSummary {
   refundedExpired: MaintenanceCategoryReport;
   cancelledImmediate: MaintenanceCategoryReport;
   pbxAudios: MaintenanceCategoryReport;
+  backupsExpired: MaintenanceCategoryReport;
   orphans: MaintenanceCategoryReport;
   totalFiles: number;
   totalBytesFreed: number;
@@ -75,10 +82,13 @@ const SETTING_KEYS = [
   'maintenance.delivered_grace_days',
   'maintenance.refunded_retention_days',
   'maintenance.pbx_audio_retention_days',
+  'maintenance.backups_retention_days',
   'maintenance.alerts_enabled',
   'maintenance.ram_alert_threshold_pct',
   'maintenance.disk_alert_threshold_pct',
   'maintenance.cpu_alert_threshold_pct',
+  'maintenance.docker_prune_url',
+  'maintenance.docker_prune_secret',
   'maintenance.last_run_at',
   'maintenance.last_alert_at',
   'maintenance.last_summary',
@@ -152,10 +162,13 @@ export const readMaintenanceSettings = async (pool: Pool): Promise<MaintenanceSe
     deliveredGraceDays: clampDays(map.get('maintenance.delivered_grace_days'), 0, 0),
     refundedRetentionDays: clampDays(map.get('maintenance.refunded_retention_days'), 30, 1),
     pbxAudioRetentionDays: clampDays(map.get('maintenance.pbx_audio_retention_days'), 30, 1),
+    backupsRetentionDays: clampDays(map.get('maintenance.backups_retention_days'), 30, 1),
     alertsEnabled: (map.get('maintenance.alerts_enabled') ?? '1') === '1',
     ramAlertThresholdPct: clampDays(map.get('maintenance.ram_alert_threshold_pct'), 85, 50),
     diskAlertThresholdPct: clampDays(map.get('maintenance.disk_alert_threshold_pct'), 85, 50),
     cpuAlertThresholdPct: clampDays(map.get('maintenance.cpu_alert_threshold_pct'), 90, 50),
+    dockerPruneUrl: (map.get('maintenance.docker_prune_url') || '').trim(),
+    dockerPruneSecretConfigured: Boolean((map.get('maintenance.docker_prune_secret') || '').trim()),
     lastRunAt: map.get('maintenance.last_run_at') || null,
     lastAlertAt: map.get('maintenance.last_alert_at') || null,
     lastSummary: parseJsonSafe<MaintenanceRunSummary>(map.get('maintenance.last_summary')),
@@ -170,11 +183,13 @@ export const writeMaintenanceSettings = async (
     | 'deliveredGraceDays'
     | 'refundedRetentionDays'
     | 'pbxAudioRetentionDays'
+    | 'backupsRetentionDays'
     | 'alertsEnabled'
     | 'ramAlertThresholdPct'
     | 'diskAlertThresholdPct'
     | 'cpuAlertThresholdPct'
-  >>,
+    | 'dockerPruneUrl'
+  >> & { dockerPruneSecret?: string },
   userId: number,
 ): Promise<MaintenanceSettings> => {
   const entries: Array<[string, string]> = [];
@@ -190,6 +205,9 @@ export const writeMaintenanceSettings = async (
   if (typeof input.pbxAudioRetentionDays === 'number' && Number.isFinite(input.pbxAudioRetentionDays)) {
     entries.push(['maintenance.pbx_audio_retention_days', String(Math.max(1, Math.min(3650, Math.round(input.pbxAudioRetentionDays))))]);
   }
+  if (typeof input.backupsRetentionDays === 'number' && Number.isFinite(input.backupsRetentionDays)) {
+    entries.push(['maintenance.backups_retention_days', String(Math.max(1, Math.min(3650, Math.round(input.backupsRetentionDays))))]);
+  }
   if (typeof input.alertsEnabled === 'boolean') {
     entries.push(['maintenance.alerts_enabled', input.alertsEnabled ? '1' : '0']);
   }
@@ -201,6 +219,12 @@ export const writeMaintenanceSettings = async (
   }
   if (typeof input.cpuAlertThresholdPct === 'number' && Number.isFinite(input.cpuAlertThresholdPct)) {
     entries.push(['maintenance.cpu_alert_threshold_pct', String(Math.max(50, Math.min(100, Math.round(input.cpuAlertThresholdPct))))]);
+  }
+  if (typeof input.dockerPruneUrl === 'string') {
+    entries.push(['maintenance.docker_prune_url', input.dockerPruneUrl.trim().slice(0, 300)]);
+  }
+  if (typeof input.dockerPruneSecret === 'string' && input.dockerPruneSecret.trim()) {
+    entries.push(['maintenance.docker_prune_secret', input.dockerPruneSecret.trim().slice(0, 200)]);
   }
   for (const [key, value] of entries) {
     await pool.execute(
@@ -247,12 +271,32 @@ export const getStorageStats = async (): Promise<StorageStats> => {
     // Directory may not exist yet
   }
 
+  let backupsFilesCount = 0;
+  let backupsBytes = 0;
+  for (const dir of [BACKUPS_DIR, path.join(UPLOADS_DIR, 'backups')]) {
+    try {
+      const bEntries = await fs.readdir(dir, { withFileTypes: true });
+      for (const entry of bEntries) {
+        if (!entry.isFile()) continue;
+        const stat = await fs.stat(path.join(dir, entry.name)).catch(() => null);
+        if (stat) {
+          backupsFilesCount += 1;
+          backupsBytes += stat.size;
+        }
+      }
+    } catch {
+      // Directory may not exist yet
+    }
+  }
+
   return {
     orderFilesCount,
     orderBytes,
     pbxAudioCount,
     pbxAudioBytes,
-    totalBytes: orderBytes + pbxAudioBytes,
+    backupsFilesCount,
+    backupsBytes,
+    totalBytes: orderBytes + pbxAudioBytes + backupsBytes,
   };
 };
 
@@ -361,6 +405,7 @@ export const runMaintenanceCleanup = async (
   const refundedExpired: MaintenanceCategoryReport = { ordersCount: 0, filesCount: 0, bytes: 0 };
   const cancelledImmediate: MaintenanceCategoryReport = { ordersCount: 0, filesCount: 0, bytes: 0 };
   const pbxAudios: MaintenanceCategoryReport = { ordersCount: 0, filesCount: 0, bytes: 0 };
+  const backupsExpired: MaintenanceCategoryReport = { ordersCount: 0, filesCount: 0, bytes: 0 };
   const orphans: MaintenanceCategoryReport = { ordersCount: 0, filesCount: 0, bytes: 0 };
 
   const [candidateOrders] = await pool.query<RowDataPacket[]>(
@@ -489,17 +534,45 @@ export const runMaintenanceCleanup = async (
     // Ignore transient scan errors
   }
 
+  // Old SQL backups in backups/ and uploads/backups/ (always keep at least 5 newest)
+  try {
+    const backupCutoffMs = now.getTime() - settings.backupsRetentionDays * DAY_MS;
+    const allBackups: Array<{ filePath: string; mtimeMs: number; size: number }> = [];
+    for (const dir of [BACKUPS_DIR, path.join(UPLOADS_DIR, 'backups')]) {
+      const bEntries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+      for (const entry of bEntries) {
+        if (!entry.isFile()) continue;
+        const filePath = path.join(dir, entry.name);
+        const stat = await fs.stat(filePath).catch(() => null);
+        if (stat) allBackups.push({ filePath, mtimeMs: stat.mtimeMs, size: stat.size });
+      }
+    }
+    allBackups.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const removableBackups = allBackups.slice(5).filter((b) => b.mtimeMs <= backupCutoffMs);
+    for (const b of removableBackups) {
+      if (!options.dryRun) {
+        await fs.unlink(b.filePath).catch(() => {});
+      }
+      backupsExpired.filesCount += 1;
+      backupsExpired.bytes += b.size;
+    }
+  } catch {
+    // Ignore transient backup scan errors
+  }
+
   const totalFiles =
     deliveredExpired.filesCount +
     refundedExpired.filesCount +
     cancelledImmediate.filesCount +
     pbxAudios.filesCount +
+    backupsExpired.filesCount +
     orphans.filesCount;
   const totalBytesFreed =
     deliveredExpired.bytes +
     refundedExpired.bytes +
     cancelledImmediate.bytes +
     pbxAudios.bytes +
+    backupsExpired.bytes +
     orphans.bytes;
 
   const summary: MaintenanceRunSummary = {
@@ -509,6 +582,7 @@ export const runMaintenanceCleanup = async (
     refundedExpired,
     cancelledImmediate,
     pbxAudios,
+    backupsExpired,
     orphans,
     totalFiles,
     totalBytesFreed,
@@ -687,4 +761,42 @@ export const startMaintenanceScheduler = (pool: Pool, wasender?: any): NodeJS.Ti
   const interval = setInterval(() => { void tick(); }, 5 * 60 * 1000);
   interval.unref?.();
   return interval;
+};
+
+export const triggerRemoteDockerPrune = async (
+  pool: Pool,
+): Promise<{
+  ok: boolean;
+  imagesOutput?: string;
+  builderOutput?: string;
+  releasesRemoved?: number;
+  releasesBytesFreed?: number;
+  message?: string;
+}> => {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    "SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN ('maintenance.docker_prune_url', 'maintenance.docker_prune_secret')",
+  );
+  const map = new Map(rows.map((r) => [String(r.setting_key), String(r.setting_value ?? '')]));
+  const baseUrl = (map.get('maintenance.docker_prune_url') || '').trim().replace(/\/+$/, '');
+  const secret = (map.get('maintenance.docker_prune_secret') || '').trim();
+  if (!baseUrl || !secret) {
+    throw new Error('Configura primero la URL y el Secreto del Agente Docker en el VPS.');
+  }
+  const targetUrl = baseUrl.endsWith('/prune') ? baseUrl : `${baseUrl}/prune`;
+  const res = await fetch(targetUrl, {
+    method: 'POST',
+    headers: { 'x-maintenance-secret': secret },
+    signal: AbortSignal.timeout(120_000),
+  });
+  const payload = await res.json().catch(() => ({})) as Record<string, any>;
+  if (!res.ok) {
+    throw new Error(payload?.message || `El agente Docker respondió HTTP ${res.status}`);
+  }
+  return {
+    ok: true,
+    imagesOutput: String(payload.imagesOutput || ''),
+    builderOutput: String(payload.builderOutput || ''),
+    releasesRemoved: Number(payload.releasesRemoved || 0),
+    releasesBytesFreed: Number(payload.releasesBytesFreed || 0),
+  };
 };

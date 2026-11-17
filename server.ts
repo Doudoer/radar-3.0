@@ -26,7 +26,7 @@ import { financeVaultExpiry, lockFinanceVault, revokeFinanceVaults, unlockFinanc
 import { businessDate, businessDaysBetween, isEligibleForDeliveryFollowup } from './src/server/businessTime';
 import { getExpectedPbxWebhookSecret, getPbxExtensionsPresenceReport, listActiveIncomingCalls, listPbxCallLogs, listPbxDailyAnalytics, readPbxSettings, recordPbxHeartbeat, sanitizePbxSettingsForClient, startPbxDailyRolloverScheduler, upsertPbxCallEvent, verifyPbxWebhookSecret, writePbxSettings } from './src/server/pbxCalls';
 import { getPbxCallRecordingDiskInfo, runPbxCallQaByUniqueId, savePbxCallRecordingAndAnalyze } from './src/server/pbxAudioQa';
-import { evaluateAndSendVpsAlerts, getStorageStats, getVpsStats, purgeOrderFiles, readMaintenanceSettings, runMaintenanceCleanup, startMaintenanceScheduler, writeMaintenanceSettings } from './src/server/maintenance';
+import { evaluateAndSendVpsAlerts, getStorageStats, getVpsStats, purgeOrderFiles, readMaintenanceSettings, runMaintenanceCleanup, startMaintenanceScheduler, triggerRemoteDockerPrune, writeMaintenanceSettings } from './src/server/maintenance';
 import { createPbxAmiManager } from './src/server/pbxAmiClient';
 import { startNotificationOutbox } from './src/server/outbox';
 import { clearSessionCookie, isLoginRateLimited, isPinInUse, recordLoginFailure, resetLoginAttempts, requireRole, roleIs, userIsActive, verifyToken, setSessionCookie, Claims } from './src/server/auth';
@@ -4294,10 +4294,13 @@ const server = createServer(async (request, response) => {
         deliveredGraceDays: z.coerce.number().int().min(0).max(365).optional(),
         refundedRetentionDays: z.coerce.number().int().min(1).max(3650).optional(),
         pbxAudioRetentionDays: z.coerce.number().int().min(1).max(3650).optional(),
+        backupsRetentionDays: z.coerce.number().int().min(1).max(3650).optional(),
         alertsEnabled: z.boolean().optional(),
         ramAlertThresholdPct: z.coerce.number().int().min(50).max(99).optional(),
         diskAlertThresholdPct: z.coerce.number().int().min(50).max(99).optional(),
         cpuAlertThresholdPct: z.coerce.number().int().min(50).max(100).optional(),
+        dockerPruneUrl: z.string().trim().max(300).optional(),
+        dockerPruneSecret: z.string().trim().max(200).optional(),
       }).parse(await readBody(request));
       const settings = await writeMaintenanceSettings(pool, payload, Number(authenticatedClaims?.sub || 0));
       const [storage, vps] = await Promise.all([getStorageStats(), getVpsStats()]);
@@ -4339,6 +4342,26 @@ const server = createServer(async (request, response) => {
       if (!requireRole(response, authenticatedClaims, 'admin')) return;
       const result = await evaluateAndSendVpsAlerts(pool, wasender, { forceTest: true });
       return sendJson(response, 200, result);
+    }
+
+    if (request.method === 'POST' && pathname === '/api/settings/maintenance/docker-prune') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      try {
+        const result = await triggerRemoteDockerPrune(pool);
+        const vps = await getVpsStats();
+        void recordAuditLog(pool, {
+          userId: Number(authenticatedClaims?.sub || 0),
+          username: authenticatedClaims?.email,
+          action: 'DOCKER_PRUNE_RUN',
+          resourceType: 'system',
+          details: result,
+          ipAddress: request.socket.remoteAddress || 'unknown',
+          userAgent: request.headers['user-agent'] || null,
+        });
+        return sendJson(response, 200, { ...result, vps });
+      } catch (err) {
+        return sendJson(response, 400, { message: err instanceof Error ? err.message : 'No se pudo ejecutar la limpieza de Docker.' });
+      }
     }
 
     if (request.method === 'POST' && pathname === '/api/settings/pbx/test') {
