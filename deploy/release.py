@@ -148,7 +148,7 @@ def prepare(sha):
     for name in pending:
         sql = re.sub(r"--[^\n]*", "", (source / "migrations" / name).read_text())
         statements = [value.strip() for value in sql.split(";") if value.strip()]
-        if not all(re.match(r"^(CREATE TABLE IF NOT EXISTS|CREATE (UNIQUE )?INDEX IF NOT EXISTS|ALTER TABLE \w+ ADD COLUMN IF NOT EXISTS)\b", statement, re.I) for statement in statements):
+        if not all(re.match(r"^(CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS|CREATE\s+(?:UNIQUE\s+)?INDEX\s+IF\s+NOT\s+EXISTS|ALTER\s+TABLE\s+\w+\s+ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS)\b", statement, re.I) for statement in statements):
             raise RuntimeError(f"Non-additive migration {name} requires a separately reviewed rollout")
     image = f"radar-candidate:{sha}"
     print(f"Building candidate {sha}; pending migrations: {', '.join(pending) or 'none'}", flush=True)
