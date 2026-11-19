@@ -112,14 +112,33 @@ export interface PbxDailyAnalyticsRow {
   isClosed: boolean;
 }
 
+export interface PbxEmployeeDailyBreakdown {
+  date: string;
+  receivedCount: number;
+  answeredCount: number;
+  missedCount: number;
+  rejectedCount: number;
+  outboundCount: number;
+  outboundAnsweredCount: number;
+  answerRate: number;
+  totalTalkSeconds: number;
+  avgTalkSeconds: number;
+}
+
 export interface PbxEmployeeCallPerformance {
   userId: number | null;
   userName: string;
   pbxExtension: string;
+  receivedCount: number;
   answeredCount: number;
+  missedCount: number;
   rejectedCount: number;
+  outboundCount: number;
+  outboundAnsweredCount: number;
+  answerRate: number;
   totalTalkSeconds: number;
   avgTalkSeconds: number;
+  dailyBreakdown: PbxEmployeeDailyBreakdown[];
 }
 
 export interface PbxExtensionPresenceEvent {
@@ -894,20 +913,35 @@ export const savePbxDailySummary = async (
 export const listPbxDailyAnalytics = async (
   pool: Pool,
   days = 30,
+  startDateParam?: string,
+  endDateParam?: string,
 ): Promise<{
   today: string;
+  startDate: string;
+  endDate: string;
   businessHours: { start: string; end: string; timeZone: string };
   days: PbxDailyAnalyticsRow[];
   employeePerformance: PbxEmployeeCallPerformance[];
 }> => {
-  const safeDays = Math.min(90, Math.max(1, Math.round(days || 30)));
   const today = getPbxBusinessDate();
-  const startDate = shiftPbxDate(today, -(safeDays - 1));
+  const isYmd = (s?: string): s is string => Boolean(s && /^\d{4}-\d{2}-\d{2}$/.test(s));
+  let startDate: string;
+  let endDate: string;
+  if (isYmd(startDateParam) && isYmd(endDateParam) && startDateParam <= endDateParam) {
+    startDate = startDateParam;
+    endDate = endDateParam > today ? today : endDateParam;
+    if (startDate > endDate) startDate = endDate;
+  } else {
+    const safeDays = Math.min(90, Math.max(1, Math.round(days || 30)));
+    endDate = today;
+    startDate = shiftPbxDate(today, -(safeDays - 1));
+  }
 
   // Ensure any past days with calls that haven't been closed yet are persisted
+  const pastEndBoundary = endDate < today ? shiftPbxDate(endDate, 1) : today;
   const [savedRows] = await pool.query<RowDataPacket[]>(
     `SELECT * FROM pbx_daily_summaries WHERE summary_date >= ? AND summary_date < ? ORDER BY summary_date DESC`,
-    [startDate, today],
+    [startDate, pastEndBoundary],
   );
   const byDate = new Map<string, PbxDailyAnalyticsRow>();
   for (const r of savedRows) {
@@ -937,106 +971,261 @@ export const listPbxDailyAnalytics = async (
 
   // Backfill any past day in range that has calls in pbx_call_logs but wasn't saved yet
   const { startUtc: rangeStartUtc } = getUtcRangeForPbxDate(startDate);
-  const { startUtc: todayStartUtc } = getUtcRangeForPbxDate(today);
+  const { startUtc: pastEndUtc } = getUtcRangeForPbxDate(pastEndBoundary);
   const [pastRawRows] = await pool.query<RowDataPacket[]>(
     `SELECT started_at FROM pbx_call_logs WHERE started_at >= ? AND started_at < ?`,
-    [rangeStartUtc, todayStartUtc],
+    [rangeStartUtc, pastEndUtc],
   );
   const missingDates = new Set<string>();
   for (const r of pastRawRows) {
     if (!r.started_at) continue;
     const d = getPbxBusinessDate(new Date(r.started_at));
-    if (d < today && !byDate.has(d)) missingDates.add(d);
+    if (d < today && d >= startDate && d <= endDate && !byDate.has(d)) missingDates.add(d);
   }
   for (const missing of missingDates) {
     const saved = await savePbxDailySummary(pool, missing);
     byDate.set(missing, saved);
   }
 
-  // Live summary for today
-  const { startUtc: tStart, endUtc: tEnd } = getUtcRangeForPbxDate(today);
-  const [todayRows] = await pool.query<RowDataPacket[]>(
-    `SELECT direction, status, billsec_seconds, duration_seconds, started_at
-     FROM pbx_call_logs WHERE started_at >= ? AND started_at < ?`,
-    [tStart, tEnd],
-  );
-  const todaySum = summarizeCallRows(todayRows);
-  byDate.set(today, {
-    date: today,
-    totalCalls: todaySum.total,
-    inboundCalls: todaySum.inbound,
-    outboundCalls: todaySum.outbound,
-    internalCalls: todaySum.internal,
-    answeredCalls: todaySum.answered,
-    missedCalls: todaySum.missed,
-    answerRate: todaySum.total > 0 ? Math.round((todaySum.answered / todaySum.total) * 100) : 0,
-    businessHoursCalls: todaySum.businessHoursCalls,
-    businessHoursAnswered: todaySum.businessHoursAnswered,
-    businessHoursMissed: todaySum.businessHoursMissed,
-    afterHoursCalls: todaySum.afterHoursCalls,
-    totalBillsecSeconds: todaySum.totalBillsecSeconds,
-    avgBillsecSeconds: todaySum.avgBillsecSeconds,
-    isClosed: false,
-  });
-
-  const { byExt } = await loadPbxExtensionDirectory(pool);
-  const { endUtc: todayEndUtc } = getUtcRangeForPbxDate(today);
-  const [perfCallRows] = await pool.query<RowDataPacket[]>(
-    `SELECT status, answered_by_ext, rejected_by_exts, billsec_seconds, duration_seconds
-     FROM pbx_call_logs
-     WHERE started_at >= ? AND started_at < ?`,
-    [rangeStartUtc, todayEndUtc],
-  ).catch(() => [[] as RowDataPacket[]]);
-
-  const perfMap = new Map<string, PbxEmployeeCallPerformance>();
-  for (const [ext, info] of Object.entries(byExt)) {
-    perfMap.set(ext, {
-      userId: info.userId,
-      userName: info.name,
-      pbxExtension: ext,
-      answeredCount: 0,
-      rejectedCount: 0,
-      totalTalkSeconds: 0,
-      avgTalkSeconds: 0,
+  // Live summary for today (only if today is within [startDate, endDate])
+  if (endDate >= today && startDate <= today) {
+    const { startUtc: tStart, endUtc: tEnd } = getUtcRangeForPbxDate(today);
+    const [todayRows] = await pool.query<RowDataPacket[]>(
+      `SELECT direction, status, billsec_seconds, duration_seconds, started_at
+       FROM pbx_call_logs WHERE started_at >= ? AND started_at < ?`,
+      [tStart, tEnd],
+    );
+    const todaySum = summarizeCallRows(todayRows);
+    byDate.set(today, {
+      date: today,
+      totalCalls: todaySum.total,
+      inboundCalls: todaySum.inbound,
+      outboundCalls: todaySum.outbound,
+      internalCalls: todaySum.internal,
+      answeredCalls: todaySum.answered,
+      missedCalls: todaySum.missed,
+      answerRate: todaySum.total > 0 ? Math.round((todaySum.answered / todaySum.total) * 100) : 0,
+      businessHoursCalls: todaySum.businessHoursCalls,
+      businessHoursAnswered: todaySum.businessHoursAnswered,
+      businessHoursMissed: todaySum.businessHoursMissed,
+      afterHoursCalls: todaySum.afterHoursCalls,
+      totalBillsecSeconds: todaySum.totalBillsecSeconds,
+      avgBillsecSeconds: todaySum.avgBillsecSeconds,
+      isClosed: false,
     });
   }
-  const ensurePerf = (ext: string): PbxEmployeeCallPerformance => {
+
+  const { byExt } = await loadPbxExtensionDirectory(pool);
+  const { endUtc: rangeEndUtc } = getUtcRangeForPbxDate(endDate);
+  const [perfCallRows] = await pool.query<RowDataPacket[]>(
+    `SELECT direction, status, caller_number, destination, answered_by_ext, rejected_by_exts,
+            billsec_seconds, duration_seconds, started_at, answered_at
+     FROM pbx_call_logs
+     WHERE started_at >= ? AND started_at < ?`,
+    [rangeStartUtc, rangeEndUtc],
+  ).catch(() => [[] as RowDataPacket[]]);
+
+  // Build full list of dates in the requested range (newest first)
+  const rangeDates: string[] = [];
+  let cursor = endDate;
+  for (let i = 0; i < 90 && cursor >= startDate; i++) {
+    rangeDates.push(cursor);
+    cursor = shiftPbxDate(cursor, -1);
+  }
+
+  interface InternalPerfBucket {
+    userId: number | null;
+    userName: string;
+    pbxExtension: string;
+    receivedCount: number;
+    answeredCount: number;
+    missedCount: number;
+    rejectedCount: number;
+    outboundCount: number;
+    outboundAnsweredCount: number;
+    totalTalkSeconds: number;
+    dailyMap: Map<string, {
+      receivedCount: number;
+      answeredCount: number;
+      missedCount: number;
+      rejectedCount: number;
+      outboundCount: number;
+      outboundAnsweredCount: number;
+      totalTalkSeconds: number;
+    }>;
+  }
+
+  const perfMap = new Map<string, InternalPerfBucket>();
+  const createEmptyDay = () => ({
+    receivedCount: 0,
+    answeredCount: 0,
+    missedCount: 0,
+    rejectedCount: 0,
+    outboundCount: 0,
+    outboundAnsweredCount: 0,
+    totalTalkSeconds: 0,
+  });
+
+  const ensurePerf = (ext: string): InternalPerfBucket => {
     const existing = perfMap.get(ext);
     if (existing) return existing;
-    const created: PbxEmployeeCallPerformance = {
+    const dailyMap = new Map<string, ReturnType<typeof createEmptyDay>>();
+    for (const d of rangeDates) {
+      dailyMap.set(d, createEmptyDay());
+    }
+    const created: InternalPerfBucket = {
       userId: byExt[ext]?.userId ?? null,
       userName: byExt[ext]?.name || `Ext. ${ext}`,
       pbxExtension: ext,
+      receivedCount: 0,
       answeredCount: 0,
+      missedCount: 0,
       rejectedCount: 0,
+      outboundCount: 0,
+      outboundAnsweredCount: 0,
       totalTalkSeconds: 0,
-      avgTalkSeconds: 0,
+      dailyMap,
     };
     perfMap.set(ext, created);
     return created;
   };
-  for (const row of perfCallRows) {
-    const st = String(row.status || '');
-    const ext = row.answered_by_ext ? String(row.answered_by_ext).trim() : '';
-    if (ext && (st === 'answered' || st === 'ended')) {
-      const p = ensurePerf(ext);
-      p.answeredCount += 1;
-      p.totalTalkSeconds += Math.max(0, Number(row.billsec_seconds || row.duration_seconds || 0));
+
+  for (const ext of Object.keys(byExt)) {
+    ensurePerf(ext);
+  }
+
+  const ensureDay = (bucket: InternalPerfBucket, dateKey: string) => {
+    let day = bucket.dailyMap.get(dateKey);
+    if (!day) {
+      day = createEmptyDay();
+      bucket.dailyMap.set(dateKey, day);
     }
-    for (const rej of parseRejectedExts(row.rejected_by_exts)) {
-      ensurePerf(rej).rejectedCount += 1;
+    return day;
+  };
+
+  const isExtensionToken = (val: string) => Boolean(val && (byExt[val] || /^\d{2,6}$/.test(val)));
+
+  for (const row of perfCallRows) {
+    if (!row.started_at) continue;
+    const dateKey = getPbxBusinessDate(new Date(row.started_at));
+    const direction = String(row.direction || 'inbound');
+    const st = String(row.status || '');
+    const callerExt = row.caller_number ? String(row.caller_number).trim() : '';
+    const destExt = row.destination ? String(row.destination).trim() : '';
+    const answeredExt = row.answered_by_ext ? String(row.answered_by_ext).trim() : '';
+    const rejectedExts = parseRejectedExts(row.rejected_by_exts);
+    const talkSeconds = Math.max(0, Number(row.billsec_seconds || row.duration_seconds || 0));
+
+    if (direction === 'outbound') {
+      const outExt = (callerExt && byExt[callerExt])
+        ? callerExt
+        : (answeredExt && byExt[answeredExt])
+          ? answeredExt
+          : isExtensionToken(callerExt)
+            ? callerExt
+            : isExtensionToken(answeredExt)
+              ? answeredExt
+              : '';
+      if (outExt) {
+        const p = ensurePerf(outExt);
+        const day = ensureDay(p, dateKey);
+        p.outboundCount += 1;
+        day.outboundCount += 1;
+        const wasAnswered = Boolean(row.answered_at) || Number(row.billsec_seconds || 0) > 0;
+        if (wasAnswered) {
+          p.outboundAnsweredCount += 1;
+          day.outboundAnsweredCount += 1;
+          p.totalTalkSeconds += talkSeconds;
+          day.totalTalkSeconds += talkSeconds;
+        }
+      }
+      continue;
+    }
+
+    // Inbound or internal call
+    const involvedExts = new Set<string>();
+    if (answeredExt && (st === 'answered' || st === 'ended')) {
+      const p = ensurePerf(answeredExt);
+      const day = ensureDay(p, dateKey);
+      p.answeredCount += 1;
+      day.answeredCount += 1;
+      p.totalTalkSeconds += talkSeconds;
+      day.totalTalkSeconds += talkSeconds;
+      involvedExts.add(answeredExt);
+    }
+
+    for (const rej of rejectedExts) {
+      const p = ensurePerf(rej);
+      const day = ensureDay(p, dateKey);
+      p.rejectedCount += 1;
+      day.rejectedCount += 1;
+      involvedExts.add(rej);
+    }
+
+    if (st === 'missed' && isExtensionToken(destExt) && !involvedExts.has(destExt)) {
+      const p = ensurePerf(destExt);
+      const day = ensureDay(p, dateKey);
+      p.missedCount += 1;
+      day.missedCount += 1;
+      involvedExts.add(destExt);
+    }
+
+    for (const ext of involvedExts) {
+      const p = ensurePerf(ext);
+      const day = ensureDay(p, dateKey);
+      p.receivedCount += 1;
+      day.receivedCount += 1;
     }
   }
-  const employeePerformance = [...perfMap.values()]
-    .map((p) => ({
-      ...p,
-      avgTalkSeconds: p.answeredCount > 0 ? Math.round(p.totalTalkSeconds / p.answeredCount) : 0,
-    }))
-    .sort((a, b) => b.answeredCount - a.answeredCount || b.rejectedCount - a.rejectedCount || a.pbxExtension.localeCompare(b.pbxExtension));
+
+  const employeePerformance: PbxEmployeeCallPerformance[] = [...perfMap.values()]
+    .map((p) => {
+      const totalConversations = p.answeredCount + p.outboundAnsweredCount;
+      const dailyBreakdown: PbxEmployeeDailyBreakdown[] = [...p.dailyMap.entries()]
+        .sort(([a], [b]) => b.localeCompare(a))
+        .map(([date, d]) => {
+          const dayConvs = d.answeredCount + d.outboundAnsweredCount;
+          return {
+            date,
+            receivedCount: d.receivedCount,
+            answeredCount: d.answeredCount,
+            missedCount: d.missedCount,
+            rejectedCount: d.rejectedCount,
+            outboundCount: d.outboundCount,
+            outboundAnsweredCount: d.outboundAnsweredCount,
+            answerRate: d.receivedCount > 0 ? Math.round((d.answeredCount / d.receivedCount) * 100) : 0,
+            totalTalkSeconds: d.totalTalkSeconds,
+            avgTalkSeconds: dayConvs > 0 ? Math.round(d.totalTalkSeconds / dayConvs) : 0,
+          };
+        });
+      return {
+        userId: p.userId,
+        userName: p.userName,
+        pbxExtension: p.pbxExtension,
+        receivedCount: p.receivedCount,
+        answeredCount: p.answeredCount,
+        missedCount: p.missedCount,
+        rejectedCount: p.rejectedCount,
+        outboundCount: p.outboundCount,
+        outboundAnsweredCount: p.outboundAnsweredCount,
+        answerRate: p.receivedCount > 0 ? Math.round((p.answeredCount / p.receivedCount) * 100) : 0,
+        totalTalkSeconds: p.totalTalkSeconds,
+        avgTalkSeconds: totalConversations > 0 ? Math.round(p.totalTalkSeconds / totalConversations) : 0,
+        dailyBreakdown,
+      };
+    })
+    .sort((a, b) =>
+      (b.answeredCount + b.outboundCount) - (a.answeredCount + a.outboundCount)
+      || b.receivedCount - a.receivedCount
+      || b.rejectedCount - a.rejectedCount
+      || a.pbxExtension.localeCompare(b.pbxExtension),
+    );
 
   const sorted = [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
   return {
     today,
+    startDate,
+    endDate,
     businessHours: { start: '08:00', end: '17:00', timeZone: PBX_BUSINESS_TIMEZONE },
     days: sorted,
     employeePerformance,

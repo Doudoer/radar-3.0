@@ -15,6 +15,7 @@ import {
   downloadPdfBytes,
 } from '../utils/weeklyRelationPdf';
 import { orderSaleTotal, ordersForMovements } from '../utils/orderAnalytics';
+import { PbxCallAnalyticsPanel } from './PbxCallAnalyticsPanel';
 
 export interface OfficeEmployee {
   id: string;
@@ -396,7 +397,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   // =========================================================================
   // 3. TABS & FINANCIAL ENGINE STATE (CURRENT RUNNING WEEK)
   // =========================================================================
-  const [activeTab, setActiveTab] = useState<'official' | 'sales' | 'deliveries' | 'general'>('official');
+  const [activeTab, setActiveTab] = useState<'official' | 'sales' | 'deliveries' | 'general' | 'calls'>('official');
 
   // Compute Current Running Week Boundary (Monday to Sunday)
   const [weekOffset, setWeekOffset] = useState(0);
@@ -921,6 +922,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
     { id: 'sales', label: 'Ventas', icon: 'inbox', count: weeklySalesOrders.length },
     { id: 'deliveries', label: 'Entregas', icon: 'inventory_2', count: weeklyDeliveriesOrders.length },
     { id: 'general', label: 'Relación general', icon: 'description' },
+    { id: 'calls', label: 'Analíticas de Llamadas', icon: 'call' },
   ];
 
   return (
@@ -1754,6 +1756,14 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
             </button>
           )}
         </div>
+      )}
+
+      {activeTab === 'calls' && (
+        <PbxCallAnalyticsPanel
+          weekStartDate={financeDateKey(currentWeekRange.start) || undefined}
+          weekEndDate={financeDateKey(currentWeekRange.end) || undefined}
+          weekLabel={weekRangeLabel}
+        />
       )}
 
 

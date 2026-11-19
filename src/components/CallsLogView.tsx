@@ -83,14 +83,33 @@ interface DailyAnalyticsRow {
   isClosed: boolean;
 }
 
+interface EmployeeDailyBreakdown {
+  date: string;
+  receivedCount: number;
+  answeredCount: number;
+  missedCount: number;
+  rejectedCount: number;
+  outboundCount: number;
+  outboundAnsweredCount: number;
+  answerRate: number;
+  totalTalkSeconds: number;
+  avgTalkSeconds: number;
+}
+
 interface EmployeeCallPerformance {
   userId: number | null;
   userName: string;
   pbxExtension: string;
+  receivedCount: number;
   answeredCount: number;
+  missedCount: number;
   rejectedCount: number;
+  outboundCount: number;
+  outboundAnsweredCount: number;
+  answerRate: number;
   totalTalkSeconds: number;
   avgTalkSeconds: number;
+  dailyBreakdown?: EmployeeDailyBreakdown[];
 }
 
 interface ExtensionPresenceEvent {
@@ -288,7 +307,9 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [analyticsPeriod, setAnalyticsPeriod] = useState<'day' | 'week' | 'month'>('month');
+  const [analyticsPeriod, setAnalyticsPeriod] = useState<'day' | 'week' | 'month'>('week');
+  const [analyticsSubView, setAnalyticsSubView] = useState<'overview' | 'daily_employee' | 'weekly_report'>('overview');
+  const [selectedEmployeeExt, setSelectedEmployeeExt] = useState<string>('all');
   const [analyticsDays, setAnalyticsDays] = useState<DailyAnalyticsRow[]>([]);
   const [employeePerformance, setEmployeePerformance] = useState<EmployeeCallPerformance[]>([]);
   const [extensionUsers, setExtensionUsers] = useState<Record<string, string>>({});
@@ -561,6 +582,131 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
       avgDuration: answered > 0 ? Math.round(totalSec / answered) : 0,
     };
   }, [analyticsDays]);
+
+  const teamPerfTotals = useMemo(() => {
+    const received = employeePerformance.reduce((acc, e) => acc + (e.receivedCount || 0), 0);
+    const answered = employeePerformance.reduce((acc, e) => acc + (e.answeredCount || 0), 0);
+    const missed = employeePerformance.reduce((acc, e) => acc + (e.missedCount || 0), 0);
+    const rejected = employeePerformance.reduce((acc, e) => acc + (e.rejectedCount || 0), 0);
+    const outbound = employeePerformance.reduce((acc, e) => acc + (e.outboundCount || 0), 0);
+    const outboundAnswered = employeePerformance.reduce((acc, e) => acc + (e.outboundAnsweredCount || 0), 0);
+    const totalTalkSeconds = employeePerformance.reduce((acc, e) => acc + (e.totalTalkSeconds || 0), 0);
+    const convs = answered + outboundAnswered;
+    return {
+      received,
+      answered,
+      missed,
+      rejected,
+      outbound,
+      outboundAnswered,
+      answerRate: received > 0 ? Math.round((answered / received) * 100) : 0,
+      totalTalkSeconds,
+      avgTalkSeconds: convs > 0 ? Math.round(totalTalkSeconds / convs) : 0,
+    };
+  }, [employeePerformance]);
+
+  const dailyEmployeeDates = useMemo(() => {
+    const dateSet = new Set<string>();
+    for (const emp of employeePerformance) {
+      for (const d of emp.dailyBreakdown || []) {
+        dateSet.add(d.date);
+      }
+    }
+    if (dateSet.size === 0) {
+      for (const d of analyticsDays) dateSet.add(d.date);
+    }
+    return [...dateSet].sort((a, b) => b.localeCompare(a));
+  }, [employeePerformance, analyticsDays]);
+
+  const weeklyDatesAsc = useMemo(() => {
+    return dailyEmployeeDates.slice(0, 7).sort((a, b) => a.localeCompare(b));
+  }, [dailyEmployeeDates]);
+
+  const formatShortDayHeader = (dateStr: string) => {
+    try {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const dt = new Date(Date.UTC(y, (m || 1) - 1, d || 1, 12, 0, 0));
+      const wd = new Intl.DateTimeFormat('es-ES', { weekday: 'short', timeZone: 'UTC' }).format(dt);
+      return `${wd.replace('.', '')} ${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}`;
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const handleExportAnalyticsCsv = () => {
+    const esc = (v: string | number) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines: string[] = [];
+    lines.push([
+      'REPORTE DE LLAMADAS POR EMPLEADO',
+      ANALYTICS_PERIOD_CONFIG[analyticsPeriod].rangeTitle,
+    ].map(esc).join(','));
+    lines.push('');
+    lines.push([
+      'Asesor',
+      'Extensión',
+      'Recibidas',
+      'Contestadas',
+      'Perdidas',
+      'Rechazadas',
+      'Realizadas',
+      '% Atención',
+      'Tiempo Hablado',
+      'Promedio Hablado',
+    ].map(esc).join(','));
+    for (const emp of employeePerformance) {
+      lines.push([
+        emp.userName,
+        `Ext. ${emp.pbxExtension}`,
+        emp.receivedCount ?? 0,
+        emp.answeredCount ?? 0,
+        emp.missedCount ?? 0,
+        emp.rejectedCount ?? 0,
+        emp.outboundCount ?? 0,
+        `${emp.answerRate ?? 0}%`,
+        formatDuration(emp.totalTalkSeconds ?? 0),
+        formatDuration(emp.avgTalkSeconds ?? 0),
+      ].map(esc).join(','));
+    }
+    lines.push('');
+    lines.push(['DESGLOSE DIARIO POR EMPLEADO'].map(esc).join(','));
+    lines.push([
+      'Fecha',
+      'Asesor',
+      'Extensión',
+      'Recibidas',
+      'Contestadas',
+      'Perdidas',
+      'Rechazadas',
+      'Realizadas',
+      '% Atención',
+      'Tiempo Hablado',
+    ].map(esc).join(','));
+    for (const dateStr of dailyEmployeeDates) {
+      for (const emp of employeePerformance) {
+        const d = (emp.dailyBreakdown || []).find((row) => row.date === dateStr);
+        if (!d) continue;
+        lines.push([
+          dateStr,
+          emp.userName,
+          `Ext. ${emp.pbxExtension}`,
+          d.receivedCount,
+          d.answeredCount,
+          d.missedCount,
+          d.rejectedCount,
+          d.outboundCount,
+          `${d.answerRate}%`,
+          formatDuration(d.totalTalkSeconds),
+        ].map(esc).join(','));
+      }
+    }
+    const blob = new Blob([`\uFEFF${lines.join('\n')}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `reporte-llamadas-empleados-${todayDate}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const isViewingToday = selectedDate === todayDate;
   const schedule = useMemo(() => getNcAndVenezuelaSchedule(selectedDate), [selectedDate]);
@@ -1154,22 +1300,93 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
                 Mostrando métricas y rendimiento de asesores para: <strong>{ANALYTICS_PERIOD_CONFIG[analyticsPeriod].rangeTitle}</strong>
               </p>
             </div>
-            <div className="inline-flex items-center gap-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1">
-              {(['day', 'week', 'month'] as const).map((periodKey) => (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1">
+                {(['day', 'week', 'month'] as const).map((periodKey) => (
+                  <button
+                    key={periodKey}
+                    type="button"
+                    onClick={() => setAnalyticsPeriod(periodKey)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer focus:outline-none ${
+                      analyticsPeriod === periodKey
+                        ? 'bg-[var(--brand-solid)] !text-white shadow-sm'
+                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-card)] hover:text-[var(--text-heading)]'
+                    }`}
+                  >
+                    {ANALYTICS_PERIOD_CONFIG[periodKey].tabLabel}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={handleExportAnalyticsCsv}
+                disabled={employeePerformance.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-bold text-[var(--text-heading)] hover:bg-[var(--bg-card)] disabled:opacity-40 cursor-pointer"
+                title="Descargar reporte en CSV (Excel)"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">download</span>
+                CSV
+              </button>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="hidden sm:inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-bold text-[var(--text-heading)] hover:bg-[var(--bg-card)] cursor-pointer"
+                title="Imprimir o guardar como PDF"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">print</span>
+                Imprimir
+              </button>
+            </div>
+          </div>
+
+          {/* Sub-vistas de Analíticas */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="inline-flex flex-wrap items-center gap-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-1">
+              {[
+                { key: 'overview' as const, label: 'Resumen General', icon: 'bar_chart' },
+                { key: 'daily_employee' as const, label: 'Detalle Diario por Empleado', icon: 'calendar_month' },
+                { key: 'weekly_report' as const, label: 'Reporte Semanal', icon: 'summarize' },
+              ].map((sub) => (
                 <button
-                  key={periodKey}
+                  key={sub.key}
                   type="button"
-                  onClick={() => setAnalyticsPeriod(periodKey)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer focus:outline-none ${
-                    analyticsPeriod === periodKey
+                  onClick={() => {
+                    setAnalyticsSubView(sub.key);
+                    if (sub.key === 'weekly_report' && analyticsPeriod === 'day') {
+                      setAnalyticsPeriod('week');
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer focus:outline-none ${
+                    analyticsSubView === sub.key
                       ? 'bg-[var(--brand-solid)] !text-white shadow-sm'
-                      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-card)] hover:text-[var(--text-heading)]'
+                      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-heading)]'
                   }`}
                 >
-                  {ANALYTICS_PERIOD_CONFIG[periodKey].tabLabel}
+                  <span aria-hidden="true" className="material-symbols-outlined text-[15px]">{sub.icon}</span>
+                  {sub.label}
                 </button>
               ))}
             </div>
+            {analyticsSubView === 'daily_employee' && employeePerformance.length > 0 && (
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] font-bold text-[var(--text-muted)]" htmlFor="emp-daily-filter">
+                  Empleado:
+                </label>
+                <select
+                  id="emp-daily-filter"
+                  value={selectedEmployeeExt}
+                  onChange={(e) => setSelectedEmployeeExt(e.target.value)}
+                  className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] px-3 py-1.5 text-xs font-semibold text-[var(--text-heading)] outline-none"
+                >
+                  <option value="all">Todos los empleados</option>
+                  {employeePerformance.map((emp) => (
+                    <option key={emp.pbxExtension} value={emp.pbxExtension}>
+                      {emp.userName} (Ext. {emp.pbxExtension})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           {mobileAppMode ? (
@@ -1373,38 +1590,320 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
             </div>
           )}
 
-          {employeePerformance.length > 0 && (
+          {analyticsSubView === 'overview' && employeePerformance.length > 0 && (
             <div className="overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)]">
-              <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-2.5">
                 <h2 className="text-xs font-black uppercase tracking-wider text-[var(--text-heading)]">
-                  Rendimiento por Asesor (PBX · {ANALYTICS_PERIOD_CONFIG[analyticsPeriod].rangeTitle})
+                  Rendimiento por Empleado (PBX · {ANALYTICS_PERIOD_CONFIG[analyticsPeriod].rangeTitle})
                 </h2>
+                <span className="text-[11px] text-[var(--text-muted)]">
+                  Haz clic en un empleado para ver su desglose día por día
+                </span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-[var(--border-subtle)] text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
                     <tr>
-                      <th className="px-4 py-2.5">Asesor</th>
-                      <th className="px-4 py-2.5">Extensión</th>
-                      <th className="px-4 py-2.5">Contestadas</th>
-                      <th className="px-4 py-2.5">Rechazadas</th>
-                      <th className="px-4 py-2.5">Tiempo total</th>
-                      <th className="px-4 py-2.5 text-right">Prom. conversación</th>
+                      <th className="px-3.5 py-2.5">Empleado</th>
+                      <th className="px-3 py-2.5">Ext.</th>
+                      <th className="px-3 py-2.5">Recibidas</th>
+                      <th className="px-3 py-2.5">Contestadas</th>
+                      <th className="px-3 py-2.5">Perdidas</th>
+                      <th className="px-3 py-2.5">Rechazadas</th>
+                      <th className="px-3 py-2.5">Realizadas</th>
+                      <th className="px-3 py-2.5">% Atención</th>
+                      <th className="px-3 py-2.5">Tiempo total</th>
+                      <th className="px-3.5 py-2.5 text-right">Prom.</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--border-subtle)]">
                     {employeePerformance.map((emp) => (
-                      <tr key={emp.pbxExtension} className="hover:bg-[var(--bg-surface)]/50">
-                        <td className="px-4 py-2.5 font-bold text-[var(--text-heading)]">{emp.userName}</td>
-                        <td className="px-4 py-2.5 font-mono text-[var(--text-secondary)]">Ext. {emp.pbxExtension}</td>
-                        <td className="px-4 py-2.5 font-mono font-bold text-emerald-600 dark:text-emerald-400">{emp.answeredCount}</td>
-                        <td className="px-4 py-2.5 font-mono font-bold text-amber-600 dark:text-amber-400">{emp.rejectedCount}</td>
-                        <td className="px-4 py-2.5 font-mono text-[var(--text-secondary)]">{formatDuration(emp.totalTalkSeconds)}</td>
-                        <td className="px-4 py-2.5 text-right font-mono text-[var(--text-secondary)]">{formatDuration(emp.avgTalkSeconds)}</td>
+                      <tr
+                        key={emp.pbxExtension}
+                        onClick={() => {
+                          setSelectedEmployeeExt(emp.pbxExtension);
+                          setAnalyticsSubView('daily_employee');
+                        }}
+                        className="cursor-pointer hover:bg-[var(--bg-surface)]/70 transition"
+                      >
+                        <td className="px-3.5 py-2.5 font-bold text-[var(--text-heading)]">{emp.userName}</td>
+                        <td className="px-3 py-2.5 font-mono text-[var(--text-secondary)]">Ext. {emp.pbxExtension}</td>
+                        <td className="px-3 py-2.5 font-mono font-bold text-[var(--text-heading)]">{emp.receivedCount ?? 0}</td>
+                        <td className="px-3 py-2.5 font-mono font-bold text-emerald-600 dark:text-emerald-400">{emp.answeredCount ?? 0}</td>
+                        <td className="px-3 py-2.5 font-mono font-bold text-rose-600 dark:text-rose-400">{emp.missedCount ?? 0}</td>
+                        <td className="px-3 py-2.5 font-mono font-bold text-amber-600 dark:text-amber-400">{emp.rejectedCount ?? 0}</td>
+                        <td className="px-3 py-2.5 font-mono font-bold text-cyan-600 dark:text-cyan-400">{emp.outboundCount ?? 0}</td>
+                        <td className="px-3 py-2.5 font-mono font-semibold text-[var(--text-secondary)]">{emp.answerRate ?? 0}%</td>
+                        <td className="px-3 py-2.5 font-mono text-[var(--text-secondary)]">{formatDuration(emp.totalTalkSeconds ?? 0)}</td>
+                        <td className="px-3.5 py-2.5 text-right font-mono text-[var(--text-secondary)]">{formatDuration(emp.avgTalkSeconds ?? 0)}</td>
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot className="border-t-2 border-[var(--border-subtle)] bg-[var(--bg-surface)]/70 text-xs font-black">
+                    <tr>
+                      <td className="px-3.5 py-2.5 text-[var(--text-heading)]" colSpan={2}>Total Equipo ({employeePerformance.length})</td>
+                      <td className="px-3 py-2.5 font-mono text-[var(--text-heading)]">{teamPerfTotals.received}</td>
+                      <td className="px-3 py-2.5 font-mono text-emerald-600 dark:text-emerald-400">{teamPerfTotals.answered}</td>
+                      <td className="px-3 py-2.5 font-mono text-rose-600 dark:text-rose-400">{teamPerfTotals.missed}</td>
+                      <td className="px-3 py-2.5 font-mono text-amber-600 dark:text-amber-400">{teamPerfTotals.rejected}</td>
+                      <td className="px-3 py-2.5 font-mono text-cyan-600 dark:text-cyan-400">{teamPerfTotals.outbound}</td>
+                      <td className="px-3 py-2.5 font-mono text-[var(--text-heading)]">{teamPerfTotals.answerRate}%</td>
+                      <td className="px-3 py-2.5 font-mono text-[var(--text-heading)]">{formatDuration(teamPerfTotals.totalTalkSeconds)}</td>
+                      <td className="px-3.5 py-2.5 text-right font-mono text-[var(--text-heading)]">{formatDuration(teamPerfTotals.avgTalkSeconds)}</td>
+                    </tr>
+                  </tfoot>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {analyticsSubView === 'daily_employee' && (
+            <div className="space-y-4">
+              {selectedEmployeeExt !== 'all' && (() => {
+                const emp = employeePerformance.find((e) => e.pbxExtension === selectedEmployeeExt);
+                if (!emp) return null;
+                const daysAsc = [...(emp.dailyBreakdown || [])].sort((a, b) => a.date.localeCompare(b.date));
+                const maxBar = Math.max(1, ...daysAsc.map((d) => d.receivedCount + d.outboundCount));
+                return (
+                  <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h2 className="text-sm font-black text-[var(--text-heading)]">
+                          {emp.userName} · Ext. {emp.pbxExtension}
+                        </h2>
+                        <p className="text-[11px] text-[var(--text-muted)]">
+                          Actividad diaria en {ANALYTICS_PERIOD_CONFIG[analyticsPeriod].rangeTitle}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
+                        <span className="rounded-lg bg-emerald-500/15 px-2.5 py-1 font-bold text-emerald-700 dark:text-emerald-300">
+                          Contestadas: {emp.answeredCount}
+                        </span>
+                        <span className="rounded-lg bg-cyan-500/15 px-2.5 py-1 font-bold text-cyan-700 dark:text-cyan-300">
+                          Realizadas: {emp.outboundCount}
+                        </span>
+                        <span className="rounded-lg bg-rose-500/15 px-2.5 py-1 font-bold text-rose-700 dark:text-rose-300">
+                          Perdidas: {emp.missedCount}
+                        </span>
+                        <span className="rounded-lg bg-amber-500/15 px-2.5 py-1 font-bold text-amber-700 dark:text-amber-300">
+                          Rechazadas: {emp.rejectedCount}
+                        </span>
+                      </div>
+                    </div>
+
+                    {daysAsc.length > 0 && (
+                      <div className="overflow-x-auto pb-1">
+                        <div className="flex items-end gap-1.5 min-w-max h-28 pt-3">
+                          {daysAsc.map((d) => {
+                            const totalDay = d.receivedCount + d.outboundCount;
+                            const heightPct = Math.round((totalDay / maxBar) * 100);
+                            return (
+                              <div key={d.date} className="flex flex-col items-center gap-1 w-11">
+                                <span className="text-[10px] font-mono font-bold text-[var(--text-heading)]">{totalDay}</span>
+                                <div className="w-5 h-16 rounded-md bg-[var(--bg-surface)] flex flex-col justify-end overflow-hidden border border-[var(--border-subtle)]">
+                                  <div
+                                    style={{ height: `${heightPct}%` }}
+                                    className="w-full bg-[var(--brand-solid)] transition-all"
+                                    title={`${d.date}: Recibidas ${d.receivedCount} · Contestadas ${d.answeredCount} · Perdidas ${d.missedCount} · Rechazadas ${d.rejectedCount} · Realizadas ${d.outboundCount}`}
+                                  />
+                                </div>
+                                <span className="text-[9.5px] font-mono text-[var(--text-muted)]">{d.date.slice(5)}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              <div className="overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)]">
+                <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-2.5">
+                  <h2 className="text-xs font-black uppercase tracking-wider text-[var(--text-heading)]">
+                    Desglose Día por Día por Empleado
+                  </h2>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="border-b border-[var(--border-subtle)] text-[10.5px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                      <tr>
+                        <th className="px-3.5 py-2.5">Fecha</th>
+                        <th className="px-3 py-2.5">Empleado</th>
+                        <th className="px-3 py-2.5">Recibidas</th>
+                        <th className="px-3 py-2.5">Contestadas</th>
+                        <th className="px-3 py-2.5">Perdidas</th>
+                        <th className="px-3 py-2.5">Rechazadas</th>
+                        <th className="px-3 py-2.5">Realizadas</th>
+                        <th className="px-3 py-2.5">% Atención</th>
+                        <th className="px-3.5 py-2.5 text-right">Tiempo hablado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--border-subtle)]">
+                      {(() => {
+                        const targetEmps = selectedEmployeeExt === 'all'
+                          ? employeePerformance
+                          : employeePerformance.filter((e) => e.pbxExtension === selectedEmployeeExt);
+                        const rows: Array<{ date: string; emp: EmployeeCallPerformance; d: EmployeeDailyBreakdown }> = [];
+                        for (const dateStr of dailyEmployeeDates) {
+                          for (const emp of targetEmps) {
+                            const d = (emp.dailyBreakdown || []).find((x) => x.date === dateStr);
+                            if (!d) continue;
+                            if (selectedEmployeeExt === 'all' && d.receivedCount === 0 && d.outboundCount === 0 && d.rejectedCount === 0 && d.missedCount === 0) {
+                              continue;
+                            }
+                            rows.push({ date: dateStr, emp, d });
+                          }
+                        }
+                        if (rows.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={9} className="px-4 py-8 text-center text-[var(--text-muted)]">
+                                No hay actividad diaria registrada para este filtro.
+                              </td>
+                            </tr>
+                          );
+                        }
+                        return rows.map(({ date, emp, d }) => (
+                          <tr key={`${date}-${emp.pbxExtension}`} className="hover:bg-[var(--bg-surface)]/50">
+                            <td className="px-3.5 py-2 font-mono font-semibold text-[var(--text-heading)]">{formatDayLabel(date)}</td>
+                            <td className="px-3 py-2 font-bold text-[var(--text-heading)]">
+                              {emp.userName} <span className="font-mono font-normal text-[var(--text-muted)]">({emp.pbxExtension})</span>
+                            </td>
+                            <td className="px-3 py-2 font-mono font-bold text-[var(--text-heading)]">{d.receivedCount}</td>
+                            <td className="px-3 py-2 font-mono font-bold text-emerald-600 dark:text-emerald-400">{d.answeredCount}</td>
+                            <td className="px-3 py-2 font-mono font-bold text-rose-600 dark:text-rose-400">{d.missedCount}</td>
+                            <td className="px-3 py-2 font-mono font-bold text-amber-600 dark:text-amber-400">{d.rejectedCount}</td>
+                            <td className="px-3 py-2 font-mono font-bold text-cyan-600 dark:text-cyan-400">{d.outboundCount}</td>
+                            <td className="px-3 py-2 font-mono text-[var(--text-secondary)]">{d.answerRate}%</td>
+                            <td className="px-3.5 py-2 text-right font-mono text-[var(--text-secondary)]">{formatDuration(d.totalTalkSeconds)}</td>
+                          </tr>
+                        ));
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {analyticsSubView === 'weekly_report' && (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-sm font-black uppercase tracking-wider text-[var(--text-heading)]">
+                      Reporte Semanal de Llamadas por Empleado
+                    </h2>
+                    <p className="text-[11px] text-[var(--text-muted)]">
+                      Últimos {weeklyDatesAsc.length} días ({weeklyDatesAsc[0] || todayDate} al {weeklyDatesAsc[weeklyDatesAsc.length - 1] || todayDate}) · Formato por celda: Contestadas / Recibidas (+ Realizadas)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                  <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
+                    <p className="text-[10px] font-bold uppercase text-[var(--text-muted)]">Recibidas</p>
+                    <p className="mt-0.5 text-xl font-black tabular-nums text-[var(--text-heading)]">{teamPerfTotals.received}</p>
+                  </div>
+                  <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
+                    <p className="text-[10px] font-bold uppercase text-[var(--text-muted)]">Contestadas</p>
+                    <p className="mt-0.5 text-xl font-black tabular-nums text-emerald-600 dark:text-emerald-400">
+                      {teamPerfTotals.answered} <span className="text-xs font-bold">({teamPerfTotals.answerRate}%)</span>
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
+                    <p className="text-[10px] font-bold uppercase text-[var(--text-muted)]">Perdidas / Rechaz.</p>
+                    <p className="mt-0.5 text-xl font-black tabular-nums text-rose-600 dark:text-rose-400">
+                      {teamPerfTotals.missed} <span className="text-xs text-amber-500">/ {teamPerfTotals.rejected}</span>
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
+                    <p className="text-[10px] font-bold uppercase text-[var(--text-muted)]">Realizadas</p>
+                    <p className="mt-0.5 text-xl font-black tabular-nums text-cyan-600 dark:text-cyan-400">{teamPerfTotals.outbound}</p>
+                  </div>
+                  <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 col-span-2 sm:col-span-1">
+                    <p className="text-[10px] font-bold uppercase text-[var(--text-muted)]">Tiempo Hablado</p>
+                    <p className="mt-0.5 text-xl font-black tabular-nums text-[var(--text-heading)]">{formatDuration(teamPerfTotals.totalTalkSeconds)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)]">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                      <tr>
+                        <th className="px-3.5 py-2.5">Empleado</th>
+                        {weeklyDatesAsc.map((d) => (
+                          <th key={d} className="px-2.5 py-2.5 text-center whitespace-nowrap">{formatShortDayHeader(d)}</th>
+                        ))}
+                        <th className="px-3 py-2.5 text-right">Total Semana</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--border-subtle)]">
+                      {employeePerformance.map((emp) => {
+                        const weekRows = weeklyDatesAsc.map((d) =>
+                          (emp.dailyBreakdown || []).find((x) => x.date === d) || {
+                            date: d,
+                            receivedCount: 0,
+                            answeredCount: 0,
+                            missedCount: 0,
+                            rejectedCount: 0,
+                            outboundCount: 0,
+                            outboundAnsweredCount: 0,
+                            answerRate: 0,
+                            totalTalkSeconds: 0,
+                            avgTalkSeconds: 0,
+                          },
+                        );
+                        const wRec = weekRows.reduce((s, r) => s + r.receivedCount, 0);
+                        const wAns = weekRows.reduce((s, r) => s + r.answeredCount, 0);
+                        const wMiss = weekRows.reduce((s, r) => s + r.missedCount, 0);
+                        const wRej = weekRows.reduce((s, r) => s + r.rejectedCount, 0);
+                        const wOut = weekRows.reduce((s, r) => s + r.outboundCount, 0);
+                        const wRate = wRec > 0 ? Math.round((wAns / wRec) * 100) : 0;
+                        return (
+                          <tr key={emp.pbxExtension} className="hover:bg-[var(--bg-surface)]/50">
+                            <td className="px-3.5 py-2.5 whitespace-nowrap">
+                              <p className="font-bold text-[var(--text-heading)]">{emp.userName}</p>
+                              <p className="font-mono text-[10px] text-[var(--text-muted)]">Ext. {emp.pbxExtension}</p>
+                            </td>
+                            {weekRows.map((r) => (
+                              <td key={r.date} className="px-2.5 py-2 text-center font-mono">
+                                {r.receivedCount === 0 && r.outboundCount === 0 ? (
+                                  <span className="text-[var(--text-muted)]">—</span>
+                                ) : (
+                                  <div className="inline-flex flex-col items-center leading-tight">
+                                    <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                                      {r.answeredCount}<span className="text-[var(--text-muted)] font-normal">/{r.receivedCount}</span>
+                                    </span>
+                                    {r.outboundCount > 0 && (
+                                      <span className="text-[10px] text-cyan-600 dark:text-cyan-400">+{r.outboundCount} sal</span>
+                                    )}
+                                    {(r.missedCount > 0 || r.rejectedCount > 0) && (
+                                      <span className="text-[9.5px] text-rose-500">
+                                        {r.missedCount > 0 ? `${r.missedCount}p ` : ''}{r.rejectedCount > 0 ? `${r.rejectedCount}r` : ''}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                            ))}
+                            <td className="px-3 py-2.5 text-right font-mono whitespace-nowrap">
+                              <p className="font-black text-[var(--text-heading)]">
+                                {wAns}/{wRec} <span className="text-emerald-600 dark:text-emerald-400">({wRate}%)</span>
+                              </p>
+                              <p className="text-[10px] text-[var(--text-muted)]">
+                                Sal: <strong className="text-cyan-600 dark:text-cyan-400">{wOut}</strong> · Perd: <strong className="text-rose-500">{wMiss}</strong> · Rech: <strong className="text-amber-500">{wRej}</strong>
+                              </p>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}

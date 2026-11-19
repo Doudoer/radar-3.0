@@ -25,6 +25,7 @@ import { filterInventory, inventoryCsv } from './src/utils/inventoryExport';
 import { financeVaultExpiry, lockFinanceVault, revokeFinanceVaults, unlockFinanceVault } from './src/server/financeVault';
 import { businessDate, businessDaysBetween, isEligibleForDeliveryFollowup } from './src/server/businessTime';
 import { getExpectedPbxWebhookSecret, getPbxExtensionsPresenceReport, listActiveIncomingCalls, listPbxCallLogs, listPbxDailyAnalytics, readPbxSettings, recordPbxHeartbeat, sanitizePbxSettingsForClient, startPbxDailyRolloverScheduler, upsertPbxCallEvent, verifyPbxWebhookSecret, writePbxSettings } from './src/server/pbxCalls';
+import { generatePbxAiCallReport } from './src/server/pbxAiReport';
 import { getPbxCallRecordingDiskInfo, runPbxCallQaByUniqueId, savePbxCallRecordingAndAnalyze } from './src/server/pbxAudioQa';
 import { evaluateAndSendVpsAlerts, getStorageStats, getVpsStats, purgeOrderFiles, readMaintenanceSettings, runMaintenanceCleanup, startMaintenanceScheduler, triggerRemoteDockerPrune, writeMaintenanceSettings } from './src/server/maintenance';
 import { createPbxAmiManager } from './src/server/pbxAmiClient';
@@ -4509,8 +4510,37 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && pathname === '/api/pbx/analytics') {
       const url = new URL(request.url || '/', 'http://localhost');
-      const result = await listPbxDailyAnalytics(pool, Number(url.searchParams.get('days') || 30));
+      const result = await listPbxDailyAnalytics(
+        pool,
+        Number(url.searchParams.get('days') || 30),
+        url.searchParams.get('startDate') || undefined,
+        url.searchParams.get('endDate') || undefined,
+      );
       return sendJson(response, 200, result);
+    }
+
+    if (request.method === 'POST' && pathname === '/api/pbx/analytics/ai-report') {
+      if (!authenticatedClaims) {
+        return sendJson(response, 401, { error: 'Sesión requerida para generar el informe con IA.' });
+      }
+      const body = await readBody(request) as {
+        days?: number;
+        startDate?: string;
+        endDate?: string;
+        periodLabel?: string;
+      };
+      try {
+        const result = await generatePbxAiCallReport(pool, {
+          days: typeof body.days === 'number' ? body.days : undefined,
+          startDate: typeof body.startDate === 'string' ? body.startDate : undefined,
+          endDate: typeof body.endDate === 'string' ? body.endDate : undefined,
+          periodLabel: typeof body.periodLabel === 'string' ? body.periodLabel : undefined,
+        });
+        return sendJson(response, 200, result);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'No se pudo generar el informe con Gemini.';
+        return sendJson(response, 400, { error: message });
+      }
     }
 
     if (request.method === 'GET' && pathname === '/api/pbx/presence') {
