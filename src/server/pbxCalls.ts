@@ -1106,8 +1106,7 @@ export const listPbxDailyAnalytics = async (
   const isExtensionToken = (val: string) => Boolean(val && (byExt[val] || /^\d{2,6}$/.test(val)));
 
   for (const row of perfCallRows) {
-    if (!row.started_at) continue;
-    const dateKey = getPbxBusinessDate(new Date(row.started_at));
+    const dateKey = row.started_at ? getPbxBusinessDate(new Date(row.started_at)) : today;
     const direction = String(row.direction || 'inbound');
     const st = String(row.status || '');
     const callerExt = row.caller_number ? String(row.caller_number).trim() : '';

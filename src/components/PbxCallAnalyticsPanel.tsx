@@ -1036,7 +1036,7 @@ export const PbxCallAnalyticsPanel: React.FC<PbxCallAnalyticsPanelProps> = ({
 
       {/* Modal de Vista Previa e Impresión del Informe IA (Gemini) */}
       {aiReportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-3 sm:p-5 print:hidden">
+        <div className="horizon-modal fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-3 sm:p-5 print:hidden">
           <div
             role="dialog"
             aria-modal="true"

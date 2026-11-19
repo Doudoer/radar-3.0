@@ -174,9 +174,9 @@ describe('pbxCalls helpers', () => {
           avg_billsec_seconds: 60,
         }];
       }
-      if (sql.includes('SELECT status, answered_by_ext, rejected_by_exts')) {
+      if (sql.includes('answered_by_ext, rejected_by_exts')) {
         return [
-          { status: 'ended', answered_by_ext: '204', rejected_by_exts: '202', billsec_seconds: 45, duration_seconds: 50 },
+          { direction: 'inbound', status: 'ended', answered_by_ext: '204', rejected_by_exts: '202', billsec_seconds: 45, duration_seconds: 50, started_at: '2026-11-15T16:00:00.000Z' },
         ];
       }
       if (sql.includes('SELECT direction, status, billsec_seconds')) {
