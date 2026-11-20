@@ -1389,16 +1389,37 @@ export const SystemSettingsView: React.FC<SystemSettingsViewProps> = ({
                 {pbxSaving ? 'Guardando…' : 'Guardar configuración'}
               </button>
             </div>
-            <label className="block text-[11px] font-bold text-[var(--text-muted)]">
-              Gemini API Key (Auditoría IA de Grabaciones)
-              <input
-                type="password"
-                value={pbxDraft.geminiApiKey}
-                onChange={(e) => setPbxDraft((prev) => ({ ...prev, geminiApiKey: e.target.value }))}
-                placeholder={pbxSettings?.geminiApiKeyConfigured ? 'Configurada (deja vacío para conservar la actual)' : 'Pega aquí tu GEMINI_API_KEY'}
-                className="mt-1 w-full rounded-xl border border-cyan-500/25 bg-[var(--bg-surface)] px-3 py-2 font-mono text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
-              />
-            </label>
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor="pbx-gemini-api-key" className="text-[11px] font-bold text-[var(--text-muted)]">
+                  Gemini API Key (Auditoría e Informes IA)
+                </label>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                  pbxSettings?.geminiApiKeyConfigured
+                    ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-500'
+                    : 'bg-amber-500/15 border-amber-500/35 text-amber-500'
+                }`}>
+                  {pbxSettings?.geminiApiKeyConfigured ? 'Configurada' : 'Sin configurar'}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  id="pbx-gemini-api-key"
+                  type="password"
+                  value={pbxDraft.geminiApiKey}
+                  onChange={(e) => setPbxDraft((prev) => ({ ...prev, geminiApiKey: e.target.value }))}
+                  placeholder={pbxSettings?.geminiApiKeyConfigured ? 'Configurada (pega una nueva para reemplazarla)' : 'Pega aquí tu GEMINI_API_KEY'}
+                  className="min-w-[260px] flex-1 rounded-xl border border-cyan-500/25 bg-[var(--bg-surface)] px-3 py-2 font-mono text-xs text-[var(--text-primary)] outline-none focus:border-cyan-400"
+                />
+                <button
+                  type="submit"
+                  disabled={pbxSaving}
+                  className="rounded-xl bg-[var(--brand-solid)] px-4 py-2 font-mono text-[11px] font-bold !text-white hover:opacity-90 disabled:opacity-50 cursor-pointer"
+                >
+                  {pbxSaving ? 'Guardando…' : 'Guardar API Key'}
+                </button>
+              </div>
+            </div>
           </form>
 
           <form onSubmit={(e) => { void saveMonitorCode(e); }} className="mt-4 rounded-xl border border-cyan-500/30 bg-[var(--bg-card-subtle)] p-3.5 flex flex-wrap items-end justify-between gap-3">
