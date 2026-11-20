@@ -129,6 +129,7 @@ export interface PbxEmployeeCallPerformance {
   userId: number | null;
   userName: string;
   pbxExtension: string;
+  analyticsRole: 'call_center' | 'admin_support';
   receivedCount: number;
   answeredCount: number;
   missedCount: number;
@@ -1037,6 +1038,7 @@ export const listPbxDailyAnalytics = async (
     userId: number | null;
     userName: string;
     pbxExtension: string;
+    analyticsRole: 'call_center' | 'admin_support';
     receivedCount: number;
     answeredCount: number;
     missedCount: number;
@@ -1055,6 +1057,19 @@ export const listPbxDailyAnalytics = async (
     }>;
   }
 
+  // Solo 3 extensiones activas para analíticas:
+  // - Asesores de call center: Darrel y Favio
+  // - Administrador / Gerente: Ext. 501 (apoyo, sin obligación de contestar)
+  const ADMIN_SUPPORT_EXT = '501';
+  const activeRoleByExt = new Map<string, 'call_center' | 'admin_support'>();
+  activeRoleByExt.set(ADMIN_SUPPORT_EXT, 'admin_support');
+  for (const [ext, info] of Object.entries(byExt)) {
+    if (ext === ADMIN_SUPPORT_EXT) continue;
+    if (/\b(darrel|favio)\b/i.test(info.name || '')) {
+      activeRoleByExt.set(ext, 'call_center');
+    }
+  }
+
   const perfMap = new Map<string, InternalPerfBucket>();
   const createEmptyDay = () => ({
     receivedCount: 0,
@@ -1066,7 +1081,9 @@ export const listPbxDailyAnalytics = async (
     totalTalkSeconds: 0,
   });
 
-  const ensurePerf = (ext: string): InternalPerfBucket => {
+  const ensurePerf = (ext: string): InternalPerfBucket | null => {
+    const role = activeRoleByExt.get(ext);
+    if (!role) return null;
     const existing = perfMap.get(ext);
     if (existing) return existing;
     const dailyMap = new Map<string, ReturnType<typeof createEmptyDay>>();
@@ -1075,8 +1092,9 @@ export const listPbxDailyAnalytics = async (
     }
     const created: InternalPerfBucket = {
       userId: byExt[ext]?.userId ?? null,
-      userName: byExt[ext]?.name || `Ext. ${ext}`,
+      userName: byExt[ext]?.name || (ext === ADMIN_SUPPORT_EXT ? 'Administrador / Gerente' : `Ext. ${ext}`),
       pbxExtension: ext,
+      analyticsRole: role,
       receivedCount: 0,
       answeredCount: 0,
       missedCount: 0,
@@ -1090,7 +1108,7 @@ export const listPbxDailyAnalytics = async (
     return created;
   };
 
-  for (const ext of Object.keys(byExt)) {
+  for (const ext of activeRoleByExt.keys()) {
     ensurePerf(ext);
   }
 
@@ -1103,7 +1121,7 @@ export const listPbxDailyAnalytics = async (
     return day;
   };
 
-  const isExtensionToken = (val: string) => Boolean(val && (byExt[val] || /^\d{2,6}$/.test(val)));
+  const isExtensionToken = (val: string) => Boolean(val && activeRoleByExt.has(val));
 
   for (const row of perfCallRows) {
     const dateKey = row.started_at ? getPbxBusinessDate(new Date(row.started_at)) : today;
@@ -1116,17 +1134,13 @@ export const listPbxDailyAnalytics = async (
     const talkSeconds = Math.max(0, Number(row.billsec_seconds || row.duration_seconds || 0));
 
     if (direction === 'outbound') {
-      const outExt = (callerExt && byExt[callerExt])
+      const outExt = isExtensionToken(callerExt)
         ? callerExt
-        : (answeredExt && byExt[answeredExt])
+        : isExtensionToken(answeredExt)
           ? answeredExt
-          : isExtensionToken(callerExt)
-            ? callerExt
-            : isExtensionToken(answeredExt)
-              ? answeredExt
-              : '';
-      if (outExt) {
-        const p = ensurePerf(outExt);
+          : '';
+      const p = outExt ? ensurePerf(outExt) : null;
+      if (p) {
         const day = ensureDay(p, dateKey);
         p.outboundCount += 1;
         day.outboundCount += 1;
@@ -1145,35 +1159,43 @@ export const listPbxDailyAnalytics = async (
     const involvedExts = new Set<string>();
     if (answeredExt && (st === 'answered' || st === 'ended')) {
       const p = ensurePerf(answeredExt);
-      const day = ensureDay(p, dateKey);
-      p.answeredCount += 1;
-      day.answeredCount += 1;
-      p.totalTalkSeconds += talkSeconds;
-      day.totalTalkSeconds += talkSeconds;
-      involvedExts.add(answeredExt);
+      if (p) {
+        const day = ensureDay(p, dateKey);
+        p.answeredCount += 1;
+        day.answeredCount += 1;
+        p.totalTalkSeconds += talkSeconds;
+        day.totalTalkSeconds += talkSeconds;
+        involvedExts.add(answeredExt);
+      }
     }
 
     for (const rej of rejectedExts) {
       const p = ensurePerf(rej);
-      const day = ensureDay(p, dateKey);
-      p.rejectedCount += 1;
-      day.rejectedCount += 1;
-      involvedExts.add(rej);
+      if (p) {
+        const day = ensureDay(p, dateKey);
+        p.rejectedCount += 1;
+        day.rejectedCount += 1;
+        involvedExts.add(rej);
+      }
     }
 
     if (st === 'missed' && isExtensionToken(destExt) && !involvedExts.has(destExt)) {
       const p = ensurePerf(destExt);
-      const day = ensureDay(p, dateKey);
-      p.missedCount += 1;
-      day.missedCount += 1;
-      involvedExts.add(destExt);
+      if (p) {
+        const day = ensureDay(p, dateKey);
+        p.missedCount += 1;
+        day.missedCount += 1;
+        involvedExts.add(destExt);
+      }
     }
 
     for (const ext of involvedExts) {
       const p = ensurePerf(ext);
-      const day = ensureDay(p, dateKey);
-      p.receivedCount += 1;
-      day.receivedCount += 1;
+      if (p) {
+        const day = ensureDay(p, dateKey);
+        p.receivedCount += 1;
+        day.receivedCount += 1;
+      }
     }
   }
 
@@ -1201,6 +1223,7 @@ export const listPbxDailyAnalytics = async (
         userId: p.userId,
         userName: p.userName,
         pbxExtension: p.pbxExtension,
+        analyticsRole: p.analyticsRole,
         receivedCount: p.receivedCount,
         answeredCount: p.answeredCount,
         missedCount: p.missedCount,
@@ -1214,7 +1237,8 @@ export const listPbxDailyAnalytics = async (
       };
     })
     .sort((a, b) =>
-      (b.answeredCount + b.outboundCount) - (a.answeredCount + a.outboundCount)
+      (a.analyticsRole === b.analyticsRole ? 0 : a.analyticsRole === 'call_center' ? -1 : 1)
+      || (b.answeredCount + b.outboundCount) - (a.answeredCount + a.outboundCount)
       || b.receivedCount - a.receivedCount
       || b.rejectedCount - a.rejectedCount
       || a.pbxExtension.localeCompare(b.pbxExtension),

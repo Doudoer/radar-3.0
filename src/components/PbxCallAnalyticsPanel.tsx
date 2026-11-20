@@ -36,6 +36,7 @@ export interface PbxEmployeeCallPerformance {
   userId: number | null;
   userName: string;
   pbxExtension: string;
+  analyticsRole?: 'call_center' | 'admin_support';
   receivedCount: number;
   answeredCount: number;
   missedCount: number;
@@ -180,24 +181,31 @@ export const PbxCallAnalyticsPanel: React.FC<PbxCallAnalyticsPanelProps> = ({
   }, [loadAnalytics]);
 
   const teamTotals = useMemo(() => {
-    const received = employees.reduce((acc, e) => acc + (e.receivedCount || 0), 0);
-    const answered = employees.reduce((acc, e) => acc + (e.answeredCount || 0), 0);
-    const missed = employees.reduce((acc, e) => acc + (e.missedCount || 0), 0);
-    const rejected = employees.reduce((acc, e) => acc + (e.rejectedCount || 0), 0);
-    const outbound = employees.reduce((acc, e) => acc + (e.outboundCount || 0), 0);
-    const outboundAnswered = employees.reduce((acc, e) => acc + (e.outboundAnsweredCount || 0), 0);
-    const totalTalkSeconds = employees.reduce((acc, e) => acc + (e.totalTalkSeconds || 0), 0);
+    const advisors = employees.filter((e) => e.analyticsRole !== 'admin_support');
+    const adminSup = employees.filter((e) => e.analyticsRole === 'admin_support');
+    const received = advisors.reduce((acc, e) => acc + (e.receivedCount || 0), 0);
+    const answered = advisors.reduce((acc, e) => acc + (e.answeredCount || 0), 0);
+    const missed = advisors.reduce((acc, e) => acc + (e.missedCount || 0), 0);
+    const rejected = advisors.reduce((acc, e) => acc + (e.rejectedCount || 0), 0);
+    const outbound = advisors.reduce((acc, e) => acc + (e.outboundCount || 0), 0);
+    const outboundAnswered = advisors.reduce((acc, e) => acc + (e.outboundAnsweredCount || 0), 0);
+    const totalTalkSeconds = advisors.reduce((acc, e) => acc + (e.totalTalkSeconds || 0), 0);
+    const adminAnswered = adminSup.reduce((acc, e) => acc + (e.answeredCount || 0), 0);
+    const adminOutbound = adminSup.reduce((acc, e) => acc + (e.outboundCount || 0), 0);
     const convs = answered + outboundAnswered;
     const pbxTotal = daysData.reduce((acc, d) => acc + (d.totalCalls || 0), 0);
     const pbxAnswered = daysData.reduce((acc, d) => acc + (d.answeredCalls || 0), 0);
     const pbxMissed = daysData.reduce((acc, d) => acc + (d.missedCalls || 0), 0);
     return {
+      advisorCount: advisors.length,
       received,
       answered,
       missed,
       rejected,
       outbound,
       outboundAnswered,
+      adminAnswered,
+      adminOutbound,
       answerRate: received > 0 ? Math.round((answered / received) * 100) : (pbxTotal > 0 ? Math.round((pbxAnswered / pbxTotal) * 100) : 0),
       totalTalkSeconds,
       avgTalkSeconds: convs > 0 ? Math.round(totalTalkSeconds / convs) : 0,
@@ -776,7 +784,16 @@ export const PbxCallAnalyticsPanel: React.FC<PbxCallAnalyticsPanelProps> = ({
                           className="cursor-pointer hover:bg-[var(--bg-surface)]/70 transition"
                         >
                           <td className="px-4 py-3 whitespace-nowrap">
-                            <p className="font-bold text-[var(--text-heading)]">{emp.userName}</p>
+                            <div className="flex items-center gap-1.5">
+                              <p className="font-bold text-[var(--text-heading)]">{emp.userName}</p>
+                              <span className={`rounded-full px-2 py-0.5 text-[9.5px] font-bold border ${
+                                emp.analyticsRole === 'admin_support'
+                                  ? 'border-indigo-500/30 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300'
+                                  : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                              }`}>
+                                {emp.analyticsRole === 'admin_support' ? 'Gerencia · Apoyo' : 'Asesor'}
+                              </span>
+                            </div>
                             <p className="font-mono text-[10.5px] text-[var(--text-muted)]">Ext. {emp.pbxExtension}</p>
                           </td>
                           <td className="px-3 py-3">
@@ -808,7 +825,14 @@ export const PbxCallAnalyticsPanel: React.FC<PbxCallAnalyticsPanelProps> = ({
                   </tbody>
                   <tfoot className="border-t-2 border-[var(--border-subtle)] bg-[var(--bg-surface)]/80 font-black">
                     <tr>
-                      <td className="px-4 py-2.5 text-[var(--text-heading)]" colSpan={2}>Total Equipo ({employees.length})</td>
+                      <td className="px-4 py-2.5 text-[var(--text-heading)]" colSpan={2}>
+                        Total Asesores Call Center ({teamTotals.advisorCount})
+                        {(teamTotals.adminAnswered > 0 || teamTotals.adminOutbound > 0) && (
+                          <span className="ml-2 text-[10px] font-semibold text-indigo-500">
+                            · Apoyo Ext. 501: {teamTotals.adminAnswered} ant. / {teamTotals.adminOutbound} sal.
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-2.5 text-center font-mono text-[var(--text-heading)]">{teamTotals.received}</td>
                       <td className="px-3 py-2.5 text-center font-mono text-emerald-600 dark:text-emerald-400">{teamTotals.answered}</td>
                       <td className="px-3 py-2.5 text-center font-mono text-rose-600 dark:text-rose-400">{teamTotals.missed}</td>

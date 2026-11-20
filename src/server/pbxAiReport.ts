@@ -130,10 +130,49 @@ export const generatePbxAiCallReport = async (
   const bhCalls = analytics.days.reduce((s, d) => s + d.businessHoursCalls, 0);
   const bhAnswered = analytics.days.reduce((s, d) => s + d.businessHoursAnswered, 0);
 
+  const callCenterAdvisors = analytics.employeePerformance.filter((e) => e.analyticsRole !== 'admin_support');
+  const adminSupportExt = analytics.employeePerformance.find((e) => e.analyticsRole === 'admin_support');
+  const advisorsReceived = callCenterAdvisors.reduce((s, e) => s + e.receivedCount, 0);
+  const advisorsAnswered = callCenterAdvisors.reduce((s, e) => s + e.answeredCount, 0);
+  const advisorsMissed = callCenterAdvisors.reduce((s, e) => s + e.missedCount, 0);
+  const advisorsRejected = callCenterAdvisors.reduce((s, e) => s + e.rejectedCount, 0);
+  const advisorsOutbound = callCenterAdvisors.reduce((s, e) => s + e.outboundCount, 0);
+
+  const mapEmployeeForPrompt = (emp: PbxEmployeeCallPerformance) => ({
+    nombre: emp.userName,
+    extension: emp.pbxExtension,
+    rol: emp.analyticsRole === 'admin_support'
+      ? 'Administrador / Gerente (SIN obligación de contestar; solo apoyo/gestión)'
+      : 'Asesor de Call Center (responsable principal de llamadas)',
+    recibidas: emp.receivedCount,
+    contestadas: emp.answeredCount,
+    perdidas: emp.missedCount,
+    rechazadas: emp.rejectedCount,
+    realizadasSalientes: emp.outboundCount,
+    salientesAtendidas: emp.outboundAnsweredCount,
+    tasaAtencionPct: emp.answerRate,
+    tiempoTotalHablado: formatDurationShort(emp.totalTalkSeconds),
+    promedioConversacion: formatDurationShort(emp.avgTalkSeconds),
+    diasConActividad: (emp.dailyBreakdown || [])
+      .filter((d) => d.receivedCount > 0 || d.outboundCount > 0 || d.missedCount > 0 || d.rejectedCount > 0)
+      .map((d) => ({
+        fecha: d.date,
+        recibidas: d.receivedCount,
+        contestadas: d.answeredCount,
+        perdidas: d.missedCount,
+        rechazadas: d.rejectedCount,
+        realizadas: d.outboundCount,
+      })),
+  });
+
   const promptPayload = {
     periodo: periodLabel,
     rangoFechas: { inicio: analytics.startDate, fin: analytics.endDate },
     horarioLaboral: '8:00 AM - 5:00 PM Carolina del Norte',
+    reglaOperativa: {
+      asesoresCallCenter: 'Darrel y Favio son los únicos 2 asesores del call center; las métricas de rendimiento y analíticas deben referenciarse sobre ellos.',
+      administradorExt501: 'La extensión 501 corresponde al Administrador/Gerente. No está en obligación de contestar llamadas; las llamadas que atienda o realice se toman en cuenta como apoyo o cobertura gerencial en el balance global.',
+    },
     resumenPbx: {
       totalLlamadas: totalCalls,
       entrantes: totalInbound,
@@ -144,6 +183,14 @@ export const generatePbxAiCallReport = async (
       horarioLaboralLlamadas: bhCalls,
       horarioLaboralContestadas: bhAnswered,
       tasaAtencionHorarioLaboralPct: bhCalls > 0 ? Math.round((bhAnswered / bhCalls) * 100) : 0,
+    },
+    totalesAsesoresCallCenter: {
+      recibidas: advisorsReceived,
+      contestadas: advisorsAnswered,
+      perdidas: advisorsMissed,
+      rechazadas: advisorsRejected,
+      realizadasSalientes: advisorsOutbound,
+      tasaAtencionAsesoresPct: advisorsReceived > 0 ? Math.round((advisorsAnswered / advisorsReceived) * 100) : 0,
     },
     porDia: [...analytics.days]
       .sort((a, b) => a.date.localeCompare(b.date))
@@ -157,39 +204,20 @@ export const generatePbxAiCallReport = async (
         tasaAtencionPct: d.answerRate,
         tiempoPromedio: formatDurationShort(d.avgBillsecSeconds),
       })),
-    porEmpleado: analytics.employeePerformance.map((emp) => ({
-      nombre: emp.userName,
-      extension: emp.pbxExtension,
-      recibidas: emp.receivedCount,
-      contestadas: emp.answeredCount,
-      perdidas: emp.missedCount,
-      rechazadas: emp.rejectedCount,
-      realizadasSalientes: emp.outboundCount,
-      salientesAtendidas: emp.outboundAnsweredCount,
-      tasaAtencionPct: emp.answerRate,
-      tiempoTotalHablado: formatDurationShort(emp.totalTalkSeconds),
-      promedioConversacion: formatDurationShort(emp.avgTalkSeconds),
-      diasConActividad: (emp.dailyBreakdown || [])
-        .filter((d) => d.receivedCount > 0 || d.outboundCount > 0 || d.missedCount > 0 || d.rejectedCount > 0)
-        .map((d) => ({
-          fecha: d.date,
-          recibidas: d.receivedCount,
-          contestadas: d.answeredCount,
-          perdidas: d.missedCount,
-          rechazadas: d.rejectedCount,
-          realizadas: d.outboundCount,
-        })),
-    })),
+    asesoresCallCenter: callCenterAdvisors.map(mapEmployeeForPrompt),
+    apoyoGerenciaExt501: adminSupportExt ? mapEmployeeForPrompt(adminSupportExt) : null,
   };
 
   const systemPrompt = [
     'Eres un director de operaciones y analista senior de call center para una empresa de autopartes (Radar / RSY).',
     'Tu tarea es redactar un informe ejecutivo en español claro, directo y accionable para el administrador sobre el desempeño telefónico del equipo.',
-    'Reglas estrictas:',
+    'Reglas operativas obligatorias:',
     '1. Usa ÚNICAMENTE los números reales entregados en el JSON; nunca inventes cifras ni fechas.',
-    '2. Evalúa el volumen de trabajo de cada empleado (recibidas, contestadas, perdidas, rechazadas, realizadas y tiempo hablado).',
-    '3. Si un empleado tiene 0 llamadas o muy baja tasa de atención o muchas rechazadas/perdidas, señálalo con objetividad.',
-    '4. Incluye un resumen ejecutivo conciso, puntos destacados, alertas críticas, análisis por empleado y recomendaciones prácticas.',
+    '2. Solo existen 2 asesores de call center evaluados por productividad y carga de trabajo: Darrel y Favio. Todas las analíticas, comparativas y referencias de desempeño del call center deben centrarse en ellos dos.',
+    '3. La extensión 501 pertenece al Administrador / Gerente, quien NO está en obligación de contestar llamadas. NUNCA lo califiques como "Atención" o "Crítico" ni lo penalices por tener pocas o cero llamadas.',
+    '4. Sin embargo, SÍ debes tomar en cuenta las llamadas contestadas o realizadas por la extensión 501 dentro del análisis global (como apoyo gerencial, cobertura o desborde cuando los asesores estuvieron ocupados o no contestaron) para explicar el total real del PBX.',
+    '5. En employeeInsights, evalúa rigurosamente a Darrel y Favio (recibidas, contestadas, perdidas, rechazadas, realizadas y tiempo hablado). Si incluyes a la extensión 501, usa calificación "Bueno" o "Excelente" destacando únicamente su aporte como apoyo gerencial.',
+    '6. Incluye resumen ejecutivo conciso, puntos destacados, alertas críticas enfocadas en los asesores, análisis por empleado y recomendaciones prácticas.',
   ].join('\n');
 
   const fetchImpl = options.fetchImpl ?? fetch;
