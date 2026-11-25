@@ -14,4 +14,5 @@ uploads/
 !deploy/desktop-runtime-grants.sql
 capturas_sistema/
 .gstack/
+.agents/
 .claude/session-data/

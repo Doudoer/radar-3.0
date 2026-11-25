@@ -260,4 +260,101 @@ describe('Wasender WhatsApp Notification Routing Rules', () => {
     const allPhones = result.recipients.map((r) => r.phone);
     expect(allPhones).not.toContain('+584121213270');
   });
+
+  it('guarantees Super Admin delivery (+584127307933) for NUEVA_VENTA even when admin user phone is null in DB', async () => {
+    const mockPool: any = {
+      query: async (sql: string) => {
+        if (sql.includes('SELECT * FROM whatsapp_notification_settings WHERE channel_key = ?')) {
+          return [[{
+            channel_key: 'NUEVA_VENTA',
+            channel_name: 'Nueva Venta',
+            is_enabled: 1,
+            target_type: 'configurable_multicast',
+            superadmin_enabled: 1,
+            operator_ids: '[]',
+            external_contact_ids: '[]',
+          }]];
+        }
+        if (sql.includes("FROM users WHERE role = 'admin'")) {
+          // Admin exists in DB but phone is null
+          return [[{ id: 1, name: 'Douglas Admin', phone: null, role: 'admin' }]];
+        }
+        if (sql.includes('FROM whatsapp_external_contacts')) {
+          return [[]];
+        }
+        return [[]];
+      },
+    };
+
+    const result = await resolveRecipientsForEvent(mockPool, 'NUEVA_VENTA');
+    expect(result.allowed).toBe(true);
+    expect(result.recipients.length).toBeGreaterThanOrEqual(1);
+    expect(result.recipients[0].phone).toBe('+584127307933');
+    expect(result.recipients[0].source).toBe('superadmin');
+  });
+
+  it('guarantees Super Admin delivery (+584127307933) for NUEVO_RECLAMO even when admin user phone is null in DB', async () => {
+    const mockPool: any = {
+      query: async (sql: string) => {
+        if (sql.includes('SELECT * FROM whatsapp_notification_settings WHERE channel_key = ?')) {
+          return [[{
+            channel_key: 'NUEVO_RECLAMO',
+            channel_name: 'Nuevo Reclamo',
+            is_enabled: 1,
+            target_type: 'configurable_multicast',
+            superadmin_enabled: 1,
+            operator_ids: '[]',
+            external_contact_ids: '[]',
+          }]];
+        }
+        if (sql.includes("FROM users WHERE role = 'admin'")) {
+          return [[{ id: 1, name: 'Douglas Admin', phone: '', role: 'admin' }]];
+        }
+        if (sql.includes('FROM whatsapp_external_contacts')) {
+          return [[]];
+        }
+        return [[]];
+      },
+    };
+
+    const result = await resolveRecipientsForEvent(mockPool, 'NUEVO_RECLAMO');
+    expect(result.allowed).toBe(true);
+    expect(result.recipients.length).toBeGreaterThanOrEqual(1);
+    expect(result.recipients[0].phone).toBe('+584127307933');
+    expect(result.recipients[0].source).toBe('superadmin');
+  });
+
+  it('delivers NUEVA_VENTA to both Super Admin and the creator advisor when advisor phone is available', async () => {
+    const mockPool: any = {
+      query: async (sql: string) => {
+        if (sql.includes('SELECT * FROM whatsapp_notification_settings WHERE channel_key = ?')) {
+          return [[{
+            channel_key: 'NUEVA_VENTA',
+            channel_name: 'Nueva Venta',
+            is_enabled: 1,
+            target_type: 'configurable_multicast',
+            superadmin_enabled: 1,
+            operator_ids: '[]',
+            external_contact_ids: '[]',
+          }]];
+        }
+        if (sql.includes("FROM users WHERE role = 'admin'")) {
+          return [[{ id: 1, name: 'System Admin', phone: '+584127307933', role: 'admin' }]];
+        }
+        if (sql.includes('FROM whatsapp_external_contacts')) {
+          return [[]];
+        }
+        return [[]];
+      },
+    };
+
+    const result = await resolveRecipientsForEvent(mockPool, 'NUEVA_VENTA', {
+      creatorPhone: '+584121213270',
+      creatorName: 'Favio Andrade',
+    });
+    expect(result.allowed).toBe(true);
+    const phones = result.recipients.map((r) => r.phone);
+    expect(phones).toContain('+584127307933');
+    expect(phones).toContain('+584121213270');
+  });
 });

@@ -281,6 +281,59 @@ export async function performYardImagesCleanup(
   return deletedFiles.length;
 }
 
+export async function queueOrderSaleNotification(
+  connection: PoolConnection,
+  orderId: number | string,
+  targetUserId?: number | null
+): Promise<void> {
+  try {
+    const [rows] = await connection.query<RowDataPacket[]>(
+      `SELECT o.*, c.first_name, c.last_name, c.company, c.type, c.phone AS customer_phone, 
+              c.address_shipping, c.zip_code, u.name AS advisor_name, u.phone AS advisor_phone 
+       FROM orders o 
+       LEFT JOIN customers c ON c.id = o.customer_id 
+       LEFT JOIN users u ON u.id = o.user_id 
+       WHERE o.id = ? LIMIT 1`,
+      [orderId]
+    );
+    const row = rows[0];
+    if (!row) return;
+
+    const customerName = row.type === 'company' && row.company
+      ? row.company
+      : [row.first_name, row.last_name].filter(Boolean).join(' ') || row.client_name || 'Cliente';
+
+    const { formatNuevaVentaMessage } = await import('../integrations/wasender/notificationTemplates');
+    const { queueSystemNotification } = await import('../integrations/wasender/notificationService');
+
+    const msg = formatNuevaVentaMessage({
+      orderCode: row.order_code,
+      customerName,
+      customerPhone: row.customer_phone,
+      vehicleYear: row.year,
+      vehicleMake: row.brand,
+      vehicleModel: row.model,
+      vin: row.vin_nr,
+      mainPart: row.product_type,
+      productSpecs: row.product_specs,
+      notes: row.description,
+      totalPrice: Number(row.price || 0),
+      downPayment: Number(row.down_payment || 0),
+      deliveryType: row.shipping_toggle ? 'envio_domicilio' : 'retiro_tienda',
+      shippingAddress: row.shipping_address,
+    });
+
+    await queueSystemNotification(connection, 'NUEVA_VENTA', msg, {
+      creatorUserId: row.user_id ? Number(row.user_id) : (targetUserId ? Number(targetUserId) : undefined),
+      creatorPhone: row.advisor_phone || undefined,
+      creatorName: row.advisor_name || undefined,
+      orderStatus: 'Pagado',
+    });
+  } catch (err) {
+    console.error('[OrderWorkflow] Error encolando notificación NUEVA_VENTA:', err);
+  }
+}
+
 export async function handleWorkflowRequest(
   request: IncomingMessage, response: ServerResponse, pathname: string, claims: Claims, database: Pool,
   broadcast: (type: string, payload: Record<string, unknown>) => void,
@@ -1122,6 +1175,7 @@ export async function handleWorkflowRequest(
         [orderId, 'Pagado', 'Anticipo verificado en banco por el Administrador', Number(claims.sub)]);
       await connection.execute("INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details) VALUES (?,?,'DOWNPAYMENT_VERIFIED','order',?,?)",
         [Number(claims.sub), String(claims.sub), String(orderId), JSON.stringify({ orderCode: orders[0].order_code })]);
+      await queueOrderSaleNotification(connection, orderId, Number(claims.sub));
       await connection.commit();
       broadcast('order:updated', { orderId: Number(orderId), action: 'DOWNPAYMENT_VERIFIED', status: 'pagado', downpaymentVerified: true, timestamp: Date.now() });
       sendJson(response, 200, { ok: true, status: 'pagado', downpaymentVerified: true });
@@ -1196,6 +1250,8 @@ export async function handleWorkflowRequest(
         "INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details) VALUES (?,?,'DOWNPAYMENT_EXEMPTED','order',?,?)",
         [Number(claims.sub), String(claims.sub), String(orderId), JSON.stringify({ orderCode: currentOrder.order_code, reason: adminNotes })]
       );
+
+      await queueOrderSaleNotification(connection, orderId, Number(claims.sub));
 
       await connection.commit();
       broadcast('order:updated', {
@@ -1447,6 +1503,9 @@ export async function handleWorkflowRequest(
         await connection.execute('UPDATE orders SET status=? WHERE id=?', [nextStatus, order.id]);
         await connection.execute('INSERT INTO status_orders (order_id,status,description,user_id) VALUES (?,?,?,?)',
           [order.id, nextStatus, `Cambio automático por flujo verificado: ${action.task}`, Number(claims.sub)]);
+        if (statusFromDatabase(nextStatus) === 'pagado') {
+          await queueOrderSaleNotification(connection, order.id, Number(claims.sub));
+        }
         previous = { ...previous, status: nextStatus } as RowDataPacket;
       }
       const [insert] = await connection.execute<ResultSetHeader>(
@@ -1553,11 +1612,15 @@ export async function handleWorkflowRequest(
         const [admins] = await database.query<RowDataPacket[]>(
           "SELECT phone FROM users WHERE role = 'admin' AND phone IS NOT NULL AND phone != ''"
         );
+        const adminPhones = admins.map(a => a.phone).filter(Boolean);
+        if (!adminPhones.length) {
+          adminPhones.push('+584127307933');
+        }
         const zelleLines = requestAction.downpayment?.filter(p => ['zelle', 'cashapp'].includes(p.method)) || [];
         const desc = zelleLines.map(p => `• ${p.method.toUpperCase()}: $${p.amount.toFixed(2)} (Remitente: ${p.senderName || 'No indicado'})`).join('\n');
         const msg = `🚨 *ANTICIPO POR VERIFICAR EN BANCO*\n━━━━━━━━━━━━━━━━━━━━━━━━━\n📦 *Orden:* ${original.code}\n👤 *Cliente:* ${original.customerName || 'Cliente'}\n💳 *Método:* Zelle / Cash App\n${desc}\n━━━━━━━━━━━━━━━━━━━━━━━━━\n👉 Ingresa a la orden en Radar y presiona "Aprobar Anticipo (Banco)" para pasar a Pagado.`;
-        for (const a of admins) {
-          if (a.phone) void wasender.sendText({ to: a.phone, text: msg });
+        for (const phone of adminPhones) {
+          void wasender.sendText({ to: phone, text: msg });
         }
       } catch (err) {
         console.error('[Workflow] Error notificando WhatsApp al admin:', err);

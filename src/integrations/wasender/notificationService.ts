@@ -87,6 +87,15 @@ export async function ensureNotificationTables(pool: Pool): Promise<void> {
       );
     }
   }
+
+  // Ensure primary admin user has the official Super Admin phone configured if null or empty
+  try {
+    await pool.query(
+      "UPDATE users SET phone = '+584127307933' WHERE (id = 1 OR role = 'admin') AND (phone IS NULL OR TRIM(phone) = '') LIMIT 1"
+    );
+  } catch {
+    // Non-blocking in case users table schema is during initial migration
+  }
 }
 
 /**
@@ -358,6 +367,25 @@ export async function resolveRecipientsForEvent(
     }
   };
 
+  const addSuperadmins = async () => {
+    const [admins] = await pool.query<RowDataPacket[]>(
+      "SELECT id, name, phone FROM users WHERE role = 'admin' AND deleted_at IS NULL ORDER BY (id = 1) DESC, id ASC"
+    );
+    let addedCount = 0;
+    for (const a of admins) {
+      if (a.phone && String(a.phone).trim()) {
+        addRecipient(a.phone, a.name, 'Super Admin', 'superadmin');
+        addedCount++;
+      }
+    }
+    // Fallback: If Super Admin notifications are enabled but no admin has a phone in users,
+    // fallback to the official Super Admin phone (+584127307933) so vital alerts are never skipped.
+    if (addedCount === 0) {
+      const fallbackName = admins[0]?.name || 'Super Admin';
+      addRecipient('+584127307933', fallbackName, 'Super Admin', 'superadmin');
+    }
+  };
+
   // 0. EXCLUSIVIDAD ABSOLUTA: RESPALDO_AUTOMATICO
   // Por estrictas políticas de seguridad e integridad del archivo SQL,
   // la copia de respaldo de la base de datos se envía ÚNICA Y EXCLUSIVAMENTE
@@ -382,14 +410,7 @@ export async function resolveRecipientsForEvent(
   // 1. SUPERADMIN ONLY CHANNELS (SOLICITUD_REEMBOLSO, ORDEN_CANCELADA, BUSQUEDA_SUBASTAS, ALERTA_SEGURIDAD)
   if (channel.target_type === 'superadmin_only') {
     if (channel.superadmin_enabled !== false) {
-      const [admins] = await pool.query<RowDataPacket[]>(
-        "SELECT id, name, phone FROM users WHERE role = 'admin'"
-      );
-      for (const a of admins) {
-        if (a.phone) {
-          addRecipient(a.phone, a.name, 'Super Admin', 'superadmin');
-        }
-      }
+      await addSuperadmins();
     }
 
     // Also notify operators manually designated by the administrator
@@ -490,14 +511,7 @@ export async function resolveRecipientsForEvent(
 
     // Also notify Super Admin if enabled in config
     if (channel.superadmin_enabled) {
-      const [admins] = await pool.query<RowDataPacket[]>(
-        "SELECT id, name, phone FROM users WHERE role = 'admin' AND deleted_at IS NULL"
-      );
-      for (const a of admins) {
-        if (a.phone) {
-          addRecipient(a.phone, a.name, 'Super Admin', 'superadmin');
-        }
-      }
+      await addSuperadmins();
     }
 
     // Also notify extra configured operators
@@ -553,14 +567,7 @@ export async function resolveRecipientsForEvent(
   // 3. CONFIGURABLE MULTICAST (NUEVA_VENTA, NUEVO_RECLAMO, LISTA_RECLAMOS)
   // A) Super Admin if enabled
   if (channel.superadmin_enabled) {
-    const [admins] = await pool.query<RowDataPacket[]>(
-      "SELECT id, name, phone FROM users WHERE role = 'admin'"
-    );
-    for (const a of admins) {
-      if (a.phone) {
-        addRecipient(a.phone, a.name, 'Super Admin', 'superadmin');
-      }
-    }
+    await addSuperadmins();
   }
 
   // B) Assigned Operators
@@ -613,6 +620,25 @@ export async function resolveRecipientsForEvent(
     const isSubscribed = subs.includes(eventKey) || externalContactIds.includes(Number(c.id));
     if (isSubscribed && c.phone) {
       addRecipient(c.phone, c.name, c.label || 'Contacto Externo', 'external_contact');
+    }
+  }
+
+  // D) For NUEVA_VENTA, also notify the creator / assigned advisor if registered with a valid phone
+  if (eventKey === 'NUEVA_VENTA' && (context.creatorPhone || context.creatorUserId)) {
+    let sellerPhone = context.creatorPhone;
+    let sellerName = context.creatorName || 'Asesor Vendedor';
+    if (!sellerPhone && context.creatorUserId) {
+      const [uRows] = await pool.query<RowDataPacket[]>(
+        'SELECT name, phone FROM users WHERE id = ? AND deleted_at IS NULL',
+        [context.creatorUserId]
+      );
+      if (uRows[0]?.phone) {
+        sellerPhone = uRows[0].phone;
+        if (uRows[0].name) sellerName = uRows[0].name;
+      }
+    }
+    if (sellerPhone) {
+      addRecipient(sellerPhone, sellerName, 'Asesor Vendedor', 'creator_operator');
     }
   }
 
