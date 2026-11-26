@@ -104,6 +104,30 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
   const [showExtensionModal, setShowExtensionModal] = useState<boolean>(false);
 
   // Modals state
+  const [showMoreActions, setShowMoreActions] = useState<boolean>(false);
+  const moreActionsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (moreActionsRef.current && !moreActionsRef.current.contains(event.target as Node)) {
+        setShowMoreActions(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowMoreActions(false);
+      }
+    };
+    if (showMoreActions) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showMoreActions]);
+
   const [claimModal, setClaimModal] = useState({ isOpen: false, reason: '', isSaving: false, error: '' });
   const [isDeliveryDateModalOpen, setIsDeliveryDateModalOpen] = useState<boolean>(false);
   const [deliveryDateInput, setDeliveryDateInput] = useState('');
@@ -843,6 +867,14 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               </span>
             )}
 
+            {/* Commission Indicator for office sales with downpayment */}
+            {!order.isYardSale && order.advisorRole !== 'vendedor_yarda' && downPayment > 0 && (
+              <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-mono font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30" title={order.status === 'entregado' ? 'Comisión total de $7 ($5 venta + $2 entrega)' : 'Comisión de $5 por venta con anticipo (sujeto a 12h de yarda)'}>
+                <span aria-hidden="true" className="material-symbols-outlined text-[12px] text-purple-400">payments</span>
+                <span>Comisión: {order.status === 'entregado' ? '+$7' : '+$5 (12h)'}</span>
+              </span>
+            )}
+
             {/* Asesor & Delivery metadata chips */}
             <div className="hidden md:flex items-center gap-2 text-[11px] font-mono text-[var(--text-secondary)] border-l border-cyan-500/20 pl-2.5">
               <span className="flex items-center gap-1.5">
@@ -875,29 +907,29 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
           </div>
 
           {/* Right: Quick Action Buttons & Tabs */}
-          <div className="horizon-detail-actions flex items-center flex-wrap gap-1.5">
-            {order.status === 'entregado' || order.deliveredAt ? <div className="text-xs">
-              <strong>Entrega registrada</strong>
-              {order.deliveredAt && <span> · {new Date(order.deliveredAt).toLocaleString('es-ES')}</span>}
-              <button type="button" className="underline ml-2" onClick={() => setActiveTab('historial')}>Ver constancia y responsable</button>
-            </div> : canRegisterDelivery && <button
-              type="button" className="horizon-primary rounded-xl px-3 py-2 text-xs font-bold"
-              onClick={() => setPaymentModal('deliver')}>Registrar entrega</button>}
-
-            {/* Quick Subasta Toggle Button - Solo órdenes pagadas */}
-            {order.status === 'pagado' && (
+          <div className="horizon-detail-actions flex items-center flex-wrap gap-1.5 sm:gap-2">
+            {/* 1. Indicador de entrega realizada si ya se completó */}
+            {order.status === 'entregado' || order.deliveredAt ? (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-mono">
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-emerald-400">check_circle</span>
+                <span>
+                  <strong>Entrega registrada</strong>
+                  {order.deliveredAt && <span className="opacity-80"> · {new Date(order.deliveredAt).toLocaleDateString('es-ES')}</span>}
+                </span>
+                <button type="button" className="underline text-emerald-300 hover:text-emerald-100 ml-1.5 cursor-pointer font-bold" onClick={() => setActiveTab('historial')}>
+                  Ver constancia
+                </button>
+              </div>
+            ) : canRegisterDelivery && (
+              /* Acción Principal: Registrar Entrega */
               <button
                 type="button"
-                onClick={handleToggleAuction}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono flex items-center gap-1 transition-all cursor-pointer border ${
-                  isAuctionActive || showAuctionPanel
-                    ? 'bg-amber-100 dark:bg-amber-500/20 border-amber-500 dark:border-amber-400 text-amber-900 dark:text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.25)]'
-                    : 'cyber-btn-secondary text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                }`}
-                title="Ver o gestionar búsqueda en subasta"
+                onClick={() => setPaymentModal('deliver')}
+                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-mono text-xs font-bold flex items-center gap-1.5 shadow-[0_0_14px_rgba(59,130,246,0.35)] transition-all active:scale-95 cursor-pointer"
+                title="Registrar entrega de la pieza y cobro del balance final"
               >
-                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">gavel</span>
-                <span>Subasta{auctionLinks.length > 0 ? ` (${auctionLinks.length})` : ''}</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">local_shipping</span>
+                <span>Registrar entrega</span>
               </button>
             )}
 
@@ -907,37 +939,24 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 type="button"
                 onClick={handleVerifyDownpayment}
                 disabled={verifyingDownpayment}
-                className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(16,185,129,0.25)] active:scale-95 animate-pulse"
+                className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-bold flex items-center gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.35)] transition-all active:scale-95 cursor-pointer animate-pulse"
                 title="Confirmar que el dinero fue recibido en banco y pasar a Pagado"
               >
-                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-emerald-400">verified</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">verified</span>
                 <span>{verifyingDownpayment ? 'Verificando…' : 'Aprobar Anticipo (Banco)'}</span>
               </button>
             )}
 
-            {/* Super Admin: Exonerar Anticipo (Cobro Contra Entrega) */}
-            {isSuperAdmin && ['cotizacion', 'espera_confirmacion'].includes(order.status) && (
-              <button
-                type="button"
-                onClick={() => setShowExemptModal(true)}
-                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(245,158,11,0.25)] active:scale-95"
-                title="Exonerar anticipo ($0 inicial) y pasar a Pagado para preparar en patio (Cobro 100% al entregar)"
-              >
-                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-amber-400">handshake</span>
-                <span>Exonerar Anticipo (Contra Entrega)</span>
-              </button>
-            )}
-
-            {/* Super Admin: Marcar Pieza Lista en Yarda */}
+            {/* Super Admin / Patio: Marcar Pieza Lista en Yarda */}
             {isSuperAdmin && !order.yardPieceReady && YARD_ACTION_STATUSES.has(order.status) && (
               <button
                 type="button"
                 onClick={handleMarkYardReady}
                 disabled={markingYardReady}
-                className="px-2.5 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(6,182,212,0.25)] active:scale-95"
-                title="Notificar a los asesores que el patio ya desmontó la pieza y está lista"
+                className="px-3 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
+                title="Notificar a los asesores que el patio ya desmontó la pieza y está lista para retiro/envío"
               >
-                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-cyan-400">factory</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-400">factory</span>
                 <span>{markingYardReady ? 'Marcando…' : 'Marcar Pieza Lista en Yarda'}</span>
               </button>
             )}
@@ -948,7 +967,7 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
                 type="button"
                 onClick={handleRevertYardReady}
                 disabled={revertingYardReady}
-                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(245,158,11,0.25)] active:scale-95"
+                className="px-2.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(245,158,11,0.25)] active:scale-95"
                 title="Revertir la confirmación de pieza lista y devolver la orden a pendientes de patio"
               >
                 <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-amber-400">undo</span>
@@ -956,77 +975,147 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
               </button>
             )}
 
+            {/* Subasta: Toggle en órdenes pagadas */}
+            {order.status === 'pagado' && (
+              <button
+                type="button"
+                onClick={handleToggleAuction}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold font-mono flex items-center gap-1.5 transition-all cursor-pointer border ${
+                  isAuctionActive || showAuctionPanel
+                    ? 'bg-amber-100 dark:bg-amber-500/20 border-amber-500 dark:border-amber-400 text-amber-900 dark:text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.25)]'
+                    : 'bg-[var(--bg-card-subtle)] border-cyan-500/30 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-cyan-500/50'
+                }`}
+                title="Ver o gestionar búsqueda en subasta"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-amber-500">gavel</span>
+                <span>Subasta{auctionLinks.length > 0 ? ` (${auctionLinks.length})` : ''}</span>
+              </button>
+            )}
+
             {/* Insignia: Pieza No Disponible en Patio */}
             {order.yardPieceUnavailable && (
-              <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[11px] font-mono font-bold flex items-center gap-1 shadow-[0_0_12px_rgba(245,158,11,0.25)] animate-pulse">
+              <span className="px-2.5 py-1 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[11px] font-mono font-bold flex items-center gap-1 shadow-[0_0_12px_rgba(245,158,11,0.25)] animate-pulse">
                 <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-amber-400">production_quantity_limits</span>
-                <span>No Disponible en Patio · En Subasta</span>
+                <span>No Disponible en Patio</span>
               </span>
             )}
 
-            {/* Quick Reembolso Button */}
-            <button
-              type="button"
-              onClick={() => setSubView('refund')}
-              className="cyber-btn-secondary px-2 py-1 text-[11px] font-bold font-mono text-amber-700 dark:text-amber-300 border-amber-400/40 dark:border-amber-500/30 hover:border-amber-500 hover:text-amber-900 dark:hover:text-amber-200"
-              title="Solicitar reembolso"
-            >
-              <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-amber-600 dark:text-amber-400">account_balance_wallet</span>
-              <span className="hidden sm:inline">Reembolso</span>
-            </button>
-
-            {/* Administrative correction of a recorded delivery. */}
-            {order.status === 'entregado' && isSuperAdmin && (
+            {/* 4. MENÚ DESPLEGABLE: MÁS ACCIONES (Contingencias, Asignaciones y Peligro) */}
+            <div className="relative" ref={moreActionsRef}>
               <button
                 type="button"
-                onClick={() => setIsDeliveryDateModalOpen(true)}
-                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(245,158,11,0.25)] active:scale-95"
-                title="Corregir fecha real de entrega (administrador)"
+                onClick={() => setShowMoreActions((prev) => !prev)}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-mono font-bold flex items-center gap-1 transition-all cursor-pointer border ${
+                  showMoreActions
+                    ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200'
+                    : 'bg-[var(--bg-card-subtle)] border-cyan-500/30 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-cyan-500/50'
+                }`}
+                title="Más opciones operativas y administrativas"
+                aria-expanded={showMoreActions}
+                aria-haspopup="true"
               >
-                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-amber-400">edit_calendar</span>
-                <span>Modificar Fecha</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[16px]">more_horiz</span>
+                <span className="hidden sm:inline">Más acciones</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px] transition-transform">
+                  {showMoreActions ? 'expand_less' : 'expand_more'}
+                </span>
               </button>
-            )}
 
-            {/* Quick Super Admin Advisor Reassignment Button */}
-            {isSuperAdmin && (
-              <button
-                type="button"
-                onClick={() => setIsReassignModalOpen(true)}
-                className="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-sm active:scale-95"
-                title="Modificar o reasignar el asesor de esta orden (Super Admin)"
-              >
-                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-cyan-400">manage_accounts</span>
-                <span className="hidden sm:inline">Reasignar Asesor</span>
-              </button>
-            )}
+              {showMoreActions && (
+                <div className="absolute right-0 top-full mt-1.5 w-60 rounded-xl bg-[#091124] border border-cyan-500/40 shadow-2xl py-1.5 z-50 animate-in fade-in slide-in-from-top-1 backdrop-blur-md">
+                  {/* Super Admin: Reasignar Asesor */}
+                  {isSuperAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMoreActions(false);
+                        setIsReassignModalOpen(true);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-mono text-slate-200 hover:bg-cyan-500/20 hover:text-cyan-200 transition-colors text-left cursor-pointer"
+                    >
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-cyan-400">manage_accounts</span>
+                      <span>Reasignar Asesor</span>
+                    </button>
+                  )}
 
-            {/* Super Admin Reversion from Listo para Retiro to Pagado with WhatsApp OTP */}
-            {order.status === 'listo_retiro' && isSuperAdmin && (
-              <button
-                type="button"
-                onClick={() => setIsRevertToPaidModalOpen(true)}
-                className="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-[0_0_12px_rgba(244,63,94,0.2)] active:scale-95"
-                title="Devolver orden a estado Pagado con código de seguridad WhatsApp (Super Admin)"
-              >
-                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-rose-400">history</span>
-                <span>Revertir a Pagado</span>
-              </button>
-            )}
+                  {/* Solicitar Reembolso */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMoreActions(false);
+                      setSubView('refund');
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-mono text-amber-300 hover:bg-amber-500/20 hover:text-amber-200 transition-colors text-left cursor-pointer"
+                  >
+                    <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-amber-400">account_balance_wallet</span>
+                    <span>Solicitar Reembolso</span>
+                  </button>
 
-            {/* Super Admin Special Cancellation with SMS/WhatsApp OTP */}
-            {isSuperAdmin && order.status !== 'cancelado' && (
-              <button
-                type="button"
-                onClick={() => setIsCancelOrderModalOpen(true)}
-                className="px-2.5 py-1 rounded-lg bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/40 text-[11px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer shadow-sm active:scale-95"
-                title="Cancelar orden y registrar devolución automática con código OTP (Super Admin)"
-              >
-                <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-red-400">block</span>
-                <span>Cancelar Orden</span>
-              </button>
-            )}
+                  {/* Super Admin: Modificar Fecha de Entrega */}
+                  {order.status === 'entregado' && isSuperAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMoreActions(false);
+                        setIsDeliveryDateModalOpen(true);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-mono text-slate-200 hover:bg-cyan-500/20 hover:text-cyan-200 transition-colors text-left cursor-pointer"
+                    >
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-amber-400">edit_calendar</span>
+                      <span>Modificar Fecha Entrega</span>
+                    </button>
+                  )}
 
+                  {/* Super Admin: Exonerar Anticipo */}
+                  {isSuperAdmin && ['cotizacion', 'espera_confirmacion'].includes(order.status) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMoreActions(false);
+                        setShowExemptModal(true);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-mono text-slate-200 hover:bg-cyan-500/20 hover:text-cyan-200 transition-colors text-left cursor-pointer"
+                    >
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-amber-400">handshake</span>
+                      <span>Exonerar Anticipo ($0)</span>
+                    </button>
+                  )}
+
+                  {/* Super Admin: Revertir a Pagado */}
+                  {order.status === 'listo_retiro' && isSuperAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMoreActions(false);
+                        setIsRevertToPaidModalOpen(true);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-mono text-rose-300 hover:bg-rose-500/20 hover:text-rose-200 transition-colors text-left cursor-pointer"
+                    >
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-rose-400">history</span>
+                      <span>Revertir a Pagado</span>
+                    </button>
+                  )}
+
+                  {/* Super Admin: Cancelar Orden (Zona destructiva / contingencia) */}
+                  {isSuperAdmin && order.status !== 'cancelado' && (
+                    <>
+                      <div className="my-1 border-t border-cyan-500/20" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowMoreActions(false);
+                          setIsCancelOrderModalOpen(true);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-mono font-bold text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors text-left cursor-pointer"
+                      >
+                        <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-red-400">block</span>
+                        <span>Cancelar Orden</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1738,10 +1827,14 @@ export const OrderDetailView: React.FC<OrderDetailViewProps> = ({
       {/* ========================================================================= */}
       {showVerifiedWorkflow && activeTab === 'workflow' && <div id="order-workflow-panel"><OrderWorkflowPanel orderId={order.id} /></div>}
       {activeTab === 'resumen' && <OrderAftersalesPanel order={order} />}
-      {activeTab === 'resumen' && showVerifiedWorkflow && <div className="horizon-view-card flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm">Esta orden requiere gestiones con evidencia, responsable y próxima acción.</p>
-        <button type="button" className="horizon-primary rounded-xl px-4 py-2" onClick={() => setActiveTab('workflow')}>Gestionar flujo verificable</button>
-      </div>}
+      {activeTab === 'resumen' && showVerifiedWorkflow && (
+        <div className="horizon-view-card flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm">Esta orden requiere gestiones con evidencia, responsable y próxima acción.</p>
+          <button type="button" className="horizon-primary rounded-xl px-4 py-2" onClick={() => setActiveTab('workflow')}>
+            Gestionar flujo verificable
+          </button>
+        </div>
+      )}
       {activeTab === 'workflow' && !showVerifiedWorkflow && (
         <div id="order-workflow-panel" className="cyber-card p-4 shadow-sm flex flex-col gap-3">
           <div className="cyber-laser-bar" />

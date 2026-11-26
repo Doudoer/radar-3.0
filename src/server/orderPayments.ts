@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { Claims } from './auth';
 import { readBody, sendJson } from './http';
 import { cents, fail, syncInventory, validateOrder } from './business';
+import { recordDeliveryCommission } from './commissions';
 import { mapOrder, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './orders';
 import { isBalancePaymentMethod, previewSettlement, settlementSchema, validateCollectionEvidence, type Settlement } from '../utils/orderPayments';
 import { assertPaymentImages } from './paymentEvidence';
@@ -106,6 +107,14 @@ export async function completeOrderDelivery(connection: PoolConnection, row: Row
   }
   await connection.execute('INSERT INTO status_orders (order_id,status,description,user_id) VALUES (?,?,?,?)',
     [row.id, statusToDatabase.entregado, description, Number(claims.sub)]);
+  if (row.user_id) {
+    await recordDeliveryCommission(connection as any, {
+      orderId: Number(row.id),
+      userId: Number(row.user_id),
+      isYardSale: Boolean(row.is_yard_sale),
+      deliveredAt: new Date(payload.deliveredAt),
+    });
+  }
 }
 export async function handlePaymentRequest(
   request: IncomingMessage, response: ServerResponse, pathname: string, claims: Claims, database: Pool,

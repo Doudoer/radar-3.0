@@ -18,6 +18,7 @@ import { preparationSchema } from '../utils/orderPreparation';
 import { deliveryPhotosSchema } from '../utils/orderDelivery';
 import { assertPaymentImages, assertUploadedOrderAudio } from './paymentEvidence';
 import { financeVaultExpiry } from './financeVault';
+import { recordDownpaymentCommission } from './commissions';
 import { communicationSchema, hasContactResponse } from '../utils/followupCommunication';
 import { wasender } from '../integrations/wasender/client';
 import { YARD_ACTION_STATUSES, YARD_REVERT_STATUSES } from '../utils/yardStatuses';
@@ -1167,7 +1168,7 @@ export async function handleWorkflowRequest(
     const connection = await database.getConnection();
     try {
       await connection.beginTransaction();
-      const [orders] = await connection.query<RowDataPacket[]>('SELECT id,version,order_code,status FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE', [orderId]);
+      const [orders] = await connection.query<RowDataPacket[]>('SELECT id,version,order_code,status,user_id,is_yard_sale,created_at FROM orders WHERE id=? AND deleted_at IS NULL FOR UPDATE', [orderId]);
       if (!orders[0]) fail(404, 'Orden no encontrada');
       await connection.execute("UPDATE orders SET downpayment_verified=1,downpayment_verified_at=CURRENT_TIMESTAMP,downpayment_verified_by=?,status='Pagado',version=version+1 WHERE id=?",
         [Number(claims.sub), orderId]);
@@ -1176,6 +1177,14 @@ export async function handleWorkflowRequest(
       await connection.execute("INSERT INTO audit_logs (user_id,username,action,resource_type,resource_id,details) VALUES (?,?,'DOWNPAYMENT_VERIFIED','order',?,?)",
         [Number(claims.sub), String(claims.sub), String(orderId), JSON.stringify({ orderCode: orders[0].order_code })]);
       await queueOrderSaleNotification(connection, orderId, Number(claims.sub));
+      if (orders[0].user_id) {
+        await recordDownpaymentCommission(connection as any, {
+          orderId: Number(orderId),
+          userId: Number(orders[0].user_id),
+          isYardSale: Boolean(orders[0].is_yard_sale),
+          createdAt: orders[0].created_at ? new Date(orders[0].created_at) : new Date(),
+        });
+      }
       await connection.commit();
       broadcast('order:updated', { orderId: Number(orderId), action: 'DOWNPAYMENT_VERIFIED', status: 'pagado', downpaymentVerified: true, timestamp: Date.now() });
       sendJson(response, 200, { ok: true, status: 'pagado', downpaymentVerified: true });

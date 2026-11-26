@@ -5,6 +5,7 @@ import { VaultUnlockModal } from './VaultUnlockModal';
 import { useDialogAccessibility } from '../hooks/useDialogAccessibility';
 import { formatUsd, isoDateInTimeZone, type WeekPayroll } from '../utils/payroll';
 import { penaltyAmount, penaltyPercent } from '../utils/penalties';
+import type { EmployeeCommissionsSummary, EmployeeSettlementSummary } from '../utils/commissions';
 import type { WorkflowTask } from '../utils/orderWorkflow';
 import { followupQueueUrl, followupSummary, groupFollowupTasks, parseFollowupQueue, type FollowupQueuePayload } from '../utils/followupQueue';
 import { PRESET_AVATARS, DEFAULT_AVATAR } from '../utils/avatars';
@@ -29,7 +30,7 @@ interface ProfileInfo {
 }
 
 export interface PenaltySourceLine {
-  source: 'post_delivery' | 'ready_piece' | 'ack_notification' | 'claim';
+  source: 'post_delivery' | 'ready_piece' | 'ack_notification' | 'claim' | 'call_missed' | 'call_rejected';
   units: number;
   percent: number;
   amount: number;
@@ -48,6 +49,9 @@ export interface PenaltySnapshot {
   open: { units: number; percent: number; amount: number; lines: PenaltySourceLine[] };
   details: PenaltySourceLine[];
   history: Array<{ periodEnd: string; units: number; percent: number; amount: number; cutAt: string; status: string }>;
+  commissions?: EmployeeCommissionsSummary;
+  carryoverDebt?: { totalDebt: number; lastPeriodEnd: string | null };
+  settlement?: EmployeeSettlementSummary;
 }
 
 export interface FaultAppeal {
@@ -169,14 +173,25 @@ export const WeekLiquidation: React.FC<{
   canManage: boolean;
   penaltyAmount?: number;
   cutoffLabel?: string;
-}> = ({ week, tone, hasSalary, canManage, penaltyAmount = 0, cutoffLabel }) => {
+  settlement?: EmployeeSettlementSummary;
+  commissions?: EmployeeCommissionsSummary;
+  carryoverDebt?: { totalDebt: number; lastPeriodEnd: string | null };
+}> = ({ week, tone, hasSalary, canManage, penaltyAmount = 0, cutoffLabel, settlement }) => {
   const penalty = Number((penaltyAmount || 0).toFixed(2));
-  const projected = Number((week.net - penalty).toFixed(2));
+  const projected = settlement ? settlement.netPayout : Number((week.net - penalty).toFixed(2));
 
   return (
     <>
       <section className={`rounded-3xl px-5 py-5 sm:px-6 sm:py-6 ${tone.card}`} aria-labelledby="profile-week-heading">
-        <p id="profile-week-heading" className={`font-mono text-[10px] font-bold uppercase tracking-[0.14em] ${tone.muted}`}>Esta semana</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p id="profile-week-heading" className={`font-mono text-[10px] font-bold uppercase tracking-[0.14em] ${tone.muted}`}>Esta semana</p>
+          {settlement?.baseSalaryProtected && (
+            <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10.5px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">verified</span>
+              Sueldo base intocable
+            </span>
+          )}
+        </div>
         <p className={`mt-2 text-[38px] font-black leading-none tabular-nums sm:text-[44px] ${
           !hasSalary ? tone.muted : projected < 0 ? tone.warningText : tone.heading
         }`}>
@@ -188,7 +203,9 @@ export const WeekLiquidation: React.FC<{
         <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[var(--border-subtle)] pt-4 sm:flex sm:flex-wrap sm:gap-x-10">
           <div>
             <dt className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Salario base</dt>
-            <dd className={`mt-0.5 text-sm font-black tabular-nums ${tone.heading}`}>{formatUsd(week.gross)}</dd>
+            <dd className={`mt-0.5 text-sm font-black tabular-nums ${tone.heading}`}>
+              {formatUsd(settlement ? settlement.weeklySalary : week.gross)}
+            </dd>
           </div>
           <div>
             <dt className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Faltas</dt>
@@ -221,11 +238,108 @@ export const WeekLiquidation: React.FC<{
   );
 };
 
+export const CommissionsCard: React.FC<{
+  commissions?: EmployeeCommissionsSummary;
+  settlement?: EmployeeSettlementSummary;
+  tone: Tone;
+}> = ({ commissions, settlement, tone }) => {
+  if (!commissions) return null;
+
+  return (
+    <section className={`rounded-3xl px-5 py-5 sm:px-6 ${tone.card}`} aria-labelledby="profile-commissions-heading">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-emerald-400">payments</span>
+            <h2 id="profile-commissions-heading" className={`font-mono text-[10px] font-bold uppercase tracking-[0.14em] ${tone.muted}`}>
+              Comisiones por Desempeño
+            </h2>
+          </div>
+          <p className={`mt-1 text-xs ${tone.muted}`}>
+            $5 USD por venta con anticipo (retención de 12h en yarda) · $2 USD extra al completar entrega física.
+          </p>
+        </div>
+        <div className="text-right">
+          <p className={`text-2xl font-black leading-none tabular-nums text-emerald-400`}>
+            {formatUsd(commissions.earnedAmount)}
+          </p>
+          <p className={`mt-1 text-[11px] font-bold tabular-nums ${tone.muted}`}>
+            {commissions.earnedCount} comisiones liberadas
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card-subtle)] p-3">
+          <p className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">Liberadas esta semana</p>
+          <p className="mt-1 text-lg font-black text-emerald-400">{formatUsd(commissions.earnedAmount)}</p>
+          <p className="text-[10px] text-[var(--text-secondary)]">{commissions.earnedCount} ventas / entregas</p>
+        </div>
+        <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-3">
+          <p className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">En verificación yarda (12h)</p>
+          <p className="mt-1 text-lg font-black text-cyan-300">{formatUsd(commissions.pendingYardAmount)}</p>
+          <p className="text-[10px] text-cyan-400/80">{commissions.pendingYardCount} órdenes en retención</p>
+        </div>
+        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card-subtle)] p-3">
+          <p className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">Anuladas por falta stock</p>
+          <p className="mt-1 text-lg font-black text-[var(--text-muted)]">{formatUsd(commissions.voidedAmount)}</p>
+          <p className="text-[10px] text-[var(--text-secondary)]">{commissions.voidedCount} canceladas en &lt;12h</p>
+        </div>
+      </div>
+
+      {commissions.items.length > 0 && (
+        <details className="group mt-4 border-t border-[var(--border-subtle)] pt-3">
+          <summary className={`flex cursor-pointer list-none items-center gap-1.5 text-[11.5px] font-bold [&::-webkit-details-marker]:hidden ${tone.heading}`}>
+            <span aria-hidden="true" className="material-symbols-outlined text-[15px] transition-transform group-open:rotate-180">expand_more</span>
+            Detalle de órdenes y comisiones ({commissions.items.length})
+          </summary>
+          <div className="mt-3 divide-y divide-[var(--border-subtle)]">
+            {commissions.items.map((item) => (
+              <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <strong className="text-[var(--text-primary)]">#{item.orderCode}</strong>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      item.status === 'earned'
+                        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                        : item.status === 'pending_yard_check'
+                          ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
+                          : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                    }`}>
+                      {item.status === 'earned'
+                        ? 'Acreditada'
+                        : item.status === 'pending_yard_check'
+                          ? `En verificación (${Math.floor((item.minutesRemaining || 0) / 60)}h ${(item.minutesRemaining || 0) % 60}m restantes)`
+                          : 'Anulada por Yarda'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[var(--text-secondary)] mt-0.5">
+                    {item.type === 'downpayment_sale' ? 'Venta con downpayment ($5)' : 'Orden entregada y cerrada ($2)'}
+                    {item.customerName ? ` · ${item.customerName}` : ''}
+                    {item.vehicle ? ` · ${item.vehicle}` : ''}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <span className={`text-sm font-black ${item.status === 'earned' ? 'text-emerald-400' : item.status === 'pending_yard_check' ? 'text-cyan-400' : 'text-neutral-500 line-through'}`}>
+                    +{formatUsd(item.amount)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </section>
+  );
+};
+
 const PENALTY_SOURCE_LABELS: Record<PenaltySourceLine['source'], { label: string; icon: string }> = {
   post_delivery: { label: 'Post-entrega', icon: 'home_repair_service' },
   claim: { label: 'Reclamos', icon: 'assignment_late' },
   ready_piece: { label: 'Piezas listas', icon: 'inventory_2' },
   ack_notification: { label: 'Notificación al cliente', icon: 'mark_chat_unread' },
+  call_missed: { label: 'Llamada no contestada en horario', icon: 'phone_missed' },
+  call_rejected: { label: 'Llamada colgada / rechazada', icon: 'phone_disabled' },
 };
 
 const formatPercent = (value: number) => `${Number(value || 0).toFixed(2)}%`;
@@ -237,7 +351,7 @@ export const PenaltyCard: React.FC<{
   penalties: PenaltySnapshot;
   tone: Tone;
 }> = ({ penalties, tone }) => {
-  const sourceRows = (['post_delivery', 'claim', 'ready_piece', 'ack_notification'] as const).map(source => {
+  const sourceRows = (['post_delivery', 'claim', 'ready_piece', 'ack_notification', 'call_missed', 'call_rejected'] as const).map(source => {
     const lines = penalties.open.lines.filter(line => line.source === source);
     return {
       source,
@@ -1741,6 +1855,16 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                   canManage={canManage}
                   penaltyAmount={data.penalties?.open.amount ?? 0}
                   cutoffLabel={data.penalties ? `Corte sábado, 6:00 p. m. · hora de Honduras` : undefined}
+                  settlement={data.penalties?.settlement}
+                  commissions={data.penalties?.commissions}
+                  carryoverDebt={data.penalties?.carryoverDebt}
+                />
+              )}
+              {data.penalties?.commissions && (
+                <CommissionsCard
+                  commissions={data.penalties.commissions}
+                  settlement={data.penalties.settlement}
+                  tone={tone}
                 />
               )}
               {data.penalties && (

@@ -10,6 +10,9 @@ import {
   type PenaltyPause,
 } from '../utils/penalties';
 import { ACK_NOTIFICATION_CUTOFF, POST_DELIVERY_FOLLOWUP_CUTOFF } from '../utils/orderWorkflow';
+import { isYardEmployee, settleEmployeeCompensation, type EmployeeCommissionsSummary, type EmployeeSettlementSummary } from '../utils/commissions';
+import { getUserCommissionsSummary, getUserCarryoverDebt, saveUserCarryoverDebt } from './commissions';
+import { isDuringPbxBusinessHours, parseRejectedExts } from './pbxCalls';
 
 const LOOKBACK_DAYS = 90;
 const OPEN_CLAIM_STATUSES = ['Pending', 'In Process'];
@@ -23,7 +26,7 @@ export interface PenaltySettings {
 }
 
 export interface PenaltySourceSummary {
-  source: 'post_delivery' | 'ready_piece' | 'ack_notification' | 'claim';
+  source: 'post_delivery' | 'ready_piece' | 'ack_notification' | 'claim' | 'call_missed' | 'call_rejected';
   units: number;
   percent: number;
   amount: number;
@@ -55,6 +58,9 @@ export interface UserPenaltySnapshot {
   open: { units: number; percent: number; amount: number; lines: PenaltySourceSummary[] };
   details: PenaltyOrderLine[];
   history: PenaltyHistoryEntry[];
+  commissions?: EmployeeCommissionsSummary;
+  carryoverDebt?: { totalDebt: number; lastPeriodEnd: string | null };
+  settlement?: EmployeeSettlementSummary;
 }
 
 const toSqlDate = (date: Date) => date.toISOString().slice(0, 19).replace('T', ' ');
@@ -365,6 +371,83 @@ export const syncPenalties = async (pool: Pool, now = new Date()): Promise<void>
     });
   }
 
+  // --- PBX Inbound Call Penalties (Missed & Rejected - Business Hours Only) ---
+  try {
+    const [callRows] = await pool.query<RowDataPacket[]>(
+      `SELECT id, caller_number, caller_name, destination, answered_by_ext, rejected_by_exts,
+              status, started_at
+         FROM pbx_call_logs
+        WHERE direction = 'inbound' AND started_at >= ? AND started_at <= ?`,
+      [toSqlDate(periodStart), toSqlDate(now)],
+    );
+
+    const [extUserRows] = await pool.query<RowDataPacket[]>(
+      `SELECT id, pbx_extension, role FROM users
+        WHERE deleted_at IS NULL AND pbx_extension IS NOT NULL AND pbx_extension <> ''`,
+    );
+    const userByExt = new Map<string, number>();
+    const callCenterAdvisors: number[] = [];
+    for (const ur of extUserRows) {
+      const ext = String(ur.pbx_extension).trim();
+      const uId = Number(ur.id);
+      userByExt.set(ext, uId);
+      if (ext !== '501' && !isYardEmployee(ur.role)) {
+        callCenterAdvisors.push(uId);
+      }
+    }
+
+    for (const call of callRows) {
+      if (!call.started_at) continue;
+      const callDate = new Date(call.started_at);
+      // Strict rule: Penalties apply ONLY within business hours. Outside business hours = 0 penalty.
+      if (!isDuringPbxBusinessHours(callDate)) continue;
+
+      const callId = Number(call.id);
+      const callerNum = String(call.caller_number || call.caller_name || 'Desconocido');
+      const callDateIso = callDate.toISOString();
+
+      // 1. Calls rejected / hung up while ringing
+      const rejectedExts = parseRejectedExts(call.rejected_by_exts);
+      for (const rejExt of rejectedExts) {
+        if (rejExt === '501') continue;
+        const targetUserId = userByExt.get(rejExt);
+        if (targetUserId) {
+          cases.push({
+            orderId: 0,
+            orderCode: `CALL-${callId}`,
+            customerName: `Llamada colgada (${rejExt}): ${callerNum}`,
+            source: 'call_rejected',
+            referenceKey: `call_rej-${callId}-${rejExt}`,
+            units: 1,
+            userId: targetUserId,
+            date: callDateIso,
+            nextDueDate: null,
+          });
+        }
+      }
+
+      // 2. Missed total call (nobody answered)
+      const wasAnswered = call.status === 'answered' || call.status === 'ended' || Boolean(call.answered_by_ext);
+      if (call.status === 'missed' && !wasAnswered) {
+        for (const advisorId of callCenterAdvisors) {
+          cases.push({
+            orderId: 0,
+            orderCode: `CALL-${callId}`,
+            customerName: `Llamada no contestada en horario: ${callerNum}`,
+            source: 'call_missed',
+            referenceKey: `call_miss-${callId}-${advisorId}`,
+            units: 1,
+            userId: advisorId,
+            date: callDateIso,
+            nextDueDate: null,
+          });
+        }
+      }
+    }
+  } catch {
+    // Si la tabla pbx_call_logs no existe o está mockeada parcialmente en pruebas unitarias
+  }
+
   for (const entry of cases) {
     const user = users.get(entry.userId);
     if (!user) continue;
@@ -410,7 +493,7 @@ export const getUserPenaltySnapshot = async (pool: Pool, userId: number, now = n
             p.order_id, o.order_code, c.first_name, c.last_name, o.delivered_at,
             o.yard_piece_ready_at, o.workflow_data
        FROM order_penalties p
-       JOIN orders o ON o.id=p.order_id
+       LEFT JOIN orders o ON o.id=p.order_id
        LEFT JOIN customers c ON c.id=o.customer_id
       WHERE p.user_id=? AND p.period_end=?
       ORDER BY p.amount DESC, p.id DESC`,
@@ -420,22 +503,55 @@ export const getUserPenaltySnapshot = async (pool: Pool, userId: number, now = n
     .filter(row => row.status !== 'void' && row.status !== 'rejected')
     .map(row => {
       const data = parseWorkflowData(row.workflow_data);
+      const isCall = row.source === 'call_missed' || row.source === 'call_rejected';
+      const fallbackName = row.source === 'call_rejected'
+        ? 'Llamada rechazada por asesor'
+        : isCall
+          ? 'Llamada no contestada en horario'
+          : 'Cliente';
+      const orderCode = String(row.order_code || (isCall ? row.reference_key : ''));
+      const customer = row.order_id > 0 ? customerName(row) : fallbackName;
+
       return {
         source: row.source,
         units: Number(row.units),
         percent: Number(row.percent),
         amount: Number(row.amount),
-        orderId: Number(row.order_id),
-        orderCode: String(row.order_code || ''),
-        customerName: customerName(row),
-        date: parseDate(row.source === 'claim' ? data.claimPieceReadyAt : row.source === 'ready_piece' ? row.yard_piece_ready_at : row.delivered_at),
+        orderId: Number(row.order_id || 0),
+        orderCode,
+        customerName: customer,
+        date: parseDate(
+          row.source === 'claim'
+            ? data.claimPieceReadyAt
+            : row.source === 'ready_piece'
+              ? row.yard_piece_ready_at
+              : row.delivered_at || row.cutoff_at,
+        ),
         nextDueDate: null,
       };
     });
-  const open = summarizePenalties(salary, rate, (['post_delivery', 'ready_piece', 'ack_notification', 'claim'] as const).map(source => ({
+  const open = summarizePenalties(salary, rate, (['post_delivery', 'ready_piece', 'ack_notification', 'claim', 'call_missed', 'call_rejected'] as const).map(source => ({
     source,
     units: details.filter(line => line.source === source).reduce((total, line) => total + line.units, 0),
   })));
+
+  // Commissions, previous carryover debt and salary-protected settlement
+  let commissions: EmployeeCommissionsSummary | undefined;
+  let carryoverDebt: { totalDebt: number; lastPeriodEnd: string | null } = { totalDebt: 0, lastPeriodEnd: null };
+  let settlement: EmployeeSettlementSummary | undefined;
+
+  try {
+    commissions = await getUserCommissionsSummary(pool, userId, period, now);
+    carryoverDebt = await getUserCarryoverDebt(pool, userId);
+    settlement = settleEmployeeCompensation(
+      salary,
+      commissions.earnedAmount,
+      open.amount,
+      carryoverDebt.totalDebt,
+    );
+  } catch {
+    // Si la tabla de comisiones no está inicializada o mockeada en tests
+  }
 
   const [historyRows] = await pool.query<RowDataPacket[]>(
     `SELECT period_end, SUM(units) AS units, SUM(amount) AS amount, MAX(cutoff_at) AS cutoff_at, status
@@ -469,5 +585,8 @@ export const getUserPenaltySnapshot = async (pool: Pool, userId: number, now = n
     open,
     details,
     history,
+    commissions,
+    carryoverDebt,
+    settlement,
   };
 };

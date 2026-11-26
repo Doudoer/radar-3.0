@@ -205,7 +205,7 @@ export const readyPieceAccrual = ({
 };
 
 export interface PenaltyLine {
-  source: 'post_delivery' | 'ready_piece' | 'ack_notification' | 'claim';
+  source: 'post_delivery' | 'ready_piece' | 'ack_notification' | 'claim' | 'call_missed' | 'call_rejected';
   units: number;
   percent: number;
   amount: number;

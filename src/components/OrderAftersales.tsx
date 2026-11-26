@@ -441,6 +441,7 @@ export const OrderAftersalesPanel: React.FC<{
   const [pieceRequired, setPieceRequired] = useState(false);
   const [execution, setExecution] = useState<Partial<RefundExecution>>({ method: 'cash', confirmed: true });
   const [immediateCoreRefund, setImmediateCoreRefund] = useState(true);
+  const [showDetailedExceptions, setShowDetailedExceptions] = useState(false);
   const lock = useRef(false);
   const key = useRef<string | null>(null);
   const generation = useRef(0);
@@ -798,7 +799,14 @@ export const OrderAftersalesPanel: React.FC<{
           </section>
 
           {/* 2. GRID: INVOICE + DEPÓSITO DEL CORE */}
-          <div className="grid gap-4 lg:grid-cols-2 items-stretch">
+          <div className="pt-2">
+            <div className="flex items-center gap-2 mb-3">
+              <span aria-hidden="true" className="material-symbols-outlined text-[19px] text-cyan-400">task_alt</span>
+              <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-[var(--text-secondary)]">
+                Tareas de Cierre Operativo · Documentación y Retorno de Core
+              </h3>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-2 items-stretch">
             {/* INVOICE DE ENTREGA */}
             <section aria-label="Invoice de entrega" className={card}>
               <div className="space-y-4">
@@ -1045,10 +1053,69 @@ export const OrderAftersalesPanel: React.FC<{
               )}
             </section>
           </div>
+        </div>
 
-          {/* 3. GRID: RECLAMOS + REEMBOLSOS DE COMPRA */}
-          <div className="grid gap-4 lg:grid-cols-2 items-stretch">
-            {/* RECLAMOS */}
+        {/* 3. INCIDENCIAS, RECLAMOS Y REEMBOLSOS */}
+        {(() => {
+          const hasActiveExceptions =
+            detail.claims.length > 0 ||
+            detail.refunds.filter((refund) => refund.refund_scope !== 'core').length > 0;
+
+          return (
+            <div className="pt-2">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[19px] text-amber-400">shield</span>
+                  <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-[var(--text-secondary)]">
+                    Incidencias, Reclamos y Reembolsos
+                  </h3>
+                </div>
+                {!hasActiveExceptions && (
+                  <button
+                    type="button"
+                    onClick={() => setShowDetailedExceptions(!showDetailedExceptions)}
+                    className="cyber-btn-secondary px-2.5 py-1 rounded-xl text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  >
+                    <span aria-hidden="true" className="material-symbols-outlined text-[15px]">
+                      {showDetailedExceptions ? 'expand_less' : 'tune'}
+                    </span>
+                    <span>{showDetailedExceptions ? 'Ocultar métricas' : 'Ver métricas de cobertura'}</span>
+                  </button>
+                )}
+              </div>
+
+              {!hasActiveExceptions && !showDetailedExceptions ? (
+                <section aria-label="Incidencias y devoluciones" className="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4 md:p-5 shadow-sm">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5">
+                      <span className="w-11 h-11 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0">
+                        <span aria-hidden="true" className="material-symbols-outlined text-[24px]">verified_user</span>
+                      </span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-sm sm:text-base font-bold text-[var(--text-primary)]">Orden sin incidencias activas</h4>
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                            Garantía 100% Vigente
+                          </span>
+                        </div>
+                        <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                          No hay reclamos técnicos ni solicitudes de reembolso en curso. Fondo disponible: <strong className="text-[var(--text-primary)] font-mono">${availableToRefund.toFixed(2)} USD</strong>.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      {detail.canManage && (
+                        <>
+                          {actionButton('Abrir reclamo', 'claim_create', 0, 'secondary')}
+                          {actionButton('Solicitar reembolso de compra', 'refund_create', 0, 'primary')}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </section>
+              ) : (
+                <div className="grid gap-4 lg:grid-cols-2 items-stretch">
+                  {/* RECLAMOS */}
             <section aria-label="Reclamos" className={card}>
               <div className="space-y-4">
                 <CardHeading
@@ -1375,6 +1442,10 @@ export const OrderAftersalesPanel: React.FC<{
               </div>
             </section>
           </div>
+        )}
+      </div>
+    );
+  })()}
 
           {/* 4. GUIDED VERIFIABLE ACTION MODAL */}
           {mode && (

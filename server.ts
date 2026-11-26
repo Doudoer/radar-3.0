@@ -89,6 +89,7 @@ import { readBody, sendJson, serveFrontend } from './src/server/http';
 import { isoDateInTimeZone, PAYROLL_TIME_ZONE, recentWeeks, roundMoney, summarizeWeek } from './src/utils/payroll';
 import { getOrders, getYardOrders, getYardQueueCounts, YARD_QUEUE_MAX_LIMIT, mapOrder, normalizeTransmissionType, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
 import { getUserPenaltySnapshot, readPenaltySettings, syncPenaltiesThrottled, writePenaltySettings } from './src/server/penalties';
+import { recordDownpaymentCommission, recordDeliveryCommission } from './src/server/commissions';
 import { getWeeklyPerformance } from './src/server/performance';
 import { getClaims, handleClaimsListRequest } from './src/server/claims';
 import { handleRefundsListRequest } from './src/server/refunds';
@@ -1786,6 +1787,13 @@ const server = createServer(async (request, response) => {
         );
         await syncInventory(connection, orderResult.insertId, order.inventoryPartId, order.status || 'cotizacion');
         await recordPaymentChange(connection, orderResult.insertId, Number(order.financials.downPayment || 0), 0, Number(authenticatedClaims?.sub));
+        if (Number(order.financials?.downPayment || 0) > 0 && assignedUserId) {
+          await recordDownpaymentCommission(connection, {
+            orderId: orderResult.insertId,
+            userId: Number(assignedUserId),
+            isYardSale: Boolean(isYardSale),
+          });
+        }
 
         if (Array.isArray((order as any).auctionLinks)) {
           for (const link of (order as any).auctionLinks) {
@@ -2923,6 +2931,20 @@ const server = createServer(async (request, response) => {
           fail(400, 'La pieza de inventario no se puede sustituir en una orden existente');
         }
         await syncInventory(connection, Number(orderId), prevOrder.inventory_part_id, order.status || '');
+
+        const isNowDelivered = (order.status === 'entregado' || Boolean(order.deliveredAt)) && (!prevOrder.delivered_at || prevOrder.status !== 'Entregado');
+        if (isNowDelivered) {
+          const finalAdvisorId = assignedUserId !== undefined ? assignedUserId : prevOrder.user_id;
+          const finalYardSale = isYardSale !== undefined ? isYardSale : prevOrder.is_yard_sale;
+          if (finalAdvisorId) {
+            await recordDeliveryCommission(connection, {
+              orderId: Number(orderId),
+              userId: Number(finalAdvisorId),
+              isYardSale: Boolean(finalYardSale),
+              deliveredAt: order.deliveredAt ? new Date(order.deliveredAt) : new Date(),
+            });
+          }
+        }
 
         if (Array.isArray((order as any).auctionLinks)) {
           const links = (order as any).auctionLinks;

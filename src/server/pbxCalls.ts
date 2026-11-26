@@ -452,7 +452,7 @@ export const parseCallerLanguageAndName = (
   return { cleanName, ivrLanguage: lang };
 };
 
-const parseRejectedExts = (raw: unknown): string[] => {
+export const parseRejectedExts = (raw: unknown): string[] => {
   if (!raw) return [];
   return [...new Set(String(raw).split(',').map((s) => s.trim()).filter(Boolean))];
 };
