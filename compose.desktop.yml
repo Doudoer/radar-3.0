@@ -51,6 +51,7 @@ services:
     volumes:
       - uploads:/app/uploads
       - app_backups:/app/backups
+      - ./dist:/app/dist:ro
     networks:
       - isolated
       - ingress

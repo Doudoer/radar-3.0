@@ -224,7 +224,13 @@ export async function getCustomerTimeline(
         type: 'employee_note',
         timestamp: new Date(r.created_at).toISOString(),
         authorOrAttendedBy: r.author_name || 'Empleado',
-        title: r.note_type === 'acuerdo' ? 'Acuerdo con cliente' : r.note_type === 'llamada_manual' ? 'Llamada telefónica registrada' : 'Nota interna',
+        title: r.note_type === 'call_summary'
+          ? 'Resumen de llamada con cliente'
+          : r.note_type === 'acuerdo'
+            ? 'Acuerdo con cliente'
+            : r.note_type === 'llamada_manual'
+              ? 'Llamada telefónica'
+              : 'Nota interna',
         summary: r.content,
         orderCode: r.order_code || null,
         orderId: r.order_id ? String(r.order_id) : null,
@@ -316,43 +322,6 @@ export async function getCustomerTimeline(
     // Ignorar si call_register no tiene columnas
   }
 
-  // 6. Mensajes enviados al cliente desde notification_outbox
-  try {
-    if (pSuffix) {
-      const [outboxRows] = await pool.query<RowDataPacket[]>(
-        `SELECT id, payload, status, created_at
-           FROM notification_outbox
-          WHERE payload LIKE ?
-          ORDER BY created_at DESC LIMIT 40`,
-        [`%${pSuffix}%`],
-      );
-      for (const msg of outboxRows) {
-        let msgText = '';
-        let eventKey = 'WhatsApp';
-        try {
-          const payload = typeof msg.payload === 'string' ? JSON.parse(msg.payload) : msg.payload;
-          msgText = payload.text || payload.messageText || payload.caption || '';
-          eventKey = payload.eventKey || 'Mensaje';
-        } catch {
-          msgText = String(msg.payload).slice(0, 200);
-        }
-        if (msgText) {
-          events.push({
-            id: `outbox-${msg.id}`,
-            type: 'message_outbox',
-            timestamp: new Date(msg.created_at).toISOString(),
-            authorOrAttendedBy: 'Sistema Radar / WhatsApp',
-            title: `WhatsApp enviado (${eventKey})`,
-            summary: msgText,
-            status: msg.status,
-          });
-        }
-      }
-    }
-  } catch {
-    // Ignorar si notification_outbox falla
-  }
-
   // Ordenar todos los eventos de más reciente a más antiguo
   events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
@@ -364,7 +333,7 @@ export async function getCustomerTimeline(
 }
 
 /**
- * Agrega una nota de conversación para el expediente del cliente
+ * Agrega un resumen de llamada o nota interna para el expediente del cliente
  */
 export async function addCustomerConversationNote(
   pool: Pool,
@@ -375,12 +344,16 @@ export async function addCustomerConversationNote(
     authorName: string;
     noteType?: string;
     content: string;
+    createdAt?: string | Date | null;
   },
 ): Promise<{ id: number; createdAt: string }> {
-  const noteType = params.noteType || 'nota';
+  const noteType = params.noteType || 'call_summary';
+  const customDate = params.createdAt ? new Date(params.createdAt) : new Date();
+  const sqlDate = Number.isNaN(customDate.getTime()) ? null : customDate.toISOString().slice(0, 19).replace('T', ' ');
+
   const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO customer_conversation_notes (customer_id, order_id, user_id, author_name, note_type, content)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO customer_conversation_notes (customer_id, order_id, user_id, author_name, note_type, content, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
     [
       params.customerId,
       params.orderId || null,
@@ -388,11 +361,12 @@ export async function addCustomerConversationNote(
       params.authorName,
       noteType,
       params.content.trim(),
+      sqlDate,
     ],
   );
 
   return {
     id: result.insertId,
-    createdAt: new Date().toISOString(),
+    createdAt: (sqlDate ? new Date(sqlDate + 'Z') : new Date()).toISOString(),
   };
 }

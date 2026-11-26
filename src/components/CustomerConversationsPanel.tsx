@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { apiFetch } from '../services/apiFetch';
+import { RegisterCallModal } from './RegisterCallModal';
 
 export interface CustomerSummaryItem {
   customerId: number;
@@ -38,6 +39,13 @@ interface CustomerConversationsPanelProps {
   initialCustomerId?: number | null;
 }
 
+const getNowLocalString = (): string => {
+  const now = new Date();
+  const offset = now.getTimezoneOffset();
+  const local = new Date(now.getTime() - offset * 60000);
+  return local.toISOString().slice(0, 16);
+};
+
 const formatRelativeTime = (isoString?: string | null): string => {
   if (!isoString) return '';
   try {
@@ -72,10 +80,44 @@ const formatFullDate = (isoString: string): string => {
   }
 };
 
-const formatSeconds = (sec: number = 0): string => {
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}m ${s < 10 ? `0${s}` : s}s`;
+interface ParsedCallSummary {
+  direction: 'inbound' | 'outbound' | null;
+  customerSaid: string;
+  agentSaid: string;
+  agreement: string;
+}
+
+const parseCallSummary = (text: string): ParsedCallSummary | null => {
+  if (!text) return null;
+  const hasCustomer = text.includes('🗣️ CLIENTE DIJO:');
+  const hasAgent = text.includes('👤 OPERADOR RESPONDIÓ:');
+  if (!hasCustomer && !hasAgent) return null;
+
+  let direction: 'inbound' | 'outbound' | null = null;
+  if (text.includes('[LLAMADA ENTRANTE]') || text.includes('Llamada Entrante')) direction = 'inbound';
+  else if (text.includes('[LLAMADA SALIENTE]') || text.includes('Llamada Saliente')) direction = 'outbound';
+
+  let customerSaid = '';
+  let agentSaid = '';
+  let agreement = '';
+
+  const custIdx = text.indexOf('🗣️ CLIENTE DIJO:\n');
+  const agentIdx = text.indexOf('👤 OPERADOR RESPONDIÓ:\n');
+  const agreeIdx = text.indexOf('🤝 ACUERDO / SIGUIENTE PASO:\n');
+
+  if (custIdx !== -1) {
+    const end = agentIdx !== -1 ? agentIdx : agreeIdx !== -1 ? agreeIdx : text.length;
+    customerSaid = text.substring(custIdx + '🗣️ CLIENTE DIJO:\n'.length, end).trim();
+  }
+  if (agentIdx !== -1) {
+    const end = agreeIdx !== -1 ? agreeIdx : text.length;
+    agentSaid = text.substring(agentIdx + '👤 OPERADOR RESPONDIÓ:\n'.length, end).trim();
+  }
+  if (agreeIdx !== -1) {
+    agreement = text.substring(agreeIdx + '🤝 ACUERDO / SIGUIENTE PASO:\n'.length).trim();
+  }
+
+  return { direction, customerSaid, agentSaid, agreement };
 };
 
 export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProps> = ({
@@ -92,14 +134,28 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
   const [timelineEvents, setTimelineEvents] = useState<TimelineEventItem[]>([]);
   const [timelineOrders, setTimelineOrders] = useState<any[]>([]);
   const [loadingTimeline, setLoadingTimeline] = useState(false);
-  const [filterType, setFilterType] = useState<'all' | 'calls' | 'messages' | 'notes'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'call_summaries' | 'pbx' | 'notes'>('all');
 
-  // New Note State
+  // Mode: Structured Call Summary vs Quick Note
+  const [entryMode, setEntryMode] = useState<'call_summary' | 'quick_note'>('call_summary');
+
+  // Structured Call Summary State
+  const [callDirection, setCallDirection] = useState<'inbound' | 'outbound'>('inbound');
+  const [callDate, setCallDate] = useState<string>(getNowLocalString());
+  const [whatCustomerSaid, setWhatCustomerSaid] = useState('');
+  const [whatAgentSaid, setWhatAgentSaid] = useState('');
+  const [agreement, setAgreement] = useState('');
+  const [callOrderId, setCallOrderId] = useState<string>('');
+
+  // Quick Note State
   const [newNoteContent, setNewNoteContent] = useState('');
-  const [newNoteType, setNewNoteType] = useState<'nota' | 'acuerdo' | 'llamada_manual'>('nota');
+  const [newNoteType, setNewNoteType] = useState<'nota' | 'acuerdo'>('nota');
   const [newNoteOrderId, setNewNoteOrderId] = useState<string>('');
+
   const [savingNote, setSavingNote] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [expandedTranscripts, setExpandedTranscripts] = useState<Record<string, boolean>>({});
+  const [registerModalOpen, setRegisterModalOpen] = useState(false);
 
   // 1. Cargar lista de clientes con conversaciones
   const loadCustomers = useCallback(async (q: string = '') => {
@@ -153,50 +209,105 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
     }
   }, [selectedCustomerId, loadTimeline]);
 
-  // 3. Enviar nueva nota / acuerdo
-  const handleSaveNote = async (e: React.FormEvent) => {
+  // 3. Guardar resumen de llamada estructurado o nota rápida
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedCustomerId || !newNoteContent.trim() || savingNote) return;
+    if (!selectedCustomerId || savingNote) return;
+    setErrorMessage(null);
 
-    setSavingNote(true);
-    try {
-      const res = await apiFetch(`/communications/customers/${selectedCustomerId}/notes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: newNoteContent.trim(),
-          noteType: newNoteType,
-          orderId: newNoteOrderId ? Number(newNoteOrderId) : null,
-        }),
-      });
-
-      if (res.ok) {
-        setNewNoteContent('');
-        setNewNoteOrderId('');
-        await loadTimeline(selectedCustomerId);
-        void loadCustomers(search);
+    if (entryMode === 'call_summary') {
+      if (!whatCustomerSaid.trim() && !whatAgentSaid.trim()) {
+        setErrorMessage('Por favor escribe lo que dijo el cliente o lo que se le respondió.');
+        return;
       }
-    } catch {
-      // Fallo al guardar
-    } finally {
-      setSavingNote(false);
+
+      setSavingNote(true);
+      try {
+        const res = await apiFetch(`/communications/customers/${selectedCustomerId}/notes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            noteType: 'call_summary',
+            callDirection,
+            callDate: callDate ? new Date(callDate).toISOString() : new Date().toISOString(),
+            whatCustomerSaid: whatCustomerSaid.trim(),
+            whatAgentSaid: whatAgentSaid.trim(),
+            agreement: agreement.trim(),
+            orderId: callOrderId ? Number(callOrderId) : null,
+          }),
+        });
+
+        if (res.ok) {
+          setWhatCustomerSaid('');
+          setWhatAgentSaid('');
+          setAgreement('');
+          setCallOrderId('');
+          setCallDate(getNowLocalString());
+          await loadTimeline(selectedCustomerId);
+          void loadCustomers(search);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          setErrorMessage(err.error || 'No fue posible registrar el resumen de llamada.');
+        }
+      } catch {
+        setErrorMessage('Error de conexión al guardar el resumen.');
+      } finally {
+        setSavingNote(false);
+      }
+    } else {
+      if (!newNoteContent.trim()) {
+        setErrorMessage('El contenido de la nota no puede estar vacío.');
+        return;
+      }
+
+      setSavingNote(true);
+      try {
+        const res = await apiFetch(`/communications/customers/${selectedCustomerId}/notes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: newNoteContent.trim(),
+            noteType: newNoteType,
+            orderId: newNoteOrderId ? Number(newNoteOrderId) : null,
+          }),
+        });
+
+        if (res.ok) {
+          setNewNoteContent('');
+          setNewNoteOrderId('');
+          await loadTimeline(selectedCustomerId);
+          void loadCustomers(search);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          setErrorMessage(err.error || 'No fue posible registrar la nota.');
+        }
+      } catch {
+        setErrorMessage('Error de conexión al guardar la nota.');
+      } finally {
+        setSavingNote(false);
+      }
     }
   };
 
   const filteredEvents = useMemo(() => {
     if (filterType === 'all') return timelineEvents;
-    if (filterType === 'calls') return timelineEvents.filter((ev) => ev.type === 'call_pbx' || ev.type === 'call_manual');
-    if (filterType === 'messages') return timelineEvents.filter((ev) => ev.type === 'message_outbox');
-    if (filterType === 'notes') return timelineEvents.filter((ev) => ev.type === 'employee_note');
+    if (filterType === 'call_summaries') {
+      return timelineEvents.filter((ev) => ev.noteType === 'call_summary' || ev.summary?.includes('🗣️ CLIENTE DIJO:'));
+    }
+    if (filterType === 'pbx') {
+      return timelineEvents.filter((ev) => ev.type === 'call_pbx' || ev.type === 'call_manual');
+    }
+    if (filterType === 'notes') {
+      return timelineEvents.filter(
+        (ev) => ev.type === 'employee_note' && ev.noteType !== 'call_summary' && !ev.summary?.includes('🗣️ CLIENTE DIJO:')
+      );
+    }
     return timelineEvents;
   }, [timelineEvents, filterType]);
 
   const toggleTranscript = (id: string) => {
     setExpandedTranscripts((prev) => ({ ...prev, [id]: !prev[id] }));
   };
-
-  const cleanPhone = timelineCustomer?.phone ? timelineCustomer.phone.replace(/\D/g, '') : '';
-  const waUrl = cleanPhone ? `https://wa.me/${cleanPhone.length === 10 ? `1${cleanPhone}` : cleanPhone}` : null;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-[calc(100vh-190px)] min-h-[580px]">
@@ -206,14 +317,25 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
       <div className="lg:col-span-4 flex flex-col rounded-2xl bg-[var(--bg-card)] border border-cyan-500/20 overflow-hidden shadow-lg">
         {/* Header buscador */}
         <div className="p-3.5 border-b border-cyan-500/20 bg-slate-900/60 backdrop-blur-md space-y-2.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-[20px]">forum</span>
-              <h2 className="text-sm font-black font-mono tracking-tight text-white uppercase">Clientes & Conversaciones</h2>
+              <h2 className="text-sm font-black font-mono tracking-tight text-white uppercase truncate">Clientes & Conversaciones</h2>
             </div>
-            <span className="text-[10.5px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
-              {customers.length}
-            </span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[10.5px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
+                {customers.length}
+              </span>
+              <button
+                type="button"
+                onClick={() => setRegisterModalOpen(true)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 text-[11px] font-mono font-black shadow-[0_0_10px_rgba(6,182,212,0.3)] transition active:scale-95 cursor-pointer"
+                title="Registrar resumen de conversación con cliente"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">add_call</span>
+                <span>Registrar</span>
+              </button>
+            </div>
           </div>
 
           <div className="relative">
@@ -296,7 +418,7 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
                     {c.lastInteractionSummary && (
                       <p className="text-[11px] text-slate-400 truncate mt-1 flex items-center gap-1">
                         <span aria-hidden="true" className="material-symbols-outlined text-[13px] text-cyan-400 shrink-0">
-                          {c.lastInteractionType === 'call' ? 'call' : c.lastInteractionType === 'message' ? 'chat' : 'edit_note'}
+                          {c.lastInteractionType === 'call' ? 'call' : 'edit_note'}
                         </span>
                         <span className="truncate">{c.lastInteractionSummary}</span>
                       </p>
@@ -314,16 +436,24 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
       {/* ============================================================== */}
       <div className="lg:col-span-8 flex flex-col rounded-2xl bg-[var(--bg-card)] border border-cyan-500/20 overflow-hidden shadow-xl">
         {!selectedCustomerId || !timelineCustomer ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400 space-y-3">
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400 space-y-4">
             <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
               <span aria-hidden="true" className="material-symbols-outlined text-3xl">question_answer</span>
             </div>
             <div className="max-w-sm space-y-1">
               <h3 className="text-base font-bold text-slate-200">Selecciona un cliente</h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Elige cualquier cliente de la lista para consultar su historial unificado de llamadas, mensajes de WhatsApp, notas de otros asesores y órdenes activas.
+                Elige cualquier cliente de la lista para consultar su historial unificado de llamadas PBX, resúmenes de llamadas, notas de otros asesores y órdenes activas.
               </p>
             </div>
+            <button
+              type="button"
+              onClick={() => setRegisterModalOpen(true)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 text-xs font-mono font-black shadow-[0_0_15px_rgba(6,182,212,0.4)] transition active:scale-95 cursor-pointer"
+            >
+              <span aria-hidden="true" className="material-symbols-outlined text-[18px]">add_call</span>
+              <span>+ Registrar Llamada / Conversación</span>
+            </button>
           </div>
         ) : (
           <>
@@ -363,26 +493,24 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
 
               {/* Botones de acción directa */}
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRegisterModalOpen(true)}
+                  className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 text-xs font-mono font-black flex items-center gap-1.5 shadow-[0_0_12px_rgba(6,182,212,0.3)] transition active:scale-95 cursor-pointer"
+                  title="Registrar llamada o conversación con este cliente"
+                >
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">add_call</span>
+                  <span>Registrar Llamada</span>
+                </button>
+
                 {timelineCustomer.phone && (
                   <a
                     href={`tel:${timelineCustomer.phone}`}
-                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30 text-xs font-mono font-bold flex items-center gap-1.5 transition"
+                    className="px-3.5 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold flex items-center gap-1.5 transition"
                     title="Llamar al cliente"
                   >
                     <span aria-hidden="true" className="material-symbols-outlined text-[16px]">call</span>
-                    <span className="hidden sm:inline">Llamar</span>
-                  </a>
-                )}
-                {waUrl && (
-                  <a
-                    href={waUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-mono font-bold flex items-center gap-1.5 transition shadow-[0_0_12px_rgba(16,185,129,0.2)]"
-                    title="Abrir chat de WhatsApp"
-                  >
-                    <span aria-hidden="true" className="material-symbols-outlined text-[16px] text-emerald-400">chat</span>
-                    <span>WhatsApp</span>
+                    <span>Llamar al cliente</span>
                   </a>
                 )}
               </div>
@@ -390,7 +518,7 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
 
             {/* Órdenes del cliente en tarjetas horizontales compactas */}
             {timelineOrders.length > 0 && (
-              <div className="px-4 py-2.5 bg-slate-950/40 border-b border-cyan-500/10 flex items-center gap-2 overflow-x-auto custom-scrollbar">
+              <div className="px-4 py-2 bg-slate-950/40 border-b border-cyan-500/10 flex items-center gap-2 overflow-x-auto custom-scrollbar">
                 <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
                   <span aria-hidden="true" className="material-symbols-outlined text-[13px] text-cyan-400">inventory_2</span>
                   Órdenes ({timelineOrders.length}):
@@ -420,23 +548,27 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
                 Historial de interacciones ({filteredEvents.length})
               </span>
               <div className="flex items-center gap-1">
-                {(['all', 'calls', 'messages', 'notes'] as const).map((tabKey) => {
-                  const labels = { all: 'Todos', calls: '📞 Llamadas', messages: '💬 Mensajes', notes: '📝 Notas' };
-                  return (
-                    <button
-                      key={tabKey}
-                      type="button"
-                      onClick={() => setFilterType(tabKey)}
-                      className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition cursor-pointer ${
-                        filterType === tabKey
-                          ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400'
-                          : 'text-slate-400 hover:text-white border border-transparent'
-                      }`}
-                    >
-                      {labels[tabKey]}
-                    </button>
-                  );
-                })}
+                {(
+                  [
+                    { key: 'all', label: 'Todos' },
+                    { key: 'call_summaries', label: '📞 Resúmenes de Llamada' },
+                    { key: 'pbx', label: '🎙️ PBX' },
+                    { key: 'notes', label: '📝 Notas & Acuerdos' },
+                  ] as const
+                ).map(({ key, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setFilterType(key)}
+                    className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition cursor-pointer ${
+                      filterType === key
+                        ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400'
+                        : 'text-slate-400 hover:text-white border border-transparent'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -451,43 +583,67 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
                 <div className="py-12 text-center text-xs text-slate-400 space-y-1">
                   <span aria-hidden="true" className="material-symbols-outlined text-3xl text-slate-600 mb-1">chat_bubble_outline</span>
                   <p className="font-bold text-slate-300">Sin interacciones registradas aún</p>
-                  <p className="text-[11px] text-slate-400">Las llamadas PBX, mensajes de WhatsApp y notas que escribas aparecerán aquí.</p>
+                  <p className="text-[11px] text-slate-400">Las llamadas PBX, resúmenes de llamadas internas y notas que escribas aparecerán aquí.</p>
                 </div>
               ) : (
                 filteredEvents.map((event) => {
-                  const isCall = event.type === 'call_pbx' || event.type === 'call_manual';
-                  const isMsg = event.type === 'message_outbox';
-                  const isNote = event.type === 'employee_note';
+                  const isPbx = event.type === 'call_pbx' || event.type === 'call_manual';
+                  const parsedSummary = parseCallSummary(event.summary);
+                  const isCallSummary = Boolean(parsedSummary) || event.noteType === 'call_summary';
 
                   return (
                     <div
                       key={event.id}
-                      className={`p-3.5 rounded-2xl border transition-all space-y-2 ${
-                        isCall
-                          ? 'bg-slate-900/60 border-cyan-500/25 hover:border-cyan-500/40'
-                          : isMsg
-                            ? 'bg-emerald-950/20 border-emerald-500/25 hover:border-emerald-500/40'
+                      className={`p-3.5 rounded-2xl border transition-all space-y-2.5 ${
+                        isCallSummary
+                          ? 'bg-slate-900/80 border-cyan-500/35 hover:border-cyan-500/50 shadow-md'
+                          : isPbx
+                            ? 'bg-slate-900/50 border-cyan-500/20 hover:border-cyan-500/35'
                             : 'bg-amber-950/20 border-amber-500/25 hover:border-amber-500/40'
                       }`}
                     >
                       {/* Cabecera del evento */}
                       <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                            isCall
-                              ? 'bg-cyan-500/20 text-cyan-400'
-                              : isMsg
-                                ? 'bg-emerald-500/20 text-emerald-400'
-                                : 'bg-amber-500/20 text-amber-400'
+                            isCallSummary
+                              ? 'bg-cyan-500/20 text-cyan-300'
+                              : isPbx
+                                ? 'bg-indigo-500/20 text-indigo-300'
+                                : 'bg-amber-500/20 text-amber-300'
                           }`}>
                             <span aria-hidden="true" className="material-symbols-outlined text-[16px]">
-                              {isCall ? 'call' : isMsg ? 'chat' : 'edit_note'}
+                              {isCallSummary ? 'record_voice_over' : isPbx ? 'call' : 'edit_note'}
                             </span>
                           </span>
+
                           <div>
                             <strong className="text-white text-xs">{event.title}</strong>
                             <span className="text-slate-400 text-[11px] ml-2">por {event.authorOrAttendedBy}</span>
                           </div>
+
+                          {/* Badge de llamada entrante/saliente */}
+                          {parsedSummary?.direction && (
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                              parsedSummary.direction === 'inbound'
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                            }`}>
+                              {parsedSummary.direction === 'inbound' ? '📲 Entrante' : '📞 Saliente'}
+                            </span>
+                          )}
+
+                          {/* Badge de orden vinculada si existe */}
+                          {event.orderCode && (
+                            <button
+                              type="button"
+                              onClick={() => event.orderId && onSelectOrder?.(event.orderId)}
+                              className="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:border-cyan-400 cursor-pointer"
+                              title="Ver orden asociada"
+                            >
+                              Orden #{event.orderCode}
+                            </button>
+                          )}
                         </div>
 
                         <span className="text-[10.5px] text-slate-400 font-mono">
@@ -495,12 +651,52 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
                         </span>
                       </div>
 
-                      {/* Contenido / Resumen */}
-                      <p className="text-xs text-slate-200 leading-relaxed pl-9">
-                        {event.summary}
-                      </p>
+                      {/* Contenido / Cuerpo estructurado */}
+                      {parsedSummary ? (
+                        <div className="space-y-2 pl-9 pt-1">
+                          {parsedSummary.customerSaid && (
+                            <div className="rounded-xl p-2.5 bg-slate-800/80 border border-slate-700/70 space-y-1">
+                              <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-amber-300">
+                                <span className="text-sm">🗣️</span>
+                                <span>¿Qué dijo el cliente?</span>
+                              </div>
+                              <p className="text-xs text-slate-100 whitespace-pre-wrap leading-relaxed pl-5 font-sans">
+                                {parsedSummary.customerSaid}
+                              </p>
+                            </div>
+                          )}
 
-                      {/* Si es llamada con audio disponible */}
+                          {parsedSummary.agentSaid && (
+                            <div className="rounded-xl p-2.5 bg-cyan-950/40 border border-cyan-500/30 space-y-1">
+                              <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-cyan-300">
+                                <span className="text-sm">👤</span>
+                                <span>¿Qué se le respondió / explicó al cliente?</span>
+                              </div>
+                              <p className="text-xs text-cyan-50 whitespace-pre-wrap leading-relaxed pl-5 font-sans">
+                                {parsedSummary.agentSaid}
+                              </p>
+                            </div>
+                          )}
+
+                          {parsedSummary.agreement && (
+                            <div className="rounded-xl p-2.5 bg-emerald-950/40 border border-emerald-500/30 space-y-1">
+                              <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-emerald-300">
+                                <span className="text-sm">🤝</span>
+                                <span>Acuerdo / Próximo paso:</span>
+                              </div>
+                              <p className="text-xs text-emerald-100 whitespace-pre-wrap leading-relaxed pl-5 font-sans">
+                                {parsedSummary.agreement}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-200 leading-relaxed pl-9 whitespace-pre-wrap font-sans">
+                          {event.summary}
+                        </p>
+                      )}
+
+                      {/* Si es llamada PBX con audio disponible */}
                       {event.audioUrl && (
                         <div className="pl-9 pt-1">
                           <audio src={event.audioUrl} controls className="w-full max-w-md h-8 rounded-lg" preload="none" />
@@ -541,68 +737,243 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
               )}
             </div>
 
-            {/* Cuadro Inferior: Agregar Nota de Conversación para el equipo */}
-            <form onSubmit={handleSaveNote} className="p-3.5 border-t border-cyan-500/20 bg-slate-900/90 backdrop-blur-md space-y-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-mono font-bold text-slate-300">Tipo:</span>
-                  {(['nota', 'acuerdo', 'llamada_manual'] as const).map((t) => {
-                    const tLabels = { nota: 'Nota interna', acuerdo: 'Acuerdo', llamada_manual: 'Llamada telefónica' };
-                    return (
-                      <button
-                        key={t}
-                        type="button"
-                        onClick={() => setNewNoteType(t)}
-                        className={`px-2 py-0.5 rounded text-[10.5px] font-mono font-bold transition cursor-pointer ${
-                          newNoteType === t
-                            ? 'bg-cyan-500 text-slate-950 shadow-sm'
-                            : 'bg-slate-800 text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        {tLabels[t]}
-                      </button>
-                    );
-                  })}
+            {/* ============================================================== */}
+            {/* CUADRO INFERIOR: REGISTRAR RESUMEN DE LLAMADA O NOTA            */}
+            {/* ============================================================== */}
+            <form onSubmit={handleSave} className="p-3.5 border-t border-cyan-500/20 bg-slate-900/95 backdrop-blur-md space-y-3">
+              {/* Selector de modo y cabecera de formulario */}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-cyan-500/10 pb-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEntryMode('call_summary')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-mono font-black transition flex items-center gap-1.5 cursor-pointer ${
+                      entryMode === 'call_summary'
+                        ? 'bg-cyan-500 text-slate-950 shadow-[0_0_12px_rgba(6,182,212,0.4)]'
+                        : 'bg-slate-800 text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <span aria-hidden="true" className="material-symbols-outlined text-[16px]">call</span>
+                    <span>Registrar Resumen de Llamada</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setEntryMode('quick_note')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      entryMode === 'quick_note'
+                        ? 'bg-cyan-500 text-slate-950 shadow-[0_0_12px_rgba(6,182,212,0.4)]'
+                        : 'bg-slate-800 text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    <span aria-hidden="true" className="material-symbols-outlined text-[16px]">edit_note</span>
+                    <span>Nota Rápida / Acuerdo</span>
+                  </button>
                 </div>
 
-                {timelineOrders.length > 0 && (
-                  <div className="flex items-center gap-1.5 text-xs font-mono">
-                    <span className="text-[11px] text-slate-400">Orden vinculada:</span>
-                    <select
-                      value={newNoteOrderId}
-                      onChange={(e) => setNewNoteOrderId(e.target.value)}
-                      className="bg-slate-950 border border-cyan-500/30 text-cyan-300 text-[11px] rounded px-2 py-0.5 focus:outline-none"
-                    >
-                      <option value="">General (Sin orden específica)</option>
-                      {timelineOrders.map((o) => (
-                        <option key={o.id} value={o.id}>#{o.order_code} - {o.brand} {o.model}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                <span className="text-[11px] font-mono text-slate-400 hidden sm:inline">
+                  {entryMode === 'call_summary' ? 'Resumen visible para todos los operadores' : 'Bitácora interna'}
+                </span>
               </div>
 
-              <div className="flex items-center gap-2">
-                <textarea
-                  value={newNoteContent}
-                  onChange={(e) => setNewNoteContent(e.target.value)}
-                  placeholder="Escribe lo conversado o acordado con el cliente para que todo el equipo esté enterado..."
-                  rows={2}
-                  className="flex-1 bg-[#030712] border border-cyan-500/30 rounded-xl p-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-cyan-400 font-sans resize-none"
-                />
-                <button
-                  type="submit"
-                  disabled={savingNote || !newNoteContent.trim()}
-                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 text-xs font-mono font-black flex items-center gap-1.5 shadow-[0_0_15px_rgba(6,182,212,0.3)] transition active:scale-95 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-                >
-                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">send</span>
-                  <span>{savingNote ? 'Guardando…' : 'Guardar'}</span>
-                </button>
-              </div>
+              {errorMessage && (
+                <div className="px-3 py-1.5 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-mono flex items-center gap-2">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">error</span>
+                  <span>{errorMessage}</span>
+                </div>
+              )}
+
+              {/* MODO 1: RESUMEN DE LLAMADA ESTRUCTURADO */}
+              {entryMode === 'call_summary' ? (
+                <div className="space-y-2.5">
+                  {/* Fila de metadatos: Dirección, Fecha/Hora, Orden vinculada */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs font-mono">
+                    {/* Dirección */}
+                    <div className="flex items-center gap-1 bg-slate-950/70 p-1.5 rounded-xl border border-cyan-500/20">
+                      <span className="text-[11px] text-slate-400 pl-1 shrink-0">Tipo:</span>
+                      <button
+                        type="button"
+                        onClick={() => setCallDirection('inbound')}
+                        className={`flex-1 py-1 rounded-lg text-[10.5px] font-bold transition cursor-pointer text-center ${
+                          callDirection === 'inbound'
+                            ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        📲 Entrante
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCallDirection('outbound')}
+                        className={`flex-1 py-1 rounded-lg text-[10.5px] font-bold transition cursor-pointer text-center ${
+                          callDirection === 'outbound'
+                            ? 'bg-blue-500 text-slate-950 shadow-sm'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        📞 Saliente
+                      </button>
+                    </div>
+
+                    {/* Fecha y hora */}
+                    <div className="flex items-center gap-1.5 bg-slate-950/70 px-2 py-1.5 rounded-xl border border-cyan-500/20">
+                      <span className="text-[11px] text-slate-400 shrink-0">Fecha y hora:</span>
+                      <input
+                        type="datetime-local"
+                        value={callDate}
+                        onChange={(e) => setCallDate(e.target.value)}
+                        className="bg-transparent text-cyan-200 text-xs focus:outline-none w-full"
+                      />
+                    </div>
+
+                    {/* Orden vinculada */}
+                    <div className="flex items-center gap-1.5 bg-slate-950/70 px-2 py-1.5 rounded-xl border border-cyan-500/20">
+                      <span className="text-[11px] text-slate-400 shrink-0">Orden:</span>
+                      <select
+                        value={callOrderId}
+                        onChange={(e) => setCallOrderId(e.target.value)}
+                        className="bg-transparent text-cyan-200 text-xs focus:outline-none w-full cursor-pointer"
+                      >
+                        <option value="" className="bg-slate-950 text-white">General (Sin orden específica)</option>
+                        {timelineOrders.map((o) => (
+                          <option key={o.id} value={o.id} className="bg-slate-950 text-white">
+                            #{o.order_code} - {o.brand} {o.model}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Fila de Textareas: Lo que dijo el cliente & Lo que se le respondió */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-mono font-bold text-amber-300 flex items-center gap-1">
+                        <span>🗣️</span>
+                        <span>¿Qué dijo el cliente?</span>
+                      </label>
+                      <textarea
+                        value={whatCustomerSaid}
+                        onChange={(e) => setWhatCustomerSaid(e.target.value)}
+                        placeholder="Detalla lo que el cliente consultó, pidió, informó o reclamó..."
+                        rows={3}
+                        className="w-full bg-[#030712] border border-cyan-500/30 rounded-xl p-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-cyan-400 font-sans resize-none"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-mono font-bold text-cyan-300 flex items-center gap-1">
+                        <span>👤</span>
+                        <span>¿Qué se le respondió / explicó al cliente?</span>
+                      </label>
+                      <textarea
+                        value={whatAgentSaid}
+                        onChange={(e) => setWhatAgentSaid(e.target.value)}
+                        placeholder="Detalla la respuesta, precio, solución o información dada..."
+                        rows={3}
+                        className="w-full bg-[#030712] border border-cyan-500/30 rounded-xl p-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-cyan-400 font-sans resize-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Fila de Acuerdo y Botón de envío */}
+                  <div className="flex flex-col sm:flex-row items-center gap-2">
+                    <div className="flex-1 w-full relative">
+                      <input
+                        type="text"
+                        value={agreement}
+                        onChange={(e) => setAgreement(e.target.value)}
+                        placeholder="🤝 Acuerdo / Siguiente paso (opcional, ej: Se prometió llamar mañana a las 10am...)"
+                        className="w-full bg-[#030712] border border-cyan-500/30 rounded-xl px-3 py-2 text-xs text-emerald-200 placeholder-slate-400 focus:outline-none focus:border-emerald-400 font-sans"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={savingNote || (!whatCustomerSaid.trim() && !whatAgentSaid.trim())}
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 text-xs font-mono font-black flex items-center justify-center gap-1.5 shadow-[0_0_15px_rgba(6,182,212,0.3)] transition active:scale-95 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                    >
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px]">save</span>
+                      <span>{savingNote ? 'Guardando resumen…' : 'Guardar Resumen de Llamada'}</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* MODO 2: NOTA RÁPIDA O ACUERDO */
+                <div className="space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-slate-400">Tipo de apunte:</span>
+                      {(['nota', 'acuerdo'] as const).map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setNewNoteType(t)}
+                          className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold transition cursor-pointer ${
+                            newNoteType === t
+                              ? 'bg-cyan-500 text-slate-950 shadow-sm'
+                              : 'bg-slate-800 text-slate-300 hover:text-white'
+                          }`}
+                        >
+                          {t === 'nota' ? 'Nota interna' : 'Acuerdo directo'}
+                        </button>
+                      ))}
+                    </div>
+
+                    {timelineOrders.length > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-slate-400">Orden vinculada:</span>
+                        <select
+                          value={newNoteOrderId}
+                          onChange={(e) => setNewNoteOrderId(e.target.value)}
+                          className="bg-slate-950 border border-cyan-500/30 text-cyan-200 text-xs rounded-lg px-2.5 py-1 focus:outline-none"
+                        >
+                          <option value="">General (Sin orden específica)</option>
+                          {timelineOrders.map((o) => (
+                            <option key={o.id} value={o.id}>
+                              #{o.order_code} - {o.brand} {o.model}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <textarea
+                      value={newNoteContent}
+                      onChange={(e) => setNewNoteContent(e.target.value)}
+                      placeholder="Escribe la nota interna o recordatorio para los operadores..."
+                      rows={2}
+                      className="flex-1 bg-[#030712] border border-cyan-500/30 rounded-xl p-2.5 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-cyan-400 font-sans resize-none"
+                    />
+                    <button
+                      type="submit"
+                      disabled={savingNote || !newNoteContent.trim()}
+                      className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 text-xs font-mono font-black flex items-center gap-1.5 shadow-[0_0_15px_rgba(6,182,212,0.3)] transition active:scale-95 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                    >
+                      <span aria-hidden="true" className="material-symbols-outlined text-[16px]">send</span>
+                      <span>{savingNote ? 'Guardando…' : 'Guardar Nota'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </form>
           </>
         )}
       </div>
+
+      <RegisterCallModal
+        isOpen={registerModalOpen}
+        onClose={() => setRegisterModalOpen(false)}
+        onSuccess={() => {
+          setRegisterModalOpen(false);
+          if (selectedCustomerId) {
+            void loadTimeline(selectedCustomerId);
+          }
+          void loadCustomers(search);
+        }}
+        initialCustomerId={selectedCustomerId}
+      />
     </div>
   );
 };

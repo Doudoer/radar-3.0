@@ -3125,21 +3125,57 @@ const server = createServer(async (request, response) => {
     if (request.method === 'POST' && customerNoteId) {
       if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
       const body = z.object({
-        content: z.string().trim().min(1, 'El contenido no puede estar vacío').max(3000),
-        noteType: z.enum(['nota', 'acuerdo', 'llamada_manual']).default('nota'),
+        content: z.string().trim().max(5000).optional(),
+        whatCustomerSaid: z.string().trim().max(3000).optional(),
+        whatAgentSaid: z.string().trim().max(3000).optional(),
+        agreement: z.string().trim().max(2000).optional(),
+        callDirection: z.enum(['inbound', 'outbound']).optional(),
+        callDate: z.string().optional(),
+        noteType: z.enum(['nota', 'acuerdo', 'llamada_manual', 'call_summary']).default('call_summary'),
         orderId: z.number().nullable().optional(),
       }).parse(await readBody(request));
 
-      const author = authenticatedClaims?.name || 'Operador';
-      const userId = authenticatedClaims?.id ? Number(authenticatedClaims.id) : null;
+      let content = (body.content || '').trim();
+      if (body.whatCustomerSaid || body.whatAgentSaid) {
+        const parts: string[] = [];
+        if (body.callDirection) {
+          parts.push(`[${body.callDirection === 'inbound' ? 'LLAMADA ENTRANTE' : 'LLAMADA SALIENTE'}]`);
+        }
+        if (body.whatCustomerSaid) {
+          parts.push(`🗣️ CLIENTE DIJO:\n${body.whatCustomerSaid}`);
+        }
+        if (body.whatAgentSaid) {
+          parts.push(`👤 OPERADOR RESPONDIÓ:\n${body.whatAgentSaid}`);
+        }
+        if (body.agreement) {
+          parts.push(`🤝 ACUERDO / SIGUIENTE PASO:\n${body.agreement}`);
+        }
+        content = parts.join('\n\n');
+      }
+
+      if (!content) {
+        return sendJson(response, 400, { message: 'Debes ingresar lo conversado o el resumen de la llamada.' });
+      }
+
+      const userId = authenticatedClaims?.sub ? Number(authenticatedClaims.sub) : null;
+      let authorName = 'Operador';
+      if (userId) {
+        try {
+          const [uRows] = await pool.query<RowDataPacket[]>('SELECT name FROM users WHERE id=?', [userId]);
+          if (uRows[0]?.name) authorName = String(uRows[0].name);
+        } catch {
+          // Fallback a Operador
+        }
+      }
 
       const created = await addCustomerConversationNote(pool, {
         customerId: Number(customerNoteId),
         orderId: body.orderId,
         userId,
-        authorName: author,
+        authorName,
         noteType: body.noteType,
-        content: body.content,
+        content,
+        createdAt: body.callDate,
       });
 
       return sendJson(response, 201, { ok: true, note: created });

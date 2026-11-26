@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../services/apiFetch';
 import { CustomerConversationsPanel } from './CustomerConversationsPanel';
+import { RegisterCallModal } from './RegisterCallModal';
 
 interface CallQaChecklistItem {
   passed: boolean | null;
@@ -323,6 +324,14 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
   const [analyzingUniqueId, setAnalyzingUniqueId] = useState<string | null>(null);
   const [qaModalCall, setQaModalCall] = useState<CallLogRow | null>(null);
   const [qaActionError, setQaActionError] = useState<string | null>(null);
+  const [registerModalOpen, setRegisterModalOpen] = useState(false);
+  const [selectedCallForRegister, setSelectedCallForRegister] = useState<CallLogRow | null>(null);
+  const [callSavedSuccess, setCallSavedSuccess] = useState<string | null>(null);
+
+  const handleOpenRegisterCallModal = (call?: CallLogRow | null) => {
+    setSelectedCallForRegister(call || null);
+    setRegisterModalOpen(true);
+  };
 
   const readFileAsDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -724,7 +733,7 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
             </h1>
             <p className="text-xs text-[var(--text-muted)]">
               {tab === 'conversations'
-                ? 'Historial unificado de llamadas PBX, mensajes de WhatsApp y acuerdos para todo el equipo de operadores.'
+                ? 'Historial unificado de llamadas PBX, resúmenes de llamadas y acuerdos para todo el equipo de operadores.'
                 : <>Corte diario 12:00 AM (Carolina del Norte) · Horario laboral: <strong>{schedule.ncRange} NC</strong> (<strong>{schedule.veRange} Venezuela</strong>).</>
               }
             </p>
@@ -785,7 +794,33 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
               <span aria-hidden="true" className="material-symbols-outlined text-[16px]">refresh</span>
               Actualizar
             </button>
+
+            <button
+              type="button"
+              onClick={() => handleOpenRegisterCallModal(null)}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-3.5 py-2 text-xs font-mono font-black text-slate-950 shadow-[0_0_15px_rgba(6,182,212,0.3)] hover:from-cyan-400 hover:to-blue-500 transition active:scale-95 cursor-pointer"
+              title="Registrar llamada y resumen de conversación"
+            >
+              <span aria-hidden="true" className="material-symbols-outlined text-[17px]">add_call</span>
+              <span>Registrar Llamada</span>
+            </button>
           </div>
+        </div>
+      )}
+
+      {callSavedSuccess && (
+        <div className="flex items-center justify-between gap-2 rounded-2xl border border-emerald-500/40 bg-emerald-500/15 px-4 py-2.5 text-xs font-mono font-bold text-emerald-300 shadow-lg animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-emerald-400">check_circle</span>
+            <span>{callSavedSuccess}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCallSavedSuccess(null)}
+            className="text-emerald-400 hover:text-white p-1 cursor-pointer"
+          >
+            <span aria-hidden="true" className="material-symbols-outlined text-[15px]">close</span>
+          </button>
         </div>
       )}
 
@@ -1173,24 +1208,32 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
                         </div>
                       </div>
 
-                      {(Array.isArray(call.rejectedByExts) && call.rejectedByExts.length > 0 || (call.orderId && onSelectOrder)) && (
-                        <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
-                          {Array.isArray(call.rejectedByExts) && call.rejectedByExts.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border-subtle)]/40 pt-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenRegisterCallModal(call)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-[10.5px] font-mono font-bold text-cyan-400 hover:bg-cyan-500/20 cursor-pointer"
+                          >
+                            <span aria-hidden="true" className="material-symbols-outlined text-[13px]">edit_note</span>
+                            <span>Registrar resumen</span>
+                          </button>
+                          {Array.isArray(call.rejectedByExts) && call.rejectedByExts.length > 0 && (
                             <span className="inline-flex rounded-full border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-[9.5px] font-bold text-amber-700 dark:text-amber-300">
                               Rechazó: {call.rejectedByExts.map((ext) => extensionUsers[ext] ? `${ext} (${extensionUsers[ext]})` : ext).join(', ')}
                             </span>
-                          ) : <span />}
-                          {call.orderId && onSelectOrder && (
-                            <button
-                              type="button"
-                              onClick={() => onSelectOrder(call.orderId!)}
-                              className="rounded-lg border border-[var(--border-subtle)] px-2 py-0.5 text-[10.5px] font-mono font-bold text-[var(--brand-solid)]"
-                            >
-                              {call.orderCode || 'Abrir'}
-                            </button>
                           )}
                         </div>
-                      )}
+                        {call.orderId && onSelectOrder && (
+                          <button
+                            type="button"
+                            onClick={() => onSelectOrder(call.orderId!)}
+                            className="rounded-lg border border-[var(--border-subtle)] px-2 py-0.5 text-[10.5px] font-mono font-bold text-[var(--brand-solid)] cursor-pointer"
+                          >
+                            {call.orderCode || 'Abrir'}
+                          </button>
+                        )}
+                      </div>
 
                       {renderAudioQaControls(call, true)}
                     </div>
@@ -1212,7 +1255,7 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
                     <th className="px-4 py-3">Duración</th>
                     <th className="px-4 py-3">Fecha y hora</th>
                     <th className="px-4 py-3">Audio / Auditoría IA</th>
-                    <th className="px-4 py-3 text-right">Orden</th>
+                    <th className="px-4 py-3 text-right">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border-subtle)]">
@@ -1295,17 +1338,26 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
                             {renderAudioQaControls(call)}
                           </td>
                           <td className="px-4 py-3 text-right whitespace-nowrap">
-                            {call.orderId && onSelectOrder ? (
+                            <div className="flex items-center justify-end gap-1.5">
                               <button
                                 type="button"
-                                onClick={() => onSelectOrder(call.orderId!)}
-                                className="rounded-lg border border-[var(--border-subtle)] px-2.5 py-1 text-[11px] font-mono font-bold text-[var(--brand-solid)] hover:bg-[var(--bg-surface)] cursor-pointer"
+                                onClick={() => handleOpenRegisterCallModal(call)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-[11px] font-mono font-bold text-cyan-400 hover:bg-cyan-500/20 hover:text-cyan-300 transition cursor-pointer"
+                                title="Registrar lo conversado en esta llamada"
                               >
-                                {call.orderCode || 'Abrir'}
+                                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">edit_note</span>
+                                <span>Resumen</span>
                               </button>
-                            ) : (
-                              <span className="text-[var(--text-muted)]">—</span>
-                            )}
+                              {call.orderId && onSelectOrder ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onSelectOrder(call.orderId!)}
+                                  className="rounded-lg border border-[var(--border-subtle)] px-2.5 py-1 text-[11px] font-mono font-bold text-[var(--brand-solid)] hover:bg-[var(--bg-surface)] cursor-pointer"
+                                >
+                                  {call.orderCode || 'Abrir'}
+                                </button>
+                              ) : null}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -2192,6 +2244,17 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
           </div>
         </div>
       )}
+
+      <RegisterCallModal
+        isOpen={registerModalOpen}
+        onClose={() => setRegisterModalOpen(false)}
+        onSuccess={() => {
+          setRegisterModalOpen(false);
+          setCallSavedSuccess('¡Resumen de llamada registrado exitosamente en el expediente del cliente!');
+          setTimeout(() => setCallSavedSuccess(null), 5000);
+        }}
+        initialCall={selectedCallForRegister}
+      />
     </div>
   );
 };
