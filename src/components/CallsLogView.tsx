@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../services/apiFetch';
+import { CustomerConversationsPanel } from './CustomerConversationsPanel';
 
 interface CallQaChecklistItem {
   passed: boolean | null;
@@ -134,9 +135,10 @@ interface ExtensionPresenceRow {
 interface CallsLogViewProps {
   onSelectOrder?: (orderId: string) => void;
   mobileAppMode?: boolean;
-  activeTab?: 'daily' | 'analytics';
-  onTabChange?: (tab: 'daily' | 'analytics') => void;
+  activeTab?: 'conversations' | 'daily' | 'analytics';
+  onTabChange?: (tab: 'conversations' | 'daily' | 'analytics') => void;
   refreshTick?: number;
+  initialCustomerId?: number | null;
 }
 
 const VENEZUELA_TZ = 'America/Caracas';
@@ -290,10 +292,11 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
   activeTab,
   onTabChange,
   refreshTick = 0,
+  initialCustomerId,
 }) => {
-  const [internalTab, setInternalTab] = useState<'daily' | 'analytics'>('daily');
+  const [internalTab, setInternalTab] = useState<'conversations' | 'daily' | 'analytics'>('conversations');
   const tab = activeTab ?? internalTab;
-  const setTab = useCallback((next: 'daily' | 'analytics') => {
+  const setTab = useCallback((next: 'conversations' | 'daily' | 'analytics') => {
     setInternalTab(next);
     onTabChange?.(next);
   }, [onTabChange]);
@@ -716,34 +719,53 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
       {!mobileAppMode && (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-black text-[var(--text-heading)]">Registro de Llamadas (Issabel PBX)</h1>
+            <h1 className="text-xl font-black text-[var(--text-heading)]">
+              {tab === 'conversations' ? 'Conversaciones & Comunicaciones con Clientes' : 'Registro de Llamadas (Issabel PBX)'}
+            </h1>
             <p className="text-xs text-[var(--text-muted)]">
-              Corte diario 12:00 AM (Carolina del Norte) · Horario laboral: <strong>{schedule.ncRange} NC</strong> (<strong>{schedule.veRange} Venezuela</strong>).
+              {tab === 'conversations'
+                ? 'Historial unificado de llamadas PBX, mensajes de WhatsApp y acuerdos para todo el equipo de operadores.'
+                : <>Corte diario 12:00 AM (Carolina del Norte) · Horario laboral: <strong>{schedule.ncRange} NC</strong> (<strong>{schedule.veRange} Venezuela</strong>).</>
+              }
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex items-center gap-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-1">
               <button
                 type="button"
+                onClick={() => setTab('conversations')}
+                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer focus:outline-none inline-flex items-center gap-1.5 ${
+                  tab === 'conversations'
+                    ? 'bg-[var(--brand-solid)] !text-white shadow-sm'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-heading)]'
+                }`}
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px]">forum</span>
+                <span>Conversaciones</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => setTab('daily')}
-                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer focus:outline-none ${
+                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer focus:outline-none inline-flex items-center gap-1.5 ${
                   tab === 'daily'
                     ? 'bg-[var(--brand-solid)] !text-white shadow-sm'
                     : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-heading)]'
                 }`}
               >
-                Registro del día
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px]">call</span>
+                <span>Registro PBX</span>
               </button>
               <button
                 type="button"
                 onClick={() => setTab('analytics')}
-                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer focus:outline-none ${
+                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition cursor-pointer focus:outline-none inline-flex items-center gap-1.5 ${
                   tab === 'analytics'
                     ? 'bg-[var(--brand-solid)] !text-white shadow-sm'
                     : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-heading)]'
                 }`}
               >
-                Historial y Analíticas
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px]">monitoring</span>
+                <span>Historial y Analíticas</span>
               </button>
             </div>
 
@@ -753,7 +775,7 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
                 if (tab === 'daily') {
                   void loadCalls();
                   void loadPresence();
-                } else {
+                } else if (tab === 'analytics') {
                   void loadAnalytics();
                   void loadPresence();
                 }
@@ -767,7 +789,12 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
         </div>
       )}
 
-      {tab === 'daily' ? (
+      {tab === 'conversations' ? (
+        <CustomerConversationsPanel
+          onSelectOrder={onSelectOrder}
+          initialCustomerId={initialCustomerId}
+        />
+      ) : tab === 'daily' ? (
         <>
           {mobileAppMode ? (
             <div className="flex items-center justify-between gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] px-3 py-2">

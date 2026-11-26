@@ -26,6 +26,7 @@ import { financeVaultExpiry, lockFinanceVault, revokeFinanceVaults, unlockFinanc
 import { businessDate, businessDaysBetween, isEligibleForDeliveryFollowup } from './src/server/businessTime';
 import { getExpectedPbxWebhookSecret, getPbxExtensionsPresenceReport, listActiveIncomingCalls, listPbxCallLogs, listPbxDailyAnalytics, readPbxSettings, recordPbxHeartbeat, sanitizePbxSettingsForClient, startPbxDailyRolloverScheduler, upsertPbxCallEvent, verifyPbxWebhookSecret, writePbxSettings } from './src/server/pbxCalls';
 import { generatePbxAiCallReport } from './src/server/pbxAiReport';
+import { listCustomerConversations, getCustomerTimeline, addCustomerConversationNote } from './src/server/customerCommunications';
 import { getPbxCallRecordingDiskInfo, runPbxCallQaByUniqueId, savePbxCallRecordingAndAnalyze } from './src/server/pbxAudioQa';
 import { evaluateAndSendVpsAlerts, getStorageStats, getVpsStats, purgeOrderFiles, readMaintenanceSettings, runMaintenanceCleanup, startMaintenanceScheduler, triggerRemoteDockerPrune, writeMaintenanceSettings } from './src/server/maintenance';
 import { createPbxAmiManager } from './src/server/pbxAmiClient';
@@ -3096,6 +3097,51 @@ const server = createServer(async (request, response) => {
       } finally {
         connection.release();
       }
+    }
+
+    // ==========================================
+    // COMMUNICATIONS & CUSTOMER CONVERSATIONS
+    // ==========================================
+    if (request.method === 'GET' && pathname === '/api/communications/customers') {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      const url = new URL(request.url || '/', 'http://localhost');
+      const query = url.searchParams.get('q') || '';
+      const limit = Number(url.searchParams.get('limit') || '50');
+      const list = await listCustomerConversations(pool, query, limit);
+      return sendJson(response, 200, { customers: list });
+    }
+
+    const customerTimelineId = pathname.match(/^\/api\/communications\/customers\/(\d+)\/timeline$/)?.[1];
+    if (request.method === 'GET' && customerTimelineId) {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      const url = new URL(request.url || '/', 'http://localhost');
+      const phone = url.searchParams.get('phone') || undefined;
+      const timeline = await getCustomerTimeline(pool, Number(customerTimelineId), phone);
+      return sendJson(response, 200, timeline);
+    }
+
+    const customerNoteId = pathname.match(/^\/api\/communications\/customers\/(\d+)\/notes$/)?.[1];
+    if (request.method === 'POST' && customerNoteId) {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      const body = z.object({
+        content: z.string().trim().min(1, 'El contenido no puede estar vacío').max(3000),
+        noteType: z.enum(['nota', 'acuerdo', 'llamada_manual']).default('nota'),
+        orderId: z.number().nullable().optional(),
+      }).parse(await readBody(request));
+
+      const author = authenticatedClaims?.name || 'Operador';
+      const userId = authenticatedClaims?.id ? Number(authenticatedClaims.id) : null;
+
+      const created = await addCustomerConversationNote(pool, {
+        customerId: Number(customerNoteId),
+        orderId: body.orderId,
+        userId,
+        authorName: author,
+        noteType: body.noteType,
+        content: body.content,
+      });
+
+      return sendJson(response, 201, { ok: true, note: created });
     }
 
     // ==========================================

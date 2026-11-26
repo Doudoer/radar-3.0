@@ -1,0 +1,398 @@
+import type { Pool, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
+
+export interface CustomerTimelineEvent {
+  id: string;
+  type: 'call_pbx' | 'call_manual' | 'message_outbox' | 'employee_note';
+  timestamp: string;
+  authorOrAttendedBy: string;
+  title: string;
+  summary: string;
+  status?: string;
+  audioUrl?: string | null;
+  durationSeconds?: number;
+  qaScore?: number | null;
+  qaSummary?: string | null;
+  transcript?: string | null;
+  orderCode?: string | null;
+  orderId?: string | null;
+  noteType?: string;
+}
+
+export interface CustomerConversationSummary {
+  customerId: number;
+  customerName: string;
+  phone: string;
+  whatsapp?: string | null;
+  company?: string | null;
+  totalOrders: number;
+  activeOrders: number;
+  lastInteractionAt: string | null;
+  lastInteractionType: 'call' | 'message' | 'note' | null;
+  lastInteractionSummary: string | null;
+  lastInteractionAuthor: string | null;
+}
+
+const cleanPhoneDigits = (val?: string | null): string => {
+  if (!val) return '';
+  return val.replace(/\D/g, '');
+};
+
+const phoneSuffix = (val?: string | null): string => {
+  const digits = cleanPhoneDigits(val);
+  return digits.length > 7 ? digits.slice(-8) : digits;
+};
+
+/**
+ * Busca clientes con resumen de su última interacción
+ */
+export async function listCustomerConversations(
+  pool: Pool,
+  query: string = '',
+  limit: number = 50,
+): Promise<CustomerConversationSummary[]> {
+  const term = query.trim();
+  const searchPattern = `%${term}%`;
+  const digits = cleanPhoneDigits(term);
+  const digitPattern = digits ? `%${digits}%` : '';
+
+  let sql = `
+    SELECT c.id, c.first_name, c.last_name, c.phone, c.whatsapp, c.company,
+           COUNT(DISTINCT o.id) AS total_orders,
+           SUM(CASE WHEN o.id IS NOT NULL AND o.status NOT IN ('entregado', 'cancelado', 'reembolsado', 'archivado') THEN 1 ELSE 0 END) AS active_orders
+      FROM customers c
+      LEFT JOIN orders o ON o.customer_id = c.id AND o.deleted_at IS NULL
+     WHERE c.deleted_at IS NULL
+  `;
+  const params: unknown[] = [];
+
+  if (term) {
+    sql += `
+      AND (
+        c.first_name LIKE ? OR c.last_name LIKE ? OR CONCAT(c.first_name, ' ', COALESCE(c.last_name, '')) LIKE ?
+        OR c.company LIKE ?
+        ${digitPattern ? 'OR c.phone LIKE ? OR c.whatsapp LIKE ?' : ''}
+        OR o.order_code LIKE ?
+      )
+    `;
+    params.push(searchPattern, searchPattern, searchPattern, searchPattern);
+    if (digitPattern) {
+      params.push(digitPattern, digitPattern);
+    }
+    params.push(searchPattern);
+  }
+
+  sql += `
+     GROUP BY c.id
+     ORDER BY c.created_at DESC
+     LIMIT ?
+  `;
+  params.push(Math.min(100, Math.max(1, limit)));
+
+  const [customerRows] = await pool.query<RowDataPacket[]>(sql, params);
+  if (customerRows.length === 0) return [];
+
+  const results: CustomerConversationSummary[] = [];
+
+  for (const row of customerRows) {
+    const cId = Number(row.id);
+    const fullName = [row.first_name, row.last_name].filter(Boolean).join(' ') || 'Cliente sin nombre';
+    const rawPhone = String(row.phone || row.whatsapp || '');
+    const pSuffix = phoneSuffix(rawPhone);
+
+    // Obtener la última interacción rápida de notas, llamadas PBX o registros manuales
+    let lastAt: string | null = null;
+    let lastType: 'call' | 'message' | 'note' | null = null;
+    let lastSummary: string | null = null;
+    let lastAuthor: string | null = null;
+
+    // 1. Última nota de conversación
+    try {
+      const [noteRows] = await pool.query<RowDataPacket[]>(
+        `SELECT content, author_name, created_at, note_type
+           FROM customer_conversation_notes
+          WHERE customer_id = ?
+          ORDER BY created_at DESC LIMIT 1`,
+        [cId],
+      );
+      if (noteRows.length > 0) {
+        lastAt = new Date(noteRows[0].created_at).toISOString();
+        lastType = 'note';
+        lastSummary = String(noteRows[0].content).slice(0, 100);
+        lastAuthor = String(noteRows[0].author_name);
+      }
+    } catch {
+      // Ignorar si la tabla aún no está lista
+    }
+
+    // 2. Última llamada PBX
+    try {
+      if (pSuffix) {
+        const [callRows] = await pool.query<RowDataPacket[]>(
+          `SELECT started_at, answered_by_ext, status, direction, duration_seconds, qa_result
+             FROM pbx_call_logs
+            WHERE (client_id = ? OR caller_number LIKE ?)
+            ORDER BY started_at DESC LIMIT 1`,
+          [cId, `%${pSuffix}`],
+        );
+        if (callRows.length > 0) {
+          const callDate = new Date(callRows[0].started_at).toISOString();
+          if (!lastAt || new Date(callDate) > new Date(lastAt)) {
+            lastAt = callDate;
+            lastType = 'call';
+            const statusLabel = callRows[0].status === 'answered' ? 'Llamada contestada' : 'Llamada no contestada';
+            const dur = Number(callRows[0].duration_seconds || 0);
+            const ext = callRows[0].answered_by_ext ? `Ext ${callRows[0].answered_by_ext}` : 'Sin contestar';
+            lastSummary = `${statusLabel} (${dur}s) · ${ext}`;
+            lastAuthor = ext;
+          }
+        }
+      }
+    } catch {
+      // Ignorar fallos de tabla
+    }
+
+    results.push({
+      customerId: cId,
+      customerName: fullName,
+      phone: rawPhone,
+      whatsapp: row.whatsapp || null,
+      company: row.company || null,
+      totalOrders: Number(row.total_orders || 0),
+      activeOrders: Number(row.active_orders || 0),
+      lastInteractionAt: lastAt,
+      lastInteractionType: lastType,
+      lastInteractionSummary: lastSummary,
+      lastInteractionAuthor: lastAuthor,
+    });
+  }
+
+  // Ordenar por última interacción más reciente si existe
+  results.sort((a, b) => {
+    if (!a.lastInteractionAt && !b.lastInteractionAt) return 0;
+    if (!a.lastInteractionAt) return 1;
+    if (!b.lastInteractionAt) return -1;
+    return new Date(b.lastInteractionAt).getTime() - new Date(a.lastInteractionAt).getTime();
+  });
+
+  return results;
+}
+
+/**
+ * Obtiene el timeline omnicanal completo de un cliente
+ */
+export async function getCustomerTimeline(
+  pool: Pool,
+  customerId: number,
+  customerPhone?: string,
+): Promise<{ customer: any; events: CustomerTimelineEvent[]; orders: any[] }> {
+  // 1. Datos del cliente
+  const [custRows] = await pool.query<RowDataPacket[]>(
+    'SELECT * FROM customers WHERE id = ? LIMIT 1',
+    [customerId],
+  );
+  if (custRows.length === 0) {
+    throw new Error('Cliente no encontrado');
+  }
+  const customer = custRows[0];
+  const phone = customerPhone || customer.phone || customer.whatsapp || '';
+  const pSuffix = phoneSuffix(phone);
+
+  const events: CustomerTimelineEvent[] = [];
+
+  // 2. Órdenes asociadas al cliente
+  const [orderRows] = await pool.query<RowDataPacket[]>(
+    `SELECT id, order_code, brand, model, year, status, advisor, total_price, down_payment, created_at, delivered_at
+       FROM orders
+      WHERE customer_id = ? AND deleted_at IS NULL
+      ORDER BY created_at DESC`,
+    [customerId],
+  );
+
+  // 3. Notas de conversación dejadas por empleados
+  try {
+    const [noteRows] = await pool.query<RowDataPacket[]>(
+      `SELECT n.id, n.order_id, n.author_name, n.note_type, n.content, n.created_at, o.order_code
+         FROM customer_conversation_notes n
+         LEFT JOIN orders o ON o.id = n.order_id
+        WHERE n.customer_id = ?
+        ORDER BY n.created_at DESC`,
+      [customerId],
+    );
+    for (const r of noteRows) {
+      events.push({
+        id: `note-${r.id}`,
+        type: 'employee_note',
+        timestamp: new Date(r.created_at).toISOString(),
+        authorOrAttendedBy: r.author_name || 'Empleado',
+        title: r.note_type === 'acuerdo' ? 'Acuerdo con cliente' : r.note_type === 'llamada_manual' ? 'Llamada telefónica registrada' : 'Nota interna',
+        summary: r.content,
+        orderCode: r.order_code || null,
+        orderId: r.order_id ? String(r.order_id) : null,
+        noteType: r.note_type || 'nota',
+      });
+    }
+  } catch {
+    // Si la tabla no existe aún
+  }
+
+  // 4. Llamadas de la centralita PBX
+  try {
+    if (pSuffix) {
+      const [pbxRows] = await pool.query<RowDataPacket[]>(
+        `SELECT id, direction, status, caller_number, caller_name, answered_by_ext,
+                duration_seconds, billsec_seconds, started_at, recording_url,
+                qa_score, qa_result, order_code, order_id
+           FROM pbx_call_logs
+          WHERE (client_id = ? OR caller_number LIKE ?)
+          ORDER BY started_at DESC
+          LIMIT 100`,
+        [customerId, `%${pSuffix}`],
+      );
+
+      for (const call of pbxRows) {
+        let qaSummaryText: string | null = null;
+        let transcriptText: string | null = null;
+        if (call.qa_result) {
+          try {
+            const parsed = typeof call.qa_result === 'string' ? JSON.parse(call.qa_result) : call.qa_result;
+            qaSummaryText = parsed.summary || null;
+            transcriptText = parsed.transcript || null;
+          } catch {
+            // Ignorar parse error
+          }
+        }
+
+        const isAnswered = call.status === 'answered' || Number(call.duration_seconds || 0) > 0;
+        const dirLabel = call.direction === 'outbound' ? 'Llamada saliente' : 'Llamada entrante';
+        const extLabel = call.answered_by_ext ? `Ext ${call.answered_by_ext}` : 'Sin contestar';
+
+        events.push({
+          id: `pbx-${call.id}`,
+          type: 'call_pbx',
+          timestamp: new Date(call.started_at).toISOString(),
+          authorOrAttendedBy: extLabel,
+          title: `${dirLabel} (${call.duration_seconds || 0}s)`,
+          summary: qaSummaryText || (isAnswered ? `Llamada completada atendida por ${extLabel}` : 'Llamada no contestada o perdida'),
+          status: call.status,
+          durationSeconds: Number(call.duration_seconds || 0),
+          audioUrl: call.recording_url || null,
+          qaScore: call.qa_score != null ? Number(call.qa_score) : null,
+          qaSummary: qaSummaryText,
+          transcript: transcriptText,
+          orderCode: call.order_code || null,
+          orderId: call.order_id || null,
+        });
+      }
+    }
+  } catch {
+    // Fallo no crítico en pbx
+  }
+
+  // 5. Registros manuales en call_register
+  try {
+    if (pSuffix) {
+      const [regRows] = await pool.query<RowDataPacket[]>(
+        `SELECT r.id, r.order_id, r.description, r.created_at, r.attended_by, r.whatsapp_dispatched, r.whatsapp_message, o.order_code
+           FROM call_register r
+           LEFT JOIN orders o ON o.id = r.order_id
+          WHERE (r.customer_id = ? OR r.phone LIKE ?)
+          ORDER BY r.created_at DESC LIMIT 50`,
+        [customerId, `%${pSuffix}`],
+      );
+      for (const reg of regRows) {
+        events.push({
+          id: `callreg-${reg.id}`,
+          type: 'call_manual',
+          timestamp: new Date(reg.created_at).toISOString(),
+          authorOrAttendedBy: reg.attended_by || 'Asesor',
+          title: 'Registro de llamada en bitácora',
+          summary: reg.description || reg.whatsapp_message || 'Sin descripción detallada',
+          orderCode: reg.order_code || null,
+          orderId: reg.order_id ? String(reg.order_id) : null,
+        });
+      }
+    }
+  } catch {
+    // Ignorar si call_register no tiene columnas
+  }
+
+  // 6. Mensajes enviados al cliente desde notification_outbox
+  try {
+    if (pSuffix) {
+      const [outboxRows] = await pool.query<RowDataPacket[]>(
+        `SELECT id, payload, status, created_at
+           FROM notification_outbox
+          WHERE payload LIKE ?
+          ORDER BY created_at DESC LIMIT 40`,
+        [`%${pSuffix}%`],
+      );
+      for (const msg of outboxRows) {
+        let msgText = '';
+        let eventKey = 'WhatsApp';
+        try {
+          const payload = typeof msg.payload === 'string' ? JSON.parse(msg.payload) : msg.payload;
+          msgText = payload.text || payload.messageText || payload.caption || '';
+          eventKey = payload.eventKey || 'Mensaje';
+        } catch {
+          msgText = String(msg.payload).slice(0, 200);
+        }
+        if (msgText) {
+          events.push({
+            id: `outbox-${msg.id}`,
+            type: 'message_outbox',
+            timestamp: new Date(msg.created_at).toISOString(),
+            authorOrAttendedBy: 'Sistema Radar / WhatsApp',
+            title: `WhatsApp enviado (${eventKey})`,
+            summary: msgText,
+            status: msg.status,
+          });
+        }
+      }
+    }
+  } catch {
+    // Ignorar si notification_outbox falla
+  }
+
+  // Ordenar todos los eventos de más reciente a más antiguo
+  events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  return {
+    customer,
+    events,
+    orders: orderRows,
+  };
+}
+
+/**
+ * Agrega una nota de conversación para el expediente del cliente
+ */
+export async function addCustomerConversationNote(
+  pool: Pool,
+  params: {
+    customerId: number;
+    orderId?: number | null;
+    userId?: number | null;
+    authorName: string;
+    noteType?: string;
+    content: string;
+  },
+): Promise<{ id: number; createdAt: string }> {
+  const noteType = params.noteType || 'nota';
+  const [result] = await pool.execute<ResultSetHeader>(
+    `INSERT INTO customer_conversation_notes (customer_id, order_id, user_id, author_name, note_type, content)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      params.customerId,
+      params.orderId || null,
+      params.userId || null,
+      params.authorName,
+      noteType,
+      params.content.trim(),
+    ],
+  );
+
+  return {
+    id: result.insertId,
+    createdAt: new Date().toISOString(),
+  };
+}

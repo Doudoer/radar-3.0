@@ -39,7 +39,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'reclamos', label: 'Reclamos', icon: 'error_outline' },
     { id: 'reembolsos', label: 'Reembolsos', icon: 'currency_exchange' },
     { id: 'mis_operaciones', label: 'Mis Operaciones', icon: 'assignment_ind' },
-    ...(pbxEnabled ? [{ id: 'llamadas' as NavScreen, label: 'Llamadas PBX', icon: 'call' }] : []),
+    ...(pbxEnabled ? [{ id: 'llamadas' as NavScreen, label: 'Conversaciones & Llamadas PBX', icon: 'forum' }] : []),
     { id: 'perfil', label: 'Mi perfil', icon: 'account_circle' },
     ...(isSuperAdmin
       ? [{ id: 'relacion_semanal' as NavScreen, label: 'Relación Semanal', icon: 'domain', aliases: ['finanzas' as NavScreen] }]

@@ -142,14 +142,75 @@ export const releaseOrVoidYardCommissions = async (pool: Pool, now = new Date())
   }
 };
 
+export const COMMISSIONS_EFFECTIVE_DATE = '2026-11-23 00:00:00';
+
+export const syncCommissionsSinceDate = async (
+  pool: Pool,
+  sinceDate = COMMISSIONS_EFFECTIVE_DATE,
+  now = new Date(),
+): Promise<void> => {
+  try {
+    // 1. Sync downpayment commissions for all eligible non-yard sales
+    const [downpaymentRows] = await pool.query<RowDataPacket[]>(
+      `SELECT o.id, o.user_id, o.is_yard_sale, o.created_at, o.downpayment_verified_at, o.down_payment
+         FROM orders o
+        WHERE o.deleted_at IS NULL
+          AND o.is_yard_sale = 0
+          AND o.user_id IS NOT NULL
+          AND (o.created_at >= ? OR o.downpayment_verified_at >= ?)
+          AND (o.down_payment > 0 OR o.downpayment_verified = 1)`,
+      [sinceDate, sinceDate],
+    );
+
+    for (const row of downpaymentRows) {
+      const orderDate = row.created_at ? new Date(row.created_at) : new Date();
+      await recordDownpaymentCommission(pool, {
+        orderId: Number(row.id),
+        userId: Number(row.user_id),
+        isYardSale: Boolean(row.is_yard_sale),
+        createdAt: orderDate,
+      });
+    }
+
+    // 2. Sync delivery closed commissions
+    const [deliveryRows] = await pool.query<RowDataPacket[]>(
+      `SELECT o.id, o.user_id, o.is_yard_sale, o.delivered_at, o.updated_at
+         FROM orders o
+        WHERE o.deleted_at IS NULL
+          AND o.is_yard_sale = 0
+          AND o.user_id IS NOT NULL
+          AND (
+            (o.delivered_at IS NOT NULL AND o.delivered_at >= ?)
+            OR (LOWER(TRIM(o.status)) = 'entregado' AND o.updated_at >= ?)
+          )`,
+      [sinceDate, sinceDate],
+    );
+
+    for (const row of deliveryRows) {
+      const deliveredDate = row.delivered_at ? new Date(row.delivered_at) : (row.updated_at ? new Date(row.updated_at) : new Date());
+      await recordDeliveryCommission(pool, {
+        orderId: Number(row.id),
+        userId: Number(row.user_id),
+        isYardSale: Boolean(row.is_yard_sale),
+        deliveredAt: deliveredDate,
+      });
+    }
+
+    // 3. Auto-release (after 12h) or void (if canceled by yard)
+    await releaseOrVoidYardCommissions(pool, now);
+  } catch (err) {
+    console.warn('[Commissions] Failed to sync retroactive commissions:', err);
+  }
+};
+
 export const getUserCommissionsSummary = async (
   pool: Pool,
   userId: number,
   period: { start: string; end: string },
   now = new Date(),
 ): Promise<EmployeeCommissionsSummary> => {
-  // First, auto-release or void any pending commissions that reached their 12h window
-  await releaseOrVoidYardCommissions(pool, now);
+  // First, auto-sync and auto-release/void pending commissions since effective start date
+  await syncCommissionsSinceDate(pool, COMMISSIONS_EFFECTIVE_DATE, now);
 
   const startSql = toSqlDate(new Date(period.start));
   const endSql = toSqlDate(new Date(period.end));

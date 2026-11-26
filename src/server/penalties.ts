@@ -293,10 +293,11 @@ export const syncPenalties = async (pool: Pool, now = new Date()): Promise<void>
        FROM orders o
        LEFT JOIN order_followup_assignments f ON f.order_id=o.id
        LEFT JOIN customers c ON c.id=o.customer_id
+       LEFT JOIN order_confirmation_rollout r ON r.order_id=o.id
       WHERE o.deleted_at IS NULL
         AND o.created_at >= ?
         AND o.followup_closed_at IS NULL
-        AND COALESCE(o.confirmation_policy, 'documented') <> 'preapproved'
+        AND COALESCE(r.confirmation_policy, 'documented') <> 'preapproved'
         AND (o.downpayment_verified = 1 OR LOWER(TRIM(o.status)) IN ('pagado', 'espera de confirmación', 'espera de confirmacion'))
         AND NOT EXISTS (
           SELECT 1 FROM order_workflow_events e
@@ -461,7 +462,7 @@ export const syncPenalties = async (pool: Pool, now = new Date()): Promise<void>
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'pending')
        ON DUPLICATE KEY UPDATE user_id=VALUES(user_id), units=VALUES(units), rate=VALUES(rate),
          percent=VALUES(percent), weekly_salary=VALUES(weekly_salary), amount=VALUES(amount),
-         status=IF(status='liquidated',status,'pending'), updated_at=CURRENT_TIMESTAMP`,
+         status=IF(status IN ('liquidated', 'void'), status, 'pending'), updated_at=CURRENT_TIMESTAMP`,
       [entry.orderId, entry.userId, entry.source, entry.referenceKey, entry.units, rate, percent, salary, amount,
         toSqlDate(periodStart), toSqlDate(periodEnd), toSqlDate(cutoff)],
     );
@@ -473,7 +474,11 @@ let lastSyncAt = 0;
 export const syncPenaltiesThrottled = async (pool: Pool, now = new Date(), minIntervalMs = 60_000) => {
   if (Date.now() - lastSyncAt < minIntervalMs) return;
   lastSyncAt = Date.now();
-  await syncPenalties(pool, now);
+  try {
+    await syncPenalties(pool, now);
+  } catch (err) {
+    console.warn('[Penalties] syncPenalties failed in background:', err);
+  }
 };
 
 export const getUserPenaltySnapshot = async (pool: Pool, userId: number, now = new Date()): Promise<UserPenaltySnapshot> => {
