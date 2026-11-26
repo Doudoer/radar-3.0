@@ -26,6 +26,7 @@ export interface CustomerConversationSummary {
   company?: string | null;
   totalOrders: number;
   activeOrders: number;
+  isUnregistered?: boolean;
   lastInteractionAt: string | null;
   lastInteractionType: 'call' | 'message' | 'note' | null;
   lastInteractionSummary: string | null;
@@ -89,15 +90,15 @@ export async function listCustomerConversations(
   params.push(Math.min(100, Math.max(1, limit)));
 
   const [customerRows] = await pool.query<RowDataPacket[]>(sql, params);
-  if (customerRows.length === 0) return [];
-
   const results: CustomerConversationSummary[] = [];
+  const registeredPhoneSuffixes = new Set<string>();
 
   for (const row of customerRows) {
     const cId = Number(row.id);
     const fullName = [row.first_name, row.last_name].filter(Boolean).join(' ') || 'Cliente sin nombre';
     const rawPhone = String(row.phone || row.whatsapp || '');
     const pSuffix = phoneSuffix(rawPhone);
+    if (pSuffix) registeredPhoneSuffixes.add(pSuffix);
 
     // Obtener la última interacción rápida de notas, llamadas PBX o registros manuales
     let lastAt: string | null = null;
@@ -159,11 +160,64 @@ export async function listCustomerConversations(
       company: row.company || null,
       totalOrders: Number(row.total_orders || 0),
       activeOrders: Number(row.active_orders || 0),
+      isUnregistered: false,
       lastInteractionAt: lastAt,
       lastInteractionType: lastType,
       lastInteractionSummary: lastSummary,
       lastInteractionAuthor: lastAuthor,
     });
+  }
+
+  // 3. Incluir llamadas externas de números NO registrados en customers
+  try {
+    const [unregCallRows] = await pool.query<RowDataPacket[]>(
+      `SELECT id, caller_number, caller_name, started_at, status, direction, duration_seconds, answered_by_ext
+         FROM pbx_call_logs
+        WHERE client_id IS NULL
+          AND CHAR_LENGTH(caller_number) >= 7
+          AND caller_number NOT IN ('169014', '9844004618')
+        ORDER BY started_at DESC
+        LIMIT 200`,
+    );
+
+    const seenUnregSuffixes = new Set<string>();
+    let unregCounter = -1;
+
+    for (const call of unregCallRows) {
+      const rawNum = String(call.caller_number || '');
+      const pSuff = phoneSuffix(rawNum);
+      if (!pSuff || pSuff.length < 5) continue;
+      if (registeredPhoneSuffixes.has(pSuff) || seenUnregSuffixes.has(pSuff)) continue;
+
+      if (term) {
+        const matchTerm = rawNum.toLowerCase().includes(term.toLowerCase()) ||
+          (call.caller_name && String(call.caller_name).toLowerCase().includes(term.toLowerCase()));
+        if (!matchTerm) continue;
+      }
+
+      seenUnregSuffixes.add(pSuff);
+
+      const statusLabel = call.status === 'answered' ? 'Llamada contestada' : 'Llamada no contestada';
+      const dur = Number(call.duration_seconds || 0);
+      const ext = call.answered_by_ext ? `Ext ${call.answered_by_ext}` : 'Sin contestar';
+
+      results.push({
+        customerId: unregCounter--,
+        customerName: call.caller_name || 'Número no registrado',
+        phone: rawNum,
+        whatsapp: null,
+        company: null,
+        totalOrders: 0,
+        activeOrders: 0,
+        isUnregistered: true,
+        lastInteractionAt: new Date(call.started_at).toISOString(),
+        lastInteractionType: 'call',
+        lastInteractionSummary: `${statusLabel} (${dur}s) · ${ext}`,
+        lastInteractionAuthor: ext,
+      });
+    }
+  } catch {
+    // Ignorar si falla lectura de llamadas no registradas
   }
 
   // Ordenar por última interacción más reciente si existe
@@ -186,27 +240,59 @@ export async function getCustomerTimeline(
   customerPhone?: string,
 ): Promise<{ customer: any; events: CustomerTimelineEvent[]; orders: any[] }> {
   // 1. Datos del cliente
-  const [custRows] = await pool.query<RowDataPacket[]>(
-    'SELECT * FROM customers WHERE id = ? LIMIT 1',
-    [customerId],
-  );
-  if (custRows.length === 0) {
-    throw new Error('Cliente no encontrado');
-  }
-  const customer = custRows[0];
-  const phone = customerPhone || customer.phone || customer.whatsapp || '';
-  const pSuffix = phoneSuffix(phone);
+  let customer: any;
+  let phone = customerPhone || '';
 
+  if (customerId <= 0) {
+    customer = {
+      id: customerId,
+      first_name: 'Número',
+      last_name: 'no registrado',
+      phone: customerPhone || 'Sin número',
+      company: null,
+      address_shipping: null,
+      is_unregistered: true,
+    };
+  } else {
+    const [custRows] = await pool.query<RowDataPacket[]>(
+      'SELECT * FROM customers WHERE id = ? LIMIT 1',
+      [customerId],
+    );
+    if (custRows.length === 0) {
+      if (customerPhone) {
+        customer = {
+          id: customerId,
+          first_name: 'Número',
+          last_name: 'no registrado',
+          phone: customerPhone,
+          company: null,
+          address_shipping: null,
+          is_unregistered: true,
+        };
+      } else {
+        throw new Error('Cliente no encontrado');
+      }
+    } else {
+      customer = custRows[0];
+      phone = customerPhone || customer.phone || customer.whatsapp || '';
+    }
+  }
+
+  const pSuffix = phoneSuffix(phone);
   const events: CustomerTimelineEvent[] = [];
 
   // 2. Órdenes asociadas al cliente
-  const [orderRows] = await pool.query<RowDataPacket[]>(
-    `SELECT id, order_code, brand, model, year, status, advisor, total_price, down_payment, created_at, delivered_at
-       FROM orders
-      WHERE customer_id = ? AND deleted_at IS NULL
-      ORDER BY created_at DESC`,
-    [customerId],
-  );
+  let orderRows: RowDataPacket[] = [];
+  if (customerId > 0) {
+    const [orders] = await pool.query<RowDataPacket[]>(
+      `SELECT id, order_code, brand, model, year, status, advisor, total_price, down_payment, created_at, delivered_at
+         FROM orders
+        WHERE customer_id = ? AND deleted_at IS NULL
+        ORDER BY created_at DESC`,
+      [customerId],
+    );
+    orderRows = orders;
+  }
 
   // 3. Notas de conversación dejadas por empleados
   try {

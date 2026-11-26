@@ -3112,7 +3112,69 @@ const server = createServer(async (request, response) => {
       return sendJson(response, 200, { customers: list });
     }
 
-    const customerTimelineId = pathname.match(/^\/api\/communications\/customers\/(\d+)\/timeline$/)?.[1];
+    if (request.method === 'POST' && pathname === '/api/communications/contacts/save') {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      const body = z.object({
+        firstName: z.string().trim().min(1, 'El nombre es obligatorio').max(100),
+        lastName: z.string().trim().max(100).optional().nullable(),
+        phone: z.string().trim().min(7, 'Número de teléfono inválido').max(40),
+        company: z.string().trim().max(150).optional().nullable(),
+        email: z.string().trim().max(120).optional().nullable(),
+        addressShipping: z.string().trim().max(255).optional().nullable(),
+        zipCode: z.string().trim().max(20).optional().nullable(),
+      }).parse(await readBody(request));
+
+      const cleanPhone = body.phone.replace(/\D/g, '');
+      const pSuffix = cleanPhone.length > 7 ? cleanPhone.slice(-8) : cleanPhone;
+
+      // 1. Verificar si ya existe un cliente con este teléfono
+      const [existingCust] = await pool.query<RowDataPacket[]>(
+        `SELECT id, first_name, last_name, phone FROM customers
+          WHERE deleted_at IS NULL AND (phone LIKE ? OR whatsapp LIKE ?) LIMIT 1`,
+        [`%${pSuffix}`, `%${pSuffix}`],
+      );
+
+      let customerId: number;
+      const fullName = [body.firstName, body.lastName].filter(Boolean).join(' ').trim();
+
+      if (existingCust.length > 0) {
+        customerId = Number(existingCust[0].id);
+        await pool.execute(
+          `UPDATE customers 
+              SET first_name = COALESCE(NULLIF(?, ''), first_name),
+                  last_name = COALESCE(?, last_name),
+                  company = COALESCE(?, company),
+                  email = COALESCE(?, email),
+                  address_shipping = COALESCE(?, address_shipping),
+                  zip_code = COALESCE(?, zip_code)
+            WHERE id = ?`,
+          [body.firstName, body.lastName || null, body.company || null, body.email || null, body.addressShipping || null, body.zipCode || null, customerId],
+        );
+      } else {
+        const [insertRes] = await pool.execute<ResultSetHeader>(
+          `INSERT INTO customers (first_name, last_name, phone, company, email, address_shipping, zip_code)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [body.firstName, body.lastName || null, body.phone, body.company || null, body.email || null, body.addressShipping || null, body.zipCode || null],
+        );
+        customerId = insertRes.insertId;
+      }
+
+      // 2. Asociar llamadas PBX de este número al nuevo cliente
+      try {
+        await pool.execute(
+          `UPDATE pbx_call_logs 
+              SET client_id = ?, client_name = ?
+            WHERE caller_number LIKE ?`,
+          [customerId, fullName, `%${pSuffix}`],
+        );
+      } catch {
+        // Ignorar si falla actualización de pbx_call_logs
+      }
+
+      return sendJson(response, 200, { ok: true, customerId, fullName });
+    }
+
+    const customerTimelineId = pathname.match(/^\/api\/communications\/customers\/(-?\d+)\/timeline$/)?.[1];
     if (request.method === 'GET' && customerTimelineId) {
       if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
       const url = new URL(request.url || '/', 'http://localhost');
