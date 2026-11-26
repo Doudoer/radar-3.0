@@ -7,6 +7,7 @@ import {
   YARD_VERIFICATION_HOURS,
 } from '../src/utils/commissions';
 import { isDuringPbxBusinessHours } from '../src/server/pbxCalls';
+import { isExemptFromCallPenalties } from '../src/server/penalties';
 
 describe('Employee Commissions & Salary Protection', () => {
   it('validates commission constants and yard exclusion', () => {
@@ -82,5 +83,31 @@ describe('Employee Commissions & Salary Protection', () => {
     // 08:00 UTC is 03:00 AM America/New_York (after hours)
     const middleOfNight = new Date('2026-11-25T08:00:00Z');
     expect(isDuringPbxBusinessHours(middleOfNight)).toBe(false);
+  });
+
+  it('exempts internal numbers, 169014, and 9844004618 from generating call penalties', () => {
+    const knownExtensions = new Set(['201', '202', '204', '501']);
+
+    // 169014 internal line / test number
+    expect(isExemptFromCallPenalties('169014', null, 'inbound', knownExtensions)).toBe(true);
+    expect(isExemptFromCallPenalties(null, '169014', 'inbound', knownExtensions)).toBe(true);
+    expect(isExemptFromCallPenalties('169014', null, 'outbound', knownExtensions)).toBe(true);
+
+    // 9844004618 office / company line in various formats
+    expect(isExemptFromCallPenalties('9844004618', null, 'inbound', knownExtensions)).toBe(true);
+    expect(isExemptFromCallPenalties('+19844004618', 'English:+19844004618', 'inbound', knownExtensions)).toBe(true);
+    expect(isExemptFromCallPenalties('19844004618', null, 'inbound', knownExtensions)).toBe(true);
+    expect(isExemptFromCallPenalties('(984) 400-4618', null, 'inbound', knownExtensions)).toBe(true);
+
+    // Internal extensions & internal direction
+    expect(isExemptFromCallPenalties('204', null, 'inbound', knownExtensions)).toBe(true);
+    expect(isExemptFromCallPenalties('501', null, 'inbound', knownExtensions)).toBe(true);
+    expect(isExemptFromCallPenalties('100', null, 'internal', knownExtensions)).toBe(true);
+    expect(isExemptFromCallPenalties('+19195551234', null, 'internal', knownExtensions)).toBe(true);
+    expect(isExemptFromCallPenalties('+19195551234', null, 'outbound', knownExtensions)).toBe(true);
+
+    // Standard external inbound customer call must NOT be exempt
+    expect(isExemptFromCallPenalties('+19195551234', 'John Doe', 'inbound', knownExtensions)).toBe(false);
+    expect(isExemptFromCallPenalties('9195551234', null, 'inbound', knownExtensions)).toBe(false);
   });
 });
