@@ -193,9 +193,9 @@ export const WeekLiquidation: React.FC<{
           )}
         </div>
         <p className={`mt-2 text-[38px] font-black leading-none tabular-nums sm:text-[44px] ${
-          !hasSalary ? tone.muted : projected < 0 ? tone.warningText : tone.heading
+          !hasSalary && (!settlement || settlement.netPayout <= 0) ? tone.muted : projected < 0 ? tone.warningText : tone.heading
         }`}>
-          {hasSalary ? formatUsd(projected) : 'Sin salario'}
+          {hasSalary || (settlement && settlement.netPayout > 0) ? formatUsd(projected) : 'Sin salario'}
         </p>
         <p className={`mt-2 text-xs ${tone.muted}`}>
           {week.label}{' · '}{cutoffLabel || 'Corte lunes a domingo · hora de Honduras'}
@@ -207,13 +207,25 @@ export const WeekLiquidation: React.FC<{
               {formatUsd(settlement ? settlement.weeklySalary : week.gross)}
             </dd>
           </div>
+          {settlement && settlement.earnedCommissions > 0 && (
+            <div>
+              <dt className={`text-[10px] font-bold uppercase tracking-wide text-emerald-500`}>Comisiones</dt>
+              <dd className="mt-0.5 text-sm font-black tabular-nums text-emerald-400">+{formatUsd(settlement.earnedCommissions)}</dd>
+            </div>
+          )}
+          {settlement && settlement.appliedDeduction > 0 && (
+            <div>
+              <dt className={`text-[10px] font-bold uppercase tracking-wide text-rose-500`}>Deducido de comisión</dt>
+              <dd className="mt-0.5 text-sm font-black tabular-nums text-rose-400">−{formatUsd(settlement.appliedDeduction)}</dd>
+            </div>
+          )}
           <div>
             <dt className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Faltas</dt>
             <dd className={`mt-0.5 text-sm font-black tabular-nums ${week.deductions > 0 ? tone.warningText : tone.heading}`}>
               {week.deductions > 0 ? `−${formatUsd(week.deductions)}` : formatUsd(0)}
             </dd>
           </div>
-          {penalty > 0 && (
+          {!settlement && penalty > 0 && (
             <div>
               <dt className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Amonestaciones</dt>
               <dd className={`mt-0.5 text-sm font-black tabular-nums ${tone.warningText}`}>−{formatUsd(penalty)}</dd>
@@ -1878,6 +1890,13 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
 
           {tab === 'rendimiento' && (
             <div className="space-y-4">
+              {data.penalties?.commissions && (
+                <CommissionsCard
+                  commissions={data.penalties.commissions}
+                  settlement={data.penalties.settlement}
+                  tone={tone}
+                />
+              )}
               <PerformancePanel targetUserId={targetUserId} tone={tone} />
               <section className="space-y-3" aria-labelledby="profile-followups-heading">
                 <h2 id="profile-followups-heading" className={`text-sm font-bold ${tone.heading}`}>Seguimientos</h2>

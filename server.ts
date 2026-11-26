@@ -90,7 +90,8 @@ import { readBody, sendJson, serveFrontend } from './src/server/http';
 import { isoDateInTimeZone, PAYROLL_TIME_ZONE, recentWeeks, roundMoney, summarizeWeek } from './src/utils/payroll';
 import { getOrders, getYardOrders, getYardQueueCounts, YARD_QUEUE_MAX_LIMIT, mapOrder, normalizeTransmissionType, statusFromDatabase, statusToDatabase, toMysqlDateTime } from './src/server/orders';
 import { getUserPenaltySnapshot, readPenaltySettings, syncPenaltiesThrottled, writePenaltySettings } from './src/server/penalties';
-import { recordDownpaymentCommission, recordDeliveryCommission } from './src/server/commissions';
+import { recordDownpaymentCommission, recordDeliveryCommission, syncCommissionsSinceDate, COMMISSIONS_EFFECTIVE_DATE } from './src/server/commissions';
+import { autoApplyPendingMigrations } from './src/server/autoMigrate';
 import { getWeeklyPerformance } from './src/server/performance';
 import { getClaims, handleClaimsListRequest } from './src/server/claims';
 import { handleRefundsListRequest } from './src/server/refunds';
@@ -5898,6 +5899,10 @@ const server = createServer(async (request, response) => {
 });
 
 async function startServer() {
+  await autoApplyPendingMigrations(pool);
+  await syncCommissionsSinceDate(pool, COMMISSIONS_EFFECTIVE_DATE).catch((err) => {
+    console.warn('[Startup] Advertencia al sincronizar comisiones:', err);
+  });
   const [migrations] = await pool.query<RowDataPacket[]>(
     'SELECT name FROM schema_migrations WHERE name=?', ['021_outbox_deduplication.sql'],
   );

@@ -152,13 +152,13 @@ export const syncCommissionsSinceDate = async (
   try {
     // 1. Sync downpayment commissions for all eligible non-yard sales
     const [downpaymentRows] = await pool.query<RowDataPacket[]>(
-      `SELECT o.id, o.user_id, o.is_yard_sale, o.created_at, o.downpayment_verified_at, o.down_payment
+      `SELECT o.id, o.user_id, o.is_yard_sale, o.created_at, o.downpayment_verified_at, o.down_payment, o.status
          FROM orders o
         WHERE o.deleted_at IS NULL
-          AND o.is_yard_sale = 0
+          AND (o.is_yard_sale = 0 OR o.is_yard_sale IS NULL)
           AND o.user_id IS NOT NULL
           AND (o.created_at >= ? OR o.downpayment_verified_at >= ?)
-          AND (o.down_payment > 0 OR o.downpayment_verified = 1)`,
+          AND (o.down_payment > 0 OR o.downpayment_verified = 1 OR LOWER(TRIM(o.status)) = 'pagado')`,
       [sinceDate, sinceDate],
     );
 
@@ -177,7 +177,7 @@ export const syncCommissionsSinceDate = async (
       `SELECT o.id, o.user_id, o.is_yard_sale, o.delivered_at, o.updated_at
          FROM orders o
         WHERE o.deleted_at IS NULL
-          AND o.is_yard_sale = 0
+          AND (o.is_yard_sale = 0 OR o.is_yard_sale IS NULL)
           AND o.user_id IS NOT NULL
           AND (
             (o.delivered_at IS NOT NULL AND o.delivered_at >= ?)
