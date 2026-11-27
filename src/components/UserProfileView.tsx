@@ -294,7 +294,7 @@ export const CommissionsCard: React.FC<{
             </h2>
           </div>
           <p className={`mt-1 text-xs ${tone.muted}`}>
-            $5 USD por venta con anticipo (retención de 12h en yarda) · $2 USD extra al completar entrega física.
+            $5 USD por venta con anticipo (retención de 12h en yarda) · $2 USD por orden cerrada vendida y entregada esta misma semana.
           </p>
         </div>
         <div className="text-right">

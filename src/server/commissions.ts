@@ -7,6 +7,7 @@ import {
   type EmployeeCommissionItem,
   type EmployeeCommissionsSummary,
 } from '../utils/commissions';
+import { payPeriodFor } from '../utils/penalties';
 
 const toSqlDate = (date: Date) => date.toISOString().slice(0, 19).replace('T', ' ');
 
@@ -63,6 +64,28 @@ export const recordDeliveryCommission = async (
     [userId],
   );
   if (!userRows[0] || isYardEmployee(userRows[0].role)) return false;
+
+  // The order MUST have been sold (created) in the same week period as delivery!
+  const [orderRows] = await pool.query<RowDataPacket[]>(
+    'SELECT created_at FROM orders WHERE id=? LIMIT 1',
+    [orderId],
+  );
+  if (!orderRows[0] || !orderRows[0].created_at) return false;
+
+  const orderCreatedAt = new Date(orderRows[0].created_at);
+  const period = payPeriodFor(deliveredAt);
+  const periodStart = new Date(period.start);
+  const periodEnd = new Date(period.end);
+
+  if (orderCreatedAt.getTime() < periodStart.getTime() || orderCreatedAt.getTime() > periodEnd.getTime()) {
+    // If order was created prior to this week, do not award delivery commission.
+    // Clean up any stale delivered_closed record for this order if present.
+    await pool.execute(
+      "DELETE FROM employee_commissions WHERE order_id = ? AND type = 'delivered_closed'",
+      [orderId],
+    );
+    return false;
+  }
 
   try {
     await pool.execute(
@@ -173,8 +196,9 @@ export const syncCommissionsSinceDate = async (
     }
 
     // 2. Sync delivery closed commissions
+    // MUST BE: both sold/created this week AND delivered this week!
     const [deliveryRows] = await pool.query<RowDataPacket[]>(
-      `SELECT o.id, o.user_id, o.is_yard_sale, o.delivered_at, o.updated_at
+      `SELECT o.id, o.user_id, o.is_yard_sale, o.delivered_at, o.updated_at, o.created_at
          FROM orders o
         WHERE o.deleted_at IS NULL
           AND (o.is_yard_sale = 0 OR o.is_yard_sale IS NULL)
@@ -182,8 +206,9 @@ export const syncCommissionsSinceDate = async (
           AND (
             (o.delivered_at IS NOT NULL AND o.delivered_at >= ?)
             OR (LOWER(TRIM(o.status)) = 'entregado' AND o.updated_at >= ?)
-          )`,
-      [sinceDate, sinceDate],
+          )
+          AND o.created_at >= ?`,
+      [sinceDate, sinceDate, sinceDate],
     );
 
     for (const row of deliveryRows) {
@@ -195,6 +220,15 @@ export const syncCommissionsSinceDate = async (
         deliveredAt: deliveredDate,
       });
     }
+
+    // Clean up any existing delivered_closed commissions where order was created before sinceDate
+    await pool.execute(
+      `DELETE c FROM employee_commissions c
+         JOIN orders o ON o.id = c.order_id
+        WHERE c.type = 'delivered_closed'
+          AND o.created_at < ?`,
+      [sinceDate],
+    );
 
     // 3. Auto-release (after 12h) or void (if canceled by yard)
     await releaseOrVoidYardCommissions(pool, now);
@@ -218,7 +252,7 @@ export const getUserCommissionsSummary = async (
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT c.id, c.user_id, c.order_id, c.type, c.amount, c.status,
             c.available_at, c.earned_at, c.voided_at, c.created_at,
-            o.order_code, o.year, o.brand, o.model,
+            o.order_code, o.year, o.brand, o.model, o.created_at AS order_created_at,
             cust.first_name, cust.last_name
        FROM employee_commissions c
        JOIN orders o ON o.id = c.order_id
@@ -229,8 +263,12 @@ export const getUserCommissionsSummary = async (
           OR c.status = 'pending_yard_check'
           OR (c.status = 'voided_availability' AND c.voided_at >= ? AND c.voided_at <= ?)
         )
+        AND (
+          c.type != 'delivered_closed'
+          OR (o.created_at >= ? AND o.created_at <= ?)
+        )
       ORDER BY c.created_at DESC`,
-    [userId, startSql, endSql, startSql, endSql],
+    [userId, startSql, endSql, startSql, endSql, startSql, endSql],
   );
 
   const items: EmployeeCommissionItem[] = rows.map((r) => {
