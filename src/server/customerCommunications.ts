@@ -89,9 +89,32 @@ export async function listCustomerConversations(
   `;
   params.push(Math.min(100, Math.max(1, limit)));
 
+  // Cargar todos los sufijos de teléfonos de clientes registrados para evitar falsos "no registrados"
+  const registeredPhoneSuffixes = new Set<string>();
+  const phoneToCustomerMap = new Map<string, { id: number; fullName: string }>();
+  try {
+    const [allCustPhones] = await pool.query<RowDataPacket[]>(
+      'SELECT id, first_name, last_name, phone, whatsapp FROM customers WHERE deleted_at IS NULL AND (phone IS NOT NULL OR whatsapp IS NOT NULL)'
+    );
+    for (const cp of allCustPhones) {
+      const fn = [cp.first_name, cp.last_name].filter(Boolean).join(' ').trim() || 'Cliente';
+      const s1 = phoneSuffix(cp.phone);
+      if (s1 && s1.length >= 5) {
+        registeredPhoneSuffixes.add(s1);
+        phoneToCustomerMap.set(s1, { id: Number(cp.id), fullName: fn });
+      }
+      const s2 = phoneSuffix(cp.whatsapp);
+      if (s2 && s2.length >= 5) {
+        registeredPhoneSuffixes.add(s2);
+        phoneToCustomerMap.set(s2, { id: Number(cp.id), fullName: fn });
+      }
+    }
+  } catch {
+    // Continuar si falla lectura masiva
+  }
+
   const [customerRows] = await pool.query<RowDataPacket[]>(sql, params);
   const results: CustomerConversationSummary[] = [];
-  const registeredPhoneSuffixes = new Set<string>();
 
   for (const row of customerRows) {
     const cId = Number(row.id);
@@ -187,6 +210,17 @@ export async function listCustomerConversations(
       const rawNum = String(call.caller_number || '');
       const pSuff = phoneSuffix(rawNum);
       if (!pSuff || pSuff.length < 5) continue;
+
+      // Si pertenece a un cliente registrado en la BD, vincular el call_log y no mostrarlo como desconocido
+      const existingCustomer = phoneToCustomerMap.get(pSuff);
+      if (existingCustomer) {
+        pool.execute(
+          'UPDATE pbx_call_logs SET client_id = ?, client_name = ? WHERE id = ?',
+          [existingCustomer.id, existingCustomer.fullName, call.id],
+        ).catch(() => {});
+        continue;
+      }
+
       if (registeredPhoneSuffixes.has(pSuff) || seenUnregSuffixes.has(pSuff)) continue;
 
       if (term) {
@@ -243,39 +277,70 @@ export async function getCustomerTimeline(
   let customer: any;
   let phone = customerPhone || '';
 
-  if (customerId <= 0) {
-    customer = {
-      id: customerId,
-      first_name: 'Número',
-      last_name: 'no registrado',
-      phone: customerPhone || 'Sin número',
-      company: null,
-      address_shipping: null,
-      is_unregistered: true,
-    };
-  } else {
+  // Si customerId <= 0 o negativo pero se tiene teléfono, intentar resolver al cliente registrado real
+  if (customerId <= 0 && phone) {
+    const pSuff = phoneSuffix(phone);
+    if (pSuff && pSuff.length >= 5) {
+      try {
+        const [matchedCust] = await pool.query<RowDataPacket[]>(
+          `SELECT * FROM customers 
+            WHERE deleted_at IS NULL AND (phone LIKE ? OR whatsapp LIKE ?) 
+            ORDER BY id DESC LIMIT 1`,
+          [`%${pSuff}`, `%${pSuff}`],
+        );
+        if (matchedCust.length > 0) {
+          customer = matchedCust[0];
+          customerId = Number(customer.id);
+          phone = customer.phone || customer.whatsapp || phone;
+        }
+      } catch {
+        // Continuar si falla búsqueda por sufijo
+      }
+    }
+  }
+
+  if (!customer && customerId > 0) {
     const [custRows] = await pool.query<RowDataPacket[]>(
       'SELECT * FROM customers WHERE id = ? LIMIT 1',
       [customerId],
     );
-    if (custRows.length === 0) {
-      if (customerPhone) {
-        customer = {
-          id: customerId,
-          first_name: 'Número',
-          last_name: 'no registrado',
-          phone: customerPhone,
-          company: null,
-          address_shipping: null,
-          is_unregistered: true,
-        };
-      } else {
-        throw new Error('Cliente no encontrado');
-      }
-    } else {
+    if (custRows.length > 0) {
       customer = custRows[0];
       phone = customerPhone || customer.phone || customer.whatsapp || '';
     }
+  }
+
+  if (!customer) {
+    // Si no está registrado en customers, extraer el nombre del llamante desde pbx_call_logs si existe
+    let displayName = 'Número no registrado';
+    if (phone) {
+      const pSuff = phoneSuffix(phone);
+      if (pSuff) {
+        try {
+          const [lastCall] = await pool.query<RowDataPacket[]>(
+            `SELECT caller_name, client_name FROM pbx_call_logs 
+              WHERE caller_number LIKE ? AND (caller_name IS NOT NULL OR client_name IS NOT NULL)
+              ORDER BY started_at DESC LIMIT 1`,
+            [`%${pSuff}`],
+          );
+          if (lastCall[0]?.caller_name || lastCall[0]?.client_name) {
+            displayName = String(lastCall[0].caller_name || lastCall[0].client_name);
+          }
+        } catch {
+          // Ignorar fallo de búsqueda en pbx_call_logs
+        }
+      }
+    }
+
+    customer = {
+      id: customerId,
+      first_name: displayName,
+      last_name: '',
+      phone: phone || 'Sin número',
+      company: null,
+      address_shipping: null,
+      is_unregistered: true,
+    };
   }
 
   const pSuffix = phoneSuffix(phone);
@@ -292,18 +357,41 @@ export async function getCustomerTimeline(
       [customerId],
     );
     orderRows = orders;
+  } else if (pSuffix && pSuffix.length >= 5) {
+    try {
+      const [orders] = await pool.query<RowDataPacket[]>(
+        `SELECT o.id, o.order_code, o.brand, o.model, o.year, o.status, o.advisor, o.total_price, o.down_payment, o.created_at, o.delivered_at
+           FROM orders o
+           JOIN customers c ON c.id = o.customer_id
+          WHERE (c.phone LIKE ? OR c.whatsapp LIKE ?) AND o.deleted_at IS NULL
+          ORDER BY o.created_at DESC`,
+        [`%${pSuffix}`, `%${pSuffix}`],
+      );
+      orderRows = orders;
+    } catch {
+      // Ignorar si falla lectura de órdenes por teléfono
+    }
   }
 
   // 3. Notas de conversación dejadas por empleados
   try {
-    const [noteRows] = await pool.query<RowDataPacket[]>(
-      `SELECT n.id, n.order_id, n.author_name, n.note_type, n.content, n.created_at, o.order_code
-         FROM customer_conversation_notes n
-         LEFT JOIN orders o ON o.id = n.order_id
-        WHERE n.customer_id = ?
-        ORDER BY n.created_at DESC`,
-      [customerId],
-    );
+    const noteParams: unknown[] = [customerId];
+    let noteSql = `
+      SELECT n.id, n.order_id, n.author_name, n.note_type, n.content, n.created_at, o.order_code
+        FROM customer_conversation_notes n
+        LEFT JOIN orders o ON o.id = n.order_id
+        LEFT JOIN customers c ON c.id = n.customer_id
+       WHERE (n.customer_id = ?
+    `;
+    if (pSuffix && pSuffix.length >= 5) {
+      noteSql += ` OR c.phone LIKE ? OR c.whatsapp LIKE ?)`;
+      noteParams.push(`%${pSuffix}`, `%${pSuffix}`);
+    } else {
+      noteSql += `)`;
+    }
+    noteSql += ` ORDER BY n.created_at DESC`;
+
+    const [noteRows] = await pool.query<RowDataPacket[]>(noteSql, noteParams);
     for (const r of noteRows) {
       events.push({
         id: `note-${r.id}`,

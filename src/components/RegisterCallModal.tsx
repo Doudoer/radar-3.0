@@ -4,7 +4,7 @@ import { apiFetch } from '../services/apiFetch';
 export interface RegisterCallModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: () => void;
+  onSuccess?: (createdCustomer?: { customerId: number; customerName: string; phone: string }) => void;
   initialCall?: {
     callerNumber?: string | null;
     callerName?: string | null;
@@ -273,11 +273,19 @@ export const RegisterCallModal: React.FC<RegisterCallModalProps> = ({
           whatAgentSaid: whatAgentSaid.trim(),
           agreement: agreement.trim(),
           orderId: selectedOrderId ? Number(selectedOrderId) : null,
+          phone: selectedCustomer.phone,
+          customerName: selectedCustomer.name,
         }),
       });
 
       if (res.ok) {
-        onSuccess?.();
+        const data = await res.json().catch(() => ({}));
+        const finalId = Number(data.customerId || selectedCustomer.id);
+        onSuccess?.({
+          customerId: finalId,
+          customerName: selectedCustomer.name,
+          phone: selectedCustomer.phone,
+        });
         onClose();
       } else {
         const err = await res.json().catch(() => ({}));

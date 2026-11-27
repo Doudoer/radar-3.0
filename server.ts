@@ -3185,7 +3185,7 @@ const server = createServer(async (request, response) => {
       return sendJson(response, 200, timeline);
     }
 
-    const customerNoteId = pathname.match(/^\/api\/communications\/customers\/(\d+)\/notes$/)?.[1];
+    const customerNoteId = pathname.match(/^\/api\/communications\/customers\/(-?\d+)\/notes$/)?.[1];
     if (request.method === 'POST' && customerNoteId) {
       if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'dispatcher', 'rct', 'marketing')) return;
       const body = z.object({
@@ -3197,6 +3197,8 @@ const server = createServer(async (request, response) => {
         callDate: z.string().optional(),
         noteType: z.enum(['nota', 'acuerdo', 'llamada_manual', 'call_summary']).default('call_summary'),
         orderId: z.number().nullable().optional(),
+        phone: z.string().trim().optional(),
+        customerName: z.string().trim().optional(),
       }).parse(await readBody(request));
 
       let content = (body.content || '').trim();
@@ -3221,6 +3223,40 @@ const server = createServer(async (request, response) => {
         return sendJson(response, 400, { message: 'Debes ingresar lo conversado o el resumen de la llamada.' });
       }
 
+      let targetCustomerId = Number(customerNoteId);
+      if (targetCustomerId <= 0) {
+        const phone = body.phone?.trim() || '';
+        const clean = phone.replace(/\D/g, '');
+        const pSuff = clean.length > 7 ? clean.slice(-8) : clean;
+        if (pSuff) {
+          const [existing] = await pool.query<RowDataPacket[]>(
+            `SELECT id FROM customers WHERE deleted_at IS NULL AND (phone LIKE ? OR whatsapp LIKE ?) LIMIT 1`,
+            [`%${pSuff}`, `%${pSuff}`],
+          );
+          if (existing.length > 0) {
+            targetCustomerId = Number(existing[0].id);
+          } else if (phone) {
+            const nameParts = (body.customerName || 'Cliente').trim().split(/\s+/);
+            const firstName = nameParts[0] || 'Cliente';
+            const lastName = nameParts.slice(1).join(' ') || null;
+            const [ins] = await pool.execute<ResultSetHeader>(
+              `INSERT INTO customers (first_name, last_name, phone, whatsapp) VALUES (?, ?, ?, ?)`,
+              [firstName, lastName, phone, phone],
+            );
+            targetCustomerId = ins.insertId;
+            const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+            await pool.execute(
+              `UPDATE pbx_call_logs SET client_id = ?, client_name = ? WHERE caller_number LIKE ?`,
+              [targetCustomerId, fullName, `%${pSuff}`],
+            ).catch(() => {});
+          }
+        }
+      }
+
+      if (targetCustomerId <= 0) {
+        return sendJson(response, 400, { message: 'No se pudo vincular la nota a un cliente registrado ni se proporcionó un número telefónico válido.' });
+      }
+
       const userId = authenticatedClaims?.sub ? Number(authenticatedClaims.sub) : null;
       let authorName = 'Operador';
       if (userId) {
@@ -3233,7 +3269,7 @@ const server = createServer(async (request, response) => {
       }
 
       const created = await addCustomerConversationNote(pool, {
-        customerId: Number(customerNoteId),
+        customerId: targetCustomerId,
         orderId: body.orderId,
         userId,
         authorName,
@@ -3242,7 +3278,7 @@ const server = createServer(async (request, response) => {
         createdAt: body.callDate,
       });
 
-      return sendJson(response, 201, { ok: true, note: created });
+      return sendJson(response, 201, { ok: true, note: created, customerId: targetCustomerId });
     }
 
     // ==========================================
@@ -3274,6 +3310,29 @@ const server = createServer(async (request, response) => {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [firstName, lastName, data.phone, data.whatsapp || data.phone, data.email || null, shipping, data.zip_code || null, data.language || 'es', data.notes || null, data.company || null, data.type]
       );
+
+      // Vincular inmediatamente llamadas PBX y bitácora previas de este teléfono al nuevo cliente
+      try {
+        const cleanPhone = (data.phone || '').replace(/\D/g, '');
+        const pSuff = cleanPhone.length > 7 ? cleanPhone.slice(-8) : cleanPhone;
+        if (pSuff && pSuff.length >= 6) {
+          const custFullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+          await pool.execute(
+            `UPDATE pbx_call_logs 
+                SET client_id = ?, client_name = ?
+              WHERE caller_number LIKE ?`,
+            [result.insertId, custFullName, `%${pSuff}`],
+          );
+          await pool.execute(
+            `UPDATE call_register 
+                SET customer_id = ?
+              WHERE phone LIKE ? AND customer_id IS NULL`,
+            [result.insertId, `%${pSuff}`],
+          );
+        }
+      } catch {
+        // No crítico
+      }
 
       const [rows] = await pool.query<RowDataPacket[]>(
         'SELECT c.*, 0 AS order_count FROM customers c WHERE c.id = ? LIMIT 1',

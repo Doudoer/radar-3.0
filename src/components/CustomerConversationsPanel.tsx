@@ -296,16 +296,23 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
             whatAgentSaid: whatAgentSaid.trim(),
             agreement: agreement.trim(),
             orderId: callOrderId ? Number(callOrderId) : null,
+            phone: selectedCustomerPhone || timelineCustomer?.phone || '',
+            customerName: timelineCustomer?.first_name ? `${timelineCustomer.first_name} ${timelineCustomer.last_name || ''}`.trim() : '',
           }),
         });
 
         if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const finalId = Number(data.customerId || selectedCustomerId);
+          if (finalId !== selectedCustomerId) {
+            setSelectedCustomerId(finalId);
+          }
           setWhatCustomerSaid('');
           setWhatAgentSaid('');
           setAgreement('');
           setCallOrderId('');
           setCallDate(getNowLocalString());
-          await loadTimeline(selectedCustomerId);
+          await loadTimeline(finalId, selectedCustomerPhone);
           void loadCustomers(search);
         } else {
           const err = await res.json().catch(() => ({}));
@@ -331,13 +338,20 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
             content: newNoteContent.trim(),
             noteType: newNoteType,
             orderId: newNoteOrderId ? Number(newNoteOrderId) : null,
+            phone: selectedCustomerPhone || timelineCustomer?.phone || '',
+            customerName: timelineCustomer?.first_name ? `${timelineCustomer.first_name} ${timelineCustomer.last_name || ''}`.trim() : '',
           }),
         });
 
         if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const finalId = Number(data.customerId || selectedCustomerId);
+          if (finalId !== selectedCustomerId) {
+            setSelectedCustomerId(finalId);
+          }
           setNewNoteContent('');
           setNewNoteOrderId('');
-          await loadTimeline(selectedCustomerId);
+          await loadTimeline(finalId, selectedCustomerPhone);
           void loadCustomers(search);
         } else {
           const err = await res.json().catch(() => ({}));
@@ -475,7 +489,7 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
             </div>
           ) : (
             displayedCustomers.map((c) => {
-              const isSelected = c.customerId === selectedCustomerId;
+              const isSelected = c.customerId === selectedCustomerId || Boolean(c.phone && selectedCustomerPhone && c.phone === selectedCustomerPhone);
               const isUnreg = Boolean(c.isUnregistered);
 
               return (
@@ -504,7 +518,7 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
                         ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                         : 'bg-slate-800 text-cyan-300 border border-cyan-500/30'
                   }`}>
-                    {isUnreg ? (
+                    {isUnreg && (!c.customerName || c.customerName === 'Número no registrado') ? (
                       <span aria-hidden="true" className="material-symbols-outlined text-[18px]">contact_phone</span>
                     ) : (
                       c.customerName.slice(0, 2).toUpperCase()
@@ -636,7 +650,7 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
                     ? 'bg-amber-500 text-slate-950'
                     : 'bg-gradient-to-br from-cyan-500 to-blue-600 text-slate-950'
                 }`}>
-                  {timelineCustomer.is_unregistered ? (
+                  {timelineCustomer.is_unregistered && (!timelineCustomer.first_name || timelineCustomer.first_name === 'Número' || timelineCustomer.first_name === 'Número no registrado') ? (
                     <span aria-hidden="true" className="material-symbols-outlined text-[24px]">contact_phone</span>
                   ) : (
                     <>{timelineCustomer.first_name?.[0] || 'C'}{timelineCustomer.last_name?.[0] || ''}</>
@@ -646,7 +660,9 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
                   <div className="flex items-center gap-2">
                     <h2 className="text-base font-black text-white truncate">
                       {timelineCustomer.is_unregistered
-                        ? timelineCustomer.phone
+                        ? (timelineCustomer.first_name && timelineCustomer.first_name !== 'Número no registrado' && timelineCustomer.first_name !== 'Número'
+                            ? timelineCustomer.first_name
+                            : timelineCustomer.phone)
                         : `${timelineCustomer.first_name} ${timelineCustomer.last_name || ''}`}
                     </h2>
                     {timelineCustomer.is_unregistered ? (
@@ -1161,10 +1177,14 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
       <RegisterCallModal
         isOpen={registerModalOpen}
         onClose={() => setRegisterModalOpen(false)}
-        onSuccess={() => {
+        onSuccess={(created) => {
           setRegisterModalOpen(false);
-          if (selectedCustomerId) {
-            void loadTimeline(selectedCustomerId);
+          const targetId = created?.customerId || selectedCustomerId;
+          const targetPhone = created?.phone || selectedCustomerPhone;
+          if (targetId) {
+            setSelectedCustomerId(targetId);
+            if (targetPhone) setSelectedCustomerPhone(targetPhone);
+            void loadTimeline(targetId, targetPhone);
           }
           void loadCustomers(search);
         }}

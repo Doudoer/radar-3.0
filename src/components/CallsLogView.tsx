@@ -301,6 +301,12 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
     setInternalTab(next);
     onTabChange?.(next);
   }, [onTabChange]);
+  const [conversationCustomerId, setConversationCustomerId] = useState<number | null>(initialCustomerId || null);
+  useEffect(() => {
+    if (initialCustomerId) {
+      setConversationCustomerId(initialCustomerId);
+    }
+  }, [initialCustomerId]);
   const [selectedDate, setSelectedDate] = useState<string>(() => getBusinessToday());
   const [todayDate, setTodayDate] = useState<string>(() => getBusinessToday());
   const [calls, setCalls] = useState<CallLogRow[]>([]);
@@ -827,7 +833,7 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
       {tab === 'conversations' ? (
         <CustomerConversationsPanel
           onSelectOrder={onSelectOrder}
-          initialCustomerId={initialCustomerId}
+          initialCustomerId={conversationCustomerId}
         />
       ) : tab === 'daily' ? (
         <>
@@ -2248,10 +2254,14 @@ export const CallsLogView: React.FC<CallsLogViewProps> = ({
       <RegisterCallModal
         isOpen={registerModalOpen}
         onClose={() => setRegisterModalOpen(false)}
-        onSuccess={() => {
+        onSuccess={(created) => {
           setRegisterModalOpen(false);
           setCallSavedSuccess('¡Resumen de llamada registrado exitosamente en el expediente del cliente!');
           setTimeout(() => setCallSavedSuccess(null), 5000);
+          if (created?.customerId) {
+            setConversationCustomerId(created.customerId);
+            setTab('conversations');
+          }
         }}
         initialCall={selectedCallForRegister}
       />
