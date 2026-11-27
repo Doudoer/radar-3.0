@@ -276,7 +276,7 @@ export const syncRefundCommissions = async (
           // Escenario A: Misma semana de entrega -> se descuentan AMBAS comisiones ($5 venta y $2 cierre)
           await pool.execute(
             `UPDATE employee_commissions
-                SET status = 'voided_refund', voided_at = ?
+                SET status = 'voided_availability', notes = 'voided_refund', voided_at = ?
               WHERE order_id = ?
                 AND status IN ('earned', 'pending_yard_check')`,
             [refundSql, orderId],
@@ -285,7 +285,7 @@ export const syncRefundCommissions = async (
           // Escenario B: Semana posterior a la entrega -> SOLO se descuentan los $2 del cierre
           await pool.execute(
             `UPDATE employee_commissions
-                SET status = 'voided_refund', voided_at = ?
+                SET status = 'voided_availability', notes = 'voided_refund', voided_at = ?
               WHERE order_id = ?
                 AND type = 'delivered_closed'
                 AND status IN ('earned', 'pending_yard_check')`,
@@ -294,10 +294,10 @@ export const syncRefundCommissions = async (
           // Los $5 de venta NO se descuentan; si estaban marcados como voided_refund, se restauran a earned
           await pool.execute(
             `UPDATE employee_commissions
-                SET status = 'earned', voided_at = NULL
+                SET status = 'earned', notes = NULL, voided_at = NULL
               WHERE order_id = ?
                 AND type = 'downpayment_sale'
-                AND status = 'voided_refund'`,
+                AND notes = 'voided_refund'`,
             [orderId],
           );
         }
@@ -305,7 +305,7 @@ export const syncRefundCommissions = async (
         // Orden no entregada (cancelada o reembolsada en preparación) -> anular comisión de venta
         await pool.execute(
           `UPDATE employee_commissions
-              SET status = 'voided_refund', voided_at = ?
+              SET status = 'voided_availability', notes = 'voided_refund', voided_at = ?
             WHERE order_id = ?
               AND status IN ('earned', 'pending_yard_check')`,
           [refundSql, orderId],
@@ -316,8 +316,8 @@ export const syncRefundCommissions = async (
     // Restaurar comisiones si la solicitud de reembolso fue cancelada o rechazada
     await pool.execute(
       `UPDATE employee_commissions c
-          SET c.status = 'earned', c.voided_at = NULL
-        WHERE c.status = 'voided_refund'
+          SET c.status = 'earned', c.notes = NULL, c.voided_at = NULL
+        WHERE c.notes = 'voided_refund'
           AND NOT EXISTS (
             SELECT 1 FROM refund_requests r
              WHERE r.order_id = c.order_id
@@ -343,7 +343,7 @@ export const getUserCommissionsSummary = async (
   const endSql = toSqlDate(new Date(period.end));
 
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT c.id, c.user_id, c.order_id, c.type, c.amount, c.status,
+    `SELECT c.id, c.user_id, c.order_id, c.type, c.amount, c.status, c.notes,
             c.available_at, c.earned_at, c.voided_at, c.created_at,
             o.order_code, o.year, o.brand, o.model, o.created_at AS order_created_at,
             cust.first_name, cust.last_name
@@ -355,15 +355,14 @@ export const getUserCommissionsSummary = async (
           (c.status = 'earned' AND c.earned_at >= ? AND c.earned_at <= ?)
           OR c.status = 'pending_yard_check'
           OR (c.status = 'voided_availability' AND c.voided_at >= ? AND c.voided_at <= ?)
-          OR (c.status = 'voided_refund' AND c.voided_at >= ? AND c.voided_at <= ?)
         )
         AND (
           c.type != 'delivered_closed'
-          OR c.status = 'voided_refund'
+          OR c.notes = 'voided_refund'
           OR (o.created_at >= ? AND o.created_at <= ?)
         )
       ORDER BY c.created_at DESC`,
-    [userId, startSql, endSql, startSql, endSql, startSql, endSql, startSql, endSql],
+    [userId, startSql, endSql, startSql, endSql, startSql, endSql],
   );
 
   const items: EmployeeCommissionItem[] = rows.map((r) => {
@@ -372,6 +371,7 @@ export const getUserCommissionsSummary = async (
     const minutesRemaining = msRemaining > 0 ? Math.ceil(msRemaining / 60_000) : 0;
     const vehicle = [r.year, r.brand, r.model].filter(Boolean).join(' ');
     const customerName = [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || 'Cliente';
+    const status: EmployeeCommissionItem['status'] = r.notes === 'voided_refund' ? 'voided_refund' : r.status;
 
     return {
       id: Number(r.id),
@@ -380,7 +380,7 @@ export const getUserCommissionsSummary = async (
       orderCode: String(r.order_code || ''),
       type: r.type,
       amount: Number(r.amount),
-      status: r.status,
+      status,
       availableAt: r.available_at ? new Date(r.available_at).toISOString() : '',
       earnedAt: r.earned_at ? new Date(r.earned_at).toISOString() : null,
       voidedAt: r.voided_at ? new Date(r.voided_at).toISOString() : null,

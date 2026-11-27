@@ -350,8 +350,8 @@ describe('Employee Commissions & Salary Protection', () => {
 
       await syncRefundCommissions(mockPool, sameWeekRefund);
 
-      // Should void commissions for order_id 101 with status = 'voided_refund'
-      const voidCall = executed.find(e => e.sql.includes('status = \'voided_refund\'') && e.params?.[1] === 101);
+      // Should void commissions for order_id 101 with status = 'voided_availability' and notes = 'voided_refund'
+      const voidCall = executed.find(e => e.sql.includes('notes = \'voided_refund\'') && e.params?.[1] === 101);
       expect(voidCall).toBeDefined();
     });
 
@@ -383,7 +383,7 @@ describe('Employee Commissions & Salary Protection', () => {
 
       // Should void ONLY delivered_closed commission
       const voidDeliveryCall = executed.find(
-        e => e.sql.includes('status = \'voided_refund\'') &&
+        e => e.sql.includes('notes = \'voided_refund\'') &&
              e.sql.includes('type = \'delivered_closed\'') &&
              e.params?.[1] === 102
       );
@@ -421,7 +421,7 @@ describe('Employee Commissions & Salary Protection', () => {
 
       await syncRefundCommissions(mockPool, refundDate);
 
-      const voidCall = executed.find(e => e.sql.includes('status = \'voided_refund\'') && e.params?.[1] === 103);
+      const voidCall = executed.find(e => e.sql.includes('notes = \'voided_refund\'') && e.params?.[1] === 103);
       expect(voidCall).toBeDefined();
     });
   });
