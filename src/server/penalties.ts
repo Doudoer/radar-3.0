@@ -449,12 +449,14 @@ export const syncPenalties = async (pool: Pool, now = new Date()): Promise<void>
     // First, remove any historical penalties from exempt numbers
     await cleanExemptCallPenalties(pool);
 
+    const callScanStart = accrualStart.getTime() > periodStart.getTime() ? accrualStart : periodStart;
+
     const [callRows] = await pool.query<RowDataPacket[]>(
       `SELECT id, caller_number, caller_name, direction, destination, answered_by_ext, rejected_by_exts,
               status, started_at
          FROM pbx_call_logs
         WHERE direction = 'inbound' AND started_at >= ? AND started_at <= ?`,
-      [toSqlDate(periodStart), toSqlDate(now)],
+      [toSqlDate(callScanStart), toSqlDate(now)],
     );
 
     const [extUserRows] = await pool.query<RowDataPacket[]>(
