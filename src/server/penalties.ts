@@ -32,12 +32,28 @@ export interface PenaltySourceSummary {
   amount: number;
 }
 
+export interface PenaltyAppealInfo {
+  id: number;
+  category: string;
+  reason: string;
+  evidenceUrls: string[];
+  status: 'pending' | 'approved' | 'rejected';
+  resolutionNote?: string | null;
+  reviewedBy?: number | null;
+  reviewedByName?: string | null;
+  reviewedAt?: string | null;
+  createdAt: string;
+}
+
 export interface PenaltyOrderLine extends PenaltySourceSummary {
+  id: number;
   orderId: number;
   orderCode: string;
   customerName: string;
   date: string | null;
   nextDueDate: string | null;
+  status: string;
+  appeal?: PenaltyAppealInfo | null;
 }
 
 export interface PenaltyHistoryEntry {
@@ -56,6 +72,7 @@ export interface UserPenaltySnapshot {
   enabled: boolean;
   period: { start: string; end: string; label: string; cutoffLabel: string };
   open: { units: number; percent: number; amount: number; lines: PenaltySourceSummary[] };
+  appealed?: { units: number; percent: number; amount: number; count: number };
   details: PenaltyOrderLine[];
   history: PenaltyHistoryEntry[];
   commissions?: EmployeeCommissionsSummary;
@@ -577,17 +594,41 @@ export const getUserPenaltySnapshot = async (pool: Pool, userId: number, now = n
   const period = payPeriodFor(now);
   const cutoff = latestCutoff(now);
 
-  const [detailRows] = await pool.query<RowDataPacket[]>(
-    `SELECT p.source, p.reference_key, p.units, p.percent, p.amount, p.period_end, p.cutoff_at, p.status,
-            p.order_id, o.order_code, c.first_name, c.last_name, o.delivered_at,
-            o.yard_piece_ready_at, o.workflow_data
-       FROM order_penalties p
-       LEFT JOIN orders o ON o.id=p.order_id
-       LEFT JOIN customers c ON c.id=o.customer_id
-      WHERE p.user_id=? AND p.period_end=?
-      ORDER BY p.amount DESC, p.id DESC`,
-    [userId, toSqlDate(new Date(period.end))],
-  );
+  let detailRows: RowDataPacket[] = [];
+  try {
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT p.id, p.source, p.reference_key, p.units, p.percent, p.amount, p.period_end, p.cutoff_at, p.status,
+              p.order_id, o.order_code, c.first_name, c.last_name, o.delivered_at,
+              o.yard_piece_ready_at, o.workflow_data,
+              pa.id AS appeal_id, pa.category AS appeal_category, pa.reason AS appeal_reason,
+              pa.evidence_urls AS appeal_evidence_urls, pa.status AS appeal_status,
+              pa.resolution_note AS appeal_resolution_note, pa.reviewed_by AS appeal_reviewed_by,
+              pa.reviewed_at AS appeal_reviewed_at, pa.created_at AS appeal_created_at,
+              u_rev.name AS appeal_reviewer_name
+         FROM order_penalties p
+         LEFT JOIN orders o ON o.id=p.order_id
+         LEFT JOIN customers c ON c.id=o.customer_id
+         LEFT JOIN penalty_appeals pa ON pa.penalty_id=p.id
+         LEFT JOIN users u_rev ON u_rev.id=pa.reviewed_by
+        WHERE p.user_id=? AND p.period_end=?
+        ORDER BY p.amount DESC, p.id DESC`,
+      [userId, toSqlDate(new Date(period.end))],
+    );
+    detailRows = rows;
+  } catch {
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT p.id, p.source, p.reference_key, p.units, p.percent, p.amount, p.period_end, p.cutoff_at, p.status,
+              p.order_id, o.order_code, c.first_name, c.last_name, o.delivered_at,
+              o.yard_piece_ready_at, o.workflow_data
+         FROM order_penalties p
+         LEFT JOIN orders o ON o.id=p.order_id
+         LEFT JOIN customers c ON c.id=o.customer_id
+        WHERE p.user_id=? AND p.period_end=?
+        ORDER BY p.amount DESC, p.id DESC`,
+      [userId, toSqlDate(new Date(period.end))],
+    );
+    detailRows = rows;
+  }
   const details: PenaltyOrderLine[] = detailRows
     .filter(row => row.status !== 'void' && row.status !== 'rejected')
     .map(row => {
@@ -601,7 +642,34 @@ export const getUserPenaltySnapshot = async (pool: Pool, userId: number, now = n
       const orderCode = String(row.order_code || (isCall ? row.reference_key : ''));
       const customer = row.order_id > 0 ? customerName(row) : fallbackName;
 
+      let appeal: PenaltyAppealInfo | null = null;
+      if (row.appeal_id) {
+        let evUrls: string[] = [];
+        try {
+          evUrls = typeof row.appeal_evidence_urls === 'string'
+            ? JSON.parse(row.appeal_evidence_urls)
+            : Array.isArray(row.appeal_evidence_urls) ? row.appeal_evidence_urls : [];
+        } catch {
+          evUrls = [];
+        }
+        appeal = {
+          id: Number(row.appeal_id),
+          category: String(row.appeal_category || 'other'),
+          reason: String(row.appeal_reason || ''),
+          evidenceUrls: evUrls,
+          status: (row.appeal_status as any) || 'pending',
+          resolutionNote: row.appeal_resolution_note ? String(row.appeal_resolution_note) : null,
+          reviewedBy: row.appeal_reviewed_by ? Number(row.appeal_reviewed_by) : null,
+          reviewedByName: row.appeal_reviewer_name ? String(row.appeal_reviewer_name) : null,
+          reviewedAt: parseDate(row.appeal_reviewed_at),
+          createdAt: parseDate(row.appeal_created_at) || new Date().toISOString(),
+        };
+      }
+
+      const effectiveStatus = appeal?.status === 'pending' ? 'appealed' : String(row.status || 'pending');
+
       return {
+        id: Number(row.id || 0),
         source: row.source,
         units: Number(row.units),
         percent: Number(row.percent),
@@ -617,12 +685,27 @@ export const getUserPenaltySnapshot = async (pool: Pool, userId: number, now = n
               : row.delivered_at || row.cutoff_at,
         ),
         nextDueDate: null,
+        status: effectiveStatus,
+        appeal,
       };
     });
+
+  const activeDetails = details.filter(line => line.status !== 'appealed');
+  const appealedDetails = details.filter(line => line.status === 'appealed');
+
   const open = summarizePenalties(salary, rate, (['post_delivery', 'ready_piece', 'ack_notification', 'claim', 'call_missed', 'call_rejected'] as const).map(source => ({
     source,
-    units: details.filter(line => line.source === source).reduce((total, line) => total + line.units, 0),
+    units: activeDetails.filter(line => line.source === source).reduce((total, line) => total + line.units, 0),
   })));
+
+  const appealedUnits = appealedDetails.reduce((t, l) => t + l.units, 0);
+  const appealedPercent = Math.round(appealedUnits * rate * 100) / 100;
+  const appealed = {
+    units: appealedUnits,
+    percent: appealedPercent,
+    amount: Math.round(appealedDetails.reduce((t, l) => t + l.amount, 0) * 100) / 100,
+    count: appealedDetails.length,
+  };
 
   // Commissions, previous carryover debt and salary-protected settlement
   let commissions: EmployeeCommissionsSummary | undefined;
@@ -672,6 +755,7 @@ export const getUserPenaltySnapshot = async (pool: Pool, userId: number, now = n
       cutoffLabel: `Se descuenta el sábado ${localDateKey(new Date(period.end)).slice(8, 10)} a las 6:00 p. m.`,
     },
     open,
+    appealed,
     details,
     history,
     commissions,

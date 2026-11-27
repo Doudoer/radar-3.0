@@ -437,3 +437,21 @@ export const orderDeliveryFollowupSchema = z.object({
   notes: z.string().trim().min(5, 'Las notas de la llamada deben contener al menos 5 caracteres').max(5000),
   operatorName: z.string().trim().max(200).optional().nullable(),
 });
+
+export const penaltyAppealSchema = z.object({
+  category: z.enum([
+    'technical_issue',
+    'customer_hung_up',
+    'customer_postponed',
+    'wrong_number',
+    'authorized_absence',
+    'other',
+  ]).default('other'),
+  reason: z.string().trim().min(3, 'Explica tu apelación con al menos 3 caracteres').max(1000),
+  evidenceUrls: z.array(z.string().trim()).optional().default([]),
+});
+
+export const penaltyAppealResolveSchema = z.object({
+  decision: z.enum(['approved', 'rejected']),
+  note: z.string().trim().max(500).optional().nullable(),
+});

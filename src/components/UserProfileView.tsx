@@ -29,7 +29,21 @@ interface ProfileInfo {
   hasPin: boolean;
 }
 
+export interface PenaltyAppealData {
+  id: number;
+  category: string;
+  reason: string;
+  evidenceUrls?: string[];
+  status: 'pending' | 'approved' | 'rejected';
+  resolutionNote?: string | null;
+  reviewedBy?: number | null;
+  reviewedByName?: string | null;
+  reviewedAt?: string | null;
+  createdAt: string;
+}
+
 export interface PenaltySourceLine {
+  id?: number;
   source: 'post_delivery' | 'ready_piece' | 'ack_notification' | 'claim' | 'call_missed' | 'call_rejected';
   units: number;
   percent: number;
@@ -38,6 +52,8 @@ export interface PenaltySourceLine {
   orderCode?: string;
   customerName?: string;
   date?: string | null;
+  status?: string;
+  appeal?: PenaltyAppealData | null;
 }
 
 export interface PenaltySnapshot {
@@ -47,12 +63,22 @@ export interface PenaltySnapshot {
   enabled: boolean;
   period: { start: string; end: string; label: string; cutoffLabel: string };
   open: { units: number; percent: number; amount: number; lines: PenaltySourceLine[] };
+  appealed?: { units: number; percent: number; amount: number; count: number };
   details: PenaltySourceLine[];
   history: Array<{ periodEnd: string; units: number; percent: number; amount: number; cutAt: string; status: string }>;
   commissions?: EmployeeCommissionsSummary;
   carryoverDebt?: { totalDebt: number; lastPeriodEnd: string | null };
   settlement?: EmployeeSettlementSummary;
 }
+
+export const PENALTY_APPEAL_CATEGORIES: Record<string, { label: string; icon: string }> = {
+  technical_issue: { label: 'Falla técnica / conexión / corte', icon: 'wifi_off' },
+  customer_hung_up: { label: 'Cliente cortó llamada', icon: 'phone_disabled' },
+  customer_postponed: { label: 'Cliente pospuso / no disponible', icon: 'schedule' },
+  wrong_number: { label: 'Número equivocado o inactivo', icon: 'error_outline' },
+  authorized_absence: { label: 'Permiso laboral justificado', icon: 'event_busy' },
+  other: { label: 'Otra causa justificada', icon: 'help_outline' },
+};
 
 export interface FaultAppeal {
   id: number;
@@ -362,7 +388,20 @@ const shortDate = (value?: string | null) =>
 export const PenaltyCard: React.FC<{
   penalties: PenaltySnapshot;
   tone: Tone;
-}> = ({ penalties, tone }) => {
+  canManage?: boolean;
+  isSelf?: boolean;
+  onAppealPenalty?: (penalty: PenaltySourceLine) => void;
+  onResolvePenaltyAppeal?: (penalty: PenaltySourceLine) => void;
+  onOpenAppealsBatch?: () => void;
+}> = ({
+  penalties,
+  tone,
+  canManage = false,
+  isSelf = false,
+  onAppealPenalty,
+  onResolvePenaltyAppeal,
+  onOpenAppealsBatch,
+}) => {
   const sourceRows = (['post_delivery', 'claim', 'ready_piece', 'ack_notification', 'call_missed', 'call_rejected'] as const).map(source => {
     const lines = penalties.open.lines.filter(line => line.source === source);
     return {
@@ -377,7 +416,20 @@ export const PenaltyCard: React.FC<{
     <section className={`rounded-3xl px-5 py-5 sm:px-6 ${tone.card}`} aria-labelledby="profile-penalties-heading">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 id="profile-penalties-heading" className={`font-mono text-[10px] font-bold uppercase tracking-[0.14em] ${tone.muted}`}>Amonestaciones</h2>
+          <div className="flex items-center gap-2">
+            <h2 id="profile-penalties-heading" className={`font-mono text-[10px] font-bold uppercase tracking-[0.14em] ${tone.muted}`}>Amonestaciones</h2>
+            {canManage && onOpenAppealsBatch && (
+              <button
+                type="button"
+                onClick={onOpenAppealsBatch}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-300 border border-sky-400/30 hover:bg-sky-500/25 transition cursor-pointer"
+                title="Bandeja de apelaciones de amonestaciones"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[11px]">balance</span>
+                <span>Apelaciones</span>
+              </button>
+            )}
+          </div>
           <p className={`mt-1 text-xs ${tone.muted}`}>{penalties.period.cutoffLabel}</p>
         </div>
         <div className="text-right">
@@ -389,6 +441,26 @@ export const PenaltyCard: React.FC<{
           </p>
         </div>
       </div>
+
+      {penalties.appealed && penalties.appealed.count > 0 && (
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-sky-500/30 bg-sky-500/10 px-3.5 py-2.5 text-xs text-sky-200">
+          <div className="flex items-center gap-2 min-w-0">
+            <span aria-hidden="true" className="material-symbols-outlined text-sky-400 text-[18px] shrink-0">balance</span>
+            <span className="truncate">
+              <strong>{penalties.appealed.count} cargo(s) en pausa cautelar</strong> ({formatUsd(penalties.appealed.amount)}). No se descontarán mientras estén bajo evaluación.
+            </span>
+          </div>
+          {canManage && onOpenAppealsBatch && (
+            <button
+              type="button"
+              onClick={onOpenAppealsBatch}
+              className="shrink-0 px-2.5 py-1 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 border border-sky-400/40 text-[11px] font-bold transition cursor-pointer"
+            >
+              Revisar apelaciones
+            </button>
+          )}
+        </div>
+      )}
 
       {!penalties.enabled && (
         <p className={`mt-3 rounded-xl px-3 py-2 text-[11.5px] ${tone.warningBox}`}>
@@ -444,25 +516,75 @@ export const PenaltyCard: React.FC<{
       </details>
 
       {penalties.details.length > 0 && (
-        <details className="group mt-2 border-t border-[var(--border-subtle)] pt-3">
+        <details className="group mt-2 border-t border-[var(--border-subtle)] pt-3" open={penalties.appealed && penalties.appealed.count > 0}>
           <summary className={`flex cursor-pointer list-none items-center gap-1.5 text-[11.5px] font-bold [&::-webkit-details-marker]:hidden ${tone.heading}`}>
             <span aria-hidden="true" className="material-symbols-outlined text-[15px] transition-transform group-open:rotate-180">expand_more</span>
             Cargos del período ({penalties.details.length})
           </summary>
-          <div className="mt-2 space-y-1">
-            {penalties.details.map((line, index) => (
-              <div key={`${line.orderId}-${line.source}-${index}`} className="flex flex-wrap items-center justify-between gap-2 py-1.5 text-[11px]">
-                <div className="min-w-0">
-                  <p className={`truncate font-semibold ${tone.heading}`}>
-                    {PENALTY_SOURCE_LABELS[line.source].label} · {line.orderCode || 'Orden'}
-                  </p>
-                  <p className={`truncate text-[10.5px] ${tone.muted}`}>
-                    {line.customerName || 'Cliente'} · {shortDate(line.date)} · {line.units} × {formatPercent(penalties.rate)}
-                  </p>
+          <div className="mt-2 divide-y divide-[var(--border-subtle)] space-y-0">
+            {penalties.details.map((line, index) => {
+              const isAppealed = line.status === 'appealed' || line.appeal?.status === 'pending';
+              const isRejected = line.appeal?.status === 'rejected';
+              return (
+                <div key={`${line.orderId || 0}-${line.source}-${line.id || index}`} className="flex flex-wrap items-center justify-between gap-2 py-2 text-[11px]">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className={`truncate font-semibold ${tone.heading}`}>
+                        {PENALTY_SOURCE_LABELS[line.source].label} · {line.orderCode || 'Llamada PBX'}
+                      </p>
+                      {isAppealed && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-300 border border-sky-400/30">
+                          <span aria-hidden="true" className="material-symbols-outlined text-[11px]">balance</span>
+                          En revisión (pausada)
+                        </span>
+                      )}
+                      {isRejected && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-300 border border-rose-400/30" title={line.appeal?.resolutionNote || 'Apelación rechazada'}>
+                          <span aria-hidden="true" className="material-symbols-outlined text-[11px]">cancel</span>
+                          Apelación rechazada
+                        </span>
+                      )}
+                    </div>
+                    <p className={`truncate text-[10.5px] ${tone.muted}`}>
+                      {line.customerName || 'Cliente'} · {shortDate(line.date)} · {line.units} × {formatPercent(penalties.rate)}
+                    </p>
+                    {line.appeal && (
+                      <p className="mt-0.5 text-[10px] text-sky-300/80 italic">
+                        Motivo: {PENALTY_APPEAL_CATEGORIES[line.appeal.category]?.label || line.appeal.category} — &ldquo;{line.appeal.reason}&rdquo;
+                        {line.appeal.resolutionNote ? ` (Nota administración: ${line.appeal.resolutionNote})` : ''}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <p className={`font-bold tabular-nums ${isAppealed ? 'text-sky-300 line-through opacity-75' : tone.warningText}`}>
+                      {formatPercent(line.percent)} · {formatUsd(line.amount)}
+                    </p>
+                    {/* Botón Apelar si no está en pausa cautelar ni exonerada */}
+                    {line.status === 'pending' && !isAppealed && onAppealPenalty && (
+                      <button
+                        type="button"
+                        onClick={() => onAppealPenalty(line)}
+                        className="px-2 py-1 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-400/30 text-[10px] font-bold transition cursor-pointer"
+                        title="Apelar este cargo si ocurrió por causas ajenas o fuerza mayor"
+                      >
+                        Apelar
+                      </button>
+                    )}
+                    {/* Botón Resolver para administradores */}
+                    {canManage && isAppealed && onResolvePenaltyAppeal && (
+                      <button
+                        type="button"
+                        onClick={() => onResolvePenaltyAppeal(line)}
+                        className="px-2 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-400/40 text-[10px] font-bold transition cursor-pointer"
+                        title="Evaluar y resolver apelación"
+                      >
+                        Resolver
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <p className={`shrink-0 font-bold tabular-nums ${tone.warningText}`}>{formatPercent(line.percent)} · {formatUsd(line.amount)}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </details>
       )}
@@ -1080,6 +1202,9 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [appealFault, setAppealFault] = useState<FaultItem | null>(null);
   const [resolveAppeal, setResolveAppeal] = useState<FaultAppeal | null>(null);
+  const [appealPenalty, setAppealPenalty] = useState<PenaltySourceLine | null>(null);
+  const [resolvePenaltyAppeal, setResolvePenaltyAppeal] = useState<PenaltySourceLine | null>(null);
+  const [batchAppealsOpen, setBatchAppealsOpen] = useState(false);
   const retryRef = useRef<(() => void) | null>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
   const submitFaultRef = useRef<((input: { catalogId: number; faultDate: string; notes: string }) => Promise<boolean>) | null>(null);
@@ -1432,6 +1557,54 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
       await load(true);
     } catch (err) {
       reportError(err, () => { void resolve(appeal, decision, note); });
+    } finally {
+      setSaving(false);
+    }
+  }, [load, reportError, toast]);
+
+  const sendPenaltyAppeal = useCallback(async (penalty: PenaltySourceLine, category: string, reason: string, evidenceUrls?: string[]) => {
+    if (!penalty.id) return;
+    setSaving(true);
+    try {
+      const response = await apiFetch(`/penalties/${penalty.id}/appeal`, {
+        method: 'POST',
+        body: JSON.stringify({ category, reason, evidenceUrls }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || 'No se pudo enviar la apelación del cargo.');
+      setAppealPenalty(null);
+      toast({
+        title: 'Apelación enviada',
+        message: 'El cargo entra en pausa cautelar y no se descontará mientras la administración lo evalúa.',
+        tone: 'success',
+      });
+      await load(true);
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setSaving(false);
+    }
+  }, [load, reportError, toast]);
+
+  const resolvePenaltyAppealHandler = useCallback(async (penalty: PenaltySourceLine, decision: 'approved' | 'rejected', note?: string) => {
+    if (!penalty.appeal?.id) return;
+    setSaving(true);
+    try {
+      const response = await apiFetch(`/penalties/appeals/${penalty.appeal.id}/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({ decision, note }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || 'No se pudo resolver la apelación.');
+      setResolvePenaltyAppeal(null);
+      toast({
+        title: decision === 'approved' ? 'Cargo exonerado' : 'Apelación rechazada',
+        message: decision === 'approved' ? 'La amonestación fue cancelada ($0.00).' : 'El cargo continúa activo.',
+        tone: 'success',
+      });
+      await load(true);
+    } catch (err) {
+      reportError(err);
     } finally {
       setSaving(false);
     }
@@ -1883,6 +2056,11 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
                 <PenaltyCard
                   penalties={data.penalties}
                   tone={tone}
+                  canManage={canManage}
+                  isSelf={targetUserId === (viewerId || 0)}
+                  onAppealPenalty={(line) => setAppealPenalty(line)}
+                  onResolvePenaltyAppeal={(line) => setResolvePenaltyAppeal(line)}
+                  onOpenAppealsBatch={() => setBatchAppealsOpen(true)}
                 />
               )}
             </div>
@@ -1993,6 +2171,40 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
           saving={saving}
           onClose={() => setResolveAppeal(null)}
           onResolve={(decision, note) => { void resolve(resolveAppeal, decision, note); }}
+        />
+      )}
+
+      {appealPenalty && (
+        <AppealPenaltyDialog
+          tone={tone}
+          penalty={appealPenalty}
+          saving={saving}
+          onClose={() => setAppealPenalty(null)}
+          onSubmit={(category, reason, evidenceUrls) => {
+            void sendPenaltyAppeal(appealPenalty, category, reason, evidenceUrls);
+          }}
+        />
+      )}
+
+      {resolvePenaltyAppeal && (
+        <ResolvePenaltyAppealDialog
+          tone={tone}
+          penalty={resolvePenaltyAppeal}
+          saving={saving}
+          onClose={() => setResolvePenaltyAppeal(null)}
+          onResolve={(decision, note) => {
+            void resolvePenaltyAppealHandler(resolvePenaltyAppeal, decision, note);
+          }}
+        />
+      )}
+
+      {batchAppealsOpen && (
+        <PenaltyAppealsBatchModal
+          tone={tone}
+          onClose={() => setBatchAppealsOpen(false)}
+          onSuccess={() => {
+            void load(true);
+          }}
         />
       )}
 
@@ -2409,6 +2621,340 @@ export const ResolveAppealDialog: React.FC<{
             className={`rounded-xl px-3.5 py-2 text-xs font-bold disabled:opacity-50 ${tone.primary}`}
           >
             Aceptar y anular falta
+          </button>
+        </div>
+      </div>
+    </Dialog>
+  );
+};
+
+export const AppealPenaltyDialog: React.FC<{
+  tone: Tone;
+  penalty: PenaltySourceLine;
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (category: string, reason: string, evidenceUrls?: string[]) => void;
+}> = ({ tone, penalty, saving, onClose, onSubmit }) => {
+  const [category, setCategory] = useState<string>('technical_issue');
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const penaltyLabel = PENALTY_SOURCE_LABELS[penalty.source]?.label || 'Amonestación';
+
+  return (
+    <Dialog
+      title="Apelar amonestación"
+      subtitle={`${penaltyLabel} · ${penalty.orderCode || 'Llamada PBX'} · ${formatUsd(penalty.amount)}`}
+      onClose={onClose}
+      tone={tone}
+    >
+      <div className="space-y-3.5">
+        <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3.5 py-2.5 text-xs text-sky-200">
+          <p className="font-bold flex items-center gap-1.5">
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">balance</span>
+            Pausa cautelar automática
+          </p>
+          <p className="mt-1 text-[11px] text-sky-200/90 leading-relaxed">
+            Al enviar tu apelación, este cargo entra inmediatamente en <strong>pausa cautelar</strong> y no se descontará en tu corte de nómina mientras es evaluado por la administración.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-[11px] font-bold">
+            <span className={tone.muted}>Causa o motivo de la apelación</span>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className={`mt-1.5 w-full rounded-xl px-3 py-2 text-xs outline-none cursor-pointer ${tone.input}`}
+            >
+              {Object.entries(PENALTY_APPEAL_CATEGORIES).map(([key, val]) => (
+                <option key={key} value={key}>
+                  {val.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div>
+          <label className="block text-[11px] font-bold">
+            <span className={tone.muted}>Explicación detallada de lo sucedido</span>
+            <textarea
+              value={reason}
+              rows={4}
+              maxLength={1000}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Explica detalladamente qué ocurrió (ej: falla eléctrica, corte de internet, el cliente cortó en seco, etc.)."
+              aria-label="Motivo de la apelación"
+              className={`mt-1.5 w-full rounded-xl px-3 py-2 text-xs outline-none ${tone.input}`}
+            />
+          </label>
+        </div>
+
+        {error && <p className={`text-[11.5px] ${tone.warningText}`}>{error}</p>}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} className={`rounded-xl px-3.5 py-2 text-xs font-bold ${tone.secondary}`}>
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => {
+              if (reason.trim().length < 5) {
+                setError('Por favor explica lo sucedido con al menos 5 caracteres.');
+                return;
+              }
+              setError(null);
+              onSubmit(category, reason.trim());
+            }}
+            className={`rounded-xl px-4 py-2 text-xs font-bold disabled:opacity-50 ${tone.primary}`}
+          >
+            {saving ? 'Enviando…' : 'Enviar apelación'}
+          </button>
+        </div>
+      </div>
+    </Dialog>
+  );
+};
+
+export const ResolvePenaltyAppealDialog: React.FC<{
+  tone: Tone;
+  penalty: PenaltySourceLine;
+  saving: boolean;
+  onClose: () => void;
+  onResolve: (decision: 'approved' | 'rejected', note?: string) => void;
+}> = ({ tone, penalty, saving, onClose, onResolve }) => {
+  const [note, setNote] = useState('');
+  const appeal = penalty.appeal;
+  const penaltyLabel = PENALTY_SOURCE_LABELS[penalty.source]?.label || 'Amonestación';
+
+  return (
+    <Dialog
+      title="Evaluar apelación de amonestación"
+      subtitle={`${penaltyLabel} · ${penalty.orderCode || 'Llamada PBX'} · ${formatUsd(penalty.amount)}`}
+      onClose={onClose}
+      tone={tone}
+    >
+      <div className="space-y-3.5">
+        <div className={`rounded-xl px-3.5 py-3 text-[11.5px] ${tone.subtle} space-y-2`}>
+          <div>
+            <p className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Categoría invocada</p>
+            <p className="mt-0.5 font-bold text-sky-300">
+              {PENALTY_APPEAL_CATEGORIES[appeal?.category || 'other']?.label || appeal?.category}
+            </p>
+          </div>
+          <div>
+            <p className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Motivo del asesor</p>
+            <p className="mt-0.5 whitespace-pre-line text-white/90">&ldquo;{appeal?.reason}&rdquo;</p>
+          </div>
+          <div className="flex items-center gap-4 text-[10px] text-slate-400 pt-1">
+            <span>Fecha apelación: {shortDate(appeal?.createdAt)}</span>
+            <span>Monto retenido: <strong>{formatUsd(penalty.amount)}</strong></span>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-[11px] font-bold">
+            <span className={tone.muted}>Nota o respuesta administrativa (opcional)</span>
+            <textarea
+              value={note}
+              rows={3}
+              maxLength={255}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Ej. Se constata corte general de energía / Se revisa audio de PBX y se valida justificación."
+              className={`mt-1.5 w-full rounded-xl px-3 py-2 text-xs outline-none ${tone.input}`}
+            />
+          </label>
+        </div>
+
+        <div className="flex flex-wrap justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} className={`rounded-xl px-3.5 py-2 text-xs font-bold ${tone.secondary}`}>
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => onResolve('rejected', note)}
+            className="rounded-xl px-3.5 py-2 text-xs font-bold text-rose-300 hover:bg-rose-500/20 border border-rose-500/30 disabled:opacity-50"
+          >
+            Rechazar (Reactivar cargo)
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => onResolve('approved', note)}
+            className={`rounded-xl px-4 py-2 text-xs font-bold disabled:opacity-50 ${tone.primary}`}
+          >
+            Aprobar y exonerar cargo ($0.00)
+          </button>
+        </div>
+      </div>
+    </Dialog>
+  );
+};
+
+export const PenaltyAppealsBatchModal: React.FC<{
+  tone: Tone;
+  onClose: () => void;
+  onSuccess: () => void;
+}> = ({ tone, onClose, onSuccess }) => {
+  const [appeals, setAppeals] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [processingId, setProcessingId] = useState<number | null>(null);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const { toast } = useFeedback();
+
+  const loadAppeals = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch('/penalties/appeals?status=pending');
+      const data = await res.json().catch(() => ({ appeals: [] }));
+      setAppeals(data.appeals || []);
+    } catch {
+      setAppeals([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadAppeals();
+  }, [loadAppeals]);
+
+  const handleResolve = async (appealId: number, decision: 'approved' | 'rejected') => {
+    setProcessingId(appealId);
+    try {
+      const res = await apiFetch(`/penalties/appeals/${appealId}/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({ decision }),
+      });
+      if (!res.ok) throw new Error('Error al resolver');
+      toast({
+        title: decision === 'approved' ? 'Cargo exonerado' : 'Apelación rechazada',
+        message: decision === 'approved' ? 'El cargo fue cancelado ($0.00).' : 'El cargo continúa activo.',
+        tone: 'success',
+      });
+      await loadAppeals();
+      onSuccess();
+    } catch {
+      toast({ title: 'Error', message: 'No se pudo resolver la apelación', tone: 'error' });
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleResolveAll = async (decision: 'approved' | 'rejected') => {
+    if (appeals.length === 0) return;
+    setBatchBusy(true);
+    try {
+      const res = await apiFetch('/penalties/appeals/resolve-all', {
+        method: 'POST',
+        body: JSON.stringify({ decision }),
+      });
+      if (!res.ok) throw new Error('Error al resolver');
+      toast({
+        title: 'Apelaciones resueltas',
+        message: `Se ${decision === 'approved' ? 'aprobaron y exoneraron' : 'rechazaron'} todas las apelaciones pendientes.`,
+        tone: 'success',
+      });
+      await loadAppeals();
+      onSuccess();
+    } catch {
+      toast({ title: 'Error', message: 'No se pudieron procesar las apelaciones', tone: 'error' });
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
+  return (
+    <Dialog
+      title="Bandeja de apelaciones de amonestaciones"
+      subtitle={`${appeals.length} apelación(es) pendientes de revisión`}
+      onClose={onClose}
+      tone={tone}
+    >
+      <div className="space-y-4 max-h-[70vh] flex flex-col">
+        {appeals.length > 1 && (
+          <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-xs">
+            <span className="text-sky-200">
+              ¿Deseas exonerar todos los <strong>{appeals.length}</strong> cargos apelados pendientes en un solo clic?
+            </span>
+            <button
+              type="button"
+              disabled={batchBusy}
+              onClick={() => { void handleResolveAll('approved'); }}
+              className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold disabled:opacity-50 cursor-pointer ${tone.primary}`}
+            >
+              {batchBusy ? 'Procesando…' : 'Aprobar todas ($0.00)'}
+            </button>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto space-y-2.5 custom-scrollbar pr-1">
+          {loading ? (
+            <div className="py-8 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+              <span className="material-symbols-outlined animate-spin text-[18px]">sync</span>
+              Cargando apelaciones…
+            </div>
+          ) : appeals.length === 0 ? (
+            <div className="py-8 text-center text-xs text-slate-400">
+              <span className="material-symbols-outlined text-[32px] text-emerald-400 block mb-1">task_alt</span>
+              No hay apelaciones pendientes de revisión.
+            </div>
+          ) : (
+            appeals.map((a) => (
+              <div key={a.id} className="p-3.5 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] space-y-2 text-xs">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="font-bold text-white text-sm">{a.userName}</span>
+                    <span className="ml-2 text-[10px] text-slate-400 uppercase font-mono">{a.userRole}</span>
+                    <p className="text-[11px] text-slate-300 mt-0.5">
+                      {PENALTY_SOURCE_LABELS[a.penalty?.source as keyof typeof PENALTY_SOURCE_LABELS]?.label || a.penalty?.source} · {a.penalty?.orderCode || 'Llamada PBX'}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-mono font-bold text-amber-400">{formatUsd(a.penalty?.amount || 0)}</span>
+                    <span className="block text-[10px] text-slate-400">{shortDate(a.createdAt)}</span>
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-[11px] space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold text-sky-300">
+                    <span className="material-symbols-outlined text-[14px]">
+                      {PENALTY_APPEAL_CATEGORIES[a.category]?.icon || 'help_outline'}
+                    </span>
+                    <span>{PENALTY_APPEAL_CATEGORIES[a.category]?.label || a.category}</span>
+                  </div>
+                  <p className="text-slate-200 whitespace-pre-line">&ldquo;{a.reason}&rdquo;</p>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={processingId === a.id || batchBusy}
+                    onClick={() => { void handleResolve(a.id, 'rejected'); }}
+                    className="px-2.5 py-1 rounded-xl text-[11px] font-bold text-rose-300 hover:bg-rose-500/20 border border-rose-500/30 transition disabled:opacity-50 cursor-pointer"
+                  >
+                    Rechazar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={processingId === a.id || batchBusy}
+                    onClick={() => { void handleResolve(a.id, 'approved'); }}
+                    className={`px-3 py-1 rounded-xl text-[11px] font-bold transition disabled:opacity-50 cursor-pointer ${tone.primary}`}
+                  >
+                    Aprobar ($0.00)
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="flex justify-end pt-2 border-t border-[var(--border-subtle)]">
+          <button type="button" onClick={onClose} className={`rounded-xl px-4 py-2 text-xs font-bold ${tone.secondary}`}>
+            Cerrar
           </button>
         </div>
       </div>

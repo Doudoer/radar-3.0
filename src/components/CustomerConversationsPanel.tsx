@@ -397,10 +397,10 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
               <button
                 type="button"
                 onClick={() => setRegisterModalOpen(true)}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 text-[11px] font-mono font-black shadow-[0_0_10px_rgba(6,182,212,0.3)] transition active:scale-95 cursor-pointer"
-                title="Registrar resumen de conversación con cliente"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#4f46e5] hover:bg-[#4338ca] text-white text-xs font-bold shadow-md transition active:scale-95 cursor-pointer"
+                title="Registrar llamada o conversación con cliente"
               >
-                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">add_call</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[15px]">add_call</span>
                 <span>Registrar</span>
               </button>
             </div>

@@ -67,6 +67,8 @@ import {
   faultAnnulSchema,
   faultAppealSchema,
   faultAppealResolveSchema,
+  penaltyAppealSchema,
+  penaltyAppealResolveSchema,
   penaltySettingsSchema,
   evidenceReviewSchema,
   wasenderDispatchSchema,
@@ -5055,6 +5057,208 @@ const server = createServer(async (request, response) => {
         userAgent: request.headers['user-agent'] || null,
       });
       return sendJson(response, 200, { ok: true });
+    }
+
+    // ==========================================
+    // PENALTY APPEALS (AUTOMATIC CHARGES / PBX & WORKFLOW)
+    // ==========================================
+    const penaltyAppealMatch = pathname.match(/^\/api\/penalties\/(\d+)\/appeal$/);
+    if (request.method === 'POST' && penaltyAppealMatch) {
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'yard')) return;
+      const penaltyId = Number(penaltyAppealMatch[1]);
+      const payload = penaltyAppealSchema.parse(await readBody(request));
+
+      const [penRows] = await pool.query<RowDataPacket[]>(
+        'SELECT id, user_id, status FROM order_penalties WHERE id = ? LIMIT 1',
+        [penaltyId]
+      );
+      if (!penRows[0]) return sendJson(response, 404, { message: 'Cargo de amonestación no encontrado' });
+
+      const penUser = Number(penRows[0].user_id);
+      if (authenticatedClaims.role !== 'admin' && penUser !== Number(authenticatedClaims.sub)) {
+        return sendJson(response, 403, { message: 'Solo puedes apelar tus propios cargos' });
+      }
+
+      if (penRows[0].status === 'void') {
+        return sendJson(response, 409, { message: 'Este cargo ya fue exonerado / desestimado' });
+      }
+
+      const [existing] = await pool.query<RowDataPacket[]>(
+        'SELECT id, status FROM penalty_appeals WHERE penalty_id = ? AND status = ? LIMIT 1',
+        [penaltyId, 'pending']
+      );
+      if (existing.length > 0) {
+        return sendJson(response, 409, { message: 'Ya enviaste una apelación para este cargo que está pendiente de revisión' });
+      }
+
+      const [result] = await pool.execute<ResultSetHeader>(
+        `INSERT INTO penalty_appeals (penalty_id, user_id, category, reason, evidence_urls, status)
+         VALUES (?, ?, ?, ?, ?, 'pending')`,
+        [penaltyId, penUser, payload.category, payload.reason, JSON.stringify(payload.evidenceUrls || [])]
+      );
+
+      void recordAuditLog(pool, {
+        userId: Number(authenticatedClaims.sub),
+        username: authenticatedClaims.email,
+        action: 'PENALTY_APPEAL_CREATED',
+        resourceType: 'penalty_appeal',
+        resourceId: result.insertId,
+        details: { penaltyId, category: payload.category },
+        ipAddress: request.socket.remoteAddress || 'unknown',
+        userAgent: request.headers['user-agent'] || null,
+      });
+
+      return sendJson(response, 201, { ok: true, id: result.insertId });
+    }
+
+    if (request.method === 'GET' && pathname === '/api/penalties/appeals') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const url = new URL(request.url || '/', 'http://localhost');
+      const statusFilter = url.searchParams.get('status') || 'pending';
+
+      const whereClause = statusFilter === 'all' ? '1=1' : 'pa.status = ?';
+      const params = statusFilter === 'all' ? [] : [statusFilter];
+
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT pa.id, pa.penalty_id, pa.user_id, u.name AS user_name, u.role AS user_role,
+                pa.category, pa.reason, pa.evidence_urls, pa.status,
+                pa.reviewed_by, u_rev.name AS reviewer_name, pa.reviewed_at, pa.resolution_note, pa.created_at,
+                p.source, p.reference_key, p.units, p.percent, p.amount, p.period_end,
+                p.order_id, o.order_code
+           FROM penalty_appeals pa
+           JOIN users u ON u.id = pa.user_id
+           JOIN order_penalties p ON p.id = pa.penalty_id
+           LEFT JOIN orders o ON o.id = p.order_id
+           LEFT JOIN users u_rev ON u_rev.id = pa.reviewed_by
+          WHERE ${whereClause}
+          ORDER BY pa.created_at DESC`,
+        params
+      );
+
+      const appeals = rows.map((r) => {
+        let evUrls: string[] = [];
+        try {
+          evUrls = typeof r.evidence_urls === 'string' ? JSON.parse(r.evidence_urls) : (r.evidence_urls || []);
+        } catch {
+          evUrls = [];
+        }
+        return {
+          id: Number(r.id),
+          penaltyId: Number(r.penalty_id),
+          userId: Number(r.user_id),
+          userName: String(r.user_name || ''),
+          userRole: String(r.user_role || ''),
+          category: String(r.category || 'other'),
+          reason: String(r.reason || ''),
+          evidenceUrls: evUrls,
+          status: String(r.status || 'pending'),
+          reviewedBy: r.reviewed_by ? Number(r.reviewed_by) : null,
+          reviewerName: r.reviewer_name ? String(r.reviewer_name) : null,
+          reviewedAt: r.reviewed_at ? new Date(r.reviewed_at).toISOString() : null,
+          resolutionNote: r.resolution_note ? String(r.resolution_note) : null,
+          createdAt: r.created_at ? new Date(r.created_at).toISOString() : null,
+          source: String(r.source || ''),
+          referenceKey: String(r.reference_key || ''),
+          units: Number(r.units || 0),
+          percent: Number(r.percent || 0),
+          amount: Number(r.amount || 0),
+          periodEnd: r.period_end ? new Date(r.period_end).toISOString() : null,
+          orderId: Number(r.order_id || 0),
+          orderCode: r.order_code ? String(r.order_code) : null,
+        };
+      });
+
+      return sendJson(response, 200, { appeals });
+    }
+
+    const resolvePenaltyAppealMatch = pathname.match(/^\/api\/penalties\/appeals\/(\d+)\/resolve$/);
+    if (request.method === 'POST' && resolvePenaltyAppealMatch) {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const appealId = Number(resolvePenaltyAppealMatch[1]);
+      const payload = penaltyAppealResolveSchema.parse(await readBody(request));
+
+      const [appealRows] = await pool.query<RowDataPacket[]>(
+        'SELECT id, penalty_id, user_id, status FROM penalty_appeals WHERE id = ? LIMIT 1',
+        [appealId]
+      );
+      if (!appealRows[0]) return sendJson(response, 404, { message: 'Apelación no encontrada' });
+      if (appealRows[0].status !== 'pending') {
+        return sendJson(response, 409, { message: 'Esta apelación ya fue resuelta previamente' });
+      }
+
+      const note = payload.note?.trim() || (payload.decision === 'approved' ? 'Exonerada por administración' : 'Rechazada');
+
+      await pool.execute(
+        `UPDATE penalty_appeals
+            SET status = ?, resolution_note = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND status = 'pending'`,
+        [payload.decision, note, authenticatedClaims.sub, appealId]
+      );
+
+      if (payload.decision === 'approved') {
+        await pool.execute(
+          "UPDATE order_penalties SET status = 'void', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+          [appealRows[0].penalty_id]
+        );
+      } else {
+        await pool.execute(
+          "UPDATE order_penalties SET status = 'pending', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+          [appealRows[0].penalty_id]
+        );
+      }
+
+      void recordAuditLog(pool, {
+        userId: Number(authenticatedClaims.sub),
+        username: authenticatedClaims.email,
+        action: 'PENALTY_APPEAL_RESOLVED',
+        resourceType: 'penalty_appeal',
+        resourceId: appealId,
+        details: { decision: payload.decision, penaltyId: Number(appealRows[0].penalty_id) },
+        ipAddress: request.socket.remoteAddress || 'unknown',
+        userAgent: request.headers['user-agent'] || null,
+      });
+
+      return sendJson(response, 200, { ok: true });
+    }
+
+    if (request.method === 'POST' && pathname === '/api/penalties/appeals/resolve-all') {
+      if (!requireRole(response, authenticatedClaims, 'admin')) return;
+      const body = z.object({
+        decision: z.enum(['approved', 'rejected']).default('approved'),
+        note: z.string().trim().max(255).optional(),
+      }).parse(await readBody(request));
+
+      const [pendingAppeals] = await pool.query<RowDataPacket[]>(
+        "SELECT id, penalty_id FROM penalty_appeals WHERE status = 'pending'"
+      );
+
+      if (pendingAppeals.length === 0) {
+        return sendJson(response, 200, { ok: true, count: 0, message: 'No hay apelaciones pendientes' });
+      }
+
+      const note = body.note?.trim() || (body.decision === 'approved' ? 'Aprobación masiva por administración' : 'Rechazo masivo');
+
+      await pool.execute(
+        `UPDATE penalty_appeals
+            SET status = ?, resolution_note = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP
+          WHERE status = 'pending'`,
+        [body.decision, note, authenticatedClaims.sub]
+      );
+
+      const penaltyIds = pendingAppeals.map((a) => Number(a.penalty_id));
+      if (body.decision === 'approved') {
+        await pool.query(
+          "UPDATE order_penalties SET status = 'void', updated_at = CURRENT_TIMESTAMP WHERE id IN (?)",
+          [penaltyIds]
+        );
+      } else {
+        await pool.query(
+          "UPDATE order_penalties SET status = 'pending', updated_at = CURRENT_TIMESTAMP WHERE id IN (?)",
+          [penaltyIds]
+        );
+      }
+
+      return sendJson(response, 200, { ok: true, count: pendingAppeals.length });
     }
 
     // ==========================================
