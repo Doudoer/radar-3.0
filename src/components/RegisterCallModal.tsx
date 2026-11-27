@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch } from '../services/apiFetch';
 
 export interface RegisterCallModalProps {
@@ -85,8 +85,8 @@ export const RegisterCallModal: React.FC<RegisterCallModalProps> = ({
       if (res.ok) {
         const data = await res.json();
         setCustomerOrders(Array.isArray(data.orders) ? data.orders : []);
-        if (data.customer && !selectedCustomer) {
-          setSelectedCustomer({
+        if (data.customer) {
+          setSelectedCustomer((prev) => prev || {
             id: data.customer.id,
             name: `${data.customer.first_name || ''} ${data.customer.last_name || ''}`.trim() || 'Cliente',
             phone: data.customer.phone || '',
@@ -97,11 +97,19 @@ export const RegisterCallModal: React.FC<RegisterCallModalProps> = ({
     } catch {
       // Ignorar fallo de carga de órdenes
     }
-  }, [selectedCustomer]);
+  }, []);
 
-  // Inicializar estado cada vez que se abre el modal
+  const initializedRef = useRef(false);
+
+  // Inicializar estado cada vez que se abre el modal (una sola vez por apertura)
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      initializedRef.current = false;
+      return;
+    }
+
+    if (initializedRef.current) return;
+    initializedRef.current = true;
 
     setErrorMessage(null);
     setWhatCustomerSaid('');
@@ -109,6 +117,8 @@ export const RegisterCallModal: React.FC<RegisterCallModalProps> = ({
     setAgreement('');
     setShowCreateCustomer(false);
     setShowSearchDropdown(false);
+    setSearchQuery('');
+    setSearchResults([]);
 
     // Dirección y fecha de la llamada
     const dir = initialCall?.direction === 'outbound' ? 'outbound' : 'inbound';
@@ -166,13 +176,14 @@ export const RegisterCallModal: React.FC<RegisterCallModalProps> = ({
   useEffect(() => {
     if (!searchQuery.trim()) {
       setSearchResults([]);
+      setShowSearchDropdown(false);
       return;
     }
 
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
-        const res = await apiFetch(`/communications/customers?q=${encodeURIComponent(searchQuery)}&limit=8`);
+        const res = await apiFetch(`/communications/customers?q=${encodeURIComponent(searchQuery.trim())}&limit=8`);
         if (res.ok) {
           const data = await res.json();
           setSearchResults(Array.isArray(data.customers) ? data.customers : []);
@@ -211,13 +222,17 @@ export const RegisterCallModal: React.FC<RegisterCallModalProps> = ({
 
       if (res.ok) {
         const data = await res.json();
-        const createdId = data.id || data.customerId;
+        const createdId = Number(data.id || data.customerId);
         setSelectedCustomer({
           id: createdId,
           name: newCustName.trim(),
           phone: newCustPhone.trim(),
         });
         setShowCreateCustomer(false);
+        setNewCustName('');
+        setNewCustPhone('');
+        setSearchQuery('');
+        setShowSearchDropdown(false);
         setCustomerOrders([]);
       } else {
         const err = await res.json().catch(() => ({}));

@@ -3106,7 +3106,7 @@ const server = createServer(async (request, response) => {
     // COMMUNICATIONS & CUSTOMER CONVERSATIONS
     // ==========================================
     if (request.method === 'GET' && pathname === '/api/communications/customers') {
-      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'dispatcher', 'rct', 'marketing')) return;
       const url = new URL(request.url || '/', 'http://localhost');
       const query = url.searchParams.get('q') || '';
       const limit = Number(url.searchParams.get('limit') || '50');
@@ -3115,7 +3115,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'POST' && pathname === '/api/communications/contacts/save') {
-      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'dispatcher', 'rct', 'marketing')) return;
       const body = z.object({
         firstName: z.string().trim().min(1, 'El nombre es obligatorio').max(100),
         lastName: z.string().trim().max(100).optional().nullable(),
@@ -3178,7 +3178,7 @@ const server = createServer(async (request, response) => {
 
     const customerTimelineId = pathname.match(/^\/api\/communications\/customers\/(-?\d+)\/timeline$/)?.[1];
     if (request.method === 'GET' && customerTimelineId) {
-      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'dispatcher', 'rct', 'marketing')) return;
       const url = new URL(request.url || '/', 'http://localhost');
       const phone = url.searchParams.get('phone') || undefined;
       const timeline = await getCustomerTimeline(pool, Number(customerTimelineId), phone);
@@ -3187,7 +3187,7 @@ const server = createServer(async (request, response) => {
 
     const customerNoteId = pathname.match(/^\/api\/communications\/customers\/(\d+)\/notes$/)?.[1];
     if (request.method === 'POST' && customerNoteId) {
-      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'dispatcher', 'rct', 'marketing')) return;
       const body = z.object({
         content: z.string().trim().max(5000).optional(),
         whatCustomerSaid: z.string().trim().max(3000).optional(),
@@ -3249,7 +3249,7 @@ const server = createServer(async (request, response) => {
     // CUSTOMERS (CRUD)
     // ==========================================
     if (request.method === 'GET' && pathname === '/api/customers') {
-      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'dispatcher', 'rct', 'marketing')) return;
       const includeDeleted = roleIs(authenticatedClaims, 'admin');
       const [rows] = await pool.query<RowDataPacket[]>(`
         SELECT c.*, COUNT(o.id) AS order_count
@@ -3263,7 +3263,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'POST' && pathname === '/api/customers') {
-      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'dispatcher', 'rct', 'marketing')) return;
       const data = customerSchema.parse(await readBody(request));
       const firstName = data.first_name || data.name?.split(/\s+/)[0] || 'Cliente';
       const lastName = data.last_name || (data.name ? data.name.split(/\s+/).slice(1).join(' ') : null);
@@ -3284,7 +3284,7 @@ const server = createServer(async (request, response) => {
 
     const customerId = pathname.match(/^\/api\/customers\/(\d+)$/)?.[1];
     if (request.method === 'PUT' && customerId) {
-      if (!requireRole(response, authenticatedClaims, 'admin', 'operator')) return;
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'dispatcher', 'rct', 'marketing')) return;
       const data = customerSchema.parse(await readBody(request));
       const firstName = data.first_name || data.name?.split(/\s+/)[0] || 'Cliente';
       const lastName = data.last_name || (data.name ? data.name.split(/\s+/).slice(1).join(' ') : null);
