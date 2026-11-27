@@ -33,6 +33,65 @@ export const financeStateSchema = z.object({
   }
 });
 
+const ROLE_TO_CARGO: Record<string, string> = {
+  admin: 'Gerente',
+  operator: 'Asesor de ventas',
+  dispatcher: 'Dispatcher',
+  rct: 'RCT (Rodriguez Construction)',
+  marketing: 'Marketing',
+};
+
+export async function mergeRegisteredUsersAsEmployees(storedEmployees: any[]): Promise<any[]> {
+  try {
+    const [users] = await pool.query<RowDataPacket[]>(
+      "SELECT id, name, role, weekly_salary FROM users WHERE active = 1 AND deleted_at IS NULL AND role != 'vendedor_yarda' ORDER BY name"
+    );
+
+    const employeesMap = new Map<string, any>();
+
+    // 1. Registered office users are automatically annexed as employees
+    for (const u of users) {
+      const roleTitle = ROLE_TO_CARGO[u.role] || u.role;
+      const salary = u.weekly_salary !== null && u.weekly_salary !== undefined ? Number(u.weekly_salary) : 0;
+      employeesMap.set(u.name.trim().toLowerCase(), {
+        id: `user-${u.id}`,
+        name: u.name,
+        weeklySalary: salary,
+        role: roleTitle,
+      });
+    }
+
+    // 2. Overlay any previously stored employee entries (for custom salaries or manual staff)
+    for (const emp of storedEmployees || []) {
+      const key = (emp.name || '').trim().toLowerCase();
+      if (employeesMap.has(key)) {
+        const existing = employeesMap.get(key);
+        // If stored employee had a positive salary and user table had 0, use stored and update user
+        if (existing.weeklySalary === 0 && Number(emp.weeklySalary || 0) > 0) {
+          existing.weeklySalary = Number(emp.weeklySalary);
+          const userId = existing.id.replace('user-', '');
+          void pool.execute('UPDATE users SET weekly_salary = ? WHERE id = ?', [emp.weeklySalary, userId]);
+        }
+        if (emp.role && emp.role !== 'Oficina / Personal') {
+          existing.role = emp.role;
+        }
+      } else if (emp.id && emp.name) {
+        employeesMap.set(key, {
+          id: String(emp.id),
+          name: String(emp.name),
+          weeklySalary: Number(emp.weeklySalary || 0),
+          role: emp.role || 'Personal de Oficina',
+        });
+      }
+    }
+
+    return Array.from(employeesMap.values());
+  } catch (err) {
+    console.error('Error merging users into finance employees:', err);
+    return storedEmployees || [];
+  }
+}
+
 export async function handleFinanceRequest(request: IncomingMessage, response: ServerResponse, pathname: string, claims: Claims | null) {
   if (!pathname.startsWith('/api/finance/')) return false;
   if (!requireRole(response, claims, 'admin')) return true;
@@ -44,7 +103,8 @@ export async function handleFinanceRequest(request: IncomingMessage, response: S
     const [rows] = await pool.query<RowDataPacket[]>('SELECT version,payload FROM finance_state WHERE id=1');
     if (!rows[0]) fail(503, 'Ejecuta las migraciones financieras antes de continuar');
     const payload = typeof rows[0].payload === 'string' ? JSON.parse(rows[0].payload) : rows[0].payload;
-    sendJson(response, 200, { ...payload, version: Number(rows[0].version) });
+    const mergedEmployees = await mergeRegisteredUsersAsEmployees(payload.employees || []);
+    sendJson(response, 200, { ...payload, employees: mergedEmployees, version: Number(rows[0].version) });
     return true;
   }
   if (pathname === '/api/finance/state' && request.method === 'PUT') {
@@ -56,6 +116,19 @@ export async function handleFinanceRequest(request: IncomingMessage, response: S
         'UPDATE finance_state SET payload=?,version=version+1 WHERE id=1 AND version=?', [JSON.stringify(payload), version],
       );
       if (!result.affectedRows) fail(409, 'Las finanzas cambiaron en otro equipo. Recarga antes de guardar');
+
+      // Sync weekly_salary back to users table
+      for (const emp of payload.employees) {
+        if (emp.id.startsWith('user-')) {
+          const userId = Number(emp.id.replace('user-', ''));
+          if (userId > 0) {
+            await connection.execute('UPDATE users SET weekly_salary = ? WHERE id = ?', [emp.weeklySalary, userId]);
+          }
+        } else if (emp.name) {
+          await connection.execute('UPDATE users SET weekly_salary = ? WHERE LOWER(name) = LOWER(?) AND deleted_at IS NULL', [emp.weeklySalary, emp.name.trim()]);
+        }
+      }
+
       await connection.execute(
         "INSERT INTO audit_logs (user_id,action,resource_type,resource_id,details) VALUES (?,'FINANCE_UPDATED','finance_state','1',?)",
         [claims!.sub, JSON.stringify({ previousVersion: version, version: version + 1,

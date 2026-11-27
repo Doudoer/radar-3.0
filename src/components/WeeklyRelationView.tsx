@@ -180,61 +180,11 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   const showToast = (title: string) => toast({ title });
 
   // =========================================================================
-  // 2. OFFICE EMPLOYEES & PAYROLL MANAGEMENT (AUTOMATED + PERSISTENT)
+  // 2. OFFICE EMPLOYEES & PAYROLL MANAGEMENT (AUTOMATED FROM USERS + PERSISTENT)
   // =========================================================================
   const finance = useFinanceState(true);
   const income = useFinanceMovements(true);
-
-  // Automated System Users Fetching
-  const [systemUsers, setSystemUsers] = useState<any[]>([]);
-  const fetchUsers = useCallback(() => {
-    apiFetch('/users')
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setSystemUsers(data);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
-
-  const OFFICE_ROLE_TITLES: Record<string, string> = useMemo(() => ({
-    admin: 'Gerente',
-    operator: 'Asesor de ventas',
-    dispatcher: 'Dispatcher',
-    rct: 'RCT (Rodriguez Construction)',
-    marketing: 'Marketing',
-  }), []);
-
-  // Sourced automatically from active office users (yard sellers strictly excluded)
-  const automatedUserEmployees: OfficeEmployee[] = useMemo(() => {
-    return systemUsers
-      .filter((u) => Boolean(u.active) && u.role !== 'vendedor_yarda')
-      .map((u) => ({
-        id: `user-${u.id}`,
-        name: u.name,
-        weeklySalary: Number(u.weekly_salary || 0),
-        role: OFFICE_ROLE_TITLES[u.role] || u.role,
-      }))
-      .filter((e) => e.weeklySalary > 0);
-  }, [systemUsers, OFFICE_ROLE_TITLES]);
-
-  // Combined employees: Automated from active users + any manual external employees that don't duplicate a system user
-  const employees: OfficeEmployee[] = useMemo(() => {
-    if (automatedUserEmployees.length > 0) {
-      const systemUserNames = new Set(automatedUserEmployees.map((e) => e.name.trim().toLowerCase()));
-      const extraManual = (finance.state?.employees ?? []).filter(
-        (emp) => !systemUserNames.has(emp.name.trim().toLowerCase())
-      );
-      return [...automatedUserEmployees, ...extraManual];
-    }
-    return finance.state?.employees ?? [];
-  }, [automatedUserEmployees, finance.state?.employees]);
-
+  const employees = finance.state?.employees ?? [];
   const recurringExpenses = finance.state?.recurringExpenses ?? [];
   const otherExpenses = finance.state?.otherExpenses ?? [];
 
@@ -254,63 +204,33 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   const handleSaveEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
     const salary = parseFloat(employeeForm.weeklySalary);
-    if (!employeeForm.name.trim() || isNaN(salary) || salary <= 0) {
-      toast({ title: 'Datos incompletos', message: 'Ingresa el nombre del empleado y un salario semanal válido.', tone: 'error' });
+    if (!employeeForm.name.trim() || isNaN(salary) || salary < 0) {
+      toast({ title: 'Datos incompletos', message: 'Ingresa el nombre del empleado y un salario semanal válido (0 o superior).', tone: 'error' });
       return;
     }
 
     if (editingEmployeeId) {
-      // Check if this employee is a system user
-      if (editingEmployeeId.startsWith('user-')) {
-        const userId = editingEmployeeId.replace('user-', '');
-        const targetUser = systemUsers.find((u) => String(u.id) === userId);
-        if (targetUser) {
-          const res = await apiFetch(`/users/${userId}`, {
-            method: 'PUT',
-            body: JSON.stringify({
-              name: targetUser.name,
-              email: targetUser.email,
-              phone: targetUser.phone || null,
-              pbx_extension: targetUser.pbx_extension || null,
-              avatar_url: targetUser.avatar_url || null,
-              role: targetUser.role,
-              active: Boolean(targetUser.active),
-              permissions: targetUser.permissions || [],
-              weekly_salary: salary,
-            }),
-          });
-          if (res.ok) {
-            showToast(`Salario de "${targetUser.name}" actualizado a $${salary.toFixed(2)} USD.`);
-            fetchUsers();
-            setEditingEmployeeId(null);
-            setEmployeeForm({ name: '', weeklySalary: '', role: '' });
-            return;
-          }
-        }
-      }
-
-      // Update existing manual employee in finance state
-      if (!await finance.save({ employees: (finance.state?.employees ?? []).map((emp) =>
-          emp.id === editingEmployeeId
-            ? {
-                ...emp,
-                name: employeeForm.name.trim(),
-                weeklySalary: salary,
-                role: employeeForm.role.trim() || undefined,
-              }
-            : emp
-        ) })) return;
-      showToast(`Empleado "${employeeForm.name}" actualizado.`);
+      const updatedEmployees = employees.map((emp) =>
+        emp.id === editingEmployeeId
+          ? {
+              ...emp,
+              name: employeeForm.name.trim(),
+              weeklySalary: salary,
+              role: employeeForm.role.trim() || emp.role || 'Oficina / Personal',
+            }
+          : emp
+      );
+      if (!await finance.save({ employees: updatedEmployees })) return;
+      showToast(`Salario de "${employeeForm.name}" actualizado a $${salary.toFixed(2)} USD.`);
       setEditingEmployeeId(null);
     } else {
-      // Add new manual employee
       const newEmp: OfficeEmployee = {
         id: `EMP-${crypto.randomUUID()}`,
         name: employeeForm.name.trim(),
         weeklySalary: salary,
         role: employeeForm.role.trim() || 'Oficina / Personal',
       };
-      if (!await finance.save({ employees: [...(finance.state?.employees ?? []), newEmp] })) return;
+      if (!await finance.save({ employees: [...employees, newEmp] })) return;
       showToast(`Empleado "${newEmp.name}" registrado en la nómina.`);
     }
 
@@ -328,53 +248,28 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
 
   const handleDeleteEmployee = async (id: string, name: string) => {
     const confirmed = await confirm({
-      title: `¿Eliminar al empleado "${name}"?`,
-      message: 'Saldrá de la nómina semanal de forma permanente.',
-      confirmLabel: 'Eliminar',
+      title: `¿Remover al empleado "${name}" de la nómina?`,
+      message: 'Si es un colaborador del sistema, su salario se ajustará a $0.00. Si es un registro manual, saldrá de la nómina.',
+      confirmLabel: 'Remover',
       tone: 'danger',
     });
     if (!confirmed) return;
 
-    if (id.startsWith('user-')) {
-      const userId = id.replace('user-', '');
-      const targetUser = systemUsers.find((u) => String(u.id) === userId);
-      if (targetUser) {
-        // Set salary to null for system user
-        await apiFetch(`/users/${userId}`, {
-          method: 'PUT',
-          body: JSON.stringify({
-            name: targetUser.name,
-            email: targetUser.email,
-            phone: targetUser.phone || null,
-            pbx_extension: targetUser.pbx_extension || null,
-            avatar_url: targetUser.avatar_url || null,
-            role: targetUser.role,
-            active: Boolean(targetUser.active),
-            permissions: targetUser.permissions || [],
-            weekly_salary: null,
-          }),
-        });
-        fetchUsers();
-        showToast(`Salario de "${name}" removido de la nómina.`);
-        if (editingEmployeeId === id) {
-          setEditingEmployeeId(null);
-          setEmployeeForm({ name: '', weeklySalary: '', role: '' });
-        }
-        return;
-      }
-    }
+    const updated = employees
+      .map((emp) => emp.id === id ? { ...emp, weeklySalary: 0 } : emp)
+      .filter((emp) => emp.id.startsWith('user-') ? true : emp.id !== id);
 
-    if (!await finance.save({ employees: (finance.state?.employees ?? []).filter((emp) => emp.id !== id) })) return;
+    if (!await finance.save({ employees: updated })) return;
     if (editingEmployeeId === id) {
       setEditingEmployeeId(null);
       setEmployeeForm({ name: '', weeklySalary: '', role: '' });
     }
-    showToast(`Empleado "${name}" eliminado de la nómina.`);
+    showToast(`Empleado "${name}" actualizado en la nómina.`);
   };
 
   // Sorted employees list (from highest weekly salary to lowest: de mayor a menor)
   const sortedEmployees = useMemo(() => {
-    return [...employees].sort((a, b) => b.weeklySalary - a.weeklySalary);
+    return [...employees].sort((a, b) => b.weeklySalary - a.weeklySalary || a.name.localeCompare(b.name));
   }, [employees]);
 
   // Total Weekly Payroll Sum
@@ -670,8 +565,8 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   const allGeneralConcepts = useMemo(() => {
     const todayStr = financeDateKey(currentWeekRange.start);
 
-    // 1. Employee salaries (Weekly recurring payroll, sorted highest to lowest)
-    const employeeRows = sortedEmployees.map((emp) => ({
+    // 1. Employee salaries (Weekly recurring payroll, sorted highest to lowest - Only active salaries > 0)
+    const employeeRows = sortedEmployees.filter((emp) => emp.weeklySalary > 0).map((emp) => ({
       id: `EMP-${emp.id}`,
       date: todayStr,
       category: 'Nómina / Personal' as const,
@@ -1435,8 +1330,8 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                   </span>
                 </div>
 
-                {/* Personnel salaries (Dynamic from employees list - Sorted highest to lowest) */}
-                {sortedEmployees.map((person) => (
+                {/* Personnel salaries (Dynamic from employees list - Sorted highest to lowest, only salaries > 0) */}
+                {sortedEmployees.filter((person) => person.weeklySalary > 0).map((person) => (
                   <div key={person.id} className="flex justify-between items-center py-0.5">
                     <span className="truncate pr-2 text-[#cbd5e1] print:text-black font-medium">
                       {person.name}
@@ -2033,8 +1928,8 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                         </div>
 
                         <div className="flex items-center gap-3">
-                          <span className="font-mono font-bold text-sm text-[#38bdf8]">
-                            ${emp.weeklySalary.toFixed(2)} <span className="text-[10px] text-[#94a3b8] font-normal">/sem</span>
+                          <span className={`font-mono font-bold text-sm ${emp.weeklySalary > 0 ? 'text-[#38bdf8]' : 'text-slate-400'}`}>
+                            {emp.weeklySalary > 0 ? `$${emp.weeklySalary.toFixed(2)}` : 'Sin salario'} <span className="text-[10px] text-[#94a3b8] font-normal">/sem</span>
                           </span>
 
                           <div className="flex items-center gap-1">
