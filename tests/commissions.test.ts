@@ -8,6 +8,15 @@ import {
 } from '../src/utils/commissions';
 import { isDuringPbxBusinessHours } from '../src/server/pbxCalls';
 import { isExemptFromCallPenalties } from '../src/server/penalties';
+import {
+  recordDownpaymentCommission,
+  recordDeliveryCommission,
+  releaseOrVoidYardCommissions,
+  syncCommissionsSinceDate,
+  getUserCommissionsSummary,
+  getUserCarryoverDebt,
+  saveUserCarryoverDebt,
+} from '../src/server/commissions';
 
 describe('Employee Commissions & Salary Protection', () => {
   it('validates commission constants and yard exclusion', () => {
@@ -109,5 +118,211 @@ describe('Employee Commissions & Salary Protection', () => {
     // Standard external inbound customer call must NOT be exempt
     expect(isExemptFromCallPenalties('+19195551234', 'John Doe', 'inbound', knownExtensions)).toBe(false);
     expect(isExemptFromCallPenalties('9195551234', null, 'inbound', knownExtensions)).toBe(false);
+  });
+
+  describe('Server Commissions Engine (src/server/commissions.ts)', () => {
+    it('recordDownpaymentCommission records commission for non-yard employee', async () => {
+      const executed: any[] = [];
+      const mockPool: any = {
+        query: async (sql: string) => {
+          if (sql.includes('FROM users')) return [[{ role: 'operator' }]];
+          return [[]];
+        },
+        execute: async (sql: string, params: any[]) => {
+          executed.push({ sql, params });
+          return [{ insertId: 1 }];
+        },
+      };
+
+      const ok = await recordDownpaymentCommission(mockPool, {
+        orderId: 101,
+        userId: 5,
+        isYardSale: false,
+      });
+
+      expect(ok).toBe(true);
+      expect(executed.length).toBe(1);
+      expect(executed[0].sql).toContain('employee_commissions');
+      expect(executed[0].params[2]).toBe(5.0);
+    });
+
+    it('recordDownpaymentCommission rejects yard employee or yard sale', async () => {
+      const mockPool: any = {
+        query: async () => [[{ role: 'vendedor_yarda' }]],
+        execute: async () => [{ insertId: 1 }],
+      };
+
+      const yardSaleOk = await recordDownpaymentCommission(mockPool, {
+        orderId: 101,
+        userId: 5,
+        isYardSale: true,
+      });
+      expect(yardSaleOk).toBe(false);
+
+      const yardUserOk = await recordDownpaymentCommission(mockPool, {
+        orderId: 101,
+        userId: 5,
+        isYardSale: false,
+      });
+      expect(yardUserOk).toBe(false);
+    });
+
+    it('recordDeliveryCommission awards $2 ONLY if order was sold in the same week period as delivery', async () => {
+      const executed: any[] = [];
+      const deliveryDate = new Date('2026-11-25T15:00:00Z');
+      const sameWeekSaleDate = new Date('2026-11-23T10:00:00Z');
+
+      const mockPool: any = {
+        query: async (sql: string) => {
+          if (sql.includes('FROM users')) return [[{ role: 'operator' }]];
+          if (sql.includes('FROM orders')) return [[{ created_at: sameWeekSaleDate.toISOString() }]];
+          return [[]];
+        },
+        execute: async (sql: string, params: any[]) => {
+          executed.push({ sql, params });
+          return [{ insertId: 1 }];
+        },
+      };
+
+      const ok = await recordDeliveryCommission(mockPool, {
+        orderId: 202,
+        userId: 5,
+        deliveredAt: deliveryDate,
+      });
+
+      expect(ok).toBe(true);
+      expect(executed.some(e => e.sql.includes('INSERT INTO employee_commissions'))).toBe(true);
+    });
+
+    it('recordDeliveryCommission strictly rejects and deletes commission if order was created in a previous week', async () => {
+      const executed: any[] = [];
+      const deliveryDate = new Date('2026-11-25T15:00:00Z');
+      const previousWeekSaleDate = new Date('2026-11-13T10:00:00Z');
+
+      const mockPool: any = {
+        query: async (sql: string) => {
+          if (sql.includes('FROM users')) return [[{ role: 'operator' }]];
+          if (sql.includes('FROM orders')) return [[{ created_at: previousWeekSaleDate.toISOString() }]];
+          return [[]];
+        },
+        execute: async (sql: string, params: any[]) => {
+          executed.push({ sql, params });
+          return [{ affectedRows: 1 }];
+        },
+      };
+
+      const ok = await recordDeliveryCommission(mockPool, {
+        orderId: 303,
+        userId: 5,
+        deliveredAt: deliveryDate,
+      });
+
+      expect(ok).toBe(false);
+      expect(executed.some(e => e.sql.includes("DELETE FROM employee_commissions WHERE order_id = ? AND type = 'delivered_closed'"))).toBe(true);
+    });
+
+    it('releaseOrVoidYardCommissions releases after 12h or voids if canceled by yard', async () => {
+      const executed: any[] = [];
+      const now = new Date('2026-11-25T12:00:00Z');
+      const mockPool: any = {
+        query: async () => [[
+          {
+            id: 1,
+            order_id: 10,
+            available_at: new Date(now.getTime() - 1000).toISOString(),
+            status: 'pagado',
+            workflow_data: null,
+            auction_search_active: 0,
+          },
+          {
+            id: 2,
+            order_id: 11,
+            available_at: new Date(now.getTime() + 10000).toISOString(),
+            status: 'cancelado',
+            workflow_data: JSON.stringify({ yardPieceUnavailable: true }),
+            auction_search_active: 0,
+          },
+        ]],
+        execute: async (sql: string, params: any[]) => {
+          executed.push({ sql, params });
+          return [{ affectedRows: 1 }];
+        },
+      };
+
+      await releaseOrVoidYardCommissions(mockPool, now);
+
+      expect(executed.some(e => e.sql.includes('voided_availability'))).toBe(true);
+      expect(executed.some(e => e.sql.includes('earned'))).toBe(true);
+    });
+
+    it('getUserCommissionsSummary calculates totals correctly', async () => {
+      const now = new Date('2026-11-25T12:00:00Z');
+      const mockPool: any = {
+        query: async (sql: string) => {
+          if (sql.includes('employee_commissions c')) {
+            return [[
+              {
+                id: 1,
+                user_id: 5,
+                order_id: 10,
+                type: 'downpayment_sale',
+                amount: '5.00',
+                status: 'earned',
+                available_at: now.toISOString(),
+                earned_at: now.toISOString(),
+                order_code: 'ORD-10',
+                first_name: 'John',
+                last_name: 'Doe',
+              },
+              {
+                id: 2,
+                user_id: 5,
+                order_id: 11,
+                type: 'delivered_closed',
+                amount: '2.00',
+                status: 'earned',
+                available_at: now.toISOString(),
+                earned_at: now.toISOString(),
+                order_code: 'ORD-11',
+                first_name: 'Jane',
+                last_name: 'Smith',
+              },
+            ]];
+          }
+          return [[]];
+        },
+        execute: async () => [{ affectedRows: 0 }],
+      };
+
+      const summary = await getUserCommissionsSummary(mockPool, 5, {
+        start: new Date(now.getTime() - 86400000 * 3).toISOString(),
+        end: new Date(now.getTime() + 86400000 * 3).toISOString(),
+      }, now);
+
+      expect(summary.userId).toBe(5);
+      expect(summary.earnedAmount).toBe(7.0);
+      expect(summary.earnedCount).toBe(2);
+    });
+
+    it('manages carryover debt retrieval and persistence', async () => {
+      const executed: any[] = [];
+      const mockPool: any = {
+        query: async () => [[
+          { carryover_amount: '20.00', covered_amount: '5.00', period_end: '2026-11-28' },
+        ]],
+        execute: async (sql: string, params: any[]) => {
+          executed.push({ sql, params });
+          return [{ affectedRows: 1 }];
+        },
+      };
+
+      const debt = await getUserCarryoverDebt(mockPool, 5);
+      expect(debt.totalDebt).toBe(15.0);
+      expect(debt.lastPeriodEnd).toBe('2026-11-28');
+
+      await saveUserCarryoverDebt(mockPool, 5, '2026-11-28', 15.0, 5.0);
+      expect(executed.length).toBe(1);
+      expect(executed[0].sql).toContain('employee_penalty_carryover');
+    });
   });
 });

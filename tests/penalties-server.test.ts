@@ -229,4 +229,46 @@ describe('instantánea del usuario', () => {
       open: { units: 0, percent: 0, amount: 0 },
     });
   });
+
+  it('correctly maps appealed penalties and excludes them from open balance', async () => {
+    const appealHandlers: Array<[RegExp, Record<string, unknown>[]]> = [
+      [/FROM app_settings/, SETTINGS_ON],
+      [/FROM users\b/, [{ id: 7, weekly_salary: '100.00' }]],
+      [/FROM order_penalties p/, [
+        {
+          id: 1,
+          source: 'call_missed',
+          reference_key: 'call_123',
+          units: 2,
+          percent: 1.67,
+          amount: 1.67,
+          period_end: '2026-11-22 00:00:00',
+          cutoff_at: '2026-11-22 00:00:00',
+          status: 'pending',
+          order_id: 0,
+          order_code: null,
+          appeal_id: 10,
+          appeal_category: 'technical_issue',
+          appeal_reason: 'Falla de luz',
+          appeal_evidence_urls: JSON.stringify(['https://example.com/proof.png']),
+          appeal_status: 'pending',
+          appeal_resolution_note: null,
+          appeal_reviewed_by: null,
+          appeal_reviewed_at: null,
+          appeal_created_at: '2026-11-21 10:00:00',
+          appeal_reviewer_name: null,
+        },
+      ]],
+      [/GROUP BY period_end, status/, []],
+    ];
+
+    const pool = createPool(sql => queryFor(appealHandlers, sql));
+    const snapshot = await getUserPenaltySnapshot(pool.pool, 7, NOW);
+
+    expect(snapshot.appealed?.count).toBe(1);
+    expect(snapshot.appealed?.units).toBe(2);
+    expect(snapshot.open.units).toBe(0);
+    expect(snapshot.details[0].status).toBe('appealed');
+    expect(snapshot.details[0].appeal?.category).toBe('technical_issue');
+  });
 });
