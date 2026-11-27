@@ -17,6 +17,7 @@ import {
 } from '../utils/weeklyRelationPdf';
 import { orderSaleTotal, ordersForMovements } from '../utils/orderAnalytics';
 import { PbxCallAnalyticsPanel } from './PbxCallAnalyticsPanel';
+import { DOWNPAYMENT_COMMISSION_AMOUNT, isYardEmployee } from '../utils/commissions';
 
 export interface OfficeEmployee {
   id: string;
@@ -24,6 +25,38 @@ export interface OfficeEmployee {
   weeklySalary: number;
   role?: string;
 }
+
+export interface OfficeEmployeeWithCommissions extends OfficeEmployee {
+  isAdvisor: boolean;
+  salesCount: number;
+  commissionTotal: number;
+  totalPayout: number;
+}
+
+export const isAdvisorRole = (role?: string | null): boolean => {
+  if (!role) return false;
+  if (isYardEmployee(role)) return false;
+  const lower = role.toLowerCase().trim();
+  return lower.includes('asesor') || lower.includes('ventas');
+};
+
+export const orderMatchesAdvisor = (order: Order, employeeId: string, employeeName: string): boolean => {
+  if (order.isYardSale || order.advisorRole === 'vendedor_yarda') return false;
+  if (order.status === 'cancelado' || order.status === 'cancelada') return false;
+
+  const rawId = employeeId.replace(/^user-/, '').trim();
+  if (order.userId && String(order.userId) === rawId) return true;
+
+  const orderAdvisor = (order.advisor || '').trim().toLowerCase();
+  const empName = employeeName.trim().toLowerCase();
+  if (orderAdvisor && orderAdvisor !== 'sin asignar') {
+    if (orderAdvisor === empName) return true;
+    const empParts = empName.split(/\s+/);
+    if (empParts.length > 1 && orderAdvisor === empParts[0]) return true;
+  }
+
+  return false;
+};
 
 export interface RecurringExpense {
   id: string;
@@ -267,13 +300,8 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
     showToast(`Empleado "${name}" actualizado en la nómina.`);
   };
 
-  // Sorted employees list (from highest weekly salary to lowest: de mayor a menor)
-  const sortedEmployees = useMemo(() => {
-    return [...employees].sort((a, b) => b.weeklySalary - a.weeklySalary || a.name.localeCompare(b.name));
-  }, [employees]);
-
-  // Total Weekly Payroll Sum
-  const totalPayrollFixed = useMemo(() => {
+  // Base fixed weekly payroll sum (without variable commissions)
+  const totalBasePayroll = useMemo(() => {
     return sumMoney(employees.map((e) => e.weeklySalary));
   }, [employees]);
 
@@ -489,6 +517,60 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
     [orders, income.movements, currentWeekRange],
   );
 
+  // =========================================================================
+  // 4.1 ADVISOR COMMISSIONS & WEEKLY PAYROLL ENRICHMENT
+  // =========================================================================
+
+  // Calculate closed sales commissions for advisors in the current week ($5 USD per non-yard closed sale)
+  const advisorCommissionsMap = useMemo(() => {
+    const map = new Map<string, { count: number; commission: number }>();
+    for (const emp of employees) {
+      if (!isAdvisorRole(emp.role)) continue;
+      const matchingSales = weeklySalesOrders.filter((order) =>
+        orderMatchesAdvisor(order, emp.id, emp.name)
+      );
+      const count = matchingSales.length;
+      const commission = count * DOWNPAYMENT_COMMISSION_AMOUNT;
+      map.set(emp.id, { count, commission });
+    }
+    return map;
+  }, [employees, weeklySalesOrders]);
+
+  // Employees enriched with weekly advisor commissions
+  const employeesWithCommissions: OfficeEmployeeWithCommissions[] = useMemo(() => {
+    return employees.map((emp) => {
+      const isAdvisor = isAdvisorRole(emp.role);
+      const advInfo = advisorCommissionsMap.get(emp.id);
+      const salesCount = isAdvisor ? (advInfo?.count ?? 0) : 0;
+      const commissionTotal = isAdvisor ? (advInfo?.commission ?? 0) : 0;
+      const totalPayout = emp.weeklySalary + commissionTotal;
+      return {
+        ...emp,
+        isAdvisor,
+        salesCount,
+        commissionTotal,
+        totalPayout,
+      };
+    });
+  }, [employees, advisorCommissionsMap]);
+
+  // Sorted employees (highest total weekly payout to lowest)
+  const sortedEmployees = useMemo(() => {
+    return [...employeesWithCommissions].sort(
+      (a, b) => b.totalPayout - a.totalPayout || b.weeklySalary - a.weeklySalary || a.name.localeCompare(b.name)
+    );
+  }, [employeesWithCommissions]);
+
+  // Total Weekly Payroll Sum (Base salaries + Advisor sales commissions)
+  const totalPayrollFixed = useMemo(() => {
+    return sumMoney(employeesWithCommissions.map((e) => e.totalPayout));
+  }, [employeesWithCommissions]);
+
+  // Total Advisor Commissions for this week
+  const totalAdvisorCommissions = useMemo(() => {
+    return sumMoney(employeesWithCommissions.map((e) => e.commissionTotal));
+  }, [employeesWithCommissions]);
+
   // Delivered Parts of the current running week (claims on delivered orders keep counting):
   const weeklyDeliveriesOrders = useMemo(() => {
     return orders.filter((o) => {
@@ -565,20 +647,36 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   const allGeneralConcepts = useMemo(() => {
     const todayStr = financeDateKey(currentWeekRange.start);
 
-    // 1. Employee salaries (Weekly recurring payroll, sorted highest to lowest - Only active salaries > 0)
-    const employeeRows = sortedEmployees.filter((emp) => emp.weeklySalary > 0).map((emp) => ({
-      id: `EMP-${emp.id}`,
-      date: todayStr,
-      category: 'Nómina / Personal' as const,
-      description: emp.role ? `${emp.name} (${emp.role})` : emp.name,
-      paymentMethod: 'Transferencia' as const,
-      amount: emp.weeklySalary,
-      isEmployee: true,
-      isRecurring: false,
-      rawEmployee: emp,
-      rawRecurring: undefined,
-      badge: 'Pago Recurrente Semanal',
-    }));
+    // 1. Employee salaries (Weekly recurring payroll + advisor sales commissions, sorted highest to lowest - Only active payout > 0)
+    const employeeRows = sortedEmployees.filter((emp) => emp.totalPayout > 0).map((emp) => {
+      let desc = emp.role ? `${emp.name} (${emp.role})` : emp.name;
+      if (emp.isAdvisor) {
+        if (emp.salesCount > 0) {
+          desc += ` · Base: $${emp.weeklySalary.toFixed(2)} + Comisiones: $${emp.commissionTotal.toFixed(2)} (${emp.salesCount} venta${emp.salesCount > 1 ? 's' : ''} × $5)`;
+        } else {
+          desc += ` · Base: $${emp.weeklySalary.toFixed(2)} (Sin ventas en la semana)`;
+        }
+      }
+
+      return {
+        id: `EMP-${emp.id}`,
+        date: todayStr,
+        category: 'Nómina / Personal' as const,
+        description: desc,
+        paymentMethod: 'Transferencia' as const,
+        amount: emp.totalPayout,
+        isEmployee: true,
+        isAdvisor: emp.isAdvisor,
+        salesCount: emp.salesCount,
+        commissionTotal: emp.commissionTotal,
+        isRecurring: false,
+        rawEmployee: emp,
+        rawRecurring: undefined,
+        badge: emp.isAdvisor && emp.salesCount > 0
+          ? `Nómina + $${emp.commissionTotal.toFixed(0)} Com.`
+          : 'Pago Recurrente Semanal',
+      };
+    });
 
     // 2. Due Recurring Expenses for this week (e.g. Alquiler de Local)
     const recurringRows = dueRecurringExpensesThisWeek.map((rec) => ({
@@ -701,7 +799,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
           commissionPercentage: 2,
           commissionAmount: managerCommission,
           commissionNote: totalYardDeliveredVolume > 0 ? `Excluye ventas yarda ($${totalYardDeliveredVolume.toFixed(2)})` : undefined,
-          employees,
+          employees: sortedEmployees.filter((emp) => emp.totalPayout > 0),
           recurringExpenses: dueRecurringExpensesThisWeek,
           adHocExpenses: weeklyOtherExpenses.map((e) => ({
             description: e.description,
@@ -791,7 +889,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                         <span>Nómina / Personal</span>
                       </span>
                       <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-[#388bfd]/15 text-[#38bdf8] border border-[#388bfd]/30 font-bold">
-                        Semanal
+                        {item.isAdvisor && (item.salesCount ?? 0) > 0 ? `Semanal + $${item.commissionTotal?.toFixed(0)} Com.` : 'Semanal'}
                       </span>
                     </div>
                   ) : item.isRecurring ? (
@@ -816,8 +914,26 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                     </div>
                   )}
                 </td>
-                <td className="py-3.5 px-4 text-[#cbd5e1] max-w-xs truncate font-medium">
-                  {item.description}
+                <td className="py-3.5 px-4 text-[#cbd5e1]">
+                  {item.isEmployee && item.isAdvisor ? (
+                    <div>
+                      <div className="font-semibold text-white">
+                        {item.rawEmployee?.name} {item.rawEmployee?.role ? `(${item.rawEmployee.role})` : ''}
+                      </div>
+                      {(item.salesCount ?? 0) > 0 ? (
+                        <div className="text-[11px] font-mono text-emerald-400 mt-0.5 flex items-center gap-1">
+                          <span aria-hidden="true" className="material-symbols-outlined text-[13px]">payments</span>
+                          <span>Base: ${item.rawEmployee?.weeklySalary.toFixed(2)} + Comisiones: ${item.commissionTotal?.toFixed(2)} ({item.salesCount} venta{(item.salesCount ?? 0) > 1 ? 's' : ''} × $5)</span>
+                        </div>
+                      ) : (
+                        <div className="text-[10.5px] font-mono text-slate-400 mt-0.5">
+                          Base: ${item.rawEmployee?.weeklySalary.toFixed(2)} (Sin ventas cerradas en la semana)
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="font-medium max-w-xs truncate">{item.description}</div>
+                  )}
                 </td>
                 <td className="py-3.5 px-4">
                   <span className="px-2.5 py-0.5 rounded-full border border-[#334155] bg-[#1e293b] text-[#cbd5e1] font-mono text-[11px]">
@@ -1330,14 +1446,21 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                   </span>
                 </div>
 
-                {/* Personnel salaries (Dynamic from employees list - Sorted highest to lowest, only salaries > 0) */}
-                {sortedEmployees.filter((person) => person.weeklySalary > 0).map((person) => (
+                {/* Personnel salaries (Dynamic from employees list - Sorted highest to lowest, only total payout > 0) */}
+                {sortedEmployees.filter((person) => person.totalPayout > 0).map((person) => (
                   <div key={person.id} className="flex justify-between items-center py-0.5">
-                    <span className="truncate pr-2 text-[#cbd5e1] print:text-black font-medium">
-                      {person.name}
-                    </span>
+                    <div className="flex flex-col min-w-0 pr-2">
+                      <span className="truncate text-[#cbd5e1] print:text-black font-medium">
+                        {person.name}
+                      </span>
+                      {person.isAdvisor && person.salesCount > 0 && (
+                        <span className="text-[9.5px] text-emerald-400 font-mono print:text-gray-600">
+                          Base: ${person.weeklySalary.toFixed(2)} + Comisiones: ${person.commissionTotal.toFixed(2)} ({person.salesCount} venta{person.salesCount > 1 ? 's' : ''} × $5)
+                        </span>
+                      )}
+                    </div>
                     <span className="font-mono font-medium text-[#cbd5e1] print:text-black">
-                      $ {person.weeklySalary.toFixed(2)}
+                      $ {person.totalPayout.toFixed(2)}
                     </span>
                   </div>
                 ))}
@@ -1928,9 +2051,18 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                         </div>
 
                         <div className="flex items-center gap-3">
-                          <span className={`font-mono font-bold text-sm ${emp.weeklySalary > 0 ? 'text-[#38bdf8]' : 'text-slate-400'}`}>
-                            {emp.weeklySalary > 0 ? `$${emp.weeklySalary.toFixed(2)}` : 'Sin salario'} <span className="text-[10px] text-[#94a3b8] font-normal">/sem</span>
-                          </span>
+                          <div className="text-right">
+                            <span className={`font-mono font-bold text-sm block ${emp.weeklySalary > 0 ? 'text-[#38bdf8]' : 'text-slate-400'}`}>
+                              {emp.weeklySalary > 0 ? `$${emp.weeklySalary.toFixed(2)}` : 'Sin salario'} <span className="text-[10px] text-[#94a3b8] font-normal">/sem</span>
+                            </span>
+                            {emp.isAdvisor && (
+                              <span className="text-[9.5px] text-emerald-400 font-mono block">
+                                {emp.salesCount > 0
+                                  ? `+ $${emp.commissionTotal.toFixed(2)} comisiones (${emp.salesCount} venta${emp.salesCount > 1 ? 's' : ''} × $5)`
+                                  : '+ $5/venta cerrada'}
+                              </span>
+                            )}
+                          </div>
 
                           <div className="flex items-center gap-1">
                             <button
@@ -2197,6 +2329,11 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                   <div className="text-right">
                     <div className="text-[10px] text-[#94a3b8] uppercase font-mono">Total Nómina</div>
                     <div className="font-mono text-base font-black text-[#38bdf8]">${totalPayrollFixed.toFixed(2)} USD</div>
+                    {totalAdvisorCommissions > 0 && (
+                      <div className="text-[10px] text-emerald-400 font-mono">
+                        Base ${totalBasePayroll.toFixed(2)} + Com. ${totalAdvisorCommissions.toFixed(2)}
+                      </div>
+                    )}
                   </div>
                   <button
                     type="button"

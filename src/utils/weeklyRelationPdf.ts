@@ -6,12 +6,18 @@ import { OfficeEmployee, RecurringExpense } from '../components/WeeklyRelationVi
 // TYPES
 // ============================================================================
 
+export interface OfficeEmployeePdfItem extends OfficeEmployee {
+  totalPayout?: number;
+  commissionTotal?: number;
+  salesCount?: number;
+}
+
 export interface OfficialDeliveriesPdfData {
   orders: Order[];
   commissionPercentage: number;
   commissionAmount: number;
   commissionNote?: string;
-  employees: OfficeEmployee[];
+  employees: OfficeEmployeePdfItem[];
   recurringExpenses: RecurringExpense[];
   adHocExpenses?: Array<{ description: string; amount: number }>;
   totalPayout: number;
@@ -344,17 +350,21 @@ export const generateOfficialDeliveriesPdf = async (
     lineY -= 10;
   }
 
-  // 2. Employees (Sorted from highest to lowest salary)
-  const sortedEmployees = [...data.employees].sort((a, b) => b.weeklySalary - a.weeklySalary);
+  // 2. Employees (Sorted from highest to lowest salary/payout)
+  const sortedEmployees = [...data.employees].sort((a, b) => (b.totalPayout ?? b.weeklySalary) - (a.totalPayout ?? a.weeklySalary));
   sortedEmployees.forEach((emp) => {
-    page.drawText(cleanPdfText(emp.name, 25), {
+    const hasCommissions = (emp.commissionTotal ?? 0) > 0;
+    const label = hasCommissions
+      ? `${emp.name} (Base $${emp.weeklySalary.toFixed(0)} + Com $${(emp.commissionTotal ?? 0).toFixed(0)})`
+      : emp.name;
+    page.drawText(cleanPdfText(label, 32), {
       x: boxX,
       y: lineY,
       size: 8.5,
       font: regular,
       color: textDark,
     });
-    const salaryVal = formatMoney(emp.weeklySalary);
+    const salaryVal = formatMoney(emp.totalPayout ?? emp.weeklySalary);
     const salaryValWidth = bold.widthOfTextAtSize(salaryVal, 8.5);
     page.drawText(salaryVal, {
       x: boxX + boxWidth - salaryValWidth,

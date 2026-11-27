@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   OfficeEmployee, RecurringExpense, getMonthlyRecurringDueWeek,
-  getWeekRange, isRecurringExpenseDueInWeek,
+  getWeekRange, isRecurringExpenseDueInWeek, isAdvisorRole, orderMatchesAdvisor,
 } from '../src/components/WeeklyRelationView';
 import { commissionAmount, financeDateKey, sumMoney, isDeliveredSaleOrder } from '../src/utils/finance';
+import { DOWNPAYMENT_COMMISSION_AMOUNT } from '../src/utils/commissions';
 import type { Order } from '../src/types';
 
 describe('Weekly relation financial engine', () => {
@@ -84,6 +85,99 @@ describe('Weekly relation financial engine', () => {
     expect(isDeliveredSaleOrder(notDeliveredRefundedOrder)).toBe(false);
 
     expect(commissionAmount([deliveredAndRefundRequestedOrder, deliveredAndRefundedOrder])).toBe(60);
+  });
+
+  it('correctly identifies sales advisors and matches closed sales for $5 commissions', () => {
+    expect(isAdvisorRole('Asesor de ventas')).toBe(true);
+    expect(isAdvisorRole('Asesor')).toBe(true);
+    expect(isAdvisorRole('ventas')).toBe(true);
+    expect(isAdvisorRole('Gerente')).toBe(false);
+    expect(isAdvisorRole('Dispatcher')).toBe(false);
+    expect(isAdvisorRole('RCT (Rodriguez Construction)')).toBe(false);
+    expect(isAdvisorRole('Marketing')).toBe(false);
+    expect(isAdvisorRole('vendedor_yarda')).toBe(false); // Yard sellers excluded
+    expect(isAdvisorRole(null)).toBe(false);
+
+    const normalSale = {
+      id: 'ORD-1',
+      advisor: 'Darrel Machado',
+      userId: 3,
+      status: 'pagado',
+      isYardSale: false,
+    } as unknown as Order;
+
+    const yardSale = {
+      id: 'ORD-2',
+      advisor: 'Darrel Machado',
+      userId: 3,
+      status: 'pagado',
+      isYardSale: true,
+    } as unknown as Order;
+
+    const canceledSale = {
+      id: 'ORD-3',
+      advisor: 'Darrel Machado',
+      userId: 3,
+      status: 'cancelado',
+      isYardSale: false,
+    } as unknown as Order;
+
+    const otherAdvisorSale = {
+      id: 'ORD-4',
+      advisor: 'Moises Rossell',
+      userId: 2,
+      status: 'pagado',
+      isYardSale: false,
+    } as unknown as Order;
+
+    // Matches Darrel by ID or name
+    expect(orderMatchesAdvisor(normalSale, 'user-3', 'Darrel Machado')).toBe(true);
+    expect(orderMatchesAdvisor(normalSale, 'user-99', 'Darrel Machado')).toBe(true);
+    // Excludes yard sales
+    expect(orderMatchesAdvisor(yardSale, 'user-3', 'Darrel Machado')).toBe(false);
+    // Excludes canceled sales
+    expect(orderMatchesAdvisor(canceledSale, 'user-3', 'Darrel Machado')).toBe(false);
+    // Does not match other advisor
+    expect(orderMatchesAdvisor(otherAdvisorSale, 'user-3', 'Darrel Machado')).toBe(false);
+    expect(orderMatchesAdvisor(otherAdvisorSale, 'user-2', 'Moises Rossell')).toBe(true);
+  });
+
+  it('calculates weekly payout for advisors: base salary ($75) + $5 per closed non-yard sale', () => {
+    const darrel: OfficeEmployee = { id: 'user-3', name: 'Darrel Machado', weeklySalary: 75, role: 'Asesor de ventas' };
+    const moises: OfficeEmployee = { id: 'user-2', name: 'Moises Rossell', weeklySalary: 75, role: 'Asesor de ventas' };
+    const douglas: OfficeEmployee = { id: 'user-1', name: 'Douglas Villalobos', weeklySalary: 150, role: 'Gerente' };
+
+    const weeklySales = [
+      { id: 'O1', advisor: 'Darrel Machado', userId: 3, status: 'pagado', isYardSale: false },
+      { id: 'O2', advisor: 'Darrel Machado', userId: 3, status: 'en_camino', isYardSale: false },
+      { id: 'O3', advisor: 'Darrel Machado', userId: 3, status: 'pagado', isYardSale: false },
+      { id: 'O4', advisor: 'Darrel Machado', userId: 3, status: 'pagado', isYardSale: true }, // yard - excluded
+      { id: 'O5', advisor: 'Moises Rossell', userId: 2, status: 'pagado', isYardSale: false },
+    ] as unknown as Order[];
+
+    // Darrel has 3 eligible sales * $5 = $15 commission
+    const darrelSalesCount = weeklySales.filter((o) => orderMatchesAdvisor(o, darrel.id, darrel.name)).length;
+    expect(darrelSalesCount).toBe(3);
+    const darrelCommissions = darrelSalesCount * DOWNPAYMENT_COMMISSION_AMOUNT;
+    expect(darrelCommissions).toBe(15);
+    const darrelTotal = darrel.weeklySalary + darrelCommissions;
+    expect(darrelTotal).toBe(90);
+
+    // Moises has 1 eligible sale * $5 = $5 commission
+    const moisesSalesCount = weeklySales.filter((o) => orderMatchesAdvisor(o, moises.id, moises.name)).length;
+    expect(moisesSalesCount).toBe(1);
+    const moisesCommissions = moisesSalesCount * DOWNPAYMENT_COMMISSION_AMOUNT;
+    expect(moisesCommissions).toBe(5);
+    const moisesTotal = moises.weeklySalary + moisesCommissions;
+    expect(moisesTotal).toBe(80);
+
+    // Douglas is Gerente, not an advisor - no sales commissions
+    expect(isAdvisorRole(douglas.role)).toBe(false);
+    const douglasTotal = douglas.weeklySalary;
+    expect(douglasTotal).toBe(150);
+
+    // Total payroll with commissions: 150 + 90 + 80 = 320
+    expect(sumMoney([douglasTotal, darrelTotal, moisesTotal])).toBe(320);
   });
 });
 
