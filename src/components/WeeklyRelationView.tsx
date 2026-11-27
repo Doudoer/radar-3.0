@@ -42,7 +42,7 @@ export const isAdvisorRole = (role?: string | null): boolean => {
 
 export const orderMatchesAdvisor = (order: Order, employeeId: string, employeeName: string): boolean => {
   if (order.isYardSale || order.advisorRole === 'vendedor_yarda') return false;
-  if (order.status === 'cancelado' || order.status === 'cancelada') return false;
+  if (order.status === 'cancelado') return false;
 
   const rawId = employeeId.replace(/^user-/, '').trim();
   if (order.userId && String(order.userId) === rawId) return true;
