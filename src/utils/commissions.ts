@@ -9,7 +9,7 @@ export interface EmployeeCommissionItem {
   orderCode: string;
   type: 'downpayment_sale' | 'delivered_closed';
   amount: number;
-  status: 'pending_yard_check' | 'earned' | 'voided_availability' | 'paid';
+  status: 'pending_yard_check' | 'earned' | 'voided_availability' | 'voided_refund' | 'paid';
   availableAt: string;
   earnedAt?: string | null;
   voidedAt?: string | null;

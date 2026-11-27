@@ -232,8 +232,101 @@ export const syncCommissionsSinceDate = async (
 
     // 3. Auto-release (after 12h) or void (if canceled by yard)
     await releaseOrVoidYardCommissions(pool, now);
+
+    // 4. Sync commission voiding or deductions for refunded orders
+    await syncRefundCommissions(pool, now);
   } catch (err) {
     console.warn('[Commissions] Failed to sync retroactive commissions:', err);
+  }
+};
+
+/**
+ * Processes refund requests on orders and applies commission voiding rules:
+ * - Escenario A: Reembolso solicitado en la MISMA semana de entrega (o antes de entrega):
+ *   Se descuentan ambas comisiones ($5 venta + $2 cierre).
+ * - Escenario B: Reembolso solicitado en una SEMANA POSTERIOR a la entrega:
+ *   SOLO se descuentan los $2 del cierre. Los $5 de la venta se conservan intactos.
+ */
+export const syncRefundCommissions = async (
+  pool: Pool,
+  now = new Date(),
+): Promise<void> => {
+  try {
+    const [refundRows] = await pool.query<RowDataPacket[]>(
+      `SELECT r.id AS refund_id, r.order_id, r.created_at AS refund_created_at, r.status AS refund_status,
+              o.delivered_at, o.created_at AS order_created_at
+         FROM refund_requests r
+         JOIN orders o ON o.id = r.order_id
+        WHERE r.status IN ('pending', 'completed')
+          AND COALESCE(r.refund_scope, 'purchase') = 'purchase'`,
+    );
+
+    for (const row of refundRows) {
+      const orderId = Number(row.order_id);
+      const refundCreatedAt = row.refund_created_at ? new Date(row.refund_created_at) : now;
+      const deliveredAt = row.delivered_at ? new Date(row.delivered_at) : null;
+      const refundSql = toSqlDate(refundCreatedAt);
+
+      if (deliveredAt) {
+        const deliveryPeriod = payPeriodFor(deliveredAt);
+        const refundPeriod = payPeriodFor(refundCreatedAt);
+        const isSameWeek = deliveryPeriod.start === refundPeriod.start;
+
+        if (isSameWeek) {
+          // Escenario A: Misma semana de entrega -> se descuentan AMBAS comisiones ($5 venta y $2 cierre)
+          await pool.execute(
+            `UPDATE employee_commissions
+                SET status = 'voided_refund', voided_at = ?
+              WHERE order_id = ?
+                AND status IN ('earned', 'pending_yard_check')`,
+            [refundSql, orderId],
+          );
+        } else {
+          // Escenario B: Semana posterior a la entrega -> SOLO se descuentan los $2 del cierre
+          await pool.execute(
+            `UPDATE employee_commissions
+                SET status = 'voided_refund', voided_at = ?
+              WHERE order_id = ?
+                AND type = 'delivered_closed'
+                AND status IN ('earned', 'pending_yard_check')`,
+            [refundSql, orderId],
+          );
+          // Los $5 de venta NO se descuentan; si estaban marcados como voided_refund, se restauran a earned
+          await pool.execute(
+            `UPDATE employee_commissions
+                SET status = 'earned', voided_at = NULL
+              WHERE order_id = ?
+                AND type = 'downpayment_sale'
+                AND status = 'voided_refund'`,
+            [orderId],
+          );
+        }
+      } else {
+        // Orden no entregada (cancelada o reembolsada en preparación) -> anular comisión de venta
+        await pool.execute(
+          `UPDATE employee_commissions
+              SET status = 'voided_refund', voided_at = ?
+            WHERE order_id = ?
+              AND status IN ('earned', 'pending_yard_check')`,
+          [refundSql, orderId],
+        );
+      }
+    }
+
+    // Restaurar comisiones si la solicitud de reembolso fue cancelada o rechazada
+    await pool.execute(
+      `UPDATE employee_commissions c
+          SET c.status = 'earned', c.voided_at = NULL
+        WHERE c.status = 'voided_refund'
+          AND NOT EXISTS (
+            SELECT 1 FROM refund_requests r
+             WHERE r.order_id = c.order_id
+               AND r.status IN ('pending', 'completed')
+               AND COALESCE(r.refund_scope, 'purchase') = 'purchase'
+          )`,
+    );
+  } catch (err) {
+    console.warn('[Commissions] Failed to sync refund commissions:', err);
   }
 };
 
@@ -262,13 +355,15 @@ export const getUserCommissionsSummary = async (
           (c.status = 'earned' AND c.earned_at >= ? AND c.earned_at <= ?)
           OR c.status = 'pending_yard_check'
           OR (c.status = 'voided_availability' AND c.voided_at >= ? AND c.voided_at <= ?)
+          OR (c.status = 'voided_refund' AND c.voided_at >= ? AND c.voided_at <= ?)
         )
         AND (
           c.type != 'delivered_closed'
+          OR c.status = 'voided_refund'
           OR (o.created_at >= ? AND o.created_at <= ?)
         )
       ORDER BY c.created_at DESC`,
-    [userId, startSql, endSql, startSql, endSql, startSql, endSql],
+    [userId, startSql, endSql, startSql, endSql, startSql, endSql, startSql, endSql],
   );
 
   const items: EmployeeCommissionItem[] = rows.map((r) => {
@@ -298,7 +393,7 @@ export const getUserCommissionsSummary = async (
 
   const earnedItems = items.filter((i) => i.status === 'earned');
   const pendingItems = items.filter((i) => i.status === 'pending_yard_check');
-  const voidedItems = items.filter((i) => i.status === 'voided_availability');
+  const voidedItems = items.filter((i) => i.status === 'voided_availability' || i.status === 'voided_refund');
 
   const earnedAmount = Math.round(earnedItems.reduce((acc, i) => acc + i.amount, 0) * 100) / 100;
   const pendingYardAmount = Math.round(pendingItems.reduce((acc, i) => acc + i.amount, 0) * 100) / 100;

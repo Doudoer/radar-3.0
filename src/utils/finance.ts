@@ -83,7 +83,9 @@ export const movementIncome = (movements: FinanceMovement[]): number =>
   sumMoney(movements.map((movement) => movement.kind === 'refund' ? -Math.abs(movement.amount) : Math.abs(movement.amount)));
 
 export const isDeliveredSaleOrder = (order: Order): boolean =>
-  order.status === 'entregado' || (order.status === 'reclamo' && Boolean(order.deliveredAt));
+  order.status === 'entregado' ||
+  (order.status === 'reclamo' && Boolean(order.deliveredAt)) ||
+  ((order.status === 'solicitud_reembolso' || order.status === 'reembolsado') && Boolean(order.deliveredAt));
 
 export const commissionBase = (orders: Order[]): number =>
   sumMoney(orders.filter((order) => isDeliveredSaleOrder(order) && !order.isYardSale &&

@@ -319,9 +319,9 @@ export const CommissionsCard: React.FC<{
           <p className="text-[10px] text-cyan-400/80">{commissions.pendingYardCount} órdenes en retención</p>
         </div>
         <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card-subtle)] p-3">
-          <p className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">Anuladas por falta stock</p>
+          <p className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">Anuladas (yarda / reembolsos)</p>
           <p className="mt-1 text-lg font-black text-[var(--text-muted)]">{formatUsd(commissions.voidedAmount)}</p>
-          <p className="text-[10px] text-[var(--text-secondary)]">{commissions.voidedCount} canceladas en &lt;12h</p>
+          <p className="text-[10px] text-[var(--text-secondary)]">{commissions.voidedCount} órdenes anuladas</p>
         </div>
       </div>
 
@@ -342,13 +342,17 @@ export const CommissionsCard: React.FC<{
                         ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                         : item.status === 'pending_yard_check'
                           ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
-                          : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                          : item.status === 'voided_refund'
+                            ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                            : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
                     }`}>
                       {item.status === 'earned'
                         ? 'Acreditada'
                         : item.status === 'pending_yard_check'
                           ? `En verificación (${Math.floor((item.minutesRemaining || 0) / 60)}h ${(item.minutesRemaining || 0) % 60}m restantes)`
-                          : 'Anulada por Yarda'}
+                          : item.status === 'voided_refund'
+                            ? 'Anulada por Reembolso'
+                            : 'Anulada por Yarda'}
                     </span>
                   </div>
                   <p className="text-[11px] text-[var(--text-secondary)] mt-0.5">
@@ -358,8 +362,14 @@ export const CommissionsCard: React.FC<{
                   </p>
                 </div>
                 <div className="text-right">
-                  <span className={`text-sm font-black ${item.status === 'earned' ? 'text-emerald-400' : item.status === 'pending_yard_check' ? 'text-cyan-400' : 'text-neutral-500 line-through'}`}>
-                    +{formatUsd(item.amount)}
+                  <span className={`text-sm font-black ${
+                    item.status === 'earned'
+                      ? 'text-emerald-400'
+                      : item.status === 'pending_yard_check'
+                        ? 'text-cyan-400'
+                        : 'text-neutral-500 line-through'
+                  }`}>
+                    {item.status === 'voided_refund' ? `-${formatUsd(item.amount)}` : `+${formatUsd(item.amount)}`}
                   </span>
                 </div>
               </div>

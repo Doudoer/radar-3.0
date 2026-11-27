@@ -16,6 +16,7 @@ import {
   getUserCommissionsSummary,
   getUserCarryoverDebt,
   saveUserCarryoverDebt,
+  syncRefundCommissions,
 } from '../src/server/commissions';
 
 describe('Employee Commissions & Salary Protection', () => {
@@ -323,6 +324,105 @@ describe('Employee Commissions & Salary Protection', () => {
       await saveUserCarryoverDebt(mockPool, 5, '2026-11-28', 15.0, 5.0);
       expect(executed.length).toBe(1);
       expect(executed[0].sql).toContain('employee_penalty_carryover');
+    });
+
+    it('syncRefundCommissions voids both $5 and $2 if refund is requested in the same week as delivery (Escenario A)', async () => {
+      const executed: any[] = [];
+      const sameWeekDelivery = new Date('2026-11-25T14:00:00Z');
+      const sameWeekRefund = new Date('2026-11-26T10:00:00Z');
+
+      const mockPool: any = {
+        query: async () => [[
+          {
+            refund_id: 1,
+            order_id: 101,
+            refund_created_at: sameWeekRefund.toISOString(),
+            refund_status: 'pending',
+            delivered_at: sameWeekDelivery.toISOString(),
+            order_created_at: sameWeekDelivery.toISOString(),
+          },
+        ]],
+        execute: async (sql: string, params: any[]) => {
+          executed.push({ sql, params });
+          return [{ affectedRows: 2 }];
+        },
+      };
+
+      await syncRefundCommissions(mockPool, sameWeekRefund);
+
+      // Should void commissions for order_id 101 with status = 'voided_refund'
+      const voidCall = executed.find(e => e.sql.includes('status = \'voided_refund\'') && e.params?.[1] === 101);
+      expect(voidCall).toBeDefined();
+    });
+
+    it('syncRefundCommissions voids ONLY $2 delivered_closed if refund is requested in subsequent week (Escenario B)', async () => {
+      const executed: any[] = [];
+      // Delivered in previous week (e.g. Nov 18)
+      const prevWeekDelivery = new Date('2026-11-18T14:00:00Z');
+      // Refunded in current week (e.g. Nov 26)
+      const currentWeekRefund = new Date('2026-11-26T10:00:00Z');
+
+      const mockPool: any = {
+        query: async () => [[
+          {
+            refund_id: 2,
+            order_id: 102,
+            refund_created_at: currentWeekRefund.toISOString(),
+            refund_status: 'completed',
+            delivered_at: prevWeekDelivery.toISOString(),
+            order_created_at: prevWeekDelivery.toISOString(),
+          },
+        ]],
+        execute: async (sql: string, params: any[]) => {
+          executed.push({ sql, params });
+          return [{ affectedRows: 1 }];
+        },
+      };
+
+      await syncRefundCommissions(mockPool, currentWeekRefund);
+
+      // Should void ONLY delivered_closed commission
+      const voidDeliveryCall = executed.find(
+        e => e.sql.includes('status = \'voided_refund\'') &&
+             e.sql.includes('type = \'delivered_closed\'') &&
+             e.params?.[1] === 102
+      );
+      expect(voidDeliveryCall).toBeDefined();
+
+      // Should ensure downpayment_sale is restored/kept earned
+      const keepDownpaymentCall = executed.find(
+        e => e.sql.includes('status = \'earned\'') &&
+             e.sql.includes('type = \'downpayment_sale\'') &&
+             e.params?.[0] === 102
+      );
+      expect(keepDownpaymentCall).toBeDefined();
+    });
+
+    it('syncRefundCommissions voids downpayment commission if order was refunded before delivery', async () => {
+      const executed: any[] = [];
+      const refundDate = new Date('2026-11-26T10:00:00Z');
+
+      const mockPool: any = {
+        query: async () => [[
+          {
+            refund_id: 3,
+            order_id: 103,
+            refund_created_at: refundDate.toISOString(),
+            refund_status: 'pending',
+            delivered_at: null,
+            order_created_at: '2026-11-25T10:00:00Z',
+          },
+        ]],
+        execute: async (sql: string, params: any[]) => {
+          executed.push({ sql, params });
+          return [{ affectedRows: 1 }];
+        },
+      };
+
+      await syncRefundCommissions(mockPool, refundDate);
+
+      const voidCall = executed.find(e => e.sql.includes('status = \'voided_refund\'') && e.params?.[1] === 103);
+      expect(voidCall).toBeDefined();
     });
   });
 });

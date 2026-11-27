@@ -3,7 +3,7 @@ import {
   OfficeEmployee, RecurringExpense, getMonthlyRecurringDueWeek,
   getWeekRange, isRecurringExpenseDueInWeek,
 } from '../src/components/WeeklyRelationView';
-import { commissionAmount, financeDateKey, sumMoney } from '../src/utils/finance';
+import { commissionAmount, financeDateKey, sumMoney, isDeliveredSaleOrder } from '../src/utils/finance';
 import type { Order } from '../src/types';
 
 describe('Weekly relation financial engine', () => {
@@ -22,6 +22,32 @@ describe('Weekly relation financial engine', () => {
     expect(sorted.map((employee) => employee.weeklySalary)).toEqual([150, 120, 90, 75, 75, 75, 75, 50]);
     expect(sumMoney(employees.map((employee) => employee.weeklySalary))).toBe(710);
     expect(commissionAmount([{ status: 'entregado', financials: { partPrice: 12500, total: 13000 } } as Order])).toBe(250);
+  });
+
+  it('keeps 2% office commission for delivered orders even if refunded in the same week', () => {
+    const deliveredAndRefundRequestedOrder = {
+      status: 'solicitud_reembolso',
+      deliveredAt: '2026-11-25T15:00:00Z',
+      financials: { partPrice: 1000, total: 1100 },
+    } as Order;
+
+    const deliveredAndRefundedOrder = {
+      status: 'reembolsado',
+      deliveredAt: '2026-11-25T16:00:00Z',
+      financials: { partPrice: 2000, total: 2200 },
+    } as Order;
+
+    const notDeliveredRefundedOrder = {
+      status: 'reembolsado',
+      deliveredAt: null,
+      financials: { partPrice: 1500, total: 1600 },
+    } as Order;
+
+    expect(isDeliveredSaleOrder(deliveredAndRefundRequestedOrder)).toBe(true);
+    expect(isDeliveredSaleOrder(deliveredAndRefundedOrder)).toBe(true);
+    expect(isDeliveredSaleOrder(notDeliveredRefundedOrder)).toBe(false);
+
+    expect(commissionAmount([deliveredAndRefundRequestedOrder, deliveredAndRefundedOrder])).toBe(60);
   });
 });
 
