@@ -133,8 +133,11 @@ interface UserProfileViewProps {
 type Tab = 'resumen' | 'rendimiento' | 'faltas' | 'datos' | 'equipo';
 
 const ROLE_LABELS: Record<string, string> = {
-  admin: 'Administrador',
-  operator: 'Operador',
+  admin: 'Gerente',
+  operator: 'Asesor de Ventas',
+  dispatcher: 'Dispatcher',
+  rct: 'RCT (Rodriguez Construction and Trucking)',
+  marketing: 'Marketing',
   vendedor_yarda: 'Vendedor Yarda',
 };
 

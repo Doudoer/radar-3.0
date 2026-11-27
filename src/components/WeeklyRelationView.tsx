@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { apiFetch } from '../services/apiFetch';
 import { Order } from '../types';
 import { useFinanceState, useFinanceMovements } from '../hooks/useFinanceState';
 import { FinanceVault } from './FinanceVault';
@@ -179,11 +180,61 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   const showToast = (title: string) => toast({ title });
 
   // =========================================================================
-  // 2. OFFICE EMPLOYEES & PAYROLL MANAGEMENT (PERSISTENT)
+  // 2. OFFICE EMPLOYEES & PAYROLL MANAGEMENT (AUTOMATED + PERSISTENT)
   // =========================================================================
   const finance = useFinanceState(true);
   const income = useFinanceMovements(true);
-  const employees = finance.state?.employees ?? [];
+
+  // Automated System Users Fetching
+  const [systemUsers, setSystemUsers] = useState<any[]>([]);
+  const fetchUsers = useCallback(() => {
+    apiFetch('/users')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setSystemUsers(data);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
+  const OFFICE_ROLE_TITLES: Record<string, string> = useMemo(() => ({
+    admin: 'Gerente',
+    operator: 'Asesor de ventas',
+    dispatcher: 'Dispatcher',
+    rct: 'RCT (Rodriguez Construction)',
+    marketing: 'Marketing',
+  }), []);
+
+  // Sourced automatically from active office users (yard sellers strictly excluded)
+  const automatedUserEmployees: OfficeEmployee[] = useMemo(() => {
+    return systemUsers
+      .filter((u) => Boolean(u.active) && u.role !== 'vendedor_yarda')
+      .map((u) => ({
+        id: `user-${u.id}`,
+        name: u.name,
+        weeklySalary: Number(u.weekly_salary || 0),
+        role: OFFICE_ROLE_TITLES[u.role] || u.role,
+      }))
+      .filter((e) => e.weeklySalary > 0);
+  }, [systemUsers, OFFICE_ROLE_TITLES]);
+
+  // Combined employees: Automated from active users + any manual external employees that don't duplicate a system user
+  const employees: OfficeEmployee[] = useMemo(() => {
+    if (automatedUserEmployees.length > 0) {
+      const systemUserNames = new Set(automatedUserEmployees.map((e) => e.name.trim().toLowerCase()));
+      const extraManual = (finance.state?.employees ?? []).filter(
+        (emp) => !systemUserNames.has(emp.name.trim().toLowerCase())
+      );
+      return [...automatedUserEmployees, ...extraManual];
+    }
+    return finance.state?.employees ?? [];
+  }, [automatedUserEmployees, finance.state?.employees]);
+
   const recurringExpenses = finance.state?.recurringExpenses ?? [];
   const otherExpenses = finance.state?.otherExpenses ?? [];
 
@@ -209,8 +260,37 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
     }
 
     if (editingEmployeeId) {
-      // Update existing employee
-      if (!await finance.save({ employees: employees.map((emp) =>
+      // Check if this employee is a system user
+      if (editingEmployeeId.startsWith('user-')) {
+        const userId = editingEmployeeId.replace('user-', '');
+        const targetUser = systemUsers.find((u) => String(u.id) === userId);
+        if (targetUser) {
+          const res = await apiFetch(`/users/${userId}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              name: targetUser.name,
+              email: targetUser.email,
+              phone: targetUser.phone || null,
+              pbx_extension: targetUser.pbx_extension || null,
+              avatar_url: targetUser.avatar_url || null,
+              role: targetUser.role,
+              active: Boolean(targetUser.active),
+              permissions: targetUser.permissions || [],
+              weekly_salary: salary,
+            }),
+          });
+          if (res.ok) {
+            showToast(`Salario de "${targetUser.name}" actualizado a $${salary.toFixed(2)} USD.`);
+            fetchUsers();
+            setEditingEmployeeId(null);
+            setEmployeeForm({ name: '', weeklySalary: '', role: '' });
+            return;
+          }
+        }
+      }
+
+      // Update existing manual employee in finance state
+      if (!await finance.save({ employees: (finance.state?.employees ?? []).map((emp) =>
           emp.id === editingEmployeeId
             ? {
                 ...emp,
@@ -223,14 +303,14 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
       showToast(`Empleado "${employeeForm.name}" actualizado.`);
       setEditingEmployeeId(null);
     } else {
-      // Add new employee
+      // Add new manual employee
       const newEmp: OfficeEmployee = {
         id: `EMP-${crypto.randomUUID()}`,
         name: employeeForm.name.trim(),
         weeklySalary: salary,
         role: employeeForm.role.trim() || 'Oficina / Personal',
       };
-      if (!await finance.save({ employees: [...employees, newEmp] })) return;
+      if (!await finance.save({ employees: [...(finance.state?.employees ?? []), newEmp] })) return;
       showToast(`Empleado "${newEmp.name}" registrado en la nómina.`);
     }
 
@@ -254,7 +334,37 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
       tone: 'danger',
     });
     if (!confirmed) return;
-    if (!await finance.save({ employees: employees.filter((emp) => emp.id !== id) })) return;
+
+    if (id.startsWith('user-')) {
+      const userId = id.replace('user-', '');
+      const targetUser = systemUsers.find((u) => String(u.id) === userId);
+      if (targetUser) {
+        // Set salary to null for system user
+        await apiFetch(`/users/${userId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            name: targetUser.name,
+            email: targetUser.email,
+            phone: targetUser.phone || null,
+            pbx_extension: targetUser.pbx_extension || null,
+            avatar_url: targetUser.avatar_url || null,
+            role: targetUser.role,
+            active: Boolean(targetUser.active),
+            permissions: targetUser.permissions || [],
+            weekly_salary: null,
+          }),
+        });
+        fetchUsers();
+        showToast(`Salario de "${name}" removido de la nómina.`);
+        if (editingEmployeeId === id) {
+          setEditingEmployeeId(null);
+          setEmployeeForm({ name: '', weeklySalary: '', role: '' });
+        }
+        return;
+      }
+    }
+
+    if (!await finance.save({ employees: (finance.state?.employees ?? []).filter((emp) => emp.id !== id) })) return;
     if (editingEmployeeId === id) {
       setEditingEmployeeId(null);
       setEmployeeForm({ name: '', weeklySalary: '', role: '' });
@@ -1797,6 +1907,17 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
 
             {/* Modal Content */}
             <div className="p-5 flex-1 min-h-0 overflow-y-auto custom-scrollbar space-y-6 text-xs">
+              <div className="bg-[#031d36]/50 border border-[#38bdf8]/30 rounded-xl p-3 flex items-start gap-2.5 text-[#bae6fd]">
+                <span aria-hidden="true" className="material-symbols-outlined text-[#38bdf8] text-[18px] shrink-0 mt-0.5">info</span>
+                <div className="space-y-0.5 text-[11px]">
+                  <p className="font-bold text-white">Nómina automatizada desde el Sistema de Usuarios</p>
+                  <p className="text-[#94a3b8]">
+                    Los colaboradores activos con salario asignado (Gerente, Asesor de ventas, Dispatcher, RCT, Marketing) se integran automáticamente.
+                    Los empleados de la yarda están 100% excluidos de la nómina semanal de oficina.
+                  </p>
+                </div>
+              </div>
+
               {/* Form to Add / Edit Employee */}
               <form onSubmit={handleSaveEmployee} className="bg-[#0b1329] border border-[#1e293b] p-4 rounded-xl space-y-3">
                 <div className="flex items-center justify-between">

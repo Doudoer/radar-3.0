@@ -28,7 +28,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const handleClose = onClose || onCloseMobile;
   const normalizedRole = userRole.toLowerCase();
   const isSuperAdmin = normalizedRole === 'admin';
-  const roleLabel = isSuperAdmin ? 'SUPER ADMIN' : normalizedRole === 'vendedor_yarda' ? 'VENDEDOR YARDA' : 'OPERADOR';
+  const ROLE_NAV_LABELS: Record<string, string> = {
+    admin: 'GERENTE',
+    operator: 'ASESOR DE VENTAS',
+    dispatcher: 'DISPATCHER',
+    rct: 'RCT',
+    marketing: 'MARKETING',
+    vendedor_yarda: 'VENDEDOR YARDA',
+  };
+  const roleLabel = ROLE_NAV_LABELS[normalizedRole] || (isSuperAdmin ? 'GERENTE' : 'ASESOR DE VENTAS');
 
   const navItems: { id: NavScreen; label: string; icon: string; aliases?: NavScreen[] }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: 'grid_view' },

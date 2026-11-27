@@ -3934,7 +3934,7 @@ const server = createServer(async (request, response) => {
     // USERS (CRUD)
     // ==========================================
     if (request.method === 'GET' && pathname === '/api/users') {
-      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'vendedor_yarda')) return;
+      if (!requireRole(response, authenticatedClaims, 'admin', 'operator', 'dispatcher', 'rct', 'marketing', 'vendedor_yarda')) return;
       const [rows] = await pool.query<RowDataPacket[]>(
         'SELECT id, name, email, phone, pbx_extension, avatar_url, role, permissions, theme, active, created_at, updated_at, weekly_salary, (pin_hash IS NOT NULL) AS has_pin FROM users WHERE deleted_at IS NULL ORDER BY name'
       );
@@ -3980,8 +3980,8 @@ const server = createServer(async (request, response) => {
       }
       try {
         const [result] = await pool.execute<ResultSetHeader>(
-          `INSERT INTO users (name, email, phone, pbx_extension, avatar_url, password, pin_hash, role, permissions, active)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO users (name, email, phone, pbx_extension, avatar_url, password, pin_hash, role, permissions, active, weekly_salary)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             userData.name,
             userData.email.toLowerCase(),
@@ -3993,10 +3993,11 @@ const server = createServer(async (request, response) => {
             userData.role,
             JSON.stringify(userData.permissions),
             userData.active ? 1 : 0,
+            userData.weekly_salary !== undefined ? userData.weekly_salary : null,
           ]
         );
         const [rows] = await pool.query<RowDataPacket[]>(
-          'SELECT id, name, email, phone, pbx_extension, avatar_url, role, permissions, theme, active, created_at, updated_at, (pin_hash IS NOT NULL) AS has_pin FROM users WHERE id = ? LIMIT 1',
+          'SELECT id, name, email, phone, pbx_extension, avatar_url, role, permissions, theme, active, created_at, updated_at, weekly_salary, (pin_hash IS NOT NULL) AS has_pin FROM users WHERE id = ? LIMIT 1',
           [result.insertId]
         );
         void recordAuditLog(pool, {
@@ -4037,6 +4038,7 @@ const server = createServer(async (request, response) => {
       try {
         let passwordUpdateClause = '';
         let pinUpdateClause = '';
+        let salaryUpdateClause = '';
         const params: (string | number | null)[] = [
           user.name,
           user.email.toLowerCase(),
@@ -4047,6 +4049,10 @@ const server = createServer(async (request, response) => {
           JSON.stringify(user.permissions),
           user.active ? 1 : 0,
         ];
+        if (user.weekly_salary !== undefined) {
+          salaryUpdateClause = ', weekly_salary = ?';
+          params.push(user.weekly_salary);
+        }
         if (user.password && user.password.trim()) {
           const hash = await bcrypt.hash(user.password, 12);
           passwordUpdateClause = ', password = ?, password_changed_at = CURRENT_TIMESTAMP';
@@ -4064,7 +4070,7 @@ const server = createServer(async (request, response) => {
         params.push(userId);
 
         await pool.execute(
-          `UPDATE users SET name = ?, email = ?, phone = ?, pbx_extension = ?, avatar_url = ?, role = ?, permissions = ?, active = ? ${passwordUpdateClause}${pinUpdateClause}, session_version=session_version+1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`,
+          `UPDATE users SET name = ?, email = ?, phone = ?, pbx_extension = ?, avatar_url = ?, role = ?, permissions = ?, active = ? ${salaryUpdateClause}${passwordUpdateClause}${pinUpdateClause}, session_version=session_version+1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`,
           params
         );
       } catch (error) {

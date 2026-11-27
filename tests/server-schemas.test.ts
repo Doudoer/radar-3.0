@@ -365,6 +365,30 @@ describe('server input schemas', () => {
       role: 'vendedor_yarda',
     });
     expect(newYardUser.role).toBe('vendedor_yarda');
+
+    // Should accept all expanded roles: dispatcher, rct, marketing, and weekly_salary
+    for (const role of ['dispatcher', 'rct', 'marketing', 'operator', 'admin'] as const) {
+      const user = userCreateSchema.parse({
+        name: `Test ${role}`,
+        email: `${role}@radar.com`,
+        password: 'StrongPassword123!',
+        role,
+        weekly_salary: 150.50,
+      });
+      expect(user.role).toBe(role);
+      expect(user.weekly_salary).toBe(150.50);
+
+      const updated = userUpdateSchema.parse({
+        name: `Updated ${role}`,
+        email: `${role}@radar.com`,
+        role,
+        permissions: ['orders:view'],
+        active: true,
+        weekly_salary: 200,
+      });
+      expect(updated.role).toBe(role);
+      expect(updated.weekly_salary).toBe(200);
+    }
   });
 
   it('validates notificationConfigUpdateSchema, externalContactSchema, and notificationTestDispatchSchema', () => {

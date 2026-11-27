@@ -152,10 +152,11 @@ export const userCreateSchema = z.object({
   pbx_extension: z.string().trim().max(16).optional().nullable(),
   avatar_url: avatarSchema.optional().nullable(),
   password: passwordPolicySchema,
-  role: z.enum(['admin', 'operator', 'vendedor_yarda']).default('operator'),
+  role: z.enum(['admin', 'operator', 'dispatcher', 'rct', 'marketing', 'vendedor_yarda']).default('operator'),
   permissions: z.array(z.string().trim().min(1).max(80)).max(100).default([]),
   active: z.boolean().default(true),
   pin: pinSchema.optional().nullable(),
+  weekly_salary: z.number().nonnegative().max(100000).nullable().optional(),
 });
 
 export const userUpdateSchema = z.object({
@@ -165,10 +166,11 @@ export const userUpdateSchema = z.object({
   pbx_extension: z.string().trim().max(16).optional().nullable(),
   avatar_url: avatarSchema.optional().nullable(),
   password: passwordPolicySchema.optional().or(z.literal('')),
-  role: z.enum(['admin', 'operator', 'vendedor_yarda']),
+  role: z.enum(['admin', 'operator', 'dispatcher', 'rct', 'marketing', 'vendedor_yarda']),
   permissions: z.array(z.string().trim().min(1).max(80)).max(100),
   active: z.boolean(),
   pin: pinSchema.optional().nullable(),
+  weekly_salary: z.number().nonnegative().max(100000).nullable().optional(),
 });
 
 export const userProfileUpdateSchema = z.object({

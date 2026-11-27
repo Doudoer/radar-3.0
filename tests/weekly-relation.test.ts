@@ -24,6 +24,42 @@ describe('Weekly relation financial engine', () => {
     expect(commissionAmount([{ status: 'entregado', financials: { partPrice: 12500, total: 13000 } } as Order])).toBe(250);
   });
 
+  it('excludes yard sellers from office payroll and automatedly sorts office staff by salary', () => {
+    const rawUsers = [
+      { id: 1, name: 'Jose Puche', role: 'admin', active: 1, weekly_salary: 200 },
+      { id: 2, name: 'Moises Rossell', role: 'operator', active: 1, weekly_salary: 75 },
+      { id: 3, name: 'Darrel Machado', role: 'dispatcher', active: 1, weekly_salary: 100 },
+      { id: 4, name: 'Alejandro Palacio', role: 'vendedor_yarda', active: 1, weekly_salary: 50 }, // Yard seller - MUST be excluded!
+      { id: 5, name: 'Inactivo', role: 'marketing', active: 0, weekly_salary: 80 }, // Inactive - MUST be excluded!
+      { id: 6, name: 'Sin Salario', role: 'rct', active: 1, weekly_salary: null }, // No salary - excluded from payroll
+    ];
+
+    const ROLE_MAP: Record<string, string> = {
+      admin: 'Gerente',
+      operator: 'Asesor de ventas',
+      dispatcher: 'Dispatcher',
+      rct: 'RCT (Rodriguez Construction)',
+      marketing: 'Marketing',
+    };
+
+    const officePayroll = rawUsers
+      .filter((u) => Boolean(u.active) && u.role !== 'vendedor_yarda')
+      .map((u) => ({
+        id: `user-${u.id}`,
+        name: u.name,
+        weeklySalary: Number(u.weekly_salary || 0),
+        role: ROLE_MAP[u.role] || u.role,
+      }))
+      .filter((emp) => emp.weeklySalary > 0)
+      .sort((a, b) => b.weeklySalary - a.weeklySalary);
+
+    expect(officePayroll.map((emp) => emp.name)).toEqual(['Jose Puche', 'Darrel Machado', 'Moises Rossell']);
+    expect(officePayroll.map((emp) => emp.role)).toEqual(['Gerente', 'Dispatcher', 'Asesor de ventas']);
+    expect(officePayroll.map((emp) => emp.weeklySalary)).toEqual([200, 100, 75]);
+    expect(officePayroll.find((emp) => emp.name === 'Alejandro Palacio')).toBeUndefined();
+    expect(sumMoney(officePayroll.map((emp) => emp.weeklySalary))).toBe(375);
+  });
+
   it('keeps 2% office commission for delivered orders even if refunded in the same week', () => {
     const deliveredAndRefundRequestedOrder = {
       status: 'solicitud_reembolso',

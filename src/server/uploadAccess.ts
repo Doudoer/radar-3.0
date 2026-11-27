@@ -16,7 +16,7 @@ export const canReadOrderUpload = (
 ): boolean => {
   if (!claims) return false;
   const role = String(claims.role || '').toLowerCase();
-  if (role === 'admin' || role === 'operator') return true;
+  if (['admin', 'operator', 'dispatcher', 'rct', 'marketing'].includes(role)) return true;
   if (role !== 'vendedor_yarda') return false;
   if (!orderStatus) return true;
   return isYardScopedStatus(orderStatus);

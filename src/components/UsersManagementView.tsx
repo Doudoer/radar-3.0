@@ -6,6 +6,43 @@ import { useFeedback } from './FeedbackProvider';
 import { formatUsd } from '../utils/payroll';
 import { PENALTY_PERCENT_PER_UNIT } from '../utils/penalties';
 
+export type ManagedUserRole = 'admin' | 'operator' | 'dispatcher' | 'rct' | 'marketing' | 'vendedor_yarda';
+
+export const ROLE_DISPLAY: Record<string, { label: string; badge: string }> = {
+  admin: {
+    label: 'Gerente',
+    badge: 'bg-purple-950/70 border-purple-500/40 text-purple-300',
+  },
+  operator: {
+    label: 'Asesor de ventas',
+    badge: 'bg-cyan-950/60 border-cyan-500/30 text-cyan-300',
+  },
+  dispatcher: {
+    label: 'Dispatcher',
+    badge: 'bg-indigo-950/70 border-indigo-500/40 text-indigo-300',
+  },
+  rct: {
+    label: 'RCT (Rodriguez Construction)',
+    badge: 'bg-orange-950/70 border-orange-500/40 text-orange-300',
+  },
+  marketing: {
+    label: 'Marketing',
+    badge: 'bg-emerald-950/70 border-emerald-500/40 text-emerald-300',
+  },
+  vendedor_yarda: {
+    label: '🚜 Vendedor Yarda',
+    badge: 'bg-stone-900 border-stone-600 text-amber-200',
+  },
+};
+
+export const getRoleDisplay = (role: string) => {
+  const norm = (role || '').toLowerCase();
+  return ROLE_DISPLAY[norm] || {
+    label: role,
+    badge: 'bg-slate-900 border-slate-700 text-slate-300',
+  };
+};
+
 export type ManagedUser = {
   id: number;
   name: string;
@@ -138,6 +175,7 @@ const UserEditModal: React.FC<UserEditModalProps> = React.memo(({
     removePin: false,
     role: user.role,
     active: Boolean(user.active),
+    weekly_salary: user.weekly_salary !== null && user.weekly_salary !== undefined ? String(user.weekly_salary) : '',
     permissions: user.permissions || [],
   });
 
@@ -187,6 +225,7 @@ const UserEditModal: React.FC<UserEditModalProps> = React.memo(({
         avatar_url: draft.avatar_url.trim() || null,
         role: draft.role,
         active: draft.active,
+        weekly_salary: draft.weekly_salary.trim() !== '' ? Number(draft.weekly_salary) : null,
         permissions: draft.permissions,
       };
 
@@ -410,16 +449,40 @@ const UserEditModal: React.FC<UserEditModalProps> = React.memo(({
               </div>
 
               <label className="text-xs text-slate-300 font-mono uppercase text-[10px] block">
-                Rol
+                Cargo / Rol en la Empresa
                 <select
                   value={draft.role}
                   onChange={(e) => setDraft({ ...draft, role: e.target.value })}
                   className="mt-1 w-full rounded-xl border border-cyan-500/30 bg-[#040814] px-3.5 py-2 text-sm text-white outline-none focus:border-cyan-400"
                 >
-                  <option value="operator">Operador / Vendedor Oficina</option>
+                  <option value="operator">Asesor de ventas (Ventas y comisiones)</option>
+                  <option value="dispatcher">Dispatcher (Despacho y logística)</option>
+                  <option value="rct">RCT (Rodriguez Construction and Trucking)</option>
+                  <option value="marketing">Marketing (Promoción y contenido)</option>
+                  <option value="admin">Gerente (Supervisión general)</option>
                   <option value="vendedor_yarda">🚜 Vendedor Yarda (Patio)</option>
-                  <option value="admin">Administrador</option>
                 </select>
+              </label>
+
+              <label className="text-xs text-slate-300 font-mono uppercase text-[10px] block">
+                Salario Semanal ($ USD)
+                <div className="relative mt-1">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-mono text-sm">$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder={draft.role === 'vendedor_yarda' ? '0.00 (Exento en nómina oficina)' : '0.00'}
+                    value={draft.weekly_salary}
+                    onChange={(e) => setDraft({ ...draft, weekly_salary: e.target.value })}
+                    className="w-full rounded-xl border border-cyan-500/30 bg-[#040814] pl-7 pr-3.5 py-2 text-sm text-white outline-none focus:border-cyan-400 font-mono"
+                  />
+                </div>
+                <span className="block mt-1 text-[10px] text-slate-500 normal-case">
+                  {draft.role === 'vendedor_yarda' 
+                    ? 'Los empleados de yarda no generan salarios en la relación semanal de oficina.' 
+                    : 'Se integra de forma 100% automática a la nómina de la Relación Semanal.'}
+                </span>
               </label>
 
               <label className="flex items-center gap-2.5 text-xs text-slate-300 pt-1 cursor-pointer">
@@ -514,8 +577,9 @@ const UserCreateModal: React.FC<UserCreateModalProps> = React.memo(({
     avatar_url: '',
     password: '',
     pin: '',
-    role: 'operator' as 'operator' | 'admin' | 'vendedor_yarda',
+    role: 'operator' as ManagedUserRole,
     active: true,
+    weekly_salary: '',
     permissions: ['orders:view', 'orders:edit', 'customers:view', 'claims:view'] as string[],
   });
 
@@ -586,6 +650,7 @@ const UserCreateModal: React.FC<UserCreateModalProps> = React.memo(({
           password: draft.password,
           role: draft.role,
           active: draft.active,
+          weekly_salary: draft.weekly_salary.trim() ? Number(draft.weekly_salary) : null,
           permissions: draft.permissions,
           ...(pinValue ? { pin: pinValue } : {}),
         }),
@@ -758,16 +823,40 @@ const UserCreateModal: React.FC<UserCreateModalProps> = React.memo(({
           </div>
 
           <label className="text-xs text-slate-300 font-mono uppercase text-[10px]">
-            Rol en el Sistema
+            Cargo / Rol en la Empresa
             <select
               value={draft.role}
-              onChange={(e) => setDraft({ ...draft, role: e.target.value as 'operator' | 'admin' | 'vendedor_yarda' })}
+              onChange={(e) => setDraft({ ...draft, role: e.target.value as ManagedUserRole })}
               className="mt-1 w-full rounded-xl border border-cyan-500/30 bg-[#040814] px-3.5 py-2 text-sm text-white outline-none focus:border-cyan-400"
             >
-              <option value="operator">Operador / Vendedor Oficina</option>
+              <option value="operator">Asesor de ventas (Ventas y comisiones)</option>
+              <option value="dispatcher">Dispatcher (Despacho y logística)</option>
+              <option value="rct">RCT (Rodriguez Construction and Trucking)</option>
+              <option value="marketing">Marketing (Promoción y contenido)</option>
+              <option value="admin">Gerente (Supervisión general)</option>
               <option value="vendedor_yarda">🚜 Vendedor Yarda (Patio)</option>
-              <option value="admin">Administrador</option>
             </select>
+          </label>
+
+          <label className="text-xs text-slate-300 font-mono uppercase text-[10px] block">
+            Salario Semanal ($ USD)
+            <div className="relative mt-1">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-mono text-sm">$</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder={draft.role === 'vendedor_yarda' ? '0.00 (Exento en nómina oficina)' : '0.00'}
+                value={draft.weekly_salary}
+                onChange={(e) => setDraft({ ...draft, weekly_salary: e.target.value })}
+                className="w-full rounded-xl border border-cyan-500/30 bg-[#040814] pl-7 pr-3.5 py-2 text-sm text-white outline-none focus:border-cyan-400 font-mono"
+              />
+            </div>
+            <span className="block mt-1 text-[10px] text-slate-500 normal-case">
+              {draft.role === 'vendedor_yarda' 
+                ? 'Los empleados de yarda no generan salarios en la relación semanal de oficina.' 
+                : 'Se integra de forma 100% automática a la nómina de la Relación Semanal.'}
+            </span>
           </label>
 
           <label className="text-xs text-slate-300 font-mono uppercase text-[10px]">
@@ -1222,8 +1311,8 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
           <div>
             <div className="flex items-center gap-2.5">
               <h1 className="text-xl md:text-2xl font-black text-white tracking-tight">Gestión de Usuarios y Accesos</h1>
-              <span className="text-[11px] font-mono font-bold bg-cyan-950/60 text-cyan-300 border border-cyan-500/30 px-2.5 py-0.5 rounded-full shadow-[0_0_8px_rgba(6,182,212,0.25)]">
-                Super Admin
+              <span className="text-[11px] font-mono font-bold bg-purple-950/60 text-purple-300 border border-purple-500/30 px-2.5 py-0.5 rounded-full shadow-[0_0_8px_rgba(168,85,247,0.25)]">
+                Gerente
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-1">
@@ -1323,26 +1412,19 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({ curren
                       </div>
                     </td>
                     <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`font-mono text-xs font-bold px-2.5 py-0.5 rounded-lg border ${
-                            user.role === 'admin'
-                              ? 'bg-purple-950/70 border-purple-500/40 text-purple-300'
-                              : user.role === 'vendedor_yarda'
-                              ? 'bg-amber-950/70 border-amber-500/40 text-amber-300'
-                              : 'bg-cyan-950/60 border-cyan-500/30 text-cyan-300'
-                          }`}
-                        >
-                          {user.role === 'admin'
-                            ? 'Super Admin'
-                            : user.role === 'vendedor_yarda'
-                            ? '🚜 Vendedor Yarda'
-                            : 'Operador'}
-                        </span>
-                        <span className="text-[10.5px] font-mono text-slate-400">
-                          ({user.permissions?.length || 0} permisos)
-                        </span>
-                      </div>
+                      {(() => {
+                        const roleInfo = getRoleDisplay(user.role);
+                        return (
+                          <div className="flex items-center gap-2">
+                            <span className={`font-mono text-xs font-bold px-2.5 py-0.5 rounded-lg border ${roleInfo.badge}`}>
+                              {roleInfo.label}
+                            </span>
+                            <span className="text-[10.5px] font-mono text-slate-400">
+                              ({user.permissions?.length || 0} permisos)
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="py-3.5 px-4">
                       <div className="space-y-0.5">

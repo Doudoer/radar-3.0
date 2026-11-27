@@ -249,7 +249,7 @@ export async function handleAftersalesRequest(request: IncomingMessage, response
     if (!row) fail(404, 'Orden no encontrada');
     assertPaymentAccess(row, claims, true);
     if (body) {
-      if (!['admin', 'operator', 'vendedor_yarda'].includes(claims.role || '')) fail(403, 'No tienes permiso para esta operación.');
+      if (!['admin', 'operator', 'dispatcher', 'rct', 'marketing', 'vendedor_yarda'].includes(claims.role || '')) fail(403, 'No tienes permiso para esta operación.');
       if (claims.role === 'vendedor_yarda' && body.data.action !== 'invoice') fail(403, 'Solo administración y call center gestionan incidencias.');
       const replay = await beginIdempotentRequest(connection, 'aftersales', body.idempotencyKey, Number(claims.sub), { ...body, orderId: Number(id) });
       if (!replay) {
@@ -271,7 +271,7 @@ export async function handleAftersalesRequest(request: IncomingMessage, response
       const warranty = getOrderWarrantyInfo(mapOrder(row));
       const core = coreAmount(row, totals.completed);
       await connection.commit();
-      sendJson(response, 200, { version: Number(row.version), canManage: ['admin', 'operator'].includes(claims.role || ''), canAdmin: claims.role === 'admin',
+      sendJson(response, 200, { version: Number(row.version), canManage: ['admin', 'operator', 'dispatcher', 'rct', 'marketing'].includes(claims.role || ''), canAdmin: claims.role === 'admin',
         warranty: { ...warranty, terms, deadline: terms ? warrantyDeadline(terms) : null },
         core: { amount: core || 0, deadline: coreDeadline(row.delivered_at || row.delivery_log_at), receivedAt: row.core_returned_at,
           refund: refunds.filter(value => value.refund_scope === 'core' && value.status === 'completed').map(value => ({
