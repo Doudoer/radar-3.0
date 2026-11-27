@@ -4148,7 +4148,7 @@ const server = createServer(async (request, response) => {
       }
 
       const [rows] = await pool.query<RowDataPacket[]>(
-        'SELECT id, name, email, phone, pbx_extension, avatar_url, role, permissions, theme, active, created_at, updated_at, (pin_hash IS NOT NULL) AS has_pin FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+        'SELECT id, name, email, phone, pbx_extension, avatar_url, role, permissions, theme, active, created_at, updated_at, weekly_salary, (pin_hash IS NOT NULL) AS has_pin FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
         [userId]
       );
       if (!rows[0]) return sendJson(response, 404, { message: 'Usuario no encontrado' });
@@ -4167,6 +4167,7 @@ const server = createServer(async (request, response) => {
         phone: rows[0].phone || '',
         avatar_url: rows[0].avatar_url || '',
         permissions: parsePermissions(rows[0].permissions),
+        weekly_salary: rows[0].weekly_salary === null ? null : Number(rows[0].weekly_salary),
         hasPin: Boolean(rows[0].has_pin),
         has_pin: undefined,
       });

@@ -35,10 +35,38 @@ export const financeStateSchema = z.object({
 
 const ROLE_TO_CARGO: Record<string, string> = {
   admin: 'Gerente',
+  gerente: 'Gerente',
+  super_admin: 'Gerente',
   operator: 'Asesor de ventas',
+  asesor: 'Asesor de ventas',
   dispatcher: 'Dispatcher',
+  dispatchers: 'Dispatcher',
   rct: 'RCT (Rodriguez Construction)',
   marketing: 'Marketing',
+};
+
+const normalizeCargo = (role?: string | null): string => {
+  if (!role) return 'Personal de Oficina';
+  const lower = role.trim().toLowerCase();
+  if (ROLE_TO_CARGO[lower]) return ROLE_TO_CARGO[lower];
+  if (lower.includes('asesor') || lower.includes('ventas')) return 'Asesor de ventas';
+  if (lower.includes('dispatch')) return 'Dispatcher';
+  if (lower.includes('rct') || lower.includes('rodriguez')) return 'RCT (Rodriguez Construction)';
+  if (lower.includes('gerente') || lower.includes('admin')) return 'Gerente';
+  if (lower.includes('marketing')) return 'Marketing';
+  return role;
+};
+
+const normalizeName = (name?: string | null): string =>
+  (name || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+
+const KNOWN_OFFICE_SALARIES: Record<string, number> = {
+  'darrel machado': 75.0,
+  'moises rossell': 75.0,
 };
 
 export async function mergeRegisteredUsersAsEmployees(storedEmployees: any[]): Promise<any[]> {
@@ -51,9 +79,14 @@ export async function mergeRegisteredUsersAsEmployees(storedEmployees: any[]): P
 
     // 1. Registered office users are automatically annexed as employees
     for (const u of users) {
-      const roleTitle = ROLE_TO_CARGO[u.role] || u.role;
-      const salary = u.weekly_salary !== null && u.weekly_salary !== undefined ? Number(u.weekly_salary) : 0;
-      employeesMap.set(u.name.trim().toLowerCase(), {
+      const roleTitle = normalizeCargo(u.role);
+      const nameKey = normalizeName(u.name);
+      let salary = u.weekly_salary !== null && u.weekly_salary !== undefined ? Number(u.weekly_salary) : 0;
+      if (salary <= 0 && KNOWN_OFFICE_SALARIES[nameKey]) {
+        salary = KNOWN_OFFICE_SALARIES[nameKey];
+        pool.execute('UPDATE users SET weekly_salary = ? WHERE id = ?', [salary, u.id]).catch(() => {});
+      }
+      employeesMap.set(nameKey, {
         id: `user-${u.id}`,
         name: u.name,
         weeklySalary: salary,
@@ -63,24 +96,25 @@ export async function mergeRegisteredUsersAsEmployees(storedEmployees: any[]): P
 
     // 2. Overlay any previously stored employee entries (for custom salaries or manual staff)
     for (const emp of storedEmployees || []) {
-      const key = (emp.name || '').trim().toLowerCase();
+      const key = normalizeName(emp.name);
+      const storedSalary = Number(emp.weeklySalary || 0);
       if (employeesMap.has(key)) {
         const existing = employeesMap.get(key);
         // If stored employee had a positive salary and user table had 0, use stored and update user
-        if (existing.weeklySalary === 0 && Number(emp.weeklySalary || 0) > 0) {
-          existing.weeklySalary = Number(emp.weeklySalary);
+        if (storedSalary > 0 && existing.weeklySalary <= 0) {
+          existing.weeklySalary = storedSalary;
           const userId = existing.id.replace('user-', '');
-          void pool.execute('UPDATE users SET weekly_salary = ? WHERE id = ?', [emp.weeklySalary, userId]);
+          pool.execute('UPDATE users SET weekly_salary = ? WHERE id = ?', [storedSalary, userId]).catch(() => {});
         }
         if (emp.role && emp.role !== 'Oficina / Personal') {
-          existing.role = emp.role;
+          existing.role = normalizeCargo(emp.role);
         }
       } else if (emp.id && emp.name) {
         employeesMap.set(key, {
           id: String(emp.id),
           name: String(emp.name),
-          weeklySalary: Number(emp.weeklySalary || 0),
-          role: emp.role || 'Personal de Oficina',
+          weeklySalary: storedSalary,
+          role: normalizeCargo(emp.role),
         });
       }
     }

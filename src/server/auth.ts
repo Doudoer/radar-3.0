@@ -43,8 +43,27 @@ export const appendCookie = (response: ServerResponse, cookie: string) => {
   response.setHeader('Set-Cookie', previous ? [...(Array.isArray(previous) ? previous.map(String) : [String(previous)]), cookie] : cookie);
 };
 
-export const roleIs = (claims: Claims | null, ...roles: string[]) =>
-  Boolean(claims?.role && roles.includes(String(claims.role).toLowerCase()));
+export const normalizeAuthRole = (role?: string | null): string => {
+  if (!role) return '';
+  const r = String(role).trim().toLowerCase();
+  if (r === 'gerente' || r === 'super_admin' || r === 'super admin' || r === 'admin') return 'admin';
+  if (r === 'asesor' || r === 'asesor de ventas' || r === 'asesor_de_ventas' || r === 'operator') return 'operator';
+  if (r === 'dispatcher' || r === 'dispatchers') return 'dispatcher';
+  if (r === 'rct') return 'rct';
+  if (r === 'marketing') return 'marketing';
+  if (r === 'vendedor_yarda' || r === 'vendedor yarda' || r === 'yarda') return 'vendedor_yarda';
+  return r;
+};
+
+export const roleIs = (claims: Claims | null, ...roles: string[]) => {
+  if (!claims?.role) return false;
+  const userRole = normalizeAuthRole(claims.role);
+  const normalizedTargets = roles.map(normalizeAuthRole);
+  return (
+    normalizedTargets.includes(userRole) ||
+    roles.map((r) => r.trim().toLowerCase()).includes(String(claims.role).trim().toLowerCase())
+  );
+};
 
 export const requireRole = (response: ServerResponse, claims: Claims | null, ...roles: string[]) => {
   if (!roleIs(claims, ...roles)) {
