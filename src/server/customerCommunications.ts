@@ -348,29 +348,31 @@ export async function getCustomerTimeline(
 
   // 2. Órdenes asociadas al cliente
   let orderRows: RowDataPacket[] = [];
-  if (customerId > 0) {
-    const [orders] = await pool.query<RowDataPacket[]>(
-      `SELECT id, order_code, brand, model, year, status, advisor, total_price, down_payment, created_at, delivered_at
-         FROM orders
-        WHERE customer_id = ? AND deleted_at IS NULL
-        ORDER BY created_at DESC`,
-      [customerId],
-    );
-    orderRows = orders;
-  } else if (pSuffix && pSuffix.length >= 5) {
-    try {
+  try {
+    if (customerId > 0) {
       const [orders] = await pool.query<RowDataPacket[]>(
-        `SELECT o.id, o.order_code, o.brand, o.model, o.year, o.status, o.advisor, o.total_price, o.down_payment, o.created_at, o.delivered_at
+        `SELECT o.id, o.order_code, o.brand, o.model, o.year, o.status, o.price AS total_price, o.down_payment, o.created_at, o.delivered_at, u.name AS advisor
+           FROM orders o
+           LEFT JOIN users u ON u.id = o.user_id
+          WHERE o.customer_id = ? AND o.deleted_at IS NULL
+          ORDER BY o.created_at DESC`,
+        [customerId],
+      );
+      orderRows = orders;
+    } else if (pSuffix && pSuffix.length >= 5) {
+      const [orders] = await pool.query<RowDataPacket[]>(
+        `SELECT o.id, o.order_code, o.brand, o.model, o.year, o.status, o.price AS total_price, o.down_payment, o.created_at, o.delivered_at, u.name AS advisor
            FROM orders o
            JOIN customers c ON c.id = o.customer_id
+           LEFT JOIN users u ON u.id = o.user_id
           WHERE (c.phone LIKE ? OR c.whatsapp LIKE ?) AND o.deleted_at IS NULL
           ORDER BY o.created_at DESC`,
         [`%${pSuffix}`, `%${pSuffix}`],
       );
       orderRows = orders;
-    } catch {
-      // Ignorar si falla lectura de órdenes por teléfono
     }
+  } catch {
+    // Ignorar si falla lectura de órdenes
   }
 
   // 3. Notas de conversación dejadas por empleados
@@ -472,12 +474,12 @@ export async function getCustomerTimeline(
   try {
     if (pSuffix) {
       const [regRows] = await pool.query<RowDataPacket[]>(
-        `SELECT r.id, r.order_id, r.description, r.created_at, r.attended_by, r.whatsapp_dispatched, r.whatsapp_message, o.order_code
+        `SELECT r.id, r.order_id, COALESCE(r.conversation_summary, r.whatsapp_message, 'Sin descripción') AS description, r.created_at, r.attended_by, r.whatsapp_dispatched, r.whatsapp_message, o.order_code
            FROM call_register r
            LEFT JOIN orders o ON o.id = r.order_id
-          WHERE (r.customer_id = ? OR r.phone LIKE ?)
+          WHERE (r.caller_phone LIKE ? OR r.caller_phone LIKE ?)
           ORDER BY r.created_at DESC LIMIT 50`,
-        [customerId, `%${pSuffix}`],
+        [`%${pSuffix}`, `%${phone}`],
       );
       for (const reg of regRows) {
         events.push({

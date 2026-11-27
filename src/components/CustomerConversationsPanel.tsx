@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { apiFetch } from '../services/apiFetch';
 import { RegisterCallModal } from './RegisterCallModal';
 
@@ -132,6 +132,11 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
   const [selectedCustomerPhone, setSelectedCustomerPhone] = useState<string>('');
   const [customerListTab, setCustomerListTab] = useState<'all' | 'unregistered'>('all');
 
+  const selectedCustomerIdRef = useRef(selectedCustomerId);
+  selectedCustomerIdRef.current = selectedCustomerId;
+  const selectedCustomerPhoneRef = useRef(selectedCustomerPhone);
+  selectedCustomerPhoneRef.current = selectedCustomerPhone;
+
   // Modal para agregar número desconocido a contactos
   const [saveContactModalOpen, setSaveContactModalOpen] = useState(false);
   const [contactPhoneToSave, setContactPhoneToSave] = useState('');
@@ -178,9 +183,10 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
         const data = await res.json();
         const list: CustomerSummaryItem[] = Array.isArray(data.customers) ? data.customers : [];
         setCustomers(list);
-        if (!selectedCustomerId && list.length > 0 && !initialCustomerId) {
+        if (!selectedCustomerIdRef.current && list.length > 0 && !initialCustomerId) {
           setSelectedCustomerId(list[0].customerId);
           setSelectedCustomerPhone(list[0].phone || '');
+          void loadTimeline(list[0].customerId, list[0].phone || '');
         }
       }
     } catch {
@@ -188,7 +194,7 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
     } finally {
       setLoadingCustomers(false);
     }
-  }, [selectedCustomerId, initialCustomerId]);
+  }, [initialCustomerId]);
 
   // Debounce search
   useEffect(() => {
@@ -202,7 +208,7 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
   const loadTimeline = useCallback(async (cId: number, phoneStr?: string) => {
     setLoadingTimeline(true);
     try {
-      const phoneParam = phoneStr || selectedCustomerPhone;
+      const phoneParam = phoneStr || selectedCustomerPhoneRef.current;
       const url = phoneParam
         ? `/communications/customers/${cId}/timeline?phone=${encodeURIComponent(phoneParam)}`
         : `/communications/customers/${cId}/timeline`;
@@ -213,18 +219,18 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
         setTimelineEvents(Array.isArray(data.events) ? data.events : []);
         setTimelineOrders(Array.isArray(data.orders) ? data.orders : []);
       }
-    } catch {
-      // Fallo de carga
+    } catch (err) {
+      console.error('Error cargando timeline del cliente:', err);
     } finally {
       setLoadingTimeline(false);
     }
-  }, [selectedCustomerPhone]);
+  }, []);
 
   useEffect(() => {
     if (selectedCustomerId) {
-      void loadTimeline(selectedCustomerId);
+      void loadTimeline(selectedCustomerId, selectedCustomerPhone);
     }
-  }, [selectedCustomerId, loadTimeline]);
+  }, [selectedCustomerId]);
 
   const openSaveContactModal = (phone: string, defaultName: string = '') => {
     setContactPhoneToSave(phone);
@@ -368,7 +374,13 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
   const filteredEvents = useMemo(() => {
     if (filterType === 'all') return timelineEvents;
     if (filterType === 'call_summaries') {
-      return timelineEvents.filter((ev) => ev.noteType === 'call_summary' || ev.summary?.includes('🗣️ CLIENTE DIJO:'));
+      return timelineEvents.filter(
+        (ev) =>
+          ev.noteType === 'call_summary' ||
+          ev.type === 'call_pbx' ||
+          ev.type === 'call_manual' ||
+          Boolean(ev.summary && (ev.summary.includes('🗣️ CLIENTE DIJO:') || ev.summary.includes('[LLAMADA') || ev.summary.includes('Llamada')))
+      );
     }
     if (filterType === 'pbx') {
       return timelineEvents.filter((ev) => ev.type === 'call_pbx' || ev.type === 'call_manual');
@@ -493,9 +505,18 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
               const isUnreg = Boolean(c.isUnregistered);
 
               return (
-                <button
+                <div
                   key={`${c.customerId}-${c.phone}`}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedCustomerId(c.customerId);
+                      setSelectedCustomerPhone(c.phone);
+                      void loadTimeline(c.customerId, c.phone);
+                    }
+                  }}
                   onClick={() => {
                     setSelectedCustomerId(c.customerId);
                     setSelectedCustomerPhone(c.phone);
@@ -582,7 +603,7 @@ export const CustomerConversationsPanel: React.FC<CustomerConversationsPanelProp
                       </p>
                     )}
                   </div>
-                </button>
+                </div>
               );
             })
           )}
