@@ -11,7 +11,7 @@ import { pool } from '../src/server/config';
 import { handleClaimsListRequest } from '../src/server/claims';
 import { handleRefundsListRequest, mapRefundRow } from '../src/server/refunds';
 import { canReadOrderUpload, isYardScopedStatus } from '../src/server/uploadAccess';
-import type { Claims } from '../src/server/auth';
+import { normalizeAuthRole, roleIs, type Claims } from '../src/server/auth';
 
 const claimsFor = (role: string, sub = '7'): Claims => ({ sub, role });
 
@@ -128,5 +128,41 @@ describe('/uploads order scope', () => {
     expect(isYardScopedStatus('Reclamo')).toBe(true);
     expect(isYardScopedStatus('Archivado')).toBe(false);
     expect(isYardScopedStatus(null)).toBe(false);
+  });
+});
+
+describe('normalizeAuthRole and roleIs', () => {
+  it('normalizes roles properly', () => {
+    expect(normalizeAuthRole('')).toBe('');
+    expect(normalizeAuthRole(null)).toBe('');
+    expect(normalizeAuthRole(undefined)).toBe('');
+    expect(normalizeAuthRole('Gerente')).toBe('admin');
+    expect(normalizeAuthRole('super_admin')).toBe('admin');
+    expect(normalizeAuthRole('super admin')).toBe('admin');
+    expect(normalizeAuthRole('admin')).toBe('admin');
+    expect(normalizeAuthRole('Asesor de ventas')).toBe('operator');
+    expect(normalizeAuthRole('asesor')).toBe('operator');
+    expect(normalizeAuthRole('asesor_de_ventas')).toBe('operator');
+    expect(normalizeAuthRole('operator')).toBe('operator');
+    expect(normalizeAuthRole('dispatcher')).toBe('dispatcher');
+    expect(normalizeAuthRole('dispatchers')).toBe('dispatcher');
+    expect(normalizeAuthRole('rct')).toBe('rct');
+    expect(normalizeAuthRole('marketing')).toBe('marketing');
+    expect(normalizeAuthRole('vendedor_yarda')).toBe('vendedor_yarda');
+    expect(normalizeAuthRole('vendedor yarda')).toBe('vendedor_yarda');
+    expect(normalizeAuthRole('yarda')).toBe('vendedor_yarda');
+    expect(normalizeAuthRole('custom_role')).toBe('custom_role');
+  });
+
+  it('checks roleIs correctly', () => {
+    expect(roleIs(null, 'admin')).toBe(false);
+    expect(roleIs({} as any, 'admin')).toBe(false);
+    expect(roleIs({ role: 'Gerente' }, 'admin')).toBe(true);
+    expect(roleIs({ role: 'super_admin' }, 'admin')).toBe(true);
+    expect(roleIs({ role: 'admin' }, 'gerente')).toBe(true);
+    expect(roleIs({ role: 'asesor' }, 'operator')).toBe(true);
+    expect(roleIs({ role: 'operator' }, 'asesor')).toBe(true);
+    expect(roleIs({ role: 'vendedor_yarda' }, 'admin')).toBe(false);
+    expect(roleIs({ role: 'custom_role' }, 'custom_role')).toBe(true);
   });
 });
