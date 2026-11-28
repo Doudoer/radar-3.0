@@ -713,13 +713,23 @@ export const getUserPenaltySnapshot = async (pool: Pool, userId: number, now = n
   let settlement: EmployeeSettlementSummary | undefined;
 
   try {
+    // Current week commissions (accumulated in Week W, to be paid in Week W+1):
     commissions = await getUserCommissionsSummary(pool, userId, period, now);
     carryoverDebt = await getUserCarryoverDebt(pool, userId);
+
+    // Previous week commissions (Week W-1, payable in this week's settlement):
+    const prevPeriod = {
+      start: new Date(new Date(period.start).getTime() - 7 * 86_400_000).toISOString(),
+      end: new Date(new Date(period.end).getTime() - 7 * 86_400_000).toISOString(),
+    };
+    const prevCommissions = await getUserCommissionsSummary(pool, userId, prevPeriod, now);
+
     settlement = settleEmployeeCompensation(
       salary,
-      commissions.earnedAmount,
+      prevCommissions.earnedAmount, // payable this week from previous week
       open.amount,
       carryoverDebt.totalDebt,
+      commissions.earnedAmount, // accrued this week to be paid next week
     );
   } catch {
     // Si la tabla de comisiones no está inicializada o mockeada en tests

@@ -147,6 +147,30 @@ describe('Employee Commissions & Salary Protection', () => {
       expect(executed[0].params[2]).toBe(5.0);
     });
 
+    it('recordDownpaymentCommission rejects quotation status orders', async () => {
+      const executed: any[] = [];
+      const mockPool: any = {
+        query: async (sql: string) => {
+          if (sql.includes('FROM users')) return [[{ role: 'operator' }]];
+          if (sql.includes('FROM orders')) return [[{ status: 'cotización', downpayment_verified: 0 }]];
+          return [[]];
+        },
+        execute: async (sql: string, params: any[]) => {
+          executed.push({ sql, params });
+          return [{ insertId: 1 }];
+        },
+      };
+
+      const ok = await recordDownpaymentCommission(mockPool, {
+        orderId: 102,
+        userId: 5,
+        isYardSale: false,
+      });
+
+      expect(ok).toBe(false);
+      expect(executed.length).toBe(0);
+    });
+
     it('recordDownpaymentCommission rejects yard employee or yard sale', async () => {
       const mockPool: any = {
         query: async () => [[{ role: 'vendedor_yarda' }]],
@@ -423,6 +447,31 @@ describe('Employee Commissions & Salary Protection', () => {
 
       const voidCall = executed.find(e => e.sql.includes('notes = \'voided_refund\'') && e.params?.[1] === 103);
       expect(voidCall).toBeDefined();
+    });
+
+    it('settles week-lagged compensation with zero payable commissions and accrued for next week', () => {
+      // Week 1 (startup week): Darrel has $75 base, 0 previous week commissions, $22 earned this week
+      const weeklySalary = 75.0;
+      const payableCommissions = 0.0; // from week W-1
+      const penalties = 6.25;
+      const previousCarryover = 0;
+      const currentAccrued = 22.0; // earned in week W, payable in week W+1
+
+      const settlement = settleEmployeeCompensation(
+        weeklySalary,
+        payableCommissions,
+        penalties,
+        previousCarryover,
+        currentAccrued,
+      );
+
+      // Base salary is 100% untouched
+      expect(settlement.weeklySalary).toBe(75.0);
+      expect(settlement.payableCommissions).toBe(0.0);
+      expect(settlement.currentAccruedCommissions).toBe(22.0);
+      expect(settlement.appliedDeduction).toBe(0.0); // No deduction from base salary!
+      expect(settlement.nextCarryoverDebt).toBe(6.25); // Penalty debt carried over
+      expect(settlement.netPayout).toBe(75.0); // Exact base salary paid this week
     });
   });
 });

@@ -75,7 +75,8 @@ export const isOrderSoldInWorkingPeriod = (
   period: WorkingWeekPeriod,
 ): boolean => {
   if (order.isYardSale || order.advisorRole === 'vendedor_yarda') return false;
-  if (order.status === 'cancelado') return false;
+  const status = String(order.status || '').toLowerCase().trim();
+  if (['cancelado', 'cancelada', 'cotización', 'cotizacion'].includes(status)) return false;
 
   const orderDate = parseOrderDate(order);
   // If order creation date exists and is strictly before this working period, it is an old order from a prior week!
@@ -251,38 +252,46 @@ export interface EmployeeCommissionsSummary {
 
 export interface EmployeeSettlementSummary {
   weeklySalary: number; // Salario base (intocable)
-  earnedCommissions: number; // Comisiones ganadas disponibles en la semana
+  earnedCommissions: number; // Comisiones pagables esta semana (alias retro-compatible de payableCommissions)
+  payableCommissions: number; // Comisiones pagables esta semana (de la semana previa W-1 a semana vencida)
+  currentAccruedCommissions: number; // Comisiones acumuladas esta semana W (a pagar la próxima semana W+1)
   pendingYardCommissions: number; // Comisiones en ventana de 12h de yarda
   totalPenalties: number; // Penalizaciones activas de la semana
   previousCarryoverDebt: number; // Deuda diferida de semanas anteriores
   grossDeduction: number; // Total a descontar (penalizaciones + arrastre)
-  appliedDeduction: number; // Descuento efectivamente aplicado a las comisiones
-  netCommissions: number; // Comisiones netas a pagar (después de deducciones)
+  appliedDeduction: number; // Descuento efectivamente aplicado a las comisiones pagables
+  netCommissions: number; // Comisiones netas a pagar esta semana
   nextCarryoverDebt: number; // Déficit no cubierto que se acumula para el siguiente sábado
-  netPayout: number; // Pago total neto: Sueldo Base + Comisiones Netas
+  netPayout: number; // Pago total neto: Sueldo Base + Comisiones Netas pagables
+  baseSalaryProtected: boolean;
 }
 
 /**
  * Realiza la liquidación semanal del empleado garantizando que el salario base sea 100% intocable.
- * Las penalizaciones se descuentan única y exclusivamente de las comisiones ganadas.
+ * Las comisiones se pagan a semana vencida:
+ * - payableCommissions: Comisiones ganadas en la semana previa (W-1).
+ * - currentAccruedCommissions: Comisiones ganadas en la semana actual (W), acumuladas para pagarse en W+1.
+ * Las penalizaciones se descuentan única y exclusivamente de las comisiones pagables.
  * Si las penalizaciones superan a las comisiones disponibles al sábado 6:00 PM, el déficit no
- * se cobra esa semana y se acumula (carry-over) para el próximo corte.
+ * se cobra del salario base y se acumula (carry-over) para el próximo corte.
  */
 export function settleEmployeeCompensation(
   weeklySalary: number | null | undefined,
-  earnedCommissions: number | null | undefined,
+  payableCommissions: number | null | undefined,
   penaltiesAmount: number | null | undefined,
   previousCarryover = 0,
+  currentAccruedCommissions = 0,
 ): EmployeeSettlementSummary {
   const baseSalary = Math.max(0, roundMoney(Number(weeklySalary || 0)));
-  const commissions = Math.max(0, roundMoney(Number(earnedCommissions || 0)));
+  const payable = Math.max(0, roundMoney(Number(payableCommissions || 0)));
+  const currentAccrued = Math.max(0, roundMoney(Number(currentAccruedCommissions || 0)));
   const currentPenalties = Math.max(0, roundMoney(Number(penaltiesAmount || 0)));
   const prevDebt = Math.max(0, roundMoney(Number(previousCarryover || 0)));
   const totalDeductions = roundMoney(currentPenalties + prevDebt);
 
-  // REGLA FUNDAMENTAL: Las deducciones solo se absorben hasta el tope de comisiones.
-  const appliedDeduction = roundMoney(Math.min(commissions, totalDeductions));
-  const netCommissions = roundMoney(commissions - appliedDeduction);
+  // REGLA FUNDAMENTAL: Las deducciones solo se absorben hasta el tope de comisiones pagables.
+  const appliedDeduction = roundMoney(Math.min(payable, totalDeductions));
+  const netCommissions = roundMoney(payable - appliedDeduction);
   const nextCarryoverDebt = roundMoney(totalDeductions - appliedDeduction);
 
   // El salario base NUNCA es tocado por penalizaciones:
@@ -290,7 +299,9 @@ export function settleEmployeeCompensation(
 
   return {
     weeklySalary: baseSalary,
-    earnedCommissions: commissions,
+    earnedCommissions: payable,
+    payableCommissions: payable,
+    currentAccruedCommissions: currentAccrued,
     pendingYardCommissions: 0,
     totalPenalties: currentPenalties,
     previousCarryoverDebt: prevDebt,
@@ -299,5 +310,6 @@ export function settleEmployeeCompensation(
     netCommissions,
     nextCarryoverDebt,
     netPayout,
+    baseSalaryProtected: true,
   };
 }

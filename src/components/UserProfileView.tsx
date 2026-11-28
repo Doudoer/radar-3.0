@@ -205,9 +205,11 @@ export const WeekLiquidation: React.FC<{
   settlement?: EmployeeSettlementSummary;
   commissions?: EmployeeCommissionsSummary;
   carryoverDebt?: { totalDebt: number; lastPeriodEnd: string | null };
-}> = ({ week, tone, hasSalary, canManage, penaltyAmount = 0, cutoffLabel, settlement }) => {
+}> = ({ week, tone, hasSalary, canManage, penaltyAmount = 0, cutoffLabel, settlement, commissions }) => {
   const penalty = Number((penaltyAmount || 0).toFixed(2));
   const projected = settlement ? settlement.netPayout : Number((week.net - penalty).toFixed(2));
+  const accruedForNextWeek = settlement?.currentAccruedCommissions ?? (commissions?.earnedAmount || 0);
+  const payableThisWeek = settlement?.payableCommissions ?? settlement?.earnedCommissions ?? 0;
 
   return (
     <>
@@ -237,12 +239,18 @@ export const WeekLiquidation: React.FC<{
             </dd>
           </div>
           <div>
-            <dt className={`text-[10px] font-bold uppercase tracking-wide text-emerald-500`}>Comisiones</dt>
+            <dt className={`text-[10px] font-bold uppercase tracking-wide text-emerald-500`}>Comisiones a pagar</dt>
             <dd className="mt-0.5 text-sm font-black tabular-nums text-emerald-400">
-              {settlement && settlement.earnedCommissions > 0
-                ? `+${formatUsd(settlement.earnedCommissions)}`
-                : formatUsd(0)}
+              {payableThisWeek > 0 ? `+${formatUsd(payableThisWeek)}` : formatUsd(0)}
             </dd>
+            <span className="text-[10px] text-[var(--text-secondary)]">Sem. previa</span>
+          </div>
+          <div>
+            <dt className={`text-[10px] font-bold uppercase tracking-wide text-cyan-400`}>Acumulado próx. semana</dt>
+            <dd className="mt-0.5 text-sm font-black tabular-nums text-cyan-300">
+              {accruedForNextWeek > 0 ? `+${formatUsd(accruedForNextWeek)}` : formatUsd(0)}
+            </dd>
+            <span className="text-[10px] text-cyan-400/80">Se paga próx. semana</span>
           </div>
           {settlement && settlement.appliedDeduction > 0 && (
             <div>
@@ -269,6 +277,16 @@ export const WeekLiquidation: React.FC<{
             </dd>
           </div>
         </dl>
+        {accruedForNextWeek > 0 && (
+          <div className="mt-4 flex items-center justify-between rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <span aria-hidden="true" className="material-symbols-outlined text-cyan-400 text-[18px]">event_upcoming</span>
+              <p className="text-xs text-cyan-200">
+                <strong className="font-bold text-white">Comisiones acumuladas esta semana:</strong> Tienes <span className="font-bold text-cyan-300">+{formatUsd(accruedForNextWeek)}</span> acumuladas para cobrar con el salario de la próxima semana.
+              </p>
+            </div>
+          </div>
+        )}
         {!hasSalary && (
           <p className={`mt-4 rounded-xl px-3 py-2 text-[11.5px] ${tone.warningBox}`}>
             {canManage
@@ -287,6 +305,8 @@ export const CommissionsCard: React.FC<{
   tone: Tone;
 }> = ({ commissions, settlement, tone }) => {
   if (!commissions) return null;
+  const accruedAmount = settlement?.currentAccruedCommissions ?? commissions.earnedAmount;
+  const accruedCount = commissions.earnedCount;
 
   return (
     <section className={`rounded-3xl px-5 py-5 sm:px-6 ${tone.card}`} aria-labelledby="profile-commissions-heading">
@@ -295,33 +315,33 @@ export const CommissionsCard: React.FC<{
           <div className="flex items-center gap-2">
             <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-emerald-400">payments</span>
             <h2 id="profile-commissions-heading" className={`font-mono text-[10px] font-bold uppercase tracking-[0.14em] ${tone.muted}`}>
-              Comisiones por Desempeño
+              Comisiones por Desempeño (Semana Vencida)
             </h2>
           </div>
           <p className={`mt-1 text-xs ${tone.muted}`}>
-            $5 USD por venta con anticipo (retención de 12h en yarda) · $2 USD por orden cerrada vendida y entregada esta misma semana.
+            $5 USD por venta con anticipo · $2 USD por orden cerrada vendida y entregada. Las comisiones ganadas esta semana se acumulan y se pagan la semana siguiente.
           </p>
         </div>
         <div className="text-right">
-          <p className={`text-2xl font-black leading-none tabular-nums text-emerald-400`}>
-            {formatUsd(commissions.earnedAmount)}
+          <p className={`text-2xl font-black leading-none tabular-nums text-cyan-300`}>
+            {formatUsd(accruedAmount)}
           </p>
-          <p className={`mt-1 text-[11px] font-bold tabular-nums ${tone.muted}`}>
-            {commissions.earnedCount} comisiones liberadas
+          <p className={`mt-1 text-[11px] font-bold tabular-nums text-cyan-400`}>
+            {accruedCount} acumuladas para próxima semana
           </p>
         </div>
       </div>
 
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card-subtle)] p-3">
-          <p className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">Liberadas esta semana</p>
-          <p className="mt-1 text-lg font-black text-emerald-400">{formatUsd(commissions.earnedAmount)}</p>
-          <p className="text-[10px] text-[var(--text-secondary)]">{commissions.earnedCount} ventas / entregas</p>
-        </div>
         <div className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 p-3">
-          <p className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">En verificación yarda (12h)</p>
+          <p className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">Acumuladas para próx. semana</p>
+          <p className="mt-1 text-lg font-black text-cyan-300">{formatUsd(accruedAmount)}</p>
+          <p className="text-[10px] text-cyan-400/80">{accruedCount} ventas / entregas (a pagar próx. semana)</p>
+        </div>
+        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card-subtle)] p-3">
+          <p className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">En verificación yarda (12h)</p>
           <p className="mt-1 text-lg font-black text-cyan-300">{formatUsd(commissions.pendingYardAmount)}</p>
-          <p className="text-[10px] text-cyan-400/80">{commissions.pendingYardCount} órdenes en retención</p>
+          <p className="text-[10px] text-[var(--text-secondary)]">{commissions.pendingYardCount} órdenes en retención</p>
         </div>
         <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card-subtle)] p-3">
           <p className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">Anuladas (yarda / reembolsos)</p>

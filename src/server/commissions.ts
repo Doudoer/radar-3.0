@@ -30,7 +30,20 @@ export const recordDownpaymentCommission = async (
   );
   if (!userRows[0] || isYardEmployee(userRows[0].role)) return false;
 
-  const availableAt = new Date(createdAt.getTime() + YARD_VERIFICATION_HOURS * 3_600_000);
+  // Verify that the order is NOT a quotation or canceled, and has verified downpayment or paid status
+  const [orderRows] = await pool.query<RowDataPacket[]>(
+    'SELECT status, downpayment_verified, created_at FROM orders WHERE id=? LIMIT 1',
+    [orderId],
+  );
+  if (orderRows && orderRows[0]) {
+    const status = String(orderRows[0].status || '').toLowerCase().trim();
+    if (['cotización', 'cotizacion', 'cancelado', 'cancelada'].includes(status)) return false;
+    if (!orderRows[0].downpayment_verified && !['pagado', 'listo para retiro', 'entregado'].includes(status)) return false;
+  }
+
+  const orderCreated = orderRows && orderRows[0]?.created_at ? new Date(orderRows[0].created_at) : createdAt;
+  const effectiveCreated = createdAt || orderCreated;
+  const availableAt = new Date(effectiveCreated.getTime() + YARD_VERIFICATION_HOURS * 3_600_000);
 
   try {
     await pool.execute(
@@ -174,15 +187,17 @@ export const syncCommissionsSinceDate = async (
 ): Promise<void> => {
   try {
     // 1. Sync downpayment commissions for all eligible non-yard sales
+    // EXCLUDE quotations, unconfirmed/canceled orders, and anything created before sinceDate
     const [downpaymentRows] = await pool.query<RowDataPacket[]>(
       `SELECT o.id, o.user_id, o.is_yard_sale, o.created_at, o.downpayment_verified_at, o.down_payment, o.status
          FROM orders o
         WHERE o.deleted_at IS NULL
           AND (o.is_yard_sale = 0 OR o.is_yard_sale IS NULL)
           AND o.user_id IS NOT NULL
-          AND (o.created_at >= ? OR o.downpayment_verified_at >= ?)
-          AND (o.down_payment > 0 OR o.downpayment_verified = 1 OR LOWER(TRIM(o.status)) = 'pagado')`,
-      [sinceDate, sinceDate],
+          AND o.created_at >= ?
+          AND LOWER(TRIM(o.status)) NOT IN ('cotización', 'cotizacion', 'cancelado', 'cancelada')
+          AND (o.downpayment_verified = 1 OR LOWER(TRIM(o.status)) IN ('pagado', 'listo para retiro', 'entregado'))`,
+      [sinceDate],
     );
 
     for (const row of downpaymentRows) {
@@ -194,6 +209,15 @@ export const syncCommissionsSinceDate = async (
         createdAt: orderDate,
       });
     }
+
+    // Clean up any commissions awarded to orders that are quotations, canceled, or created before sinceDate
+    await pool.execute(
+      `DELETE c FROM employee_commissions c
+         JOIN orders o ON o.id = c.order_id
+        WHERE LOWER(TRIM(o.status)) IN ('cotización', 'cotizacion', 'cancelado', 'cancelada')
+           OR o.created_at < ?`,
+      [sinceDate],
+    );
 
     // 2. Sync delivery closed commissions
     // MUST BE: both sold/created this week AND delivered this week!
