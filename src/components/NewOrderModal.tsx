@@ -234,15 +234,15 @@ const NewOrderModalContent: React.FC<NewOrderModalProps> = ({
       if (trimmed) {
         const name = String(cust.name || `${cust.first_name || ''} ${cust.last_name || ''}`.trim()).toLowerCase();
         const company = String(cust.company || '').toLowerCase();
-        const phone = String(cust.phone || cust.whatsapp || '').toLowerCase();
-        const email = String(cust.email || '').toLowerCase();
+        const allPhones = Array.from(new Set([cust.phone, cust.whatsapp, ...(cust.phones || [])].filter(Boolean))).join(' ').toLowerCase();
+        const allEmails = Array.from(new Set([cust.email, ...(cust.emails || [])].filter(Boolean))).join(' ').toLowerCase();
         const loc = String(cust.shippingAddress || cust.address_shipping || cust.location || '').toLowerCase();
         const id = String(cust.id || '').toLowerCase();
         if (
           !name.includes(trimmed) &&
           !company.includes(trimmed) &&
-          !phone.includes(trimmed) &&
-          !email.includes(trimmed) &&
+          !allPhones.includes(trimmed) &&
+          !allEmails.includes(trimmed) &&
           !loc.includes(trimmed) &&
           !id.includes(trimmed)
         ) {

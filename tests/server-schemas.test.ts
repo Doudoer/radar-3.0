@@ -78,11 +78,15 @@ describe('server input schemas', () => {
       first_name: 'Juan',
       last_name: 'Pérez',
       phone: '9195551234',
+      phones: ['9195551234', '9198889999', '17043991003'],
       email: 'juan@test.com',
+      emails: ['juan@test.com', 'juan.work@test.com'],
       type: 'Taller Mecánico',
     });
     expect(customer.first_name).toBe('Juan');
     expect(customer.type).toBe('Taller Mecánico');
+    expect(customer.phones).toEqual(['9195551234', '9198889999', '17043991003']);
+    expect(customer.emails).toEqual(['juan@test.com', 'juan.work@test.com']);
     expect(() => customerSchema.parse({ phone: '12' })).toThrow();
   });
 

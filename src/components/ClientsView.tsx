@@ -191,8 +191,9 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       if (cust.id && ordersByCustId.has(cust.id)) {
         for (const o of ordersByCustId.get(cust.id)!) orderSet.add(o);
       }
-      if (cust.phone) {
-        const cleanPhone = cust.phone.replace(/\D/g, '');
+      const allPhones = cust.phones && cust.phones.length > 0 ? cust.phones : [cust.phone, cust.whatsapp].filter(Boolean);
+      for (const ph of allPhones) {
+        const cleanPhone = (ph || '').replace(/\D/g, '');
         if (cleanPhone && ordersByPhone.has(cleanPhone)) {
           for (const o of ordersByPhone.get(cleanPhone)!) orderSet.add(o);
         }
@@ -264,7 +265,9 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
           (cust.first_name || '').toLowerCase().includes(query) ||
           (cust.last_name || '').toLowerCase().includes(query) ||
           (cust.name || '').toLowerCase().includes(query);
-        const matchEmail = (cust.email || '').toLowerCase().includes(query);
+        const matchEmail =
+          (cust.email || '').toLowerCase().includes(query) ||
+          Boolean(cust.emails?.some((e) => (e || '').toLowerCase().includes(query)));
         const matchCompany = (cust.company || '').toLowerCase().includes(query);
         const matchZip = (cust.zip_code || '').includes(query);
         const matchNotes = (cust.notes || '').toLowerCase().includes(query);
@@ -273,7 +276,11 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
         const matchPhone =
           (cleanQueryPhone && cleanCustPhone.includes(cleanQueryPhone)) ||
           (cleanQueryPhone && cleanCustWhatsapp.includes(cleanQueryPhone)) ||
-          (cust.phone && cust.phone.toLowerCase().includes(query));
+          (cust.phone && cust.phone.toLowerCase().includes(query)) ||
+          Boolean(cust.phones?.some((p) => {
+            const cp = (p || '').replace(/\D/g, '');
+            return (cleanQueryPhone && cp.includes(cleanQueryPhone)) || (p || '').toLowerCase().includes(query);
+          }));
 
         if (
           !matchName &&
@@ -390,7 +397,9 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       company: '',
       type: 'Taller Mecánico',
       email: '',
+      emails: [''],
       phone: '',
+      phones: [''],
       whatsapp: '',
       location: 'Raleigh, NC',
       address_shipping: '',
@@ -407,7 +416,27 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
   // Open Wizard to Edit Customer
   const handleOpenEditWizard = (customer: Customer) => {
-    setEditingCustomer({ ...customer, language: customer.language || 'es' });
+    const rawPhones = Array.from(new Set([
+      customer.phone,
+      customer.whatsapp,
+      ...(customer.phones || []),
+    ].map((p) => (p || '').trim()).filter(Boolean)));
+    const phones = rawPhones.length > 0 ? rawPhones : [''];
+
+    const rawEmails = Array.from(new Set([
+      customer.email,
+      ...(customer.emails || []),
+    ].map((e) => (e || '').trim()).filter(Boolean)));
+    const emails = rawEmails.length > 0 ? rawEmails : [''];
+
+    setEditingCustomer({
+      ...customer,
+      language: customer.language || 'es',
+      phone: phones[0] || '',
+      phones,
+      email: emails[0] || '',
+      emails,
+    });
     setFormErrors({});
     setWizardMode('edit');
     setWizardStep(1);
@@ -430,19 +459,27 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   // Save Customer (Step 2 Submission)
   const handleSaveCustomer = async () => {
     const errors: { [key: string]: string } = {};
-    if (!editingCustomer.phone?.trim()) {
+    const cleanPhones = (editingCustomer.phones && editingCustomer.phones.length > 0 ? editingCustomer.phones : [editingCustomer.phone || ''])
+      .map((p) => (p || '').trim())
+      .filter(Boolean);
+    const primaryPhone = cleanPhones[0] || (editingCustomer.phone || '').trim();
+
+    if (!primaryPhone) {
       errors.phone = 'El teléfono principal es obligatorio para coordinación y fletes.';
     }
     setFormErrors(errors);
 
     if (Object.keys(errors).length > 0) return;
 
+    const cleanEmails = (editingCustomer.emails && editingCustomer.emails.length > 0 ? editingCustomer.emails : [editingCustomer.email || ''])
+      .map((e) => (e || '').trim())
+      .filter(Boolean);
+    const primaryEmail = cleanEmails[0] || (editingCustomer.email || '').trim();
+
     const firstName = (editingCustomer.first_name || '').trim();
     const lastName = (editingCustomer.last_name || '').trim();
     const fullName = firstName && lastName ? `${firstName} ${lastName}` : firstName || editingCustomer.name || 'Cliente sin nombre';
-    const cleanWhatsapp = editingCustomer.whatsapp
-      ? editingCustomer.whatsapp.replace(/\D/g, '')
-      : editingCustomer.phone?.replace(/\D/g, '') || '';
+    const cleanWhatsapp = cleanPhones[1] || editingCustomer.whatsapp?.replace(/\D/g, '') || primaryPhone.replace(/\D/g, '');
 
     const payload = {
       first_name: firstName || fullName.split(/\s+/)[0] || 'Cliente',
@@ -450,8 +487,10 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       name: fullName,
       company: editingCustomer.company || '',
       type: editingCustomer.type || 'Particular',
-      email: editingCustomer.email || '',
-      phone: editingCustomer.phone || '',
+      email: primaryEmail,
+      emails: cleanEmails,
+      phone: primaryPhone,
+      phones: cleanPhones,
       whatsapp: cleanWhatsapp,
       address_shipping: editingCustomer.address_shipping || editingCustomer.shippingAddress || '',
       shippingAddress: editingCustomer.address_shipping || editingCustomer.shippingAddress || '',
@@ -732,10 +771,65 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
               Ficha del cliente
             </h3>
             <dl className="grid grid-cols-1 gap-2.5 text-xs sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <dt className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                  Teléfonos Registrados ({detailCustomer.phones && detailCustomer.phones.length > 0 ? detailCustomer.phones.length : 1})
+                </dt>
+                <dd className="mt-1 flex flex-wrap gap-2">
+                  {(detailCustomer.phones && detailCustomer.phones.length > 0
+                    ? detailCustomer.phones
+                    : [detailCustomer.phone, detailCustomer.whatsapp].filter(Boolean)
+                  ).map((p, idx) => (
+                    <div key={idx} className="flex items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card-subtle)] px-2.5 py-1 text-xs">
+                      <span className="font-mono font-medium text-[var(--text-primary)]">{p}</span>
+                      <a
+                        href={`tel:${phoneDigits(p)}`}
+                        title={`Llamar a ${p}`}
+                        className="rounded p-0.5 text-[var(--text-secondary)] transition-colors hover:text-emerald-500"
+                      >
+                        <span aria-hidden="true" className="material-symbols-outlined text-[15px]">call</span>
+                      </a>
+                      <a
+                        href={`https://wa.me/${phoneDigits(p).length === 10 ? `1${phoneDigits(p)}` : phoneDigits(p)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={`WhatsApp a ${p}`}
+                        className="rounded p-0.5 text-[var(--text-secondary)] transition-colors hover:text-emerald-500"
+                      >
+                        <span aria-hidden="true" className="material-symbols-outlined text-[15px]">chat</span>
+                      </a>
+                    </div>
+                  ))}
+                </dd>
+              </div>
+
+              <div className="sm:col-span-2">
+                <dt className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                  Correos Electrónicos ({detailCustomer.emails && detailCustomer.emails.length > 0 ? detailCustomer.emails.length : (detailCustomer.email ? 1 : 0)})
+                </dt>
+                <dd className="mt-1 flex flex-wrap gap-2">
+                  {(detailCustomer.emails && detailCustomer.emails.length > 0
+                    ? detailCustomer.emails
+                    : (detailCustomer.email ? [detailCustomer.email] : [])
+                  ).map((em, idx) => (
+                    <div key={idx} className="flex items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card-subtle)] px-2.5 py-1 text-xs">
+                      <span className="text-[var(--text-primary)]">{em}</span>
+                      <a
+                        href={`mailto:${em}?subject=RADAR%20Salvage%20Yard`}
+                        title={`Enviar correo a ${em}`}
+                        className="rounded p-0.5 text-[var(--text-secondary)] transition-colors hover:text-[var(--brand)]"
+                      >
+                        <span aria-hidden="true" className="material-symbols-outlined text-[15px]">mail</span>
+                      </a>
+                    </div>
+                  ))}
+                  {(!detailCustomer.emails || detailCustomer.emails.length === 0) && !detailCustomer.email && (
+                    <span className="text-xs text-[var(--text-secondary)]">Sin correos registrados</span>
+                  )}
+                </dd>
+              </div>
+
               {[
-                { label: 'Teléfono', value: detailCustomer.phone || '—', mono: true },
-                { label: 'WhatsApp', value: detailCustomer.whatsapp || '—', mono: true },
-                { label: 'Correo', value: detailCustomer.email || '—' },
                 { label: 'Empresa', value: detailCustomer.company || '—' },
                 { label: 'Tipo', value: detailCustomer.type || 'Particular' },
                 { label: 'Idioma', value: detailCustomer.language === 'en' ? 'Inglés (EN)' : 'Español (ES)' },
@@ -1038,88 +1132,165 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
             </div>
           ) : (
             <div className="space-y-4">
-              {/* Phone & alternate contact */}
-              <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-xs font-bold text-[var(--text-primary)]">
-                    Teléfono Principal (Llamadas) <span className="text-[var(--state-urgency-text)]">*</span>
+              {/* Phone Numbers Section (Multiple Phones) */}
+              <div className="space-y-2.5 rounded-2xl border border-[var(--input-border)] bg-[var(--bg-card-subtle)]/40 p-3.5">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-1.5 text-xs font-bold text-[var(--text-primary)]">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[17px] text-[var(--brand)]">call</span>
+                    <span>Teléfonos de Contacto</span>
+                    <span className="text-[var(--state-urgency-text)]">*</span>
                   </label>
-                  <div className="relative">
-                    <span aria-hidden="true" className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-[var(--brand)]">
-                      call
-                    </span>
-                    <input
-                      type="text"
-                      placeholder="+1 (919) 555-0192"
-                      value={editingCustomer.phone || ''}
-                      onChange={(e) => {
-                        setEditingCustomer({ ...editingCustomer, phone: e.target.value });
-                        if (formErrors.phone) setFormErrors({});
-                      }}
-                      aria-invalid={Boolean(formErrors.phone)}
-                      className={`w-full rounded-xl border bg-[var(--input-bg)] py-2.5 pl-9 pr-3 font-mono text-xs text-[var(--input-text)] outline-none transition-colors placeholder:text-[var(--text-secondary)] ${
-                        formErrors.phone
-                          ? 'border-[var(--state-urgency-border)]'
-                          : 'border-[var(--input-border)] focus:border-[var(--brand)]'
-                      }`}
-                    />
-                  </div>
-                  {formErrors.phone && (
-                    <span className="mt-1 block text-[11px] text-[var(--state-urgency-text)]">{formErrors.phone}</span>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const currentPhones = editingCustomer.phones && editingCustomer.phones.length > 0 ? [...editingCustomer.phones] : [editingCustomer.phone || ''];
+                      setEditingCustomer({ ...editingCustomer, phones: [...currentPhones, ''] });
+                    }}
+                    className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--brand)]/30 bg-[var(--brand-soft)] px-2.5 py-1 text-[11px] font-bold text-[var(--brand)] transition-colors hover:opacity-90"
+                  >
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">add_call</span>
+                    <span>Agregar teléfono</span>
+                  </button>
                 </div>
 
-                <div>
-                  <label className="mb-1 block text-xs font-bold text-[var(--text-primary)]">Teléfono alternativo (opcional)</label>
-                  <div className="relative">
-                    <span aria-hidden="true" className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-emerald-600 dark:text-emerald-300">
-                      phone_iphone
-                    </span>
-                    <input
-                      type="text"
-                      placeholder="Ej. 19195550192 o +1 (919)..."
-                      value={editingCustomer.whatsapp || ''}
-                      onChange={(e) => setEditingCustomer({ ...editingCustomer, whatsapp: e.target.value })}
-                      className="w-full rounded-xl border border-[var(--input-border)] bg-[var(--input-bg)] py-2.5 pl-9 pr-3 font-mono text-xs text-[var(--input-text)] outline-none transition-colors placeholder:text-[var(--text-secondary)] focus:border-[var(--brand)]"
-                    />
-                  </div>
+                <div className="space-y-2">
+                  {(editingCustomer.phones && editingCustomer.phones.length > 0 ? editingCustomer.phones : [editingCustomer.phone || '']).map((ph, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <span aria-hidden="true" className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[17px] text-[var(--text-secondary)]">
+                          {idx === 0 ? 'call' : 'phone_iphone'}
+                        </span>
+                        <input
+                          type="text"
+                          placeholder={idx === 0 ? '+1 (919) 555-0192 (Principal)' : `Teléfono alternativo #${idx + 1}`}
+                          value={ph}
+                          onChange={(e) => {
+                            const newPhones = [...(editingCustomer.phones && editingCustomer.phones.length > 0 ? editingCustomer.phones : [editingCustomer.phone || ''])];
+                            newPhones[idx] = e.target.value;
+                            setEditingCustomer({
+                              ...editingCustomer,
+                              phones: newPhones,
+                              phone: idx === 0 ? e.target.value : (editingCustomer.phone || newPhones[0] || ''),
+                            });
+                            if (idx === 0 && formErrors.phone) setFormErrors({});
+                          }}
+                          className={`w-full rounded-xl border bg-[var(--input-bg)] py-2 pl-9 pr-3 font-mono text-xs text-[var(--input-text)] outline-none transition-colors placeholder:text-[var(--text-secondary)] ${
+                            idx === 0 && formErrors.phone
+                              ? 'border-[var(--state-urgency-border)]'
+                              : 'border-[var(--input-border)] focus:border-[var(--brand)]'
+                          }`}
+                        />
+                      </div>
+                      {(editingCustomer.phones?.length || 1) > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const current = [...(editingCustomer.phones || [])];
+                            current.splice(idx, 1);
+                            setEditingCustomer({
+                              ...editingCustomer,
+                              phones: current,
+                              phone: current[0] || '',
+                            });
+                          }}
+                          aria-label={`Eliminar teléfono ${idx + 1}`}
+                          title="Eliminar este número"
+                          className="rounded-lg p-2 text-[var(--text-secondary)] transition-colors hover:bg-rose-500/10 hover:text-rose-500 cursor-pointer"
+                        >
+                          <span aria-hidden="true" className="material-symbols-outlined text-[17px]">delete</span>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {formErrors.phone && (
+                  <span className="mt-1 block text-[11px] text-[var(--state-urgency-text)]">{formErrors.phone}</span>
+                )}
+              </div>
+
+              {/* Email Addresses Section (Multiple Emails) */}
+              <div className="space-y-2.5 rounded-2xl border border-[var(--input-border)] bg-[var(--bg-card-subtle)]/40 p-3.5">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-1.5 text-xs font-bold text-[var(--text-primary)]">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[17px] text-[var(--brand)]">mail</span>
+                    <span>Correos Electrónicos (Facturas & Recibos)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const currentEmails = editingCustomer.emails && editingCustomer.emails.length > 0 ? [...editingCustomer.emails] : [editingCustomer.email || ''];
+                      setEditingCustomer({ ...editingCustomer, emails: [...currentEmails, ''] });
+                    }}
+                    className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--brand)]/30 bg-[var(--brand-soft)] px-2.5 py-1 text-[11px] font-bold text-[var(--brand)] transition-colors hover:opacity-90"
+                  >
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">add</span>
+                    <span>Agregar correo</span>
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  {(editingCustomer.emails && editingCustomer.emails.length > 0 ? editingCustomer.emails : [editingCustomer.email || '']).map((em, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <span aria-hidden="true" className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[17px] text-[var(--text-secondary)]">
+                          mail
+                        </span>
+                        <input
+                          type="email"
+                          placeholder={idx === 0 ? 'cliente@ejemplo.com (Principal)' : `Correo secundario #${idx + 1}`}
+                          value={em}
+                          onChange={(e) => {
+                            const newEmails = [...(editingCustomer.emails && editingCustomer.emails.length > 0 ? editingCustomer.emails : [editingCustomer.email || ''])];
+                            newEmails[idx] = e.target.value;
+                            setEditingCustomer({
+                              ...editingCustomer,
+                              emails: newEmails,
+                              email: idx === 0 ? e.target.value : (editingCustomer.email || newEmails[0] || ''),
+                            });
+                          }}
+                          className="w-full rounded-xl border border-[var(--input-border)] bg-[var(--input-bg)] py-2 pl-9 pr-3 text-xs text-[var(--input-text)] outline-none transition-colors placeholder:text-[var(--text-secondary)] focus:border-[var(--brand)]"
+                        />
+                      </div>
+                      {(editingCustomer.emails?.length || 1) > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const current = [...(editingCustomer.emails || [])];
+                            current.splice(idx, 1);
+                            setEditingCustomer({
+                              ...editingCustomer,
+                              emails: current,
+                              email: current[0] || '',
+                            });
+                          }}
+                          aria-label={`Eliminar correo ${idx + 1}`}
+                          title="Eliminar este correo"
+                          className="rounded-lg p-2 text-[var(--text-secondary)] transition-colors hover:bg-rose-500/10 hover:text-rose-500 cursor-pointer"
+                        >
+                          <span aria-hidden="true" className="material-symbols-outlined text-[17px]">delete</span>
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              {/* Email & Zip Code */}
-              <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-xs font-bold text-[var(--text-primary)]">Correo Electrónico (Facturas & Recibos)</label>
-                  <div className="relative">
-                    <span aria-hidden="true" className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-[var(--text-secondary)]">
-                      mail
-                    </span>
-                    <input
-                      type="email"
-                      placeholder="cliente@ejemplo.com"
-                      value={editingCustomer.email || ''}
-                      onChange={(e) => setEditingCustomer({ ...editingCustomer, email: e.target.value })}
-                      className="w-full rounded-xl border border-[var(--input-border)] bg-[var(--input-bg)] py-2.5 pl-9 pr-3 text-xs text-[var(--input-text)] outline-none transition-colors placeholder:text-[var(--text-secondary)] focus:border-[var(--brand)]"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="mb-1 block text-xs font-bold text-[var(--text-primary)]">
-                    Código Postal (ZIP) <span className="text-[10px] font-normal text-[var(--brand)]">Fletes Car-Part</span>
-                  </label>
-                  <div className="relative">
-                    <span aria-hidden="true" className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-[var(--text-secondary)]">
-                      pin_drop
-                    </span>
-                    <input
-                      type="text"
-                      placeholder="Ej. 27520 o 27604"
-                      value={editingCustomer.zip_code || ''}
-                      onChange={(e) => setEditingCustomer({ ...editingCustomer, zip_code: e.target.value })}
-                      className="w-full rounded-xl border border-[var(--input-border)] bg-[var(--input-bg)] py-2.5 pl-9 pr-3 font-mono text-xs text-[var(--input-text)] outline-none transition-colors placeholder:text-[var(--text-secondary)] focus:border-[var(--brand)]"
-                    />
-                  </div>
+              {/* Zip Code */}
+              <div>
+                <label className="mb-1 block text-xs font-bold text-[var(--text-primary)]">
+                  Código Postal (ZIP) <span className="text-[10px] font-normal text-[var(--brand)]">Fletes Car-Part</span>
+                </label>
+                <div className="relative">
+                  <span aria-hidden="true" className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-[var(--text-secondary)]">
+                    pin_drop
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Ej. 27520 o 27604"
+                    value={editingCustomer.zip_code || ''}
+                    onChange={(e) => setEditingCustomer({ ...editingCustomer, zip_code: e.target.value })}
+                    className="w-full rounded-xl border border-[var(--input-border)] bg-[var(--input-bg)] py-2.5 pl-9 pr-3 font-mono text-xs text-[var(--input-text)] outline-none transition-colors placeholder:text-[var(--text-secondary)] focus:border-[var(--brand)]"
+                  />
                 </div>
               </div>
 
@@ -1695,12 +1866,32 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                         </div>
                       </td>
                       <td className="min-w-0 px-3 py-3">
-                        <span className="block truncate font-mono text-xs font-medium text-[var(--text-primary)]">
-                          {client.phone || '—'}
-                        </span>
-                        <span className="block truncate text-[10px] text-[var(--text-secondary)]" title={client.email || ''}>
-                          {client.email || 'Sin correo'}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-mono text-xs font-medium text-[var(--text-primary)]">
+                            {client.phone || '—'}
+                          </span>
+                          {client.phones && client.phones.length > 1 && (
+                            <span
+                              className="rounded-full bg-[var(--brand-soft)] border border-[var(--brand)]/30 px-1.5 py-0.2 text-[9.5px] font-bold text-[var(--brand)]"
+                              title={client.phones.join(', ')}
+                            >
+                              +{client.phones.length - 1}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="truncate text-[10px] text-[var(--text-secondary)]" title={client.emails?.join(', ') || client.email || ''}>
+                            {client.email || 'Sin correo'}
+                          </span>
+                          {client.emails && client.emails.length > 1 && (
+                            <span
+                              className="rounded-full bg-[var(--bg-card-subtle)] border border-[var(--border-subtle)] px-1.5 py-0.2 text-[9.5px] font-medium text-[var(--text-secondary)]"
+                              title={client.emails.join(', ')}
+                            >
+                              +{client.emails.length - 1}
+                            </span>
+                          )}
+                        </div>
                         <span
                           className="block truncate text-[10px] text-[var(--text-secondary)]"
                           title={[client.location, client.zip_code ? `ZIP ${client.zip_code}` : null].filter(Boolean).join(' · ')}
@@ -1819,15 +2010,31 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                 </div>
 
                 <div className="flex flex-col gap-1.5 text-xs">
-                  <span className="flex items-center gap-1.5 text-[var(--text-primary)]">
+                  <div className="flex items-center gap-1.5 text-[var(--text-primary)] flex-wrap">
                     <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-[var(--brand)]">call</span>
                     <span className="font-mono">{client.phone || '—'}</span>
-                  </span>
+                    {client.phones && client.phones.length > 1 && (
+                      <span
+                        className="rounded-full bg-[var(--brand-soft)] border border-[var(--brand)]/30 px-1.5 py-0.2 text-[9.5px] font-bold text-[var(--brand)]"
+                        title={client.phones.join(', ')}
+                      >
+                        +{client.phones.length - 1}
+                      </span>
+                    )}
+                  </div>
                   {client.email && (
-                    <span className="flex items-center gap-1.5 truncate text-[var(--text-secondary)]">
+                    <div className="flex items-center gap-1.5 truncate text-[var(--text-secondary)] flex-wrap">
                       <span aria-hidden="true" className="material-symbols-outlined text-[15px]">mail</span>
                       <span className="truncate">{client.email}</span>
-                    </span>
+                      {client.emails && client.emails.length > 1 && (
+                        <span
+                          className="rounded-full bg-[var(--bg-card-subtle)] border border-[var(--border-subtle)] px-1.5 py-0.2 text-[9.5px] font-medium text-[var(--text-secondary)]"
+                          title={client.emails.join(', ')}
+                        >
+                          +{client.emails.length - 1}
+                        </span>
+                      )}
+                    </div>
                   )}
                   {client.location && (
                     <span className="flex items-center gap-1.5 truncate text-[var(--text-secondary)]">

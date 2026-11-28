@@ -285,8 +285,28 @@ const parsePermissions = (value: unknown): string[] => {
   }
 };
 
+const parseJsonStrings = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.filter((v): v is string => typeof v === 'string' && Boolean(v.trim()));
+  if (typeof value !== 'string' || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string' && Boolean(v.trim())) : [];
+  } catch {
+    return [];
+  }
+};
+
 const mapCustomerRow = (row: RowDataPacket) => {
   const name = [row.first_name, row.last_name].filter(Boolean).join(' ') || 'Cliente sin nombre';
+  const storedPhones = parseJsonStrings(row.phones);
+  const primaryPhone = row.phone || '';
+  const secondaryPhone = row.whatsapp || '';
+  const phones = Array.from(new Set([primaryPhone, secondaryPhone, ...storedPhones].filter(Boolean)));
+
+  const storedEmails = parseJsonStrings(row.emails);
+  const primaryEmail = row.email || '';
+  const emails = Array.from(new Set([primaryEmail, ...storedEmails].filter(Boolean)));
+
   return {
     id: String(row.id),
     first_name: row.first_name || '',
@@ -294,9 +314,11 @@ const mapCustomerRow = (row: RowDataPacket) => {
     name,
     company: row.company || '',
     type: row.type || 'Particular',
-    email: row.email || '',
-    phone: row.phone || '',
-    whatsapp: row.whatsapp || '',
+    email: primaryEmail,
+    emails,
+    phone: primaryPhone,
+    phones,
+    whatsapp: secondaryPhone,
     location: row.address_shipping || 'Sin dirección registrada',
     address_shipping: row.address_shipping || '',
     shippingAddress: row.address_shipping || '',
@@ -3305,30 +3327,41 @@ const server = createServer(async (request, response) => {
       const lastName = data.last_name || (data.name ? data.name.split(/\s+/).slice(1).join(' ') : null);
       const shipping = data.address_shipping || data.shippingAddress || null;
 
+      const cleanPhones = Array.from(new Set([data.phone, ...(data.phones || [])].map((p) => (p || '').trim()).filter(Boolean)));
+      const phonesJson = cleanPhones.length > 0 ? JSON.stringify(cleanPhones) : null;
+      const primaryPhone = cleanPhones[0] || data.phone;
+      const secondaryPhone = cleanPhones[1] || data.whatsapp || data.phone;
+
+      const cleanEmails = Array.from(new Set([data.email, ...(data.emails || [])].map((e) => (e || '').trim()).filter(Boolean)));
+      const emailsJson = cleanEmails.length > 0 ? JSON.stringify(cleanEmails) : null;
+      const primaryEmail = cleanEmails[0] || data.email || null;
+
       const [result] = await pool.execute<ResultSetHeader>(
-        `INSERT INTO customers (first_name, last_name, phone, whatsapp, email, address_shipping, zip_code, language, notes, company, type)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [firstName, lastName, data.phone, data.whatsapp || data.phone, data.email || null, shipping, data.zip_code || null, data.language || 'es', data.notes || null, data.company || null, data.type]
+        `INSERT INTO customers (first_name, last_name, phone, whatsapp, phones, email, emails, address_shipping, zip_code, language, notes, company, type)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [firstName, lastName, primaryPhone, secondaryPhone, phonesJson, primaryEmail, emailsJson, shipping, data.zip_code || null, data.language || 'es', data.notes || null, data.company || null, data.type]
       );
 
-      // Vincular inmediatamente llamadas PBX y bitácora previas de este teléfono al nuevo cliente
+      // Vincular inmediatamente llamadas PBX y bitácora previas de cualquiera de los teléfonos al nuevo cliente
       try {
-        const cleanPhone = (data.phone || '').replace(/\D/g, '');
-        const pSuff = cleanPhone.length > 7 ? cleanPhone.slice(-8) : cleanPhone;
-        if (pSuff && pSuff.length >= 6) {
-          const custFullName = [firstName, lastName].filter(Boolean).join(' ').trim();
-          await pool.execute(
-            `UPDATE pbx_call_logs 
-                SET client_id = ?, client_name = ?
-              WHERE caller_number LIKE ?`,
-            [result.insertId, custFullName, `%${pSuff}`],
-          );
-          await pool.execute(
-            `UPDATE call_register 
-                SET customer_id = ?
-              WHERE phone LIKE ? AND customer_id IS NULL`,
-            [result.insertId, `%${pSuff}`],
-          );
+        const custFullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+        for (const ph of cleanPhones) {
+          const cleanPhone = ph.replace(/\D/g, '');
+          const pSuff = cleanPhone.length > 7 ? cleanPhone.slice(-8) : cleanPhone;
+          if (pSuff && pSuff.length >= 6) {
+            await pool.execute(
+              `UPDATE pbx_call_logs 
+                  SET client_id = ?, client_name = ?
+                WHERE caller_number LIKE ?`,
+              [result.insertId, custFullName, `%${pSuff}`],
+            );
+            await pool.execute(
+              `UPDATE call_register 
+                  SET customer_id = ?
+                WHERE phone LIKE ? AND customer_id IS NULL`,
+              [result.insertId, `%${pSuff}`],
+            );
+          }
         }
       } catch {
         // No crítico
@@ -3349,11 +3382,45 @@ const server = createServer(async (request, response) => {
       const lastName = data.last_name || (data.name ? data.name.split(/\s+/).slice(1).join(' ') : null);
       const shipping = data.address_shipping || data.shippingAddress || null;
 
+      const cleanPhones = Array.from(new Set([data.phone, ...(data.phones || [])].map((p) => (p || '').trim()).filter(Boolean)));
+      const phonesJson = cleanPhones.length > 0 ? JSON.stringify(cleanPhones) : null;
+      const primaryPhone = cleanPhones[0] || data.phone;
+      const secondaryPhone = cleanPhones[1] || data.whatsapp || data.phone;
+
+      const cleanEmails = Array.from(new Set([data.email, ...(data.emails || [])].map((e) => (e || '').trim()).filter(Boolean)));
+      const emailsJson = cleanEmails.length > 0 ? JSON.stringify(cleanEmails) : null;
+      const primaryEmail = cleanEmails[0] || data.email || null;
+
       await pool.execute(
-        `UPDATE customers SET version=version+1, company=?,type=?, first_name = ?, last_name = ?, phone = ?, whatsapp = ?, email = ?, address_shipping = ?, zip_code = ?, language = COALESCE(?, language), notes = ?, updated_at = CURRENT_TIMESTAMP
+        `UPDATE customers SET version=version+1, company=?, type=?, first_name = ?, last_name = ?, phone = ?, whatsapp = ?, phones = ?, email = ?, emails = ?, address_shipping = ?, zip_code = ?, language = COALESCE(?, language), notes = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ? AND deleted_at IS NULL`,
-        [data.company || null, data.type, firstName, lastName, data.phone, data.whatsapp || data.phone, data.email || null, shipping, data.zip_code || null, data.language || null, data.notes || null, customerId]
+        [data.company || null, data.type, firstName, lastName, primaryPhone, secondaryPhone, phonesJson, primaryEmail, emailsJson, shipping, data.zip_code || null, data.language || null, data.notes || null, customerId]
       );
+
+      // Vincular inmediatamente llamadas PBX y bitácora previas de cualquiera de los teléfonos al cliente actualizado
+      try {
+        const custFullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+        for (const ph of cleanPhones) {
+          const cleanPhone = ph.replace(/\D/g, '');
+          const pSuff = cleanPhone.length > 7 ? cleanPhone.slice(-8) : cleanPhone;
+          if (pSuff && pSuff.length >= 6) {
+            await pool.execute(
+              `UPDATE pbx_call_logs 
+                  SET client_id = ?, client_name = ?
+                WHERE caller_number LIKE ?`,
+              [Number(customerId), custFullName, `%${pSuff}`],
+            );
+            await pool.execute(
+              `UPDATE call_register 
+                  SET customer_id = ?
+                WHERE phone LIKE ? AND customer_id IS NULL`,
+              [Number(customerId), `%${pSuff}`],
+            );
+          }
+        }
+      } catch {
+        // No crítico
+      }
 
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT c.*, COUNT(o.id) AS order_count
@@ -3556,6 +3623,31 @@ const server = createServer(async (request, response) => {
             await connection.query(`UPDATE customers SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, setVals);
           }
         }
+
+        // Combinar todos los teléfonos y correos de duplicados en el cliente principal
+        const combinedPhones = Array.from(new Set([
+          primary.phone,
+          primary.whatsapp,
+          ...parseJsonStrings(primary.phones),
+          ...duplicateRows.flatMap((d) => [d.phone, d.whatsapp, ...parseJsonStrings(d.phones)]),
+        ].map((p) => (p || '').trim()).filter(Boolean)));
+
+        const combinedEmails = Array.from(new Set([
+          primary.email,
+          ...parseJsonStrings(primary.emails),
+          ...duplicateRows.flatMap((d) => [d.email, ...parseJsonStrings(d.emails)]),
+        ].map((e) => (e || '').trim()).filter(Boolean)));
+
+        await connection.query(
+          `UPDATE customers 
+              SET phones = ?, emails = ?, updated_at = CURRENT_TIMESTAMP 
+            WHERE id = ?`,
+          [
+            combinedPhones.length > 0 ? JSON.stringify(combinedPhones) : null,
+            combinedEmails.length > 0 ? JSON.stringify(combinedEmails) : null,
+            primaryId,
+          ],
+        );
 
         // 6. Soft-delete duplicate customer records
         await connection.query(

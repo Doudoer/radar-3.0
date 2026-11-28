@@ -80,7 +80,9 @@ export interface Customer {
   company?: string;
   type: 'Particular' | 'Empresa' | 'Flota Mantenimiento' | 'VIP' | 'Taller Mecánico';
   email: string;
+  emails?: string[];
   phone: string;
+  phones?: string[];
   whatsapp?: string;
   location: string;
   initials: string;
