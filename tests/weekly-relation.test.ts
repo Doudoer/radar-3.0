@@ -4,7 +4,14 @@ import {
   getWeekRange, isRecurringExpenseDueInWeek, isAdvisorRole, orderMatchesAdvisor,
 } from '../src/components/WeeklyRelationView';
 import { commissionAmount, financeDateKey, sumMoney, isDeliveredSaleOrder } from '../src/utils/finance';
-import { DOWNPAYMENT_COMMISSION_AMOUNT } from '../src/utils/commissions';
+import {
+  DOWNPAYMENT_COMMISSION_AMOUNT,
+  DELIVERY_CLOSED_COMMISSION_AMOUNT,
+  getWorkingWeekRange,
+  getPreviousWorkingWeekRange,
+  isOrderSoldInWorkingPeriod,
+  calculateAdvisorWeeklyBreakdown,
+} from '../src/utils/commissions';
 import type { Order } from '../src/types';
 
 describe('Weekly relation financial engine', () => {
@@ -178,6 +185,82 @@ describe('Weekly relation financial engine', () => {
 
     // Total payroll with commissions: 150 + 90 + 80 = 320
     expect(sumMoney([douglasTotal, darrelTotal, moisesTotal])).toBe(320);
+  });
+
+  it('implements Monday-Saturday working cycle and week-lagged (semana vencida) commission payout', () => {
+    // Current Week 2: Nov 23 (Mon) to Nov 29 (Sun). Work period is Mon Nov 23 00:00 to Sat Nov 28 23:59:59.
+    const currentWeekRange = {
+      start: new Date('2026-11-23T04:00:00.000Z'), // Mon Nov 23
+      end: new Date('2026-11-30T03:59:59.999Z'),   // Sun Nov 29
+    };
+
+    const workRange = getWorkingWeekRange(currentWeekRange);
+    const prevRange = getPreviousWorkingWeekRange(currentWeekRange);
+
+    // Verify Monday to Saturday working periods
+    expect(new Date(workRange.start).getUTCDay()).toBe(1); // Monday
+    expect(workRange.end.getTime() - workRange.start.getTime()).toBe(6 * 86_400_000 - 1); // 6 full days (Mon..Sat)
+
+    expect(new Date(prevRange.start).getUTCDay()).toBe(1); // Previous Monday
+    expect(prevRange.end.getTime() - prevRange.start.getTime()).toBe(6 * 86_400_000 - 1); // 6 full days
+
+    const darrel = { id: 'user-3', name: 'Darrel Machado', weeklySalary: 75, role: 'Asesor de ventas' };
+
+    // Orders sold in Previous Week (Week 1: Nov 16 to Nov 21)
+    const prevOrder1 = {
+      id: 'P1',
+      advisor: 'Darrel Machado',
+      userId: 3,
+      createdAtIso: '2026-11-18T15:00:00Z',
+      status: 'pagado',
+      isYardSale: false,
+    } as unknown as Order;
+
+    const prevOrder2 = {
+      id: 'P2',
+      advisor: 'Darrel Machado',
+      userId: 3,
+      createdAtIso: '2026-11-20T10:00:00Z',
+      status: 'pagado',
+      isYardSale: false,
+    } as unknown as Order;
+
+    // Orders sold in Current Week (Week 2: Nov 23 to Nov 28)
+    const currOrder1 = {
+      id: 'C1',
+      advisor: 'Darrel Machado',
+      userId: 3,
+      createdAtIso: '2026-11-24T12:00:00Z',
+      status: 'pagado',
+      isYardSale: false,
+    } as unknown as Order;
+
+    // Old order from 2 weeks ago - MUST NEVER be counted as current week sale!
+    const oldOrder = {
+      id: 'OLD',
+      advisor: 'Darrel Machado',
+      userId: 3,
+      createdAtIso: '2026-11-05T12:00:00Z',
+      status: 'pagado',
+      isYardSale: false,
+    } as unknown as Order;
+
+    expect(isOrderSoldInWorkingPeriod(oldOrder, [], workRange)).toBe(false);
+
+    const allOrders = [prevOrder1, prevOrder2, currOrder1, oldOrder];
+
+    const breakdown = calculateAdvisorWeeklyBreakdown(darrel, allOrders, [], currentWeekRange);
+
+    // Rule: In Week 2, payable commissions come from Week 1 (prev week)
+    expect(breakdown.payableSalesCount).toBe(2);
+    expect(breakdown.payableCommissionsTotal).toBe(10); // 2 sales * $5
+
+    // Rule: In Week 2, Current Week sales are accrued for Week 3 (next week)
+    expect(breakdown.currentSalesCount).toBe(1);
+    expect(breakdown.currentAccruedCommissionsTotal).toBe(5); // 1 sale * $5
+
+    // Total payout in Week 2 is Base ($75) + Prev Week Commissions ($10) = $85 (NOT including current week's $5)
+    expect(breakdown.totalPayout).toBe(85);
   });
 });
 

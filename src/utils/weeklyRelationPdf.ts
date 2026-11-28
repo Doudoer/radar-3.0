@@ -8,8 +8,10 @@ import { OfficeEmployee, RecurringExpense } from '../components/WeeklyRelationVi
 
 export interface OfficeEmployeePdfItem extends OfficeEmployee {
   totalPayout?: number;
+  payableCommissions?: number;
   commissionTotal?: number;
   salesCount?: number;
+  payableSalesCount?: number;
 }
 
 export interface OfficialDeliveriesPdfData {
@@ -353,9 +355,10 @@ export const generateOfficialDeliveriesPdf = async (
   // 2. Employees (Sorted from highest to lowest salary/payout)
   const sortedEmployees = [...data.employees].sort((a, b) => (b.totalPayout ?? b.weeklySalary) - (a.totalPayout ?? a.weeklySalary));
   sortedEmployees.forEach((emp) => {
-    const hasCommissions = (emp.commissionTotal ?? 0) > 0;
+    const commVal = emp.payableCommissions ?? emp.commissionTotal ?? 0;
+    const hasCommissions = commVal > 0;
     const label = hasCommissions
-      ? `${emp.name} (Base $${emp.weeklySalary.toFixed(0)} + Com $${(emp.commissionTotal ?? 0).toFixed(0)})`
+      ? `${emp.name} (Base $${emp.weeklySalary.toFixed(0)} + Com. prev. $${commVal.toFixed(0)})`
       : emp.name;
     page.drawText(cleanPdfText(label, 32), {
       x: boxX,

@@ -17,7 +17,19 @@ import {
 } from '../utils/weeklyRelationPdf';
 import { orderSaleTotal, ordersForMovements } from '../utils/orderAnalytics';
 import { PbxCallAnalyticsPanel } from './PbxCallAnalyticsPanel';
-import { DOWNPAYMENT_COMMISSION_AMOUNT, isYardEmployee } from '../utils/commissions';
+import {
+  DOWNPAYMENT_COMMISSION_AMOUNT,
+  DELIVERY_CLOSED_COMMISSION_AMOUNT,
+  isYardEmployee,
+  isAdvisorRole,
+  orderMatchesAdvisor,
+  calculateAdvisorWeeklyBreakdown,
+  AdvisorWeeklyBreakdown,
+  getWorkingWeekRange,
+  getPreviousWorkingWeekRange,
+} from '../utils/commissions';
+
+export { isAdvisorRole, orderMatchesAdvisor };
 
 export interface OfficeEmployee {
   id: string;
@@ -28,35 +40,17 @@ export interface OfficeEmployee {
 
 export interface OfficeEmployeeWithCommissions extends OfficeEmployee {
   isAdvisor: boolean;
-  salesCount: number;
-  commissionTotal: number;
+  // Semana vencida (W-1) -> Lo que se PAGA en la nómina de esta semana:
+  payableSalesCount: number;
+  payableDeliveryCount: number;
+  payableCommissions: number;
+  // Semana actual (W) -> Lo que se ACUMULA esta semana (para pagar en W+1):
+  currentSalesCount: number;
+  currentDeliveryCount: number;
+  currentAccruedCommissions: number;
+  // Total a pagar en la nómina semanal: Base + Comisiones semana previa
   totalPayout: number;
 }
-
-export const isAdvisorRole = (role?: string | null): boolean => {
-  if (!role) return false;
-  if (isYardEmployee(role)) return false;
-  const lower = role.toLowerCase().trim();
-  return lower.includes('asesor') || lower.includes('ventas');
-};
-
-export const orderMatchesAdvisor = (order: Order, employeeId: string, employeeName: string): boolean => {
-  if (order.isYardSale || order.advisorRole === 'vendedor_yarda') return false;
-  if (order.status === 'cancelado') return false;
-
-  const rawId = employeeId.replace(/^user-/, '').trim();
-  if (order.userId && String(order.userId) === rawId) return true;
-
-  const orderAdvisor = (order.advisor || '').trim().toLowerCase();
-  const empName = employeeName.trim().toLowerCase();
-  if (orderAdvisor && orderAdvisor !== 'sin asignar') {
-    if (orderAdvisor === empName) return true;
-    const empParts = empName.split(/\s+/);
-    if (empParts.length > 1 && orderAdvisor === empParts[0]) return true;
-  }
-
-  return false;
-};
 
 export interface RecurringExpense {
   id: string;
@@ -518,41 +512,26 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   );
 
   // =========================================================================
-  // 4.1 ADVISOR COMMISSIONS & WEEKLY PAYROLL ENRICHMENT
+  // 4.1 ADVISOR COMMISSIONS (WEEK-LAGGED PAYROLL & MON-SAT WORKING WEEK)
   // =========================================================================
 
-  // Calculate closed sales commissions for advisors in the current week ($5 USD per non-yard closed sale)
-  const advisorCommissionsMap = useMemo(() => {
-    const map = new Map<string, { count: number; commission: number }>();
-    for (const emp of employees) {
-      if (!isAdvisorRole(emp.role)) continue;
-      const matchingSales = weeklySalesOrders.filter((order) =>
-        orderMatchesAdvisor(order, emp.id, emp.name)
-      );
-      const count = matchingSales.length;
-      const commission = count * DOWNPAYMENT_COMMISSION_AMOUNT;
-      map.set(emp.id, { count, commission });
-    }
-    return map;
-  }, [employees, weeklySalesOrders]);
-
-  // Employees enriched with weekly advisor commissions
+  // Employees enriched with week-lagged payable commissions (from W-1) and current accrued commissions (from W)
   const employeesWithCommissions: OfficeEmployeeWithCommissions[] = useMemo(() => {
     return employees.map((emp) => {
-      const isAdvisor = isAdvisorRole(emp.role);
-      const advInfo = advisorCommissionsMap.get(emp.id);
-      const salesCount = isAdvisor ? (advInfo?.count ?? 0) : 0;
-      const commissionTotal = isAdvisor ? (advInfo?.commission ?? 0) : 0;
-      const totalPayout = emp.weeklySalary + commissionTotal;
+      const breakdown = calculateAdvisorWeeklyBreakdown(emp, orders, income.movements, currentWeekRange);
       return {
         ...emp,
-        isAdvisor,
-        salesCount,
-        commissionTotal,
-        totalPayout,
+        isAdvisor: breakdown.isAdvisor,
+        payableSalesCount: breakdown.payableSalesCount,
+        payableDeliveryCount: breakdown.payableDeliveryCount,
+        payableCommissions: breakdown.payableCommissionsTotal,
+        currentSalesCount: breakdown.currentSalesCount,
+        currentDeliveryCount: breakdown.currentDeliveryCount,
+        currentAccruedCommissions: breakdown.currentAccruedCommissionsTotal,
+        totalPayout: breakdown.totalPayout,
       };
     });
-  }, [employees, advisorCommissionsMap]);
+  }, [employees, orders, income.movements, currentWeekRange]);
 
   // Sorted employees (highest total weekly payout to lowest)
   const sortedEmployees = useMemo(() => {
@@ -561,14 +540,19 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
     );
   }, [employeesWithCommissions]);
 
-  // Total Weekly Payroll Sum (Base salaries + Advisor sales commissions)
+  // Total Weekly Payroll Sum (Base salaries + Week-lagged payable advisor commissions)
   const totalPayrollFixed = useMemo(() => {
     return sumMoney(employeesWithCommissions.map((e) => e.totalPayout));
   }, [employeesWithCommissions]);
 
-  // Total Advisor Commissions for this week
-  const totalAdvisorCommissions = useMemo(() => {
-    return sumMoney(employeesWithCommissions.map((e) => e.commissionTotal));
+  // Total Payable Commissions from previous week paid in this payroll
+  const totalPayableCommissions = useMemo(() => {
+    return sumMoney(employeesWithCommissions.map((e) => e.payableCommissions));
+  }, [employeesWithCommissions]);
+
+  // Total Advisor Commissions accrued during the current week (to be paid next week)
+  const totalCurrentAccruedCommissions = useMemo(() => {
+    return sumMoney(employeesWithCommissions.map((e) => e.currentAccruedCommissions));
   }, [employeesWithCommissions]);
 
   // Delivered Parts of the current running week (claims on delivered orders keep counting):
@@ -647,14 +631,14 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
   const allGeneralConcepts = useMemo(() => {
     const todayStr = financeDateKey(currentWeekRange.start);
 
-    // 1. Employee salaries (Weekly recurring payroll + advisor sales commissions, sorted highest to lowest - Only active payout > 0)
+    // 1. Employee salaries (Weekly recurring payroll + week-lagged advisor sales commissions, sorted highest to lowest - Only active payout > 0)
     const employeeRows = sortedEmployees.filter((emp) => emp.totalPayout > 0).map((emp) => {
       let desc = emp.role ? `${emp.name} (${emp.role})` : emp.name;
       if (emp.isAdvisor) {
-        if (emp.salesCount > 0) {
-          desc += ` · Base: $${emp.weeklySalary.toFixed(2)} + Comisiones: $${emp.commissionTotal.toFixed(2)} (${emp.salesCount} venta${emp.salesCount > 1 ? 's' : ''} × $5)`;
+        if (emp.payableCommissions > 0) {
+          desc += ` · Base: $${emp.weeklySalary.toFixed(2)} + Comisiones sem. previa: $${emp.payableCommissions.toFixed(2)} (${emp.payableSalesCount} venta${emp.payableSalesCount > 1 ? 's' : ''} a semana vencida)`;
         } else {
-          desc += ` · Base: $${emp.weeklySalary.toFixed(2)} (Sin ventas en la semana)`;
+          desc += ` · Base: $${emp.weeklySalary.toFixed(2)} (Sin comisiones por pagar de semana previa)`;
         }
       }
 
@@ -667,13 +651,17 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
         amount: emp.totalPayout,
         isEmployee: true,
         isAdvisor: emp.isAdvisor,
-        salesCount: emp.salesCount,
-        commissionTotal: emp.commissionTotal,
+        payableSalesCount: emp.payableSalesCount,
+        payableDeliveryCount: emp.payableDeliveryCount,
+        payableCommissions: emp.payableCommissions,
+        currentSalesCount: emp.currentSalesCount,
+        currentDeliveryCount: emp.currentDeliveryCount,
+        currentAccruedCommissions: emp.currentAccruedCommissions,
         isRecurring: false,
         rawEmployee: emp,
         rawRecurring: undefined,
-        badge: emp.isAdvisor && emp.salesCount > 0
-          ? `Nómina + $${emp.commissionTotal.toFixed(0)} Com.`
+        badge: emp.isAdvisor && emp.payableCommissions > 0
+          ? `Nómina + $${emp.payableCommissions.toFixed(0)} Com. (Sem. Previa)`
           : 'Pago Recurrente Semanal',
       };
     });
@@ -889,7 +877,7 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                         <span>Nómina / Personal</span>
                       </span>
                       <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-[#388bfd]/15 text-[#38bdf8] border border-[#388bfd]/30 font-bold">
-                        {item.isAdvisor && (item.salesCount ?? 0) > 0 ? `Semanal + $${item.commissionTotal?.toFixed(0)} Com.` : 'Semanal'}
+                        {item.isAdvisor && (item.payableCommissions ?? 0) > 0 ? `Semanal + $${item.payableCommissions?.toFixed(0)} Com.` : 'Semanal'}
                       </span>
                     </div>
                   ) : item.isRecurring ? (
@@ -920,14 +908,20 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                       <div className="font-semibold text-white">
                         {item.rawEmployee?.name} {item.rawEmployee?.role ? `(${item.rawEmployee.role})` : ''}
                       </div>
-                      {(item.salesCount ?? 0) > 0 ? (
+                      {(item.payableCommissions ?? 0) > 0 ? (
                         <div className="text-[11px] font-mono text-emerald-400 mt-0.5 flex items-center gap-1">
                           <span aria-hidden="true" className="material-symbols-outlined text-[13px]">payments</span>
-                          <span>Base: ${item.rawEmployee?.weeklySalary.toFixed(2)} + Comisiones: ${item.commissionTotal?.toFixed(2)} ({item.salesCount} venta{(item.salesCount ?? 0) > 1 ? 's' : ''} × $5)</span>
+                          <span>Base: ${item.rawEmployee?.weeklySalary.toFixed(2)} + Comisiones sem. previa: ${item.payableCommissions?.toFixed(2)} ({item.payableSalesCount} venta{(item.payableSalesCount ?? 0) > 1 ? 's' : ''} a semana vencida)</span>
                         </div>
                       ) : (
                         <div className="text-[10.5px] font-mono text-slate-400 mt-0.5">
-                          Base: ${item.rawEmployee?.weeklySalary.toFixed(2)} (Sin ventas cerradas en la semana)
+                          Base: ${item.rawEmployee?.weeklySalary.toFixed(2)} (Sin comisiones por pagar de la semana previa)
+                        </div>
+                      )}
+                      {(item.currentAccruedCommissions ?? 0) > 0 && (
+                        <div className="text-[10px] font-mono text-cyan-400 mt-0.5 flex items-center gap-1">
+                          <span aria-hidden="true" className="material-symbols-outlined text-[12px]">schedule</span>
+                          <span>Acumulado esta semana (se paga próxima semana): ${item.currentAccruedCommissions?.toFixed(2)} ({item.currentSalesCount} venta{(item.currentSalesCount ?? 0) > 1 ? 's' : ''})</span>
                         </div>
                       )}
                     </div>
@@ -1453,9 +1447,9 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                       <span className="truncate text-[#cbd5e1] print:text-black font-medium">
                         {person.name}
                       </span>
-                      {person.isAdvisor && person.salesCount > 0 && (
+                      {person.isAdvisor && person.payableCommissions > 0 && (
                         <span className="text-[9.5px] text-emerald-400 font-mono print:text-gray-600">
-                          Base: ${person.weeklySalary.toFixed(2)} + Comisiones: ${person.commissionTotal.toFixed(2)} ({person.salesCount} venta{person.salesCount > 1 ? 's' : ''} × $5)
+                          Base: ${person.weeklySalary.toFixed(2)} + Comisiones sem. previa: ${person.payableCommissions.toFixed(2)} ({person.payableSalesCount} venta{person.payableSalesCount > 1 ? 's' : ''} × $5)
                         </span>
                       )}
                     </div>
@@ -2056,11 +2050,18 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                               {emp.weeklySalary > 0 ? `$${emp.weeklySalary.toFixed(2)}` : 'Sin salario'} <span className="text-[10px] text-[#94a3b8] font-normal">/sem</span>
                             </span>
                             {emp.isAdvisor && (
-                              <span className="text-[9.5px] text-emerald-400 font-mono block">
-                                {emp.salesCount > 0
-                                  ? `+ $${emp.commissionTotal.toFixed(2)} comisiones (${emp.salesCount} venta${emp.salesCount > 1 ? 's' : ''} × $5)`
-                                  : '+ $5/venta cerrada'}
-                              </span>
+                              <div className="space-y-0.5">
+                                {emp.payableCommissions > 0 && (
+                                  <span className="text-[9.5px] text-emerald-400 font-mono block">
+                                    + ${emp.payableCommissions.toFixed(2)} comisiones sem. previa
+                                  </span>
+                                )}
+                                <span className="text-[9px] text-cyan-400 font-mono block">
+                                  {emp.currentAccruedCommissions > 0
+                                    ? `Acumulado esta sem: $${emp.currentAccruedCommissions.toFixed(2)} (${emp.currentSalesCount} v.)`
+                                    : '+ $5/venta (semana vencida)'}
+                                </span>
+                              </div>
                             )}
                           </div>
 
@@ -2329,9 +2330,9 @@ const WeeklyRelationContent: React.FC<WeeklyRelationViewProps> = ({
                   <div className="text-right">
                     <div className="text-[10px] text-[#94a3b8] uppercase font-mono">Total Nómina</div>
                     <div className="font-mono text-base font-black text-[#38bdf8]">${totalPayrollFixed.toFixed(2)} USD</div>
-                    {totalAdvisorCommissions > 0 && (
+                    {totalPayableCommissions > 0 && (
                       <div className="text-[10px] text-emerald-400 font-mono">
-                        Base ${totalBasePayroll.toFixed(2)} + Com. ${totalAdvisorCommissions.toFixed(2)}
+                        Base ${totalBasePayroll.toFixed(2)} + Com. sem. previa ${totalPayableCommissions.toFixed(2)}
                       </div>
                     )}
                   </div>

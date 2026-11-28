@@ -231,17 +231,19 @@ export const WeekLiquidation: React.FC<{
         </p>
         <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[var(--border-subtle)] pt-4 sm:flex sm:flex-wrap sm:gap-x-10">
           <div>
-            <dt className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Salario base</dt>
+            <dt className={`text-[10px] font-bold uppercase tracking-wide ${tone.muted}`}>Salario semanal</dt>
             <dd className={`mt-0.5 text-sm font-black tabular-nums ${tone.heading}`}>
               {formatUsd(settlement ? settlement.weeklySalary : week.gross)}
             </dd>
           </div>
-          {settlement && settlement.earnedCommissions > 0 && (
-            <div>
-              <dt className={`text-[10px] font-bold uppercase tracking-wide text-emerald-500`}>Comisiones</dt>
-              <dd className="mt-0.5 text-sm font-black tabular-nums text-emerald-400">+{formatUsd(settlement.earnedCommissions)}</dd>
-            </div>
-          )}
+          <div>
+            <dt className={`text-[10px] font-bold uppercase tracking-wide text-emerald-500`}>Comisiones</dt>
+            <dd className="mt-0.5 text-sm font-black tabular-nums text-emerald-400">
+              {settlement && settlement.earnedCommissions > 0
+                ? `+${formatUsd(settlement.earnedCommissions)}`
+                : formatUsd(0)}
+            </dd>
+          </div>
           {settlement && settlement.appliedDeduction > 0 && (
             <div>
               <dt className={`text-[10px] font-bold uppercase tracking-wide text-rose-500`}>Deducido de comisión</dt>
